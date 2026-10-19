@@ -266,7 +266,8 @@ def test_the_dev_extra_can_run_every_test_that_needs_no_pytorch():
     assert names("video") == {"opencv-python-headless"} and names("video") <= names("dev")
     # The optional geometric stage needs OpenCV alone, and the tests have it through "dev".
     assert names("geometric") == {"opencv-python-headless"} and names("geometric") <= names("dev")
-    assert names("dev") == {"pytest", "onnx", "opencv-python-headless", "jsonschema"}
+    # pytest-xdist runs the tests on every core (tests.yml); a plain "python -m pytest" needs it not.
+    assert names("dev") == {"pytest", "pytest-xdist", "onnx", "opencv-python-headless", "jsonschema"}
     assert not {"torch", "torchvision", "safetensors"} & names("dev")
     # What the tests may skip for: these modules only. cv2 and jsonschema come with "dev"; the
     # rest come with "train" (tomli stands in for tomllib on Python 3.10) and with YOLOX.

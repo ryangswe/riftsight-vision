@@ -36,6 +36,11 @@ starts from torchvision's pretrained weights.
 python -m pytest
 ```
 
+To spread them over every processor core, which is what CI does, add `-n auto --dist loadfile`
+(the lock files include `pytest-xdist`). On an Apple M3 Max with four workers this took the run
+from about seven minutes to about two. `--dist loadfile` keeps each test file on one worker, so
+the setup a file shares between its tests runs once.
+
 In the environment of the [quickstart](quickstart.md) (its step 1, Install), when this page
 was written, this ran about 2,500 tests in about six minutes, with 9 skipped because they need
 PyTorch. `requirements-lock-train.txt` says how to build the training environment that runs

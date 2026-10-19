@@ -28,6 +28,7 @@ dependencies = [
 # browser/; the browser workflow runs that check and requires it.
 dev = [
     "pytest>=8.0",
+    "pytest-xdist>=3.5",
     "onnx>=1.15",
     "opencv-python-headless>=4.8",
     "jsonschema>=4.0",

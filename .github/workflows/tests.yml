@@ -6,7 +6,9 @@
 # run in browser/; browser.yml runs that check and requires it. Some tests need the ffmpeg
 # program: one test of tests/test_data_extract.py, and the tests of
 # tests/test_data_frame_times.py that read a recording of variable frame rate. This workflow
-# installs ffmpeg so that they run; on a machine that has none they are skipped.
+# installs ffmpeg so that they run; on a machine that has none they are skipped. The tests run
+# on every core of the runner (pytest-xdist), one test file per worker at a time, so that the
+# setup a file shares between its tests runs once.
 name: Tests
 
 on:
@@ -39,4 +41,4 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-deps -e .
       - name: Run the tests
-        run: python -m pytest
+        run: python -m pytest -n auto --dist loadfile
