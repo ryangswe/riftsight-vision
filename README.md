@@ -133,6 +133,9 @@ development trunk. [SUPPORT.md](SUPPORT.md) has the details. To report a card na
 [Reporting a wrong card](docs/model-card.md#reporting-a-wrong-card): a video id and a time,
 never a frame or a screenshot.
 
+If this is useful to you, you can support the work on [Ko-fi](https://ko-fi.com/ryangdev1). A
+donation is a thank-you: it does not buy support beyond what is promised above.
+
 ## License
 
 - **Code and weights:** Apache-2.0 ([LICENSE](LICENSE)), for this project's own work.
