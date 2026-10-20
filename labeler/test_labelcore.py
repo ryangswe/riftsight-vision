@@ -1044,6 +1044,14 @@ class CenterVerify(unittest.TestCase):
                          'card A: facets.cost: "2" is not a number')
         self.assertEqual(lc.facets_problem({"cards": [{"id": "A", "facets": {"set": "X"}}]}),
                          'card A: facets.set: the catalog declares no facet "set"')
+        # a card's extra: any object is kept and read by nothing; anything else refuses the catalog
+        # (the full cases: tests/test_catalog_extra.py)
+        self.assertIsNone(lc.extra_problem({"cards": [{"id": "A", "extra": {"text": "Draw.", "n": [1, {"x": None}]}}, {"id": "B"}]}))
+        self.assertIsNone(lc.extra_problem([]))
+        self.assertEqual(lc.extra_problem({"cards": [{"id": "A", "extra": {}}, {"id": "B", "extra": ["Draw."]}]}),
+                         'card B: "extra" must be an object (any keys and values), not ["Draw."]')
+        self.assertEqual(lc.extra_problem({"cards": [{"id": "A", "extra": None}]}),
+                         'card A: "extra" must be an object (any keys and values), not null')
         self.assertTrue(lc.same_card("TOY-201", "Amber Circle", "TOY-202", "amber circle"))
         self.assertFalse(lc.same_card("TOY-201", "Amber Circle", "TOY-202", "Amber Circle", "printing", roots))
         self.assertFalse(lc.same_card(None, None, None, None, "printing", roots), "no card is no card")

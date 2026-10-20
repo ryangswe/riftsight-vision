@@ -1621,6 +1621,21 @@ def facets_problem(doc):
     return None
 
 
+# ---- a card's extra data ----------------------------------------------------------------------
+#
+# A card may carry "extra": an object of anything else its game keeps with it (rules text, rarity,
+# an upstream id). The repository's catalog format defines it (cardvision/core/catalog.py); this
+# tool reads none of it, and refuses a catalog whose "extra" is not an object, as the package does.
+
+def extra_problem(doc):
+    """Why a card's `extra` cannot be kept, in one sentence (the first such card), or None."""
+    cards = doc.get("cards") if isinstance(doc, dict) else None
+    for c in cards if isinstance(cards, list) else []:
+        if isinstance(c, dict) and "extra" in c and not isinstance(c["extra"], dict):
+            return f'card {c.get("id")}: "extra" must be an object (any keys and values), not {json.dumps(c["extra"])}'
+    return None
+
+
 def printing_roots(catalog: list) -> dict:
     """Card id → the card it is a printing of: its `printingOf`, followed to an entry that is a
     printing of none (an entry that is no printing is its own). The cards of `catalog` only."""

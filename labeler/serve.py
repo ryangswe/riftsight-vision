@@ -278,7 +278,7 @@ def _file_name(path) -> str:
 #
 # The one file that describes a game's cards:
 #
-#   {"cards": [{"id", "name", "kind", "printingOf", "art", "token"}, ...],   ("token": optional)
+#   {"cards": [{"id", "name", "kind", "printingOf", "art", "token", "extra"}, ...],   ("token", "extra": optional)
 #    "kinds": {"landscape": [kind, ...]},          (optional)
 #    "tokens": [{"name", "id", "kind", "art"}, ...]}   (optional)
 #
@@ -2138,7 +2138,8 @@ def _configure(args) -> None:
             raise SystemExit(f"--catalog: cannot read {CFG.catalog}: {'it is not JSON' if problem == 'not-json' else lf.PROBLEM_WORDS[problem]}")
         if not isinstance(doc, dict):
             raise SystemExit(f"--catalog: {CFG.catalog} is not a JSON object with a `cards` list")
-        problem = catalog_id_problem(doc) or lc.identity_rule_problem(doc) or lc.facets_problem(doc)
+        problem = (catalog_id_problem(doc) or lc.identity_rule_problem(doc) or lc.facets_problem(doc)
+                   or lc.extra_problem(doc))
         if problem:
             raise SystemExit(f"--catalog: {CFG.catalog}: {problem}")
     CFG.art = _resolve_art(getattr(args, "art", None))

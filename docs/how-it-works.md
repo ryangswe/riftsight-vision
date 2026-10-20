@@ -65,6 +65,9 @@ Module: `cardvision/core/catalog.py`. Template: `games/_template/`.
   keeps it), so it is never named by its own row; a printing of it that has art still names
   its identity.
 - `token` (optional) marks a card that is made during play and is in no deck.
+- `extra` (optional) is an object of the game's own data about the card (rules text, rarity,
+  an upstream id). Nothing reads it; it is kept with the card, and the browser runtime's
+  `session.cards()` gives it back.
 
 **Identity is a rule the catalog states.** An optional top-level `"identity"` says which
 entries count as the same card. Left out, it is `"name"`, as described above: right for a

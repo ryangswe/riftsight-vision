@@ -394,8 +394,9 @@ def catalog_check(path) -> tuple:
             card_id = entry.get("id") if isinstance(entry, dict) else None
             if isinstance(card_id, str) and card_id and lc.card_id_error(card_id):
                 return None, f"{key}[{position}]: {lc.card_id_error(card_id)}"
-    if lc.identity_rule_problem(doc) or lc.facets_problem(doc):
-        return None, lc.identity_rule_problem(doc) or lc.facets_problem(doc)
+    problem = lc.identity_rule_problem(doc) or lc.facets_problem(doc) or lc.extra_problem(doc)
+    if problem:
+        return None, problem
     cards = doc.get("cards")
     return sum(1 for c in (cards if isinstance(cards, list) else []) if isinstance(c, dict) and isinstance(c.get("id"), str)), None
 

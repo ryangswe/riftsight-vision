@@ -295,6 +295,8 @@ The rules that matter most:
   card without art (below).
 - `facets` (optional) gives the labeling tool filters beside the card's `kind`: color, cost,
   set and the like. The template shows three; delete them if you do not need them.
+- `extra` (optional) is an object for anything else you want to keep with a card, such as its
+  rules text. Nothing reads it.
 
 **Give an entry that has no usable image `"art": null`.** A card whose image you do not have,
 or have only as a placeholder or a vector file, cannot be recognized, and a row computed from

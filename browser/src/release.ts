@@ -357,6 +357,9 @@ export interface CatalogCard {
   art: string | null;
   /** The id of the card this one is an alternate printing of, or null. */
   printingOf: string | null;
+  /** The card's `extra` object as the catalog gives it (any keys and values), when it has one.
+   *  The runtime never reads it; it is the game's own data, kept with the card. */
+  extra?: Record<string, unknown>;
 }
 
 /** Everything a release loaded, checked against the document and against each other. */
@@ -532,7 +535,11 @@ export function parseCatalog(raw: unknown): { game: string; locale: string; iden
     if (printingOf !== null && !isText(printingOf)) return `card ${entry.id}: "printingOf" must be a card id or null`;
     const facetProblem = entry.facets === undefined ? null : checkCardFacets(entry.facets, decls, entry.id, seen);
     if (facetProblem !== null) return facetProblem;
+    if (entry.extra !== undefined && !isObj(entry.extra)) {
+      return `card ${entry.id}: "extra" must be an object (any keys and values), not ${show(entry.extra)}`;
+    }
     const card: CatalogCard = { id: entry.id, name: entry.name, art: entry.art, printingOf };
+    if (entry.extra !== undefined) card.extra = entry.extra as Record<string, unknown>;
     byId.set(card.id, card);
     cards.push(card);
   }

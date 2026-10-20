@@ -220,7 +220,8 @@ class Locations(Toy):
         serve.CFG.__dict__.clear()
         for text, words in (("{not json", "it is not JSON"), ("[1]", "it is not a JSON object with a `cards` list"),
                             ('{"identity": "printings", "cards": []}', '"identity" must be "name" or "printing", not "printings"'),
-                            ('{"facets": {}, "cards": []}', '"facets" must be a list of objects, each with a "key" and a "label"')):
+                            ('{"facets": {}, "cards": []}', '"facets" must be a list of objects, each with a "key" and a "label"'),
+                            ('{"cards": [{"id": "A", "name": "a", "extra": "x"}]}', 'card A: "extra" must be an object (any keys and values), not "x"')):
             bad.write_text(text)
             self.assertEqual(self.report()["locations"]["catalog"]["problem"], words)
         rep = self.report(role="training")

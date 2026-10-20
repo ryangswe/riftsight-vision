@@ -41,8 +41,14 @@ Shape of the file (JSON)::
 
 * ``facets`` (optional) gives the card's value for some of the facets the catalog declares
   (below): ``{"color": ["Red", "Blue"], "cost": 3, "set": "OGN"}``.
+* ``extra`` (optional) is a JSON object of anything else a game wants to keep with the card:
+  its rules text, its rarity, an upstream id. Its keys and values are free. Nothing in this
+  package reads it: not detection, recognition, bank building, identity groups nor the hover
+  rule. It is kept as it is, and a release pins the catalog file with it. A value that is not
+  an object is an error.
 
-``kind`` and ``printingOf`` may be left out, which means null, and ``token``, which means false.
+``kind`` and ``printingOf`` may be left out, which means null, ``token``, which means false, and
+``extra``, which means an empty object.
 ``identity`` may be left out, which means ``"name"``. Any other missing or unknown key, in a
 card or at the top level, is an error, so that a misspelled key cannot be silently ignored.
 
@@ -151,7 +157,7 @@ from urllib.parse import quote
 
 _TOP_KEYS = {"game", "locale", "identity", "cards", "kinds", "facets"}
 _CARD_REQUIRED = ("id", "name", "art")
-_CARD_KEYS = {"id", "name", "kind", "printingOf", "art", "token", "facets"}
+_CARD_KEYS = {"id", "name", "kind", "printingOf", "art", "token", "facets", "extra"}
 
 # Facets (see "Facets" in the module docstring): a facet's key, the keys of a declaration and
 # the two value types. ``kind`` is not a facet key: the card's kind is always the first filter.
@@ -197,7 +203,8 @@ class NoArtError(ValueError):
 @dataclass(frozen=True)
 class Card:
     """One catalog entry. ``facets`` maps a facet key to the card's values for it (a tuple, one
-    value or several); a facet the card does not carry is absent."""
+    value or several); a facet the card does not carry is absent. ``extra`` is the card's
+    ``extra`` object as the file gives it (empty when it has none); nothing here reads it."""
 
     id: str
     name: str
@@ -206,6 +213,7 @@ class Card:
     art: str | None
     token: bool = False
     facets: Mapping[str, tuple[str | float, ...]] = field(default_factory=dict, hash=False)
+    extra: Mapping[str, Any] = field(default_factory=dict, hash=False)
 
     @property
     def has_art(self) -> bool:
@@ -620,9 +628,13 @@ def parse_catalog(doc: Any, source: str = "catalog") -> Catalog:
         if not isinstance(token, bool):
             raise CatalogError(f'{source}: {where}: "token" must be true or false')
         facets = _card_facets(entry["facets"], decls, f"{source}: {where}") if "facets" in entry else {}
+        extra = entry.get("extra", {})
+        if not isinstance(extra, dict):
+            raise CatalogError(f'{source}: {where}: "extra" must be an object (any keys and values), not '
+                               f"{json.dumps(extra, default=repr)}")
         position_of[card_id] = position
         cards.append(Card(id=card_id, name=name, kind=kind, printing_of=printing_of, art=entry["art"], token=token,
-                          facets=facets))
+                          facets=facets, extra=copy.deepcopy(extra)))
 
     for position, card in enumerate(cards):
         if card.printing_of is None:

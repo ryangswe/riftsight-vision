@@ -4942,6 +4942,281 @@
    }
   ]
  },
+ "extra": {
+  "note": "a card's optional extra object, which nothing reads and every reader keeps. accepted: catalogs this package takes, with the extra of each card that gives one, as given. refused: catalogs it refuses (an extra that is not an object), with fragments the refusal names (the card's id and extra).",
+  "accepted": [
+   {
+    "what": "objects of any shape, and a card with none",
+    "doc": {
+     "game": "generated",
+     "locale": "en",
+     "cards": [
+      {
+       "id": "GEN-001",
+       "name": "Alder",
+       "kind": "unit",
+       "art": "GEN-001.png",
+       "extra": {
+        "text": "Draw a card.",
+        "rarity": "common",
+        "upstream": {
+         "id": 1001,
+         "tags": ["a", "b"]
+        }
+       }
+      },
+      {
+       "id": "GEN-002",
+       "name": "Birch",
+       "kind": "spell",
+       "art": "GEN-002.png",
+       "extra": {}
+      },
+      {
+       "id": "GEN-003",
+       "name": "Cedar",
+       "kind": "unit",
+       "art": "GEN-003.png"
+      }
+     ]
+    },
+    "cards": {
+     "GEN-001": {
+      "text": "Draw a card.",
+      "rarity": "common",
+      "upstream": {
+       "id": 1001,
+       "tags": ["a", "b"]
+      }
+     },
+     "GEN-002": {}
+    }
+   },
+   {
+    "what": "an extra beside facets, a token and a card without art",
+    "doc": {
+     "game": "generated",
+     "locale": "en",
+     "facets": [
+      {
+       "key": "cost",
+       "label": "Cost"
+      }
+     ],
+     "cards": [
+      {
+       "id": "GEN-001",
+       "name": "Alder",
+       "kind": "unit",
+       "art": null,
+       "extra": {
+        "text": "Draw a card.",
+        "rarity": "common",
+        "upstream": {
+         "id": 1001,
+         "tags": ["a", "b"]
+        }
+       },
+       "token": true,
+       "facets": {
+        "cost": 2
+       }
+      }
+     ]
+    },
+    "cards": {
+     "GEN-001": {
+      "text": "Draw a card.",
+      "rarity": "common",
+      "upstream": {
+       "id": 1001,
+       "tags": ["a", "b"]
+      }
+     }
+    }
+   }
+  ],
+  "refused": [
+   {
+    "what": "extra a list",
+    "doc": {
+     "game": "generated",
+     "locale": "en",
+     "cards": [
+      {
+       "id": "GEN-001",
+       "name": "Alder",
+       "kind": "unit",
+       "art": "GEN-001.png",
+       "extra": {
+        "text": "Draw a card.",
+        "rarity": "common",
+        "upstream": {
+         "id": 1001,
+         "tags": ["a", "b"]
+        }
+       }
+      },
+      {
+       "id": "GEN-002",
+       "name": "Birch",
+       "kind": "spell",
+       "art": "GEN-002.png",
+       "extra": ["Draw a card."]
+      },
+      {
+       "id": "GEN-003",
+       "name": "Cedar",
+       "kind": "unit",
+       "art": "GEN-003.png"
+      }
+     ]
+    },
+    "mentions": ["GEN-002", "extra"]
+   },
+   {
+    "what": "extra a string",
+    "doc": {
+     "game": "generated",
+     "locale": "en",
+     "cards": [
+      {
+       "id": "GEN-001",
+       "name": "Alder",
+       "kind": "unit",
+       "art": "GEN-001.png",
+       "extra": {
+        "text": "Draw a card.",
+        "rarity": "common",
+        "upstream": {
+         "id": 1001,
+         "tags": ["a", "b"]
+        }
+       }
+      },
+      {
+       "id": "GEN-002",
+       "name": "Birch",
+       "kind": "spell",
+       "art": "GEN-002.png",
+       "extra": "Draw a card."
+      },
+      {
+       "id": "GEN-003",
+       "name": "Cedar",
+       "kind": "unit",
+       "art": "GEN-003.png"
+      }
+     ]
+    },
+    "mentions": ["GEN-002", "extra"]
+   },
+   {
+    "what": "extra a number",
+    "doc": {
+     "game": "generated",
+     "locale": "en",
+     "cards": [
+      {
+       "id": "GEN-001",
+       "name": "Alder",
+       "kind": "unit",
+       "art": "GEN-001.png",
+       "extra": {
+        "text": "Draw a card.",
+        "rarity": "common",
+        "upstream": {
+         "id": 1001,
+         "tags": ["a", "b"]
+        }
+       }
+      },
+      {
+       "id": "GEN-002",
+       "name": "Birch",
+       "kind": "spell",
+       "art": "GEN-002.png",
+       "extra": 3
+      },
+      {
+       "id": "GEN-003",
+       "name": "Cedar",
+       "kind": "unit",
+       "art": "GEN-003.png"
+      }
+     ]
+    },
+    "mentions": ["GEN-002", "extra"]
+   },
+   {
+    "what": "extra null",
+    "doc": {
+     "game": "generated",
+     "locale": "en",
+     "cards": [
+      {
+       "id": "GEN-001",
+       "name": "Alder",
+       "kind": "unit",
+       "art": "GEN-001.png",
+       "extra": {
+        "text": "Draw a card.",
+        "rarity": "common",
+        "upstream": {
+         "id": 1001,
+         "tags": ["a", "b"]
+        }
+       }
+      },
+      {
+       "id": "GEN-002",
+       "name": "Birch",
+       "kind": "spell",
+       "art": "GEN-002.png",
+       "extra": null
+      },
+      {
+       "id": "GEN-003",
+       "name": "Cedar",
+       "kind": "unit",
+       "art": "GEN-003.png"
+      }
+     ]
+    },
+    "mentions": ["GEN-002", "extra"]
+   },
+   {
+    "what": "extra true",
+    "doc": {
+     "game": "generated",
+     "locale": "en",
+     "cards": [
+      {
+       "id": "GEN-001",
+       "name": "Alder",
+       "kind": "unit",
+       "art": "GEN-001.png",
+       "extra": true
+      },
+      {
+       "id": "GEN-002",
+       "name": "Birch",
+       "kind": "spell",
+       "art": "GEN-002.png",
+       "extra": {}
+      },
+      {
+       "id": "GEN-003",
+       "name": "Cedar",
+       "kind": "unit",
+       "art": "GEN-003.png"
+      }
+     ]
+    },
+    "mentions": ["GEN-001", "extra"]
+   }
+  ]
+ },
  "art": {
   "note": "cards without art (\"art\": null). accepted: catalogs this package takes, under each identity rule, with each card's art (null for a card without art), its identity key, the cards without art, and a bank of the cards with art only: its groups, representatives and identities, as for the identity section. refused: catalogs it refuses, with fragments the refusal names; a card must state \"art\", as a path or URL or as null.",
   "accepted": [

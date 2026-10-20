@@ -57,6 +57,7 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -445,6 +446,60 @@ def section_facets() -> dict:
                 "with each declared facet (its values in chip order: declared, else numbers ascending and text in order "
                 "of first appearance) and each card's values as lists. refused: catalogs it refuses, with fragments the "
                 "refusal names (a facet's position or a card's id and facets.<key>).",
+        "accepted": accepted, "refused": refused,
+    }
+
+
+EXTRA_CARDS = [
+    {"id": "GEN-001", "name": "Alder", "kind": "unit", "art": "GEN-001.png",
+     "extra": {"text": "Draw a card.", "rarity": "common", "upstream": {"id": 1001, "tags": ["a", "b"]}}},
+    {"id": "GEN-002", "name": "Birch", "kind": "spell", "art": "GEN-002.png", "extra": {}},
+    {"id": "GEN-003", "name": "Cedar", "kind": "unit", "art": "GEN-003.png"},
+]
+
+
+def section_extra() -> dict:
+    """A card's optional ``extra`` object: catalogs that are accepted, with each card's extra as
+    the file gives it (absent when the card has none), and catalogs that are refused, with the
+    fragments every refusal must contain. The labeling tool agrees with both
+    (tests/test_catalog_extra.py)."""
+    from cardvision.core.catalog import CatalogError, parse_catalog
+
+    def doc_with(extra: Any = ..., at: int = 1) -> dict:
+        cards = json.loads(json.dumps(EXTRA_CARDS))
+        if extra is not ...:
+            cards[at]["extra"] = extra
+        return {"game": "generated", "locale": "en", "cards": cards}
+
+    accepted = []
+    for label, doc in [("objects of any shape, and a card with none", doc_with()),
+                       ("an extra beside facets, a token and a card without art",
+                        {"game": "generated", "locale": "en", "facets": [{"key": "cost", "label": "Cost"}],
+                         "cards": [{**EXTRA_CARDS[0], "art": None, "token": True, "facets": {"cost": 2}}]})]:
+        catalog = parse_catalog(doc)
+        given = {entry["id"] for entry in doc["cards"] if "extra" in entry}
+        accepted.append({"what": label, "doc": doc,
+                         "cards": {card.id: dict(card.extra) for card in catalog.cards if card.id in given}})
+    refused = []
+    for label, doc, mentions in [
+        ("extra a list", doc_with(["Draw a card."]), ["GEN-002", "extra"]),
+        ("extra a string", doc_with("Draw a card."), ["GEN-002", "extra"]),
+        ("extra a number", doc_with(3), ["GEN-002", "extra"]),
+        ("extra null", doc_with(None), ["GEN-002", "extra"]),
+        ("extra true", doc_with(True, at=0), ["GEN-001", "extra"]),
+    ]:
+        try:
+            parse_catalog(doc)
+        except CatalogError as error:
+            missing = [fragment for fragment in mentions if fragment not in str(error)]
+            assert not missing, f"{label}: {error} does not mention {missing}"
+        else:
+            raise AssertionError(f"{label} was not refused")
+        refused.append({"what": label, "doc": doc, "mentions": mentions})
+    return {
+        "note": "a card's optional extra object, which nothing reads and every reader keeps. accepted: catalogs this "
+                "package takes, with the extra of each card that gives one, as given. refused: catalogs it refuses "
+                "(an extra that is not an object), with fragments the refusal names (the card's id and extra).",
         "accepted": accepted, "refused": refused,
     }
 
@@ -902,6 +957,7 @@ def build_contract() -> dict:
         "bank": section_bank(),
         "identity": section_identity(),
         "facets": section_facets(),
+        "extra": section_extra(),
         "art": section_art(),
         "looks": section_looks(),
         "hover": section_hover(),
