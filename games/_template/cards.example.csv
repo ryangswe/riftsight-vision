@@ -1,0 +1,5 @@
+id,name,kind,printing_of,image,set,cost,text
+SET-001,First Example Card,creature,,SET-001.png,SET,3,"When this enters play, draw a card."
+SET-001A,First Example Card,creature,SET-001,SET-001A.png,SET,3,"When this enters play, draw a card."
+SET-002,Second Example Card,spell,,SET-002.png,SET,1,Deal 2 damage.
+SET-P07,Seventh Promo Card,creature,,,PROMO,2,

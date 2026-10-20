@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 IDENTIFIER = "SPDX-License-Identifier: Apache-2.0"
 HEADER = f"# {IDENTIFIER}"
 
-# The folders whose files carry the license line, and how each kind of file writes it. JSON has
-# no comments, so data files cannot carry one; any other kind of file has to be listed here.
+# The folders whose files carry the license line, and how each kind of file writes it. JSON and
+# CSV have no comments, so data files cannot carry one; any other kind of file has to be listed here.
 LICENSED_FOLDERS = ("cardvision", "tests", "labeler", "games", "data", "examples", "browser", "docs", ".github")
 SLASHES = f"// {IDENTIFIER}"
 LICENSE_LINE = {
@@ -24,7 +24,7 @@ LICENSE_LINE = {
     ".html": f"<!-- {IDENTIFIER} -->",
 }
 LICENSE_LINE_BY_NAME = {".gitignore": HEADER}
-WITHOUT_COMMENTS = {".json", ".jsonl"}
+WITHOUT_COMMENTS = {".json", ".jsonl", ".csv"}
 # Never scanned: caches, the packages npm installs under browser/, the build it writes there, and
 # the OpenCV.js that browser/scripts/build-opencv.mjs writes to browser/vendor/.
 NOT_SOURCE = {"__pycache__", ".pytest_cache", "node_modules", "dist", "vendor"}
@@ -171,7 +171,7 @@ def test_the_docs_give_each_manifest_s_current_sha256():
 # this file does not contain what it looks for.
 INSTALL_BY_NAME = re.compile(r"pip3?\s+install\s+(?:-\S+\s+)*[\"']?" + "cardvision", re.IGNORECASE)
 NOT_SCANNED = {"__pycache__", "build", "dist", "venv", "node_modules"}
-TEXT_SUFFIXES = {".py", ".md", ".toml", ".txt", ".yml", ".yaml", ".json", ".jsonl", ".js", ".css", ".html", ".cff", ".cfg", ""}
+TEXT_SUFFIXES = {".py", ".md", ".toml", ".txt", ".yml", ".yaml", ".json", ".jsonl", ".js", ".css", ".html", ".cff", ".cfg", ".csv", ""}
 
 
 def text_files() -> list[Path]:

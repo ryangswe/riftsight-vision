@@ -6,6 +6,7 @@
 
 | Command | What it does |
 | --- | --- |
+| `cardvision import-catalog` | Write a catalog from a card list you already have: a spreadsheet saved as CSV or TSV, or a JSON list. Reports duplicate ids, names under several ids, the identity rule it suggests and the cards without art. With `--download`, downloads the images the list links to. |
 | `cardvision infer` | Detect and name the cards in images or video, with the models from a release document (`--release`) or from separate files. Can also write annotated frames, crops, a contact sheet, and a pre-fill file for the labeling tool. |
 | `cardvision build-bank` | Build the bank and its identity groups from card images, or extend an existing bank (`--base`): rows whose image changed are embedded again in place, new cards are added. |
 | `cardvision check-refresh` | Check that a new bank only adds to an old one, and changes a row only where its image changed. |
@@ -27,8 +28,53 @@
 | `python3 labeler/export.py` | Export labels as COCO, or as a label manifest. |
 
 Nothing reaches the network unless you ask for it by flag: `fetch --download`,
-`fetch-textures`, `train-detector --download-pretrained`, and `train-recognizer` when it
-starts from torchvision's pretrained weights.
+`fetch-textures`, `import-catalog --download`, `train-detector --download-pretrained`, and
+`train-recognizer` when it starts from torchvision's pretrained weights.
+
+## `cardvision import-catalog`
+
+```
+cardvision import-catalog cards.csv --out my-game/catalog.json --game my-game \
+    --facets Color,Cost --split 'Color=;' --images my-game/images
+```
+
+The card list is a `.csv`, a `.tsv` or a `.json` file (a list of rows, or `{"cards": [...]}`),
+in UTF-8 with or without a byte-order mark. One card a row.
+
+- **Columns.** The catalog's fields are found by their header, without case: `id` (id, card
+  id, code), `name` (name, card name), `kind` (kind, type), `printing_of` (printing_of,
+  printingOf, reprint of) and `image` (image, art, image url, image file). `--map
+  FIELD=HEADER` names a column the headers do not give away. `id` and `name` are needed.
+- **The other columns.** `--facets COL,...` makes columns into facets, the labeling tool's
+  filters; a column whose every value is a number, none with a leading zero (`008` stays
+  text), becomes a number facet, and the report says which. `--split COL=SEP`
+  splits cells that hold several values (quote it: `';'` means something to the shell). By
+  default every other column goes to each card's `extra` object, which nothing reads, and the
+  report lists them so that you can choose: `--extra COL,...` keeps only those, `--no-extra`
+  none. An empty cell is left out.
+- **Images.** A file path is relative to `--images DIR`, which is also where they are
+  checked. A URL stays a URL in the catalog, and nothing is downloaded, unless you pass
+  `--download`: it is then downloaded into `--art-out DIR` (by default `art/` beside `--out`),
+  one request at a time with `--delay` seconds between them (default 1). Only JPEG, PNG and WebP
+  files of at most 5 MB are kept, by their first bytes; a download that fails leaves the card
+  without art, with the reason in the report. A request is made once more, and only once,
+  after a server error (HTTP 5xx), HTTP 429, a timeout, or a dropped connection or a body
+  cut short; never after any other failure. Redirects go only to http(s), never from https
+  to http. A file already there is not downloaded again, so a run
+  that stopped can be run again with `--force`.
+- **Checks.** A row without an id or a name, an id used twice, and a `printing_of` that names
+  no card are errors, and nothing is written. The report also lists names under several ids,
+  one image file under several cards, the cards without art and the shapes of the ids. It
+  suggests an identity rule: `printing` when the list uses `printing_of`, `name` otherwise,
+  and writes it unless `--identity` says which. The catalog is then read back by the
+  catalog's loader, and its images are looked at as `check-bank-art` does, when every image
+  is a local file.
+- **Output.** `--out` is not replaced unless `--force`. `--report FILE` also writes the
+  report as JSON. The exit code is 1 when nothing was written.
+
+**Download only images you are allowed to.** Some publishers' sites forbid automated
+downloading in their terms. Prefer the source's own bulk download, or a folder of images you
+already have (`--images`), and leave out `--download` when in doubt.
 
 **Tests:** paste this into the terminal, from the repository's root:
 

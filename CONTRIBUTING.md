@@ -63,7 +63,7 @@ command knows only the built-in ones and reports the others as problems.
 Every file in `cardvision/`, `tests/`, `labeler/`, `examples/`, `games/`, `data/`, `browser/`,
 `docs/` and `.github/`, and every Markdown or text file at the top of the repository, starts
 with the license line (`SPDX-License-Identifier: Apache-2.0`, written as a comment of that kind
-of file). JSON files are the exception, since JSON has no comments. A test checks it.
+of file). JSON and CSV files are the exception, since they have no comments. A test checks it.
 
 ## Sign-off (DCO)
 

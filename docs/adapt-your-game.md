@@ -284,6 +284,23 @@ an id to it for instance: the name is what a viewer is shown, and every tool rep
 beside it.
 
 Then edit `$WORK/my-game/catalog.json`. `games/_template/README.md` explains every field.
+
+**Already have a spreadsheet?** Save it as CSV (or TSV, or have a JSON list of rows) and import
+it in place of the template's catalog:
+
+```
+cardvision import-catalog cards.csv --out "$WORK/my-game/catalog.json" --game my-game \
+    --images /path/to/images
+```
+
+It finds the id, name, type, reprint and image columns by their headers, sends the other
+columns to each card's `extra` (or to filters, with `--facets`), and reports duplicate ids,
+names under several ids, the identity rule it suggests and the cards without art.
+`games/_template/cards.example.csv` is a sheet with the columns it expects, and
+[docs/commands.md](commands.md#cardvision-import-catalog) has every option. Image URLs stay
+URLs in the catalog; `--download` fetches them, slowly. Download only images you are allowed
+to, and prefer the source's bulk download or files you already have. Then read on: the rules below hold for an imported catalog
+too.
 The rules that matter most:
 
 - `id` is unique, 1 to 64 characters, with no space or other whitespace and no control

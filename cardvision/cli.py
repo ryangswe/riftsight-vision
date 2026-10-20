@@ -18,6 +18,7 @@ from cardvision.data.commands import COMMANDS as DATA_COMMANDS
 from cardvision.evaluate import cli as evaluate_cli
 from cardvision.export import cli as export_cli
 from cardvision.geometric.commands import COMMANDS as GEOMETRIC_COMMANDS
+from cardvision.import_catalog import cli as import_catalog_cli
 from cardvision.infer import cli as infer_cli
 from cardvision.train_detector import cli as train_detector_cli
 from cardvision.train_recognizer import cli as train_recognizer_cli
@@ -33,6 +34,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "calibrate": (calibrate_cli.SUMMARY, calibrate_cli.add_arguments, calibrate_cli.run),
     "evaluate": (evaluate_cli.SUMMARY, evaluate_cli.add_arguments, evaluate_cli.run),
     "export": (export_cli.SUMMARY, export_cli.add_arguments, export_cli.run),
+    "import-catalog": (import_catalog_cli.SUMMARY, import_catalog_cli.add_arguments, import_catalog_cli.run),
     "infer": (infer_cli.SUMMARY, infer_cli.add_arguments, infer_cli.run),
     "train-detector": (train_detector_cli.SUMMARY, train_detector_cli.add_arguments, train_detector_cli.run),
     "train-recognizer": (train_recognizer_cli.SUMMARY, train_recognizer_cli.add_arguments, train_recognizer_cli.run),

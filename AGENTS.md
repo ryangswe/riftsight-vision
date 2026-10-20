@@ -30,8 +30,8 @@ checks it.
    `git status --short` must show only files you meant to change. If it is not, list the
    files you created or changed.
 3. **Do not download anything the person did not ask for.** `cardvision fetch --download`,
-   `cardvision fetch-textures` and `cardvision train-detector --download-pretrained` reach
-   the network. Downloading video is the person's own act under the platform's terms: ask
+   `cardvision fetch-textures`, `cardvision import-catalog --download` and
+   `cardvision train-detector --download-pretrained` reach the network. Downloading video is the person's own act under the platform's terms: ask
    first, every time.
 4. **Do not fetch card art.** The person supplies a folder of card images they are entitled
    to use. If there is none, stop and ask.
@@ -49,7 +49,8 @@ checks it.
    write-up for ideas is fine; copying is not. See [CONTRIBUTING.md](CONTRIBUTING.md).
 9. **New files start with the license line** (`SPDX-License-Identifier: Apache-2.0` as a
    comment of that file type) in `cardvision/`, `tests/`, `labeler/`, `examples/`, `games/`,
-   `data/`, `browser/`, `docs/`, `.github/` and at the top level. JSON files are the exception.
+   `data/`, `browser/`, `docs/`, `.github/` and at the top level. JSON and CSV files are the
+   exception.
 10. **Another game's catalog, bank or weights do not belong in this repository.** Keep them
     in the person's own repository or fork.
 11. **Report what you measured, with the command.** A toy run proves that commands work. It is
@@ -137,6 +138,21 @@ cp -r games/_template "$WORK/my-game"
 
 `games/_template/README.md` explains each field. `id` is unique; `art` is a file name inside
 the folder passed as `--art`.
+
+- **If the person's card list is a spreadsheet or a JSON file,** import it instead of
+  writing the catalog by hand (save a spreadsheet as CSV first):
+
+  ```
+  cardvision import-catalog CARDS.csv --out "$WORK/my-game/catalog.json" --game my-game \
+      --images IMAGES_DIR
+  ```
+
+  Show the person its report: the columns it took for each field, the columns it sent to
+  `extra` (ask which should be `--facets` filters instead), the names under several ids and
+  the identity rule it suggests, and the cards without art. Duplicate ids or a `printing_of`
+  that names no card stop it, and nothing is written: fix the list, not the command. Image
+  URLs stay URLs; do not add `--download` (rules 3 and 4). `games/_template/cards.example.csv`
+  shows the columns.
 
 - **Decide first what counts as the same card.** By default (no `"identity"` field, or
   `"identity": "name"`) equal `name` means the same card: right when a name is one card and its

@@ -8,6 +8,11 @@ Copy this folder into a folder of your own and fill in `catalog.json` there:
 cp -r games/_template /path/to/my-game
 ```
 
+If your card list is already a spreadsheet, save it as CSV and let `cardvision import-catalog`
+write the catalog (docs/commands.md). `cards.example.csv` here shows the columns it expects:
+`id`, `name`, `kind`, `printing_of` and `image`, and any others, which become filters
+(`--facets`) or go to each card's `extra`.
+
 **Your game's folder does not go into this repository's `games/`.** Keep it in a work folder
 outside the checkout, or in a repository of your own (a fork counts, in a folder of its own).
 Other games' catalogs, banks and weights are not taken into this repository; see
