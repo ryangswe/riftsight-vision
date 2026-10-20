@@ -1772,6 +1772,9 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     def _json(self, obj, status=200):
+        if getattr(self, "_held", None) is not None:  # a save: answered once it no longer counts as in flight
+            self._held.append((obj, status))
+            return
         body = json.dumps(obj).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1988,6 +1991,9 @@ class Handler(BaseHTTPRequestHandler):
         if saving:
             with SAVES.lock:
                 SAVES.in_flight += 1
+            # The reply waits until the save no longer counts as in flight: a page that acts on it at
+            # once (a restore right after a removal) must not find this save still running.
+            self._held = []
         try:
             with GATE.read():  # the run is checked and the save written with no switch in between
                 self._post(parts, body)
@@ -1995,6 +2001,9 @@ class Handler(BaseHTTPRequestHandler):
             if saving:
                 with SAVES.lock:
                     SAVES.in_flight -= 1
+                held, self._held = self._held, None
+                for obj, status in held:
+                    self._json(obj, status)
 
     def _post(self, parts: list, body: dict):
         if len(parts) == 2 and parts[0] == "api" and parts[1] in HUB_POSTS:

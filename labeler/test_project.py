@@ -2242,6 +2242,24 @@ class RemovingFrames(Server):
         entry = next(s for s in self.get("/api/sets")[1] if s["setId"] == set_id)
         return [f["name"] for f in entry["frames"]], entry
 
+    def test_a_save_is_answered_only_once_it_no_longer_counts_as_in_flight(self):
+        """A restore sent the moment a removal is answered must not find that removal still in
+        flight (it was refused as busy, now and then, on a slow machine)."""
+        write_set(self.labels, "table-a", [frame(1, True, [box(1, **NAMED)]), frame(2, True)])
+        self.begin()
+        seen = []
+        real = serve.Handler._json
+
+        def watch(handler, obj, status=200):
+            if getattr(handler, "_held", None) is None:
+                seen.append(serve.SAVES.in_flight)
+            return real(handler, obj, status)
+
+        with mock.patch.object(serve.Handler, "_json", watch):
+            self.assertEqual(self.remove("f00002.png")[0], 200)
+        self.assertEqual(seen, [0], "the reply went out after the save stopped counting")
+        self.assertEqual(self.restore("f00002.png")[0], 200)
+
     def test_remove_count_export_and_restore(self):
         write_set(self.labels, "table-a", [frame(1, True, [box(1, **NAMED)]), frame(2, True, [box(1, **NAMED), box(2, **NAMED)])])
         self.begin()
