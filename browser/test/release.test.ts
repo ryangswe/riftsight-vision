@@ -7,7 +7,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Candidate } from "../src/boxes.js";
 import {
@@ -25,7 +25,8 @@ import {
   type ReleaseModelFactories,
   sha256HexWebCrypto,
 } from "../src/release.js";
-import { FIXTURES } from "./support.js";
+import { RELEASE_FILES_BASE } from "../src/messages.js";
+import { contract, FIXTURES } from "./support.js";
 
 const FOLDER = `${FIXTURES}toy-release/`;
 const BASE = "https://example.test/releases/toy/";
@@ -165,6 +166,14 @@ describe("what parseRelease refuses", () => {
     expect(refused((d) => (d.catalog.path = "https://elsewhere.test/catalog.json"))).toContain("catalog");
     expect([isRelativePath("models/a.onnx"), isRelativePath("a/../b"), isRelativePath("C:/a"), isRelativePath("a\\b"), isRelativePath(""), isRelativePath(3)]).toEqual([true, false, false, false, false, false]);
   });
+
+  // The paths of tests/test_browser_fixtures.py, with the answers verify-release gives.
+  it.each((contract.paths as { paths: Array<{ path: string; accepted: boolean }> }).paths.map((row) => [row.path, row.accepted] as const))(
+    "isRelativePath(%j) is %s, as verify-release says",
+    (path, accepted) => {
+      expect(isRelativePath(path)).toBe(accepted);
+    },
+  );
 
   it("a detector contract this runtime does not implement", () => {
     expect(refused((d) => (d.detector.arm = "other"))).toContain("detector.arm");
@@ -389,6 +398,89 @@ describe("loading a release, all-or-nothing", () => {
       files.set("catalog.json", text(catalog));
     }, ["catalog"]);
     expect(await reasonOf(renamed)).toContain("not the ones the catalog's names give");
+  });
+});
+
+describe("a release given as files, from a folder chosen on this computer", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const blobs = (files: Files): Record<string, Blob> => Object.fromEntries([...files].map(([name, body]) => [name, new Blob([buffer(body)])]));
+
+  /** loadRelease on the files, with no fetch allowed: what it says, and how it ends. */
+  async function fromFiles(files: Record<string, Blob>, releaseUrl = "release.json") {
+    const { loadRelease, ReleaseError } = await import("../src/load.js");
+    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new Error("nothing may be fetched");
+    });
+    const said: string[] = [];
+    const outcome = await loadRelease(releaseUrl, { files, providers: ["wasm"], onProgress: (progress) => said.push(progress.phase) })
+      .then(() => "loaded", (error: unknown) => (error instanceof ReleaseError ? `refused: ${error.reason}` : `threw: ${String(error)}`));
+    return { said, outcome, fetches: fetched.mock.calls.length };
+  }
+
+  it("reads the release from the files, with every check a fetched one has, and fetches nothing", async () => {
+    const { filesFetch } = await import("../src/load.js");
+    const files = blobs(await toyRelease());
+    const result = await loadReleaseData(`${RELEASE_FILES_BASE}release.json`, { fetchFn: filesFetch(files), digestSha256Hex: sha256HexWebCrypto });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.data.cards).toHaveLength(20);
+    expect(result.data.release.game).toBe("toy");
+    // Through loadRelease: every file checked, then the models are prepared (and fail, being
+    // stand-ins), and no request was made.
+    const loaded = await fromFiles(files);
+    expect(loaded.said).toEqual(["downloading", "downloading", "preparing"]);
+    expect(loaded.outcome).toMatch(/^refused: /);
+    expect(loaded.outcome).not.toMatch(/sha256|bytes, the release says|fetch failed/);
+    expect(loaded.fetches).toBe(0);
+  });
+
+  it("refuses a file that was changed, as it refuses a fetched one", async () => {
+    for (const name of ["detector.onnx", "recognizer.onnx", "bank.json", "bank.identity-groups.json", "catalog.json"]) {
+      const files = await toyRelease();
+      const body = files.get(name)!.slice();
+      body[10] = body[10]! ^ 1;
+      files.set(name, body);
+      const tampered = await fromFiles(blobs(files));
+      expect(tampered.outcome, name).toBe(`refused: ${name.replace(/\.onnx$/, "").replace(/^bank\.identity-groups\.json$/, "identity.groups").replace(/\.json$/, "")}: sha256 of ${name} does not match the release`);
+      expect(tampered.said, name).not.toContain("preparing");
+      expect(tampered.fetches, name).toBe(0);
+    }
+    const edited = await toyRelease();
+    const doc = jsonOf(edited, "release.json");
+    doc.accept.tau = 0.5;
+    edited.set("release.json", text(doc));
+    expect((await fromFiles(blobs(edited))).outcome).toMatch(/^refused: release: id \S+ is not the hash of the document/);
+  });
+
+  it.each(["file:/etc/passwd", "%2e%2e/x", "http:evil/x", "data:application/octet-stream,x"])(
+    "refuses a document that pins %j, before reading anything",
+    async (path) => {
+      const files = await toyRelease();
+      const doc = jsonOf(files, "release.json");
+      doc.recognizer.path = path;
+      await seal(doc, files);
+      const result = await fromFiles(blobs(files));
+      expect(result.outcome).toMatch(/^refused: .*recognizer must pin a file/);
+      expect(result.said).not.toContain("preparing");
+      expect(result.fetches).toBe(0);
+    },
+  );
+
+  it("names a file that is not among them, and reads nothing outside them", async () => {
+    const files = blobs(await toyRelease());
+    delete files["recognizer.onnx"];
+    expect((await fromFiles(files)).outcome).toBe("refused: recognizer: fetch failed (Error: no file recognizer.onnx among the release's files)");
+    // An address is never fetched when files are given: only paths among them are read.
+    const elsewhere = await fromFiles(blobs(await toyRelease()), "https://example.test/release.json");
+    expect(elsewhere.outcome).toBe("refused: release: fetch failed (Error: https://example.test/release.json is not one of the release's files)");
+    expect(elsewhere.fetches).toBe(0);
+  });
+
+  it("finds a file by its path relative to the document's folder, as the loader resolves it", async () => {
+    const { filesFetch } = await import("../src/load.js");
+    const fetchFn = filesFetch({ "a b/x.onnx": new Blob(["x"]), "y.json": new Blob(["yy"]) });
+    expect((await (await fetchFn(new URL("a b/x.onnx", `${RELEASE_FILES_BASE}release.json`).href)).arrayBuffer()).byteLength).toBe(1);
+    expect((await (await fetchFn(new URL("./y.json", `${RELEASE_FILES_BASE}release.json`).href)).arrayBuffer()).byteLength).toBe(2);
+    await expect(fetchFn(`${RELEASE_FILES_BASE}toString`)).rejects.toThrow("no file toString among the release's files");
   });
 });
 

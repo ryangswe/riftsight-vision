@@ -43,6 +43,8 @@ def test_every_changelog_section_uses_the_standard_headings_and_lists_something(
     for name, body in sections().items():
         kinds = re.findall(r"^### (.+)$", body, re.M)
         assert set(kinds) <= KINDS, (name, kinds)
+        if name == "Unreleased" and not body.strip():
+            continue  # right after a release, nothing is waiting yet
         assert any(line.startswith("- ") for line in body.splitlines()), name
 
 

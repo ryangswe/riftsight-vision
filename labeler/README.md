@@ -9,7 +9,7 @@ and a card recognizer, and to make the held-out labels you measure them on.
 **Video:** [Label frames with the labeling tool](https://www.youtube.com/watch?v=eL0gChfpS_w) labels the toy game's frames
 with it.
 
-It is a small Python server and one web page. It needs Python 3.10 or later and a browser,
+It is a small Python server and one web page. It needs Python 3.11 or later and a browser,
 nothing else: no package to install, no build step, no account, and no network. The server
 listens on `127.0.0.1` only and never opens a connection itself. Every label is a line of JSON
 in a folder you choose.
@@ -225,7 +225,7 @@ what is missing, the one step back, and links to the part of this guide that say
   also shows, in small print, the same start as one command with flags, for scripts. It
   starts with `python3` when that name runs the same Python as the tool; otherwise it names
   the Python that runs the tool by its full path (on a Mac, for example
-  `/Library/Frameworks/Python.framework/Versions/3.10/bin/python3 labeler/serve.py ...`).
+  `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 labeler/serve.py ...`).
   Either form works. The tool decides this once, when it starts, so every command it shows
   begins the same way: the passes, the export, the start screen's.
 - **Export** writes the file from the page and says what it wrote (frames, boxes or points,

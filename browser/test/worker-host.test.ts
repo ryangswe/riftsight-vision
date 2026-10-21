@@ -268,6 +268,27 @@ describe("the progress of a load", () => {
     ]);
   });
 
+  it("hands the loader the release's files when the page gives them, and nothing of the kind otherwise", async () => {
+    const given: Array<[string, Record<string, Blob> | undefined]> = [];
+    const make = () => createWorkerHost<FakeDevice>({
+      post: () => undefined,
+      loadRelease: async (url, options) => {
+        given.push([url, options.files]);
+        return loadedRelease(makePipeline());
+      },
+      wasmPaths: "/",
+      voteDevice: async () => null,
+      openStage: async () => ({ stage: fakeStage(), bytes: 1, note: null }),
+      releaseDevice: () => undefined,
+      readBitmap: () => FRAME,
+    });
+    const files = { "release.json": new Blob(["{}"]), "detector.onnx": new Blob(["d"]) };
+    await make().handle({ kind: "load", releaseUrl: "release.json", files });
+    await make().handle({ kind: "load", releaseUrl: "/release.json" });
+    expect(given).toEqual([["release.json", files], ["/release.json", undefined]]);
+    expect(given[0]![1]).toBe(files);
+  });
+
   it("is taken by a session only while its release loads: a late reply after it loaded, failed or stopped changes nothing", async () => {
     const { progressUpdate } = await import("../src/session.js");
     const reply = { kind: "release-progress", phase: "preparing", bytes: null } as const;

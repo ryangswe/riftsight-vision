@@ -63,5 +63,5 @@ const out = found.out === undefined ? "dist/pages" : resolve(found.out);
 const page = built.files.filter((name) => !name.startsWith("games/"));
 const bundled = built.files.length - page.length;
 console.log(`${out}: ${built.files.length} files (${page.join(", ")}${bundled > 0 ? `, and ${bundled} in games/` : ""})`);
-if (built.games) for (const game of built.games) console.log(`game ${game.id}: ${game.label}, its model from ${game.release}`);
+if (built.games) for (const game of built.games) console.log(`game ${game.id}: ${game.label}, ${game.release === null ? "its model from a folder the visitor chooses" : `its model from ${game.release}`}`);
 else console.log(built.release ? `the page loads its model from ${built.release.url}` : "no release address: the page says that no model is set");

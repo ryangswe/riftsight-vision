@@ -91,7 +91,9 @@ An object always has the keys down to ``source``; the ones after it are there wh
 (``catalog.cardsWithArt``) and how many had no image used (``catalog.cardsWithoutArt``: a
 missing file, a URL, or ``"art": null``), the
 ``kinds`` settings read from the catalog, the ``settings`` and fixed ``parameters`` of the
-generator, and ``counts`` of objects, positives, layouts and backgrounds.
+generator, and ``counts`` of objects, positives, layouts and backgrounds. ``parameters.cardAspect``
+is the width over the height of an upright card in that run (``--card-size``; 0.716 for the
+default 63 x 88 mm); ``validate`` reads it, and takes 0.716 when a folder does not record it.
 
 Modules
 =======

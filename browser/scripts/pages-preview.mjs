@@ -123,7 +123,7 @@ try {
 const listening = await listen(folderServer(out, {}), port);
 if (built.games) {
   console.log(`hosted demo: http://127.0.0.1:${listening}/ (${given.out === undefined ? "dist/pages" : out}, ${built.files.length} files, as npm run build:pages -- --games ${given.games}${given.toy === undefined ? "" : ` --toy "${resolve(given.toy)}"`} writes them)`);
-  for (const game of built.games) console.log(`game ${game.id}: ${game.label}, its model from ${game.release}`);
+  for (const game of built.games) console.log(`game ${game.id}: ${game.label}, ${game.release === null ? "its model from a folder the visitor chooses" : `its model from ${game.release}`}`);
 } else {
   console.log(`hosted demo: http://127.0.0.1:${listening}/ (${given.out === undefined ? "dist/pages" : out}, ${built.files.length} files, as npm run build:pages -- --release-url ${releaseUrl === "" ? '""' : releaseUrl} writes them)`);
   console.log(built.release ? `the page loads its model from ${built.release.url}` : "no release address: the page says that no model is set");

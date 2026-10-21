@@ -52,9 +52,10 @@ say `passed` with no `failed`. That run had no OpenCV.js built: the six tests th
 their name, and the build says `OpenCV.js NOT copied` and builds the rest. With OpenCV.js built
 into `vendor/opencv/` (see "The geometric stage"), those tests run and the build copies it,
 `OpenCV.js copied: dist/opencv.mjs, dist/opencv_js.wasm 3326 KB, dist/opencv.mjs.LEGAL.txt`.
-npm also prints lines of its own, such as `npm warn install-scripts` notes (esbuild, fsevents,
-protobufjs) and an `npm notice` that a new major version of npm is available: both are harmless.
-Times and sizes may differ a little on your machine.
+npm also prints lines of its own, such as `npm warn install-scripts 3 packages have install
+scripts not yet covered by allowScripts` (esbuild, fsevents, protobufjs; npm 11) and an
+`npm notice` that a new major version of npm is available: both are harmless. Times and sizes
+may differ a little on your machine.
 
 `npm test` type-checks (TypeScript, strict) and runs the tests with vitest. `npm run build`
 bundles with esbuild into `dist/`, which is not kept in the repository:
@@ -231,9 +232,10 @@ Each state has a mark of its own shape before its words, so that none rests on c
 
 **Without a release folder** the server prints `no --release folder: the demo page asks for the
 address of a release document`, and the page leads with `Load a model`: one sentence, a
-`Release address` field, a `Load` button, and the command that starts the server with a
-release folder, which is the simpler way. Once a model has loaded, that step folds into the
-model line and the drop zone leads.
+`Release address` field, a `Load` button, the folder buttons of "Your game" below (**Choose the
+release folder…** and **Choose the card images folder…**), and the command that starts the
+server with a release folder, which is the simpler way. Once a model has loaded, that step folds
+into the model line and the drop zone leads.
 
 What the page's controls do:
 
@@ -243,9 +245,10 @@ What the page's controls do:
   page's address names the server's `--file`, that file is open until you choose another.
 - **Show detected boxes**: an outline on every detected box. Named faces have a solid green
   line, other faces a dashed amber one, backs a dotted gray one.
-- **Model: … Change**: opens the `Release address` field. `Load` starts again with the model
-  at that address, on the file that is open. With `--release`, the server offers the folder
-  at `/release/` and the page loads `/release/release.json` when it opens.
+- **Model: … Change**: opens the `Release address` field and the folder buttons. `Load` starts
+  again with the model at that address, on the file that is open; a folder chosen does the same
+  with the release in it, read in the page as in "Your game" below. With `--release`, the server
+  offers the folder at `/release/` and the page loads `/release/release.json` when it opens.
 - **Options**, closed until you open it:
   - **Backend**: as the release lists them (WebGPU first, then WebAssembly), or one of the
     two. WebGPU is not always the faster of the two: that depends on the browser and the
@@ -352,12 +355,14 @@ nothing to install. The workflow publishes it on GitHub Pages at
 <https://ryangswe.github.io/riftsight-vision/>. The page opens with a choice of games, loads the
 chosen game's release, and lets a visitor hover the cards of a picture or a video. Files you
 select are processed locally by this demo; its code does not upload their contents. Selecting
-One Piece downloads model files from Hugging Face.
+One Piece downloads model files from Hugging Face. Selecting "Your game" downloads nothing: the
+release is a folder on your computer.
 
 | Choice | Release | Card images | Example files |
 | --- | --- | --- | --- |
 | **Toy game (practice)** | Bundled with the site (`games/toy/release/`) | The toy game's 20 cards, colored shapes drawn by the test suite (`games/toy/images/`) | **Load the example table** opens `table.png`, **Load the example video** opens `table.webm`, with no file chooser |
 | **One Piece Card Game (Kenbunshoku models)** | Fetched from Hugging Face when the game is chosen, pinned to one commit: `https://huggingface.co/JuicyKaraageNo1/kenbunshoku-onepiece/resolve/5526f531863381745780f4377f1cae767077ca77/release.json` | None. Names only: no One Piece card image is shown, fetched or bundled. | None: the visitor drops a screenshot or a video of their own |
+| **Your game (files on this computer)** | A release folder the visitor chooses with **Choose the release folder…**, read by the page: nothing is fetched or uploaded. See "Your game" below. | An `images/` or `art/` folder beside the release, or a folder chosen with **Choose the card images folder…**; none otherwise | None: the visitor drops a screenshot or a video of their own |
 
 The toy game is chosen when the page opens. Under the choices the page says what the chosen
 game is. For the toy game: `The model comes with this page.` and that its models are stand-ins
@@ -381,12 +386,55 @@ models with it), puts the file on show away, clears the tooltip, and loads the n
 release. Every file of a release is checked against the SHA-256 and the size its release
 document pins, for the bundled toy release as for the one on Hugging Face.
 
+### Your game
+
+The **Your game (files on this computer)** choice loads a release from a folder on the visitor's
+computer: the `release` folder of [your-game.md](../docs/your-game.md), or another folder that
+`cardvision verify-release` accepts and that was made for this page's ONNX Runtime version
+(the release document's `runtime.ortWeb`). The page offers it when the build names `local` in
+`--games`; the local server's page has the same folder buttons beside its `Release address`
+field. Under the choices the page says `Files you choose are read on this computer by this
+page; nothing is uploaded, and this page makes no request for them.`
+
+1. **Choose the release folder…** opens the browser's folder chooser (an `<input type="file"
+   webkitdirectory>`). Chrome then asks whether to "upload" the files to the site: that is its
+   standard question for any folder chooser, and the page only reads them on this computer. The
+   folder may be the release folder itself, or a folder up to two levels above it, such as
+   `$GAME`: the page takes the nearest `release.json`, and refuses, with the paths, a folder
+   that holds two at the same depth.
+2. The page reads `release.json` and hands the worker that document and the five files it pins
+   (detector, recognizer, bank, identity groups, catalog), and nothing else of the folder. A file
+   the document pins that is not in the folder is named: `release.json pins recognizer.onnx,
+   which is not in my-game/release/. ...`.
+3. The worker checks every file against the size and the SHA-256 the document pins, and the
+   document against its id, exactly as for a served release, and refuses a release with one
+   changed byte: `Could not load the release in my-game/release/release.json (detector: sha256
+   of detector.onnx does not match the release). Choose the release folder again.` While it
+   loads the line says `Reading your models (about N MB)…`, then `Preparing your models…`.
+4. Card images: an `images/` or `art/` folder beside `release.json`, or at the top of the folder
+   chosen, is taken by itself; **Choose the card images folder…** takes another. Images taken
+   by themselves belong to their release: choosing another release folder, or typing a release
+   address on the local server's page, lets them go. Images chosen with the button stay. A card's image
+   is found as on the local server: the catalog's `art` path with its folders, then its bare file
+   name, for a folder that holds every image flat. The tooltip shows it from a `blob:` URL that
+   the page makes for it; these are revoked when the images or the game change. The line under
+   the buttons says how many image files were taken, and names a card whose image is not there.
+
+How it stays inside the policy: the page posts the files to the worker as `Blob`s, the worker's
+loader answers its own requests from them (`files` in `loadRelease`'s options, `releaseFiles`
+in `createSession`'s), and no request leaves the page for them. A `file:///` address is used
+inside the worker only as a key among the files given; it is never fetched. The card images
+need `img-src blob:`, which the page has already for the file on show. So a build with `local`
+has the same Content-Security-Policy, byte for byte, as the same build without it
+(`test/games.test.ts`). Nothing is typed: the release address field stays read-only, and the
+page follows nothing in its address. Choosing another game forgets the folders chosen.
+
 Other ways the hosted page differs from the local one:
 
 - The release address cannot be changed on the page. If a model does not load, the page gives
   the address and the reason, and `Retry`.
-- The `Card images` option is not offered. Only the toy game shows images, its own, from the
-  site.
+- The `Card images` option is not offered. The toy game shows its own images, from the site,
+  and "Your game" shows images from a folder chosen on this computer.
 - No scoring page. It is for people with labels of their own, who run it locally. The header
   links to this repository instead, and to `THIRD-PARTY-NOTICES.txt`, the full license texts
   of the third-party code in the site's scripts.
@@ -399,7 +447,7 @@ The site bundles the toy folder of "The demo page" above (`$WORK/demo`, written 
 1). Paste this into the terminal, in `browser/`, with `$WORK` set as there:
 
 ```
-npm run build:pages -- --games toy,one-piece --toy "$WORK/demo"
+npm run build:pages -- --games toy,one-piece,local --toy "$WORK/demo"
 ```
 
 After npm's own lines, you should see something like:
@@ -408,6 +456,7 @@ After npm's own lines, you should see something like:
 dist/pages: 37 files (THIRD-PARTY-NOTICES.txt, demo.css, demo.js, index.html, lib/ort-wasm-simd-threaded.jsep.mjs, lib/ort-wasm-simd-threaded.jsep.wasm, lib/worker.js, lib/worker.js.LEGAL.txt, theme.css, and 28 in games/)
 game toy: Toy game (practice), its model from games/toy/release/release.json
 game one-piece: One Piece Card Game (Kenbunshoku models), its model from https://huggingface.co/JuicyKaraageNo1/kenbunshoku-onepiece/resolve/5526f531863381745780f4377f1cae767077ca77/release.json
+game local: Your game (files on this computer), its model from a folder the visitor chooses
 ```
 
 The site is about 29 MB, 27.8 MB of it ONNX Runtime's WebAssembly file. From the toy folder the
@@ -434,7 +483,8 @@ the list.
    (`{ text, href }` with an https link, or `null`), and either `bundled: false` and `release`,
    the https address of its release document, at a commit (the game is names only); or
    `bundled: true`, and a folder option and a copy function of its own, written like `--toy`
-   and `copyToy`.
+   and `copyToy`. (`local: true` is the "Your game" choice: no release, read from the visitor's
+   folders.)
 2. Name it in `--games`, and in the workflow's build step.
 3. Add it to `test/games.test.ts`: the entry, and the exact policy of a build that offers it.
 4. For a release on a host not yet in `STORAGE_HOSTS`, check its CORS headers and redirects as
@@ -498,21 +548,27 @@ plain files would: each file as it is, and nothing else. Paste this into the ter
 `browser/`, with `$WORK` set as above:
 
 ```
-npm run preview:pages -- --games toy,one-piece --toy "$WORK/demo"
+npm run preview:pages -- --games toy,one-piece,local --toy "$WORK/demo"
 ```
 
 You should see something like:
 
 ```
-hosted demo: http://127.0.0.1:8765/ (dist/pages, 37 files, as npm run build:pages -- --games toy,one-piece --toy "$WORK/demo" writes them)
+hosted demo: http://127.0.0.1:8765/ (dist/pages, 37 files, as npm run build:pages -- --games toy,one-piece,local --toy "$WORK/demo" writes them)
 game toy: Toy game (practice), its model from games/toy/release/release.json
 game one-piece: One Piece Card Game (Kenbunshoku models), its model from https://huggingface.co/JuicyKaraageNo1/kenbunshoku-onepiece/resolve/5526f531863381745780f4377f1cae767077ca77/release.json
+game local: Your game (files on this computer), its model from a folder the visitor chooses
 ```
 
 Open `http://127.0.0.1:8765/`, press **Load the example table**, and hover a card: the
 tooltip names it and shows its toy image. Choose **One Piece Card Game** to load that release
 from Hugging Face (the toy game needs no network; this one does), then drop a screenshot of
-your own game. Stop the preview with Ctrl+C.
+your own game. Choose **Your game (files on this computer)**, then **Choose the release
+folder…** and pick `$WORK/demo` to load the same toy release from disk. Stop the preview with
+Ctrl+C.
+
+To preview the **Your game** choice alone, `npm run preview:pages -- --games local` needs no
+toy folder: it builds the page with that one choice (no `--toy`) and serves it the same way.
 
 Two other forms: `--release "$WORK/demo/release"` builds the one-release page for a release
 folder on disk, which it serves on a port of its own, on another origin than the page, with
@@ -525,28 +581,34 @@ example table and on the example video, with its image; choosing the One Piece C
 the toy session and loaded release `f80d5b56cd907f03` (5489 cards in the bank) under the
 policy, with no violation; the page reached `127.0.0.1`, `huggingface.co` and
 `us.aws.cdn.hf.co`, and no One Piece image was requested. The only console messages were ONNX
-Runtime's own warnings that some nodes are placed on the CPU.
+Runtime's own warnings that some nodes are placed on the CPU. With `local` in the list, run in
+headless Chrome 155: choosing **Your game** and picking the toy folder loaded its release from
+disk (`Model: toy · 20 cards`, `Card images: 20 files from demo/art/.`), the tooltip named the
+five cards on the example table with their images from `blob:` URLs, and the page requested
+nothing for them; a copy with one changed byte in `detector.onnx` was refused with
+`detector: sha256 of detector.onnx does not match the release`.
 
 ### Publishing the hosted demo
 
 `.github/workflows/pages.yml` publishes the site. On a push to `main`, and when it is run by
 hand, it runs this folder's tests, writes the toy folder with
 `python tests/test_browser_fixtures.py --demo`, builds the site with
-`--games toy,one-piece`, and deploys it with GitHub's own Pages actions. It reads no repository
+`--games toy,one-piece,local`, and deploys it with GitHub's own Pages actions. It reads no repository
 variable and no secret. It deploys only from `main`, and only when the repository's Pages deploy
 from GitHub Actions. Until then the tests and the build run, the deploy job is skipped, and the
 run says so in a notice: nothing is published, and the run does not fail.
 
 The maintainer's steps:
 
-1. Check it here first: `npm run preview:pages -- --games toy,one-piece --toy "$WORK/demo"`,
-   and try both games as in "Previewing it". This is the site that will be published.
+1. Check it here first: `npm run preview:pages -- --games toy,one-piece,local --toy "$WORK/demo"`,
+   and try the games as in "Previewing it". This is the site that will be published.
 2. In Settings, Pages, Build and deployment: set Source to `GitHub Actions`.
 3. In Actions, run `Hosted demo` on `main`. Its deploy job gives the address,
    `https://ryangswe.github.io/riftsight-vision/`.
-4. Open the address and repeat the check of step 1: both choices show, the toy game names a card
-   on the example table, the One Piece game says `Model: one-piece-tcg · 5489 cards`, and the
-   browser console shows no Content-Security-Policy violation.
+4. Open the address and repeat the check of step 1: the three choices show, the toy game names a
+   card on the example table, the One Piece game says `Model: one-piece-tcg · 5489 cards`, "Your
+   game" offers **Choose the release folder…**, and the browser console shows no
+   Content-Security-Policy violation.
 
 A repository variable `DEMO_RELEASE_URL` left from earlier is no longer read, and can be deleted.
 To move the One Piece game to another release, change `ONE_PIECE_REVISION` in
@@ -901,7 +963,8 @@ permission for cross-origin use).
 
 | Option | Meaning |
 | --- | --- |
-| `releaseUrl` | URL of the release document. Its paths are relative to it. Required. |
+| `releaseUrl` | URL of the release document. Its paths are relative to it. Required. With `releaseFiles`, the document's path among those files (`release.json`). |
+| `releaseFiles` | The release's files as `Blob`s (from a folder input), by path relative to the release document's folder. The worker reads the release from them and fetches nothing for it; each file is checked against its pinned size and SHA-256 as a fetched one is. |
 | `workerUrl` | URL of the built `worker.js`. Default: beside the module. The session starts it as an ES module (`type: "module"`); a script that starts it some other way must load it as a module too, since it finds its own files from `import.meta.url`. |
 | `wasmPaths` | URL of the folder with ONNX Runtime's WebAssembly files. Default: the worker's folder. |
 | `providers` | Execution providers to try, in order, in place of the release's list: `"webgpu"`, `"wasm"`. |
@@ -943,7 +1006,10 @@ size, checks that the components belong together, and starts both models. It is
 loaded. There is no fallback to another file. `options.onProgress`, when given, is told where
 the load is: `{ phase: "downloading", bytes: null }`, then `bytes` the sum of the pinned files'
 sizes once the document is read, then `{ phase: "preparing" }` while the models start (not said
-when a file fails). It is advisory: what it throws is ignored.
+when a file fails). It is advisory: what it throws is ignored. `options.files`, a record of
+`Blob`s by path relative to the release document's folder, reads the release from them in place
+of fetching it: `url` is then the document's path among them (`"release.json"`), and every check
+is the same.
 
 `analyzeFrame` takes `{ data, width, height }` (an `ImageData` fits) whose width lies within
 the release's analysis range (720 to 1920 by default; `analysisSize` gives the size for a

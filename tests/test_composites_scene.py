@@ -17,7 +17,8 @@ from PIL import Image
 
 from cardvision.composites import CardPool, Settings, build_scene, generate, read_labels, validate_labels
 from cardvision.composites import dataset as dataset_module
-from cardvision.composites.validate import structure_problems
+from cardvision.composites.geometry import CARD_ASPECT
+from cardvision.composites.validate import recorded_aspect, structure_problems
 from cardvision.core.catalog import load_catalog
 
 # How the toy game's kinds are treated in these tests. Every unit is foil and no spell is, so
@@ -406,12 +407,65 @@ def test_a_folder_that_holds_scenes_is_not_overwritten_unasked(toy, catalog, tmp
     assert tree(tmp_path / "out")["labels.jsonl"] != before["labels.jsonl"]
 
 
-@pytest.mark.parametrize("arguments", [{"n": 0}, {"seed": -1}, {"split": "test"}, {"workers": 0}, {"seed": 1.5}])
+@pytest.mark.parametrize("arguments", [{"n": 0}, {"seed": -1}, {"split": "test"}, {"workers": 0}, {"seed": 1.5},
+                                       {"card_aspect": 1.2}, {"card_aspect": 0.3}, {"card_aspect": "0.686"}])
 def test_bad_arguments_are_refused_before_anything_is_written(toy, catalog, tmp_path, arguments):
     call = {"n": 1, "seed": 1, **arguments}
     with pytest.raises(ValueError):
         generate(catalog, toy[1], tmp_path / "out", **call)
     assert not (tmp_path / "out").exists()
+
+
+# ------------------------------------------------------------------------- another card size
+def test_a_smaller_card_size_shapes_the_backs(toy, catalog):
+    pool = CardPool(catalog, toy[1], kinds=KINDS)
+    checked = 0
+    for index in range(12):
+        default, _ = build_scene(pool, "train", index, seed=5)
+        record, _ = build_scene(pool, "train", index, seed=5, card_aspect=0.686)
+        assert (record["width"], record["layout"], record["camera"]) == \
+            (default["width"], default["layout"], default["camera"])
+        if record["camera"]["tilt"] != 0:
+            continue
+        for o in record["objects"]:
+            if o["kind"] == "back" and not o["sleeve"]:  # a back of the run's shape: 320 x 466
+                c = np.asarray(o["corners"])
+                across, down = np.linalg.norm(c[1] - c[0]), np.linalg.norm(c[3] - c[0])
+                assert across / down == pytest.approx(320 / 466, abs=0.01)
+                checked += 1
+    assert checked >= 3
+
+
+def test_a_folder_records_its_card_aspect_and_is_checked_with_it(toy, catalog, tmp_path):
+    manifest = generate(catalog, toy[1], tmp_path / "small", n=3, seed=4, kinds=KINDS, card_aspect=0.686)
+    assert manifest["parameters"]["cardAspect"] == 0.686 == recorded_aspect(tmp_path / "small")
+    report = validate_labels(tmp_path / "small", catalog, toy[1])
+    assert report["problemCount"] == 0 and report["checkedFaces"] > 0 and report["homographyUprightRate"] > 0.9
+    # a folder that does not record its aspect, or has no manifest, was made with the default card
+    doc = json.loads((tmp_path / "small" / "manifest.json").read_text(encoding="utf-8"))
+    del doc["parameters"]["cardAspect"]
+    (tmp_path / "small" / "manifest.json").write_text(json.dumps(doc), encoding="utf-8")
+    assert recorded_aspect(tmp_path / "small") == CARD_ASPECT
+    (tmp_path / "small" / "manifest.json").unlink()
+    assert recorded_aspect(tmp_path / "small") == CARD_ASPECT
+    (tmp_path / "small" / "manifest.json").write_text(json.dumps({"parameters": {"cardAspect": 1.4}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="card aspect"):
+        recorded_aspect(tmp_path / "small")
+
+
+def test_the_default_card_aspect_writes_what_the_constant_writes(toy, catalog, tmp_path):
+    generate(catalog, toy[1], tmp_path / "plain", n=2, seed=6)
+    generate(catalog, toy[1], tmp_path / "given", n=2, seed=6, card_aspect=CARD_ASPECT)
+    assert tree(tmp_path / "plain") == tree(tmp_path / "given")
+    assert json.loads((tmp_path / "plain" / "manifest.json").read_text())["parameters"]["cardAspect"] == 0.716
+
+
+def test_worker_processes_do_not_change_a_smaller_card_size(toy, catalog, tmp_path, monkeypatch):
+    monkeypatch.setattr(dataset_module, "CHUNK", 2)
+    one = generate(catalog, toy[1], tmp_path / "one", n=3, seed=9, kinds=KINDS, card_aspect=0.686)
+    two = generate(catalog, toy[1], tmp_path / "two", n=3, seed=9, kinds=KINDS, card_aspect=0.686, workers=2)
+    assert one == two and tree(tmp_path / "one") == tree(tmp_path / "two")
+    assert one["parameters"]["cardAspect"] == 0.686
 
 
 # --------------------------------------------------------------------- what the generator opens
@@ -459,3 +513,14 @@ def test_the_generator_opens_nothing_outside_its_three_folders(toy, catalog, sca
     finally:
         _RECORDING.clear()
     assert [Path(name).resolve() for name in _OPENED] == [Path(toy[0]).resolve()]
+
+
+@pytest.mark.parametrize("text, problem", [("[1, 2]", "not a JSON object"), ("{not json", "not valid JSON"),
+                                           ('"just a string"', "not a JSON object")])
+def test_a_manifest_that_is_no_json_object_is_a_value_error_naming_it(tmp_path, text, problem):
+    from cardvision.composites.dataset import MANIFEST_NAME
+
+    (tmp_path / MANIFEST_NAME).write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match=problem) as raised:
+        recorded_aspect(tmp_path)
+    assert MANIFEST_NAME in str(raised.value)

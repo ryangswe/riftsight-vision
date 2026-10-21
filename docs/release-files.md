@@ -16,11 +16,20 @@ The weights, the bank and the release document are release assets of
 | `identity-groups.json` | The identity groups | `1c4cf595abc76aa71a338e4ca16344f7a652b8023416d7cd57a1555148cefc61` |
 | `catalog.json` | The catalog | `75e563c8aa39cda85e6f24b683dbb1311cc7c4c18d809df2808a5f36fbfc855d` |
 | `accept.json` | The accept rule, for commands that take `--accept` | `b3a3ec47fcfdaafc0923707218eeb056684e5b1407611a6e716c47fdb8b26dc3` |
+| `SHA256SUMS` | The other seven files' SHA-256, in the form `shasum -c` reads | `c8e5555b2aa6d11dbd78962e2502eac010ead82804c78233d9f5699f91d5b126` |
 
 The release document pins the first six by SHA-256 and size, and holds the accept rule too.
-An eighth asset, `SHA256SUMS`, lists the files' SHA-256 in the form `shasum -c` reads.
+The eighth asset, `SHA256SUMS`, lists the other files' SHA-256 in the form `shasum -c` reads.
 
-**Download and check them.** This block puts the eight files in one folder outside the
+**One command.** `cardvision fetch-weights "$HOME/Downloads/cardvision-weights"` does what the
+block below does. It prints what it fetches and from where before the first request, downloads
+one file at a time, refuses to keep a file whose size or SHA-256 differs from the pins in
+`cardvision/release_assets.py` (the table above) or from `SHA256SUMS`, skips a file that is
+already there with the right hash, and finishes with `verify-release`. It leaves a file that
+differs alone unless you add `--overwrite`. `--list` prints the files, sizes and addresses
+without making a request.
+
+**Download and check them by hand.** This block does the same without `fetch-weights`. It puts the eight files in one folder outside the
 repository, `cardvision-weights` in your Downloads folder. It checks the release document
 against the hash in the table above, every file against `SHA256SUMS`, and then has
 `verify-release` compare every file with the hash the release document pins; it refuses the
@@ -50,7 +59,8 @@ cardvision infer YOUR-VIDEO.mp4 --release "$WEIGHTS/release.json" --annotate "$W
 ```
 
 For another game, take three of these files, the detector, the recognizer and the accept rule,
-and build a bank of your own cards: [Your game](your-game.md).
+and build a bank of your own cards: `cardvision try` does it from your card list
+([Your game](your-game.md)).
 
 `--release` checks the release the same way `verify-release` does, and takes the detector,
 recognizer, bank, catalog, accept rule and every other setting from it. The separate files

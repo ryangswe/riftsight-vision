@@ -3,9 +3,10 @@
 # Your game: names on your own video
 
 You have a list of your game's cards, most likely a spreadsheet, a folder of card images and a
-video. This page takes you to card names on that video, and to a demo page where you rest the
-pointer on a card to read its name. It uses the released models as they are: no GPU,
-an afternoon on a laptop. It is tier 0, **Try**, of the [adapt guide](adapt-your-game.md).
+video. Three lines take you to card names on that video and a report that says what came out;
+the demo page then lets you rest the pointer on a card to read its name. It uses the released
+models as they are: no GPU, on a laptop. It is tier 0, **Try**, of the
+[adapt guide](adapt-your-game.md).
 
 **What to expect.** On the One Piece Card Game, the released models as they stood named
 31.4 % of readable card faces right
@@ -15,13 +16,14 @@ Yours may do better or worse; this page finds out.
 **You need:**
 
 - the repository and its Python environment: steps 0 and 1 of the [quickstart](quickstart.md);
-- for step 6 only, Node 22 or later (on macOS: <https://nodejs.org> or `brew install node`);
+- for the demo page only, Node 22 or later (on macOS: <https://nodejs.org> or `brew install node`);
 - card images you are entitled to use. This repository contains no card art.
 
 **How to read the steps.** Paste a block after "Paste this into the terminal" whole, from the
 repository's root with the virtual environment active (`. .venv/bin/activate`). A block after
 "You should see something like" is what it prints, here from toy files standing in for yours:
-`tests/test_your_game_path.py` runs every block on them, except step 0 and the `npm` lines.
+`tests/test_your_game_path.py` runs every block on them, except the download, opening the
+report and the `npm` lines.
 
 ## Your folders
 
@@ -43,43 +45,89 @@ are outside the repository on purpose. Put three things in `$GAME` (`open "$GAME
   `"$GAME/My Cards.csv"`.
 - **`images/`**: one cleanly cropped image per card, named as your list's image column says. A
   path with a folder (`HD/x.jpg`) keeps that folder inside `images/` (`images/HD/x.jpg`).
-- **`video.mp4`**: a video of your game. A photo or a screenshot works in place of a video:
-  use its name in step 4.
+- **`video.mp4`**: a video of your game. A photo, a screenshot or a folder of them works too:
+  use its name in place of `video.mp4`.
 
 A new terminal forgets `$GAME`, `$WEIGHTS` and the virtual environment: paste
 `. .venv/bin/activate` and the two `export` lines again.
 
-## 0. Get the released weights
+## The three lines
 
-This block downloads the eight files of this repository's
+**1. Get the released weights.** One command downloads the eight files of this repository's
 [v0.1.0 release](https://github.com/ryangswe/riftsight-vision/releases/tag/v0.1.0) into
-`$WEIGHTS` and checks each one against the hashes this repository pins
-([Getting the released weights](release-files.md)). **Checked, not run here:** it needs the
-network. Paste this into the terminal, from the repository's root:
+`$WEIGHTS`, checks each against the hashes this repository pins and runs `verify-release`
+([Getting the released weights](release-files.md) has the same by hand). **Checked, not run
+here:** it needs the network. Paste this into the terminal, from the repository's root:
 
 ```
-for name in release.json detector.onnx recognizer.onnx bank.json identity-groups.json catalog.json accept.json SHA256SUMS; do
-    curl -fL --proto '=https' -o "$WEIGHTS/$name" "https://github.com/ryangswe/riftsight-vision/releases/download/v0.1.0/$name"
-done
-(cd "$WEIGHTS" && echo "5054fc41bc3d85a66d934e494ef9f114a7b27ac08eca0a6328c95750428e0a73  release.json" | shasum -a 256 -c - && shasum -a 256 -c SHA256SUMS)
-cardvision verify-release "$WEIGHTS/release.json"
+cardvision fetch-weights "$WEIGHTS"
 ```
 
-After curl's progress lines, you should see something like:
+You should see the notice, then one line per file, then the release check:
 
 ```
-release.json: OK
-release.json: OK
-...
+downloading 8 files (about 8.5 MB) from https://github.com/ryangswe/riftsight-vision/releases/download/v0.1.0/ into ...
+  SHA256SUMS: ok (561 bytes)
+  release.json: ok (2601 bytes)
+  ...
 release 201478a00d6ef6ba: ok (...)
-bank: 1492 of 1492 rows record their source image (artV)
 ```
 
-Every file must be `OK` (on Linux, use `sha256sum` if `shasum` is missing). Anything else:
-delete `$WEIGHTS` and download again. You use three of these files: `detector.onnx`,
-`recognizer.onnx` and `accept.json`. The rest belongs to the released game, Riftbound.
+You use three of these files, `detector.onnx`, `recognizer.onnx` and `accept.json`; the rest
+belongs to the released game, Riftbound.
 
-## 1. Import your card list
+**2. Try it on your cards.** `cardvision try` runs the commands of steps 1 to 6 below in one go.
+Paste this into the terminal, from the repository's root:
+
+```
+cardvision try "$GAME/cards.csv" --images "$GAME/images" --video "$GAME/video.mp4" --weights "$WEIGHTS"
+```
+
+You should see something like:
+
+```
+[1/6] import-catalog: cards.csv -> $GAME/cardvision-try/catalog.json
+[2/6] check-catalog: the catalog and the images in $GAME/images
+[3/6] build-bank: one row per card image -> $GAME/cardvision-try/bank.json
+  20 / 20 cards
+[4/6] build-release and verify-release: the release folder $GAME/cardvision-try/release
+[5/6] infer: one frame every 1 s, at most 16 frame(s) of 15 s (never over 60; --every or --max-frames to change)
+[6/6] report: $GAME/cardvision-try/report.html
+if the video does not play in the demo (MPEG-4 Part 2), convert it first: ffmpeg -i $GAME/video.mp4 -c:v libx264 -pix_fmt yuv420p $GAME/video-h264.mp4, then give $GAME/video-h264.mp4 to --file
+Found and named: cards found in 15 of 15 frame(s), 75 of 75 face(s) named, 5 distinct card(s). Next: open the demo with the last line.
+report: $GAME/cardvision-try/report.html
+cd browser && npm ci && npm run demo -- --release $GAME/cardvision-try/release --images $GAME/images --file $GAME/video.mp4
+```
+
+It writes everything into `$GAME/cardvision-try/`. On a fresh clone the demo line starts with
+`npm ci &&`, which installs the page's packages once (Node 22 or later). If the import stops and names your columns,
+add `--map id="HEADER"` with the header of your id column, as step 1 below explains.
+**Running it again** needs `--overwrite`, which replaces only what an earlier `try` wrote.
+
+**3. Open the report.** Paste this into the terminal, from the repository's root (on Linux,
+`xdg-open` in place of `open`; in WSL, `explorer.exe "$(wslpath -w "$GAME/cardvision-try/report.html")"`):
+
+```
+open "$GAME/cardvision-try/report.html"
+```
+
+The report says which of three outcomes it was, with the numbers, the contact sheet and the
+annotated frames:
+
+- **Found and named:** the released models carry over. Run the last line `try` printed to see
+  it in the demo page (step 6 below), then [Extension](extension.md).
+- **Found, few named:** the recognizer does not separate your cards: [Train](train.md).
+- **No cards found:** read step 5 below.
+
+The report, `try.log` and the demo line hold absolute paths that name your home folder, and
+often your user name: check them before you share them.
+
+## What `try` did, step by step
+
+The same commands, one at a time, for when you want to see or change one. They write into
+`$GAME` itself, where `try` wrote into `$GAME/cardvision-try/`.
+
+### 1. Import your card list
 
 `cardvision import-catalog` turns your list into a **catalog**, the one file your game has to
 supply: every card's id, name, kind and image. Paste this into the terminal, from the
@@ -90,30 +138,11 @@ cardvision import-catalog "$GAME/cards.csv" --out "$GAME/catalog.json" --game my
     --images "$GAME/images"
 ```
 
-When it cannot tell which column holds the card's id, it stops, writes nothing and names your
-columns: the expected turn for most lists. You should see something like:
-
-```
-cardvision import-catalog: failed
-  - no column for the card's id: name it with --map id=HEADER (the columns are ['Collector #', 'Card Name', 'Type', 'Image', 'Text'])
-```
-
-**Only if the import stopped and named your columns:** run it again with the header of your
-id column in place of `Collector #` (the header of this example's list). Ids cannot hold
-spaces: replace them in the sheet before exporting (`SET-049 (p1)` as `SET-049_(p1)`, as the error suggests), or point
-`--map id=` at a column without spaces. Paste this into the
-terminal, from the repository's root:
-
-```
-cardvision import-catalog "$GAME/cards.csv" --out "$GAME/catalog.json" --game my-game \
-    --images "$GAME/images" --map id="Collector #"
-```
-
 You should see something like:
 
 ```
 read $GAME/cards.csv (csv): 20 row(s)
-columns: id <- 'Collector #', name <- 'Card Name', kind <- 'Type', image <- 'Image'
+columns: id <- 'Card No.', name <- 'Card Name', kind <- 'Type', image <- 'Image'
 extra (every column that is no field and no facet): Text
   Choose with --extra COL,... (only those), --facets COL,... (filters), or --no-extra.
 identity: "name" (suggested; pass --identity to choose). ...
@@ -124,8 +153,12 @@ check-bank-art on $GAME/images: 20 with a usable image, 0 with no image, 0 unrea
 wrote $GAME/catalog.json: 20 card(s)
 ```
 
-The report says which column fed each field (`--map name=HEADER` and the like change them).
-Other columns, such as rules text, go to each card's `extra`, which no model reads.
+The report says which column fed each field. It knows the usual headers (`Card No.`,
+`Set Code`, `Card Title`, `Picture` and others); when it cannot tell which column holds the
+id, it stops, writes nothing and names your columns: run it again with
+`--map id="HEADER"`, your id column's header. Ids cannot hold spaces: replace them in the sheet
+before exporting (`SET-049 (p1)` as `SET-049_(p1)`, as the error suggests). Other columns, such
+as rules text, go to each card's `extra`, which no model reads.
 
 **Images as web links, or none?** Links stay links; `--download --art-out "$GAME/images"`
 fetches them, only for images you are allowed to download. With no image column, every card
@@ -151,7 +184,7 @@ real cards lack.
 [games/_template/README.md](../games/_template/README.md), every field. To write a catalog by
 hand, copy the template into a folder of its own, never into `$GAME`.
 
-## 2. Check the catalog and the images
+### 2. Check the catalog and the images
 
 Paste this into the terminal, from the repository's root:
 
@@ -174,7 +207,7 @@ every image file (the same bytes) under cards of different identities. A reprint
 base card's picture under the default name rule is one identity, fine, and not listed. Fix the
 file or the list, and import again with `--overwrite`.
 
-## 3. Build a bank
+### 3. Build a bank
 
 The bank holds one row per card: the recognizer turns each card image into a list of 128
 numbers, a fingerprint that a crop from video is compared with. Paste this into the terminal,
@@ -200,7 +233,7 @@ image file is not there. **Running it again after a fix:** add `--overwrite`; wi
 bank that came out different is refused (one that came out the same is left as it is). A bank
 of 1,472 cards took 157 s on an Apple M3 Max laptop.
 
-## 4. Run it on your video
+### 4. Run it on your video
 
 Paste this into the terminal, from the repository's root:
 
@@ -282,7 +315,7 @@ Among the report's lines, you should see something like:
 ignore region, left out of every rate and counted. **This is a first look, not a
 measurement:** [Measure](measure.md) measures on real recordings.
 
-## 5. Read the result
+### 5. Read the result
 
 Open `$GAME/out/annotated/` and `$GAME/out/sheet.png` (past 20 crops, `sheet-1.png`,
 `sheet-2.png`, ...); the contact sheet shows only the cards the detector found.
@@ -305,7 +338,7 @@ further.** Try a clearer, larger, more top-down view of the same cards. If that 
 the next tier is [Train](train.md): training the detector for your game takes a GPU (a rented
 one will do), some labeling and about a weekend.
 
-## 6. See it in the demo page
+### 6. See it in the demo page
 
 The demo page shows your video with the card under the pointer named. It loads a
 **release folder**: the two models, the accept rule, your catalog, your bank and a release
@@ -333,8 +366,8 @@ bank: 20 of 20 rows record their source image (artV)
 ```
 
 Your release id will differ. **Running it again after a fix:** add `--overwrite` to
-`build-release`; without it, a release that came out different is refused. Then start the demo page on it, with
-your images and your video. It needs Node 22 or later (not run by this page's test). Paste
+`build-release`; without it, a release that came out different is refused. Then start the demo
+page on it, with your images and your video (Node 22 or later; not run by this page's test). Paste
 this into the terminal, from the repository's root (the first line moves into `browser/`):
 
 ```
@@ -343,7 +376,10 @@ npm ci
 npm run demo -- --release "$GAME/release" --images "$GAME/images" --file "$GAME/video.mp4"
 ```
 
-After npm's own lines and the build's, you should see something like:
+After npm's own lines and the build's, you should see something like this. npm's
+`npm warn install-scripts ... not yet covered by allowScripts` lines (esbuild, fsevents,
+protobufjs) and the build's `OpenCV.js NOT copied ... runs without the geometric stage` line are
+expected and harmless:
 
 ```
 demo: http://127.0.0.1:8765/
@@ -355,9 +391,9 @@ Open the address on the last line in a browser (on a Mac, ⌘-click it in the te
 line under the picture reads `Ready. Move over a face-up card.`, rest the pointer on a card:
 the tooltip shows its image, name and id. If the page says it cannot open the video, convert
 it to H.264: `ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p video.mp4`
-(install ffmpeg with `brew install ffmpeg`, `sudo apt install ffmpeg` or `winget install ffmpeg`, or export an H.264 MP4 from your video editor). The server runs until you press Control-C; then
-`cd ..` takes you back to the repository's root. [browser/README.md](../browser/README.md)
-describes the page.
+(install ffmpeg with `brew install ffmpeg`, `sudo apt install ffmpeg` or `winget install ffmpeg`,
+or export an H.264 MP4 from your video editor). Control-C stops the server; `cd ..` returns to
+the repository's root.
 
 ## Next
 

@@ -3,7 +3,8 @@
 //
 // The page sends frames; the worker answers each with what it found. Pixels go in and numbers
 // come out: a frame never leaves the worker, and the worker never opens a connection other
-// than to fetch the release it was told to load.
+// than to fetch the release it was told to load. A release given as files (the load request's
+// `files`) is read from them, and nothing is fetched for it.
 
 import type { IdentityRule } from "./identity.js";
 import type { FrameAnalysis } from "./pipeline.js";
@@ -58,6 +59,26 @@ export interface ReleaseStatus {
   cards: Array<{ id: string; name: string; art: string | null }>;
 }
 
+/**
+ * The address under which a release given as files is read (the load request's `files`). A
+ * file's address is this base and its path relative to the release document's folder; it is only
+ * ever looked up among the files given, never fetched. A `file:` base, since every browser
+ * resolves a relative path against it the same way.
+ */
+export const RELEASE_FILES_BASE = "file:///";
+
+/** The key of a file among a release's files: its path relative to the release document's folder,
+ *  resolved as the loader resolves it (a `./` segment dropped, as the URL parser does). */
+export function releaseFileKey(path: string): string {
+  const key = new URL(path, RELEASE_FILES_BASE).href.slice(RELEASE_FILES_BASE.length);
+  try {
+    return decodeURIComponent(key);
+  } catch {
+    // A lone `%` is kept as written, on both sides.
+    return key;
+  }
+}
+
 export type WorkerRequest =
   | { kind: "ping" }
   /** Load a release. `wasmPaths` is the folder that holds ONNX Runtime's `.wasm` files (default:
@@ -65,7 +86,13 @@ export type WorkerRequest =
    *  execution providers. A second load is ignored. */
   | {
       kind: "load";
+      /** The release document's address; with `files`, its path among them (`release.json`). */
       releaseUrl: string;
+      /** The release's files, by path relative to the release document's folder
+       *  (`releaseFileKey`), when they come from the page and not from a server: a folder the
+       *  visitor chose. Nothing is then fetched for the release; each file is checked against the
+       *  size and SHA-256 the document pins, as a fetched one is. */
+      files?: Record<string, Blob>;
       wasmPaths?: string;
       providers?: ExecutionProvider[];
       /** The geometric stage's settings document (it names the packed index). When given, the

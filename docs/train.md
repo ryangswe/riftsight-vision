@@ -10,7 +10,7 @@ video, [Extension](extension.md) puts them in a browser extension, and [Measure]
 (tier 2) gives you numbers you can state.
 
 **Every command on this page was run on a toy game** that the repository draws from plain
-shapes, on an Apple M3 Max laptop (48 GB, macOS, Python 3.10). The output shown is real. It
+shapes, on an Apple M3 Max laptop (48 GB, macOS, Python 3.12, torch 2.14.1). The output shown is real. It
 proves that the commands work. It says nothing about accuracy on a real game. Where a command
 could not be run here, it says **not run here** and why. Install first: "Before you start" in
 the [adapt guide](adapt-your-game.md#before-you-start) has the platforms and the install block.
@@ -254,6 +254,8 @@ For your game:
 
 - The released runs used 8,000 scenes. `--workers N` spreads the work over processes; the
   output does not depend on it.
+- The scenes assume cards of 63 x 88 mm. If your cards are another size, give it in
+  millimeters, width first: for example `--card-size 59x86` for 59 x 86 mm cards.
 - The catalog's optional `kinds` block tells the generator which kinds are landscape, how
   often a kind is foil, and how a game board is laid out. `games/_template/README.md` and
   `cardvision/core/catalog.py` describe it.
@@ -397,17 +399,19 @@ note: stream real_positives has no rows; its segment gives none
 note: stream real_negatives has no rows; its segment gives none
 note: the seen validation set is empty and scores 0; checkpoints are compared on what is left
 device=mps classes=18 rows/epoch=260 steps/epoch=8 epochs=2 seed=0 seen=0 unseen=33 ...
-epoch 1/2 loss 15.1255 ... top1-seen 0.000 top1-unseen 0.000 criterion 0.000 wall 0.2min
-epoch 2/2 loss 14.4012 ... top1-seen 0.000 top1-unseen 0.061 criterion 0.030 wall 0.3min
-done: best criterion 0.030 at epoch 2; $WORK/runs/recognizer/best.pt
+before training: top1-seen 0.000 top1-unseen 0.000 criterion 0.000
+epoch 1/2 loss 15.1235 ... top1-seen 0.000 top1-unseen 0.000 criterion 0.000 wall 0.1min
+epoch 2/2 loss 14.4008 ... top1-seen 0.000 top1-unseen 0.000 criterion 0.000 wall 0.2min
+done: best criterion 0.000 at epoch 2; $WORK/runs/recognizer/best.pt
 ```
 
 Paths in this config are relative to the config file's folder. The first line names the
-device (`device=mps` here, on the Apple GPU; see "Which device trains" above). The numbers
-differ between devices: on the CPU (`CARDVISION_DEVICE=cpu`) the same run took 163 s, and
-its scores can stay at zero, ending in `top1-unseen 0.000 criterion 0.000` and
-`done: best criterion 0.000 at epoch 2`. That is not a fault. A toy run this short learns
-nothing, so its numbers, zero or not, mean nothing; only the commands are being shown.
+device (`device=mps` here, on the Apple GPU; see "Which device trains" above). The numbers may
+differ slightly by device; on the CPU (`CARDVISION_DEVICE=cpu`) this run printed the same and
+took 159 s. The scores staying at zero is not a fault: two short epochs from random weights,
+with no real frames, learn next to nothing, so a toy run's numbers, zero or not, mean nothing;
+only the commands are being shown. (The second run below, which starts from this one's
+checkpoint, can reach a score above zero; that means nothing either.)
 
 For your game, copy `cardvision/train_recognizer/default.toml` and set the paths.
 
@@ -481,9 +485,9 @@ You should see something like:
 ```
 training 10 steps of 16 on cpu; streams: composites (60 frames)
 step 1/10  lr 0.000033  loss 13.0262
-step 2/10  lr 0.000067  loss 13.8287
-step 10/10  lr 0.000333  loss 13.7450
-wrote $WORK/runs/detector/last.pth: loss 13.0262 at step 1, 13.7450 at step 10
+step 2/10  lr 0.000067  loss 13.8288
+step 10/10  lr 0.000333  loss 13.8236
+wrote $WORK/runs/detector/last.pth: loss 13.0262 at step 1, 13.8236 at step 10
 next: cardvision export detector $WORK/runs/detector/last.pth --out $WORK/runs/detector
 ```
 
@@ -573,8 +577,8 @@ You should see something like:
   20 / 20 cards
 bank: $WORK/release/bank.json (20 rows of 128 values; 20 embedded, 0 kept from the base bank)
 identity groups: $WORK/release/bank.identity-groups.json
-release aa11d1bfe5cbe378: $WORK/release/release.json
-release aa11d1bfe5cbe378: ok (toy, 20 cards in the bank, 20 in the catalog; every file present, unchanged and consistent)
+release d48b5310961f232d: $WORK/release/release.json
+release d48b5310961f232d: ok (toy, 20 cards in the bank, 20 in the catalog; every file present, unchanged and consistent)
 bank: 20 of 20 rows record their source image (artV)
 ```
 

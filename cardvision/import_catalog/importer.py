@@ -80,12 +80,16 @@ from cardvision.core.tls import CERTIFICATE_HELP, CertificatesMissing, is_certif
 # The catalog fields a column can fill, and the headers that fill them by themselves (compared
 # as ``_norm`` gives them).
 FIELDS = ("id", "name", "kind", "printing_of", "image")
+# Within a field the order is the order of preference: when a sheet has more than one of them,
+# the first listed is taken and the report names the others.
 AUTO_HEADERS = {
-    "id": ("id", "card id", "code"),
-    "name": ("name", "card name"),
-    "kind": ("kind", "type"),
-    "printing_of": ("printing of", "printingof", "reprint of"),
-    "image": ("image", "art", "image url", "image file"),
+    "id": ("id", "card id", "card no", "card no.", "card #", "card number", "number", "collector number",
+           "collector no", "code", "card code", "set code", "serial"),
+    "name": ("name", "card name", "title", "card title"),
+    "kind": ("kind", "type", "card type", "category"),
+    "printing_of": ("printing of", "printingof", "reprint of", "reprint", "alternate of"),
+    "image": ("image", "art", "image url", "image file", "picture", "image link", "art url", "img",
+              "image path"),
 }
 # Other names a caller may give a field in a mapping: the catalog's own keys.
 FIELD_NAMES = {**{name: name for name in FIELDS}, "printingOf": "printing_of", "art": "image"}
@@ -165,6 +169,7 @@ class ImportReport:
     cards: int = 0
     written: str | None = None
     columns: dict[str, str] = field(default_factory=dict)
+    also_matched: dict[str, list[str]] = field(default_factory=dict)
     facets: list[dict[str, Any]] = field(default_factory=list)
     extra: list[str] = field(default_factory=list)
     extra_by_default: bool = True
@@ -185,7 +190,8 @@ class ImportReport:
         """The report as JSON-ready data (the ``--report`` file)."""
         return {
             "source": self.source, "format": self.format, "rows": self.rows, "blankRows": self.blank_rows,
-            "cards": self.cards, "written": self.written, "columns": self.columns, "facets": self.facets,
+            "cards": self.cards, "written": self.written, "columns": self.columns, "alsoMatched": self.also_matched,
+            "facets": self.facets,
             "extra": self.extra, "extraByDefault": self.extra_by_default, "leftOut": self.left_out,
             "errors": self.errors, "sameName": self.same_name, "sharedImages": self.shared_images,
             "withoutArt": self.without_art, "idShapes": self.id_shapes, "identity": self.identity,
@@ -201,6 +207,9 @@ class ImportReport:
                + (f", {self.blank_rows} blank row(s) skipped" if self.blank_rows else "")]
         if self.columns:
             out.append("columns: " + ", ".join(f"{name} <- {header!r}" for name, header in self.columns.items()))
+        for name, others in self.also_matched.items():
+            out.append(f'{name} column: "{self.columns[name]}" (also matched: '
+                       + ", ".join(f'"{other}"' for other in others) + f"; --map {name}=HEADER to choose)")
         for facet in self.facets:
             split = f", split on {facet['split']!r}" if facet.get("split") else ""
             why = f"; text, since {facet['why']}" if facet.get("why") else ""
@@ -588,12 +597,13 @@ def _resolve_columns(headers: Sequence[str], options: ImportOptions, report: Imp
     for name in FIELDS:
         if name in columns:
             continue
-        found = [header for header in headers if _norm(header) in AUTO_HEADERS[name] and header not in
-                 columns.values()]
-        if len(found) > 1:
-            raise CatalogImportError(f"columns {found} could each be the {name}; choose one with --map {name}=HEADER")
+        order = AUTO_HEADERS[name]
+        found = sorted((header for header in headers if _norm(header) in order and header not in columns.values()),
+                       key=lambda header: order.index(_norm(header)))
         if found:
             columns[name] = found[0]
+            if len(found) > 1:
+                report.also_matched[name] = found[1:]
     for name in ("id", "name"):
         if name not in columns:
             raise CatalogImportError(f"no column for the card's {name}: name it with --map {name}=HEADER "

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import socket
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +12,38 @@ import pytest
 
 import toy_game
 from helpers import EMBEDDING_WIDTH
+
+
+_CONNECT = socket.socket.connect
+_CONNECT_EX = socket.socket.connect_ex
+
+
+def _loopback(address) -> bool:
+    host = address[0] if isinstance(address, tuple) else address
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """No test reaches the network: a connection to anything but this computer is refused.
+
+    Tests that need a server start one on 127.0.0.1. A test that fakes being offline and misses
+    a code path fails here instead of downloading for real."""
+
+    def guard(connect):
+        def guarded(self, address):
+            if self.family in (socket.AF_INET, socket.AF_INET6) and not _loopback(address):
+                raise OSError(f"tests may not reach the network (asked for {address!r})")
+            return connect(self, address)
+        return guarded
+
+    monkeypatch.setattr(socket.socket, "connect", guard(_CONNECT))
+    monkeypatch.setattr(socket.socket, "connect_ex", guard(_CONNECT_EX))
 
 
 @pytest.fixture(scope="session")

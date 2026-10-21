@@ -56,7 +56,7 @@ jobs:
         run: python tests/test_browser_fixtures.py --demo "${RUNNER_TEMP}/toy"
       - name: Build the hosted demo
         working-directory: browser
-        run: npm run build:pages -- --games toy,one-piece --toy "${RUNNER_TEMP}/toy"
+        run: npm run build:pages -- --games toy,one-piece,local --toy "${RUNNER_TEMP}/toy"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: browser/dist/pages

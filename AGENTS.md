@@ -34,10 +34,11 @@ checks it.
    `git status --short` must show only files you meant to change. If it is not, list the
    files you created or changed.
 3. **Do not download anything the person did not ask for.** `cardvision fetch --download`,
-   `cardvision fetch-textures`, `cardvision import-catalog --download` and
+   `cardvision fetch-weights`, `cardvision try --download`, `cardvision fetch-textures`,
+   `cardvision import-catalog --download` and
    `cardvision train-detector --download-pretrained` reach the network. Downloading video is the person's own act under the platform's terms: ask
    first, every time. **One exception:** the released weights of this repository, pinned by
-   hash in `docs/release-files.md`, may be downloaded with the block there (step S3). Tell
+   hash in `docs/release-files.md`, may be downloaded with `cardvision fetch-weights` or the block there (step S3). Tell
    the person before you run it: eight files from this repository's v0.1.0 release on GitHub,
    checked against the pinned hashes.
 4. **Do not fetch card art.** The person supplies a folder of card images they are entitled
@@ -81,8 +82,8 @@ python -m pip install --no-deps -e .
 cardvision --version
 ```
 
-- **Expect:** `cardvision 0.1.0`.
-- **If it fails:** check `python3 --version` is 3.10 or later. If a pinned version has no
+- **Expect:** `cardvision 0.2.0rc1`.
+- **If it fails:** check `python3 --version` is 3.11 or later. If a pinned version has no
   build for this machine, use `python -m pip install -e ".[dev]"` in place of the two install
   lines and tell the person the lock file was not used. (This fallback was not run when this
   file was checked.)
@@ -110,12 +111,19 @@ echo "$WORK"
 **The released weights** are release assets of v0.1.0: `docs/release-files.md`, "Getting the
 released weights", lists each file with its address and SHA-256. For the person's game you need
 them. If the person has given you the files, put them in `$WEIGHTS`; otherwise tell the person
-what you are about to fetch (rule 3) and run the block of `docs/release-files.md`, "Download
-and check them":
+what you are about to fetch (rule 3) and run:
 
 ```
 export WEIGHTS="$HOME/Downloads/cardvision-weights"
 mkdir -p "$WEIGHTS"
+cardvision fetch-weights "$WEIGHTS"
+```
+
+`--list` shows the files and addresses without a request. By hand, the block of
+`docs/release-files.md`, "Download and check them by hand", does the same, in the same
+`$WEIGHTS`:
+
+```
 for name in release.json detector.onnx recognizer.onnx bank.json identity-groups.json catalog.json accept.json SHA256SUMS; do
     curl -fL --proto '=https' -o "$WEIGHTS/$name" "https://github.com/ryangswe/riftsight-vision/releases/download/v0.1.0/$name"
 done
@@ -157,11 +165,45 @@ ls "$WORK/toy"
 ## Tier 0: Try
 
 Goal: names on a video of the person's game, with the released models, or proof that the
-commands work on the toy game. The steps below show each command on the toy game. For the
-person's game, [docs/your-game.md](docs/your-game.md) has every block of this tier on two
-folders, `$GAME` (their card list `cards.csv`, their images in `images/`, their video
-`video.mp4`, and what the steps write) and `$WEIGHTS` (S3); a test runs those blocks on toy
-files. Use them as written there.
+commands work on the toy game.
+
+### 0.0 The person's game in one command
+
+For the person's game, use two folders outside the repository: `$GAME` (their card list
+`cards.csv`, under their export's own name if they prefer, in quotes; their images in
+`images/`; their video `video.mp4`) and `$WEIGHTS` (S3, filled by `fetch-weights`). Then:
+
+```
+export GAME="$HOME/Downloads/my-game"
+export WEIGHTS="$HOME/Downloads/cardvision-weights"
+cardvision try "$GAME/cards.csv" --images "$GAME/images" --video "$GAME/video.mp4" --weights "$WEIGHTS"
+```
+
+- **Expect:** one progress line per step, `[1/6] import-catalog: ...` to `[6/6] report: ...`,
+  then three lines: the verdict (`Found and named: ...`, `Found, few named: ...` or
+  `No cards found: ...`), `report: .../cardvision-try/report.html`, and the
+  `cd browser && npm run demo -- ...` line that opens the demo page on this run. Everything is
+  written into `$GAME/cardvision-try/`.
+- **Show the person the report:** give them the path of `report.html` (or open it:
+  `open` on macOS, `xdg-open` on Linux) and read the verdict to them. Say what it rests on:
+  the released models, an accept rule calibrated for Riftbound, and their one video. Tell them
+  that the report, `try.log` and the demo line hold absolute paths naming their home folder,
+  before they share them.
+- **If it stops at the import** with `no column for the card's id: name it with --map
+  id=HEADER (the columns are [...])`: add `--map id="HEADER"` with the column that holds the
+  ids (ask the person if two could), and run it again. Other import messages: step 0.1.
+- **If a line says the video may not play in the demo:** it gives the `ffmpeg` command to
+  convert it; tell the person, and ask before installing ffmpeg.
+- **Running it again** needs `--overwrite`, which replaces only what an earlier `try` wrote; a
+  file `try` did not write is never replaced.
+- **Next:** found and named → the demo line (step 1.8 has the `npm ci` set-up), then
+  "Tier 0 → an extension" below. Few named or none → tier 1, after 0.4's reading of the
+  no-box lines.
+
+**The step-by-step fallback.** When `try` stops and the cause is not clear, or the person wants
+to change one step, run the steps one at a time. The steps below show each command on the toy
+game; [docs/your-game.md](docs/your-game.md), "What `try` did, step by step", has every one on
+`$GAME` and `$WEIGHTS`, and a test runs those blocks on toy files. Use them as written there.
 
 ### 0.1 Catalog
 
@@ -468,9 +510,10 @@ open the file in the demo: http://127.0.0.1:8765/?file=/file/table.png&images=/i
 ## Tier 0 → an extension
 
 Goal: a browser extension for the person's game that shows the card under the pointer on
-YouTube or Twitch videos, built on the release folder of step 0.6 (`$GAME/release`) or, after
-tier 1, on the release of step 1.6. Go here when the names on the person's video are good
-enough for them (step 0.4, and the demo page of step 0.6). The human guide is
+YouTube or Twitch videos, built on the release folder of step 0.0 (`$GAME/cardvision-try/release`)
+or of step 0.6 (`$GAME/release`), or, after tier 1, on the release of step 1.6. Go here when the
+names on the person's video are good enough for them (the report of step 0.0, or step 0.4, and
+the demo page). The human guide is
 [docs/extension.md](docs/extension.md).
 
 - **Tell the person how it reaches viewers.** Each viewer installs the extension from a
@@ -579,11 +622,12 @@ hosts, none for names only) and `cdn/README.md`. Keep `LICENSE` and the attribut
 
 **E10. Test and build** on the person's release folder. `$GAME` is the game's folder of
 step 0.1 (`export GAME="$HOME/Downloads/my-game"`); a new shell has lost it, so set it again,
-and the release folder is the one step 0.6 made (or, after tier 1, the release of step 1.6):
+and the release folder is the one `try` made in step 0.0 (`$GAME/release` if the person used
+the step-by-step 0.6 instead; after tier 1, the release of step 1.6):
 
 ```
 npm test
-npm run build -- --dev --release "$GAME/release"
+npm run build -- --dev --release "$GAME/cardvision-try/release"
 ```
 
 - **Expect:** every test passes now (E3 and E8 done), and the build writes `dist/`.

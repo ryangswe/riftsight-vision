@@ -14,9 +14,49 @@ import math
 
 import numpy as np
 
-# Width over height of an upright card. It sets the spacing of layouts and the size of
-# card-shaped distractors; a card's own shape always follows its image.
+# Width over height of an upright card of the default size, 63 x 88 mm. It sets the spacing of
+# layouts, the shape of generated backs and of card-shaped distractors; a face's own shape always
+# follows its image. A run may use another card size (``card_aspect``).
 CARD_ASPECT = 0.716
+DEFAULT_CARD_SIZE_MM = (63.0, 88.0)
+ASPECT_RANGE = (0.5, 1.0)  # the upright aspects a run accepts
+
+
+def card_aspect(width_mm: float, height_mm: float) -> float:
+    """Width over height of an upright card of ``width_mm`` x ``height_mm``, rounded to three
+    decimals, so that the default 63 x 88 mm gives ``CARD_ASPECT`` exactly. Raises ValueError for
+    a size that is not positive or whose aspect lies outside ``ASPECT_RANGE``."""
+    if not (math.isfinite(width_mm) and math.isfinite(height_mm) and width_mm > 0 and height_mm > 0):
+        raise ValueError(f"card size {width_mm:g} x {height_mm:g} mm: both sides must be positive numbers")
+    aspect = round(width_mm / height_mm, 3)
+    lo, hi = ASPECT_RANGE
+    if not lo <= aspect <= hi:
+        raise ValueError(f"card size {width_mm:g} x {height_mm:g} mm: width over height is {aspect:g}, outside "
+                         f"{lo:g} to {hi:g}; give the width and then the height of an upright card, such as 63x88")
+    return aspect
+
+
+def check_aspect(aspect: float) -> float:
+    """``aspect`` as a float, or ValueError when it is not a number within ``ASPECT_RANGE``."""
+    lo, hi = ASPECT_RANGE
+    if isinstance(aspect, bool) or not isinstance(aspect, (int, float)) or not lo <= aspect <= hi:
+        raise ValueError(f"card aspect must be a number from {lo:g} to {hi:g}, not {aspect!r}")
+    return float(aspect)
+
+
+def parse_card_size(text: str) -> tuple[float, float]:
+    """``"WxH"`` in millimeters, such as ``"63x88"`` or ``"59x86"``, as ``(width, height)``.
+    Raises ValueError for anything else."""
+    parts = str(text).strip().lower().split("x")
+    try:
+        if len(parts) != 2:
+            raise ValueError
+        width, height = (float(part) for part in parts)
+    except ValueError:
+        raise ValueError(f"card size {text!r}: give the width and height in millimeters as WxH, such as 63x88") \
+            from None
+    card_aspect(width, height)  # refuses a size that is not positive or not card-shaped
+    return width, height
 
 
 def scene_homography(W, H, tilt_deg, dir_deg, f):

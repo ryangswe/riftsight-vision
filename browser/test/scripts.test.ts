@@ -267,7 +267,7 @@ describe("the hosted demo's build and preview", () => {
     // A game picker that names the toy game needs its folder, and names only games the build knows.
     const noToy = run(BUILD, "--games", "toy,one-piece", "--out", join(tmpdir(), "never-built"));
     expect([noToy.status, noToy.stderr]).toEqual([2, "--games names toy: give --toy FOLDER, the toy game's folder. python tests/test_browser_fixtures.py --demo FOLDER (run from the repository's root) writes it\n"]);
-    expect(run(BUILD, "--games", "toy,chess", "--toy", "x").stderr).toBe("--games toy,chess: chess is not a game this build knows (toy, one-piece)\n");
+    expect(run(BUILD, "--games", "toy,chess", "--toy", "x").stderr).toBe("--games toy,chess: chess is not a game this build knows (toy, one-piece, local)\n");
     expect(existsSync(join(tmpdir(), "never-built"))).toBe(false);
     expect(run(PREVIEW, "--release", fileOf("no-such-folder")).stderr).toContain("no such folder");
     expect(run(PREVIEW, "--release-url", "", "--release-port", "x").stderr).toMatch(/^--release-port x: not a port number/);

@@ -4,14 +4,12 @@
 
 This runs the whole pipeline on a toy card game that the repository draws from colored
 shapes. It needs no card art, no video and no download beyond the Python packages. Every
-command here was run as written, on macOS with Python 3.10; the output shown is real. A
+command here was run as written, on macOS with Python 3.12; the output shown is real. A
 workflow, `.github/workflows/quickstart.yml`, runs the same steps on Linux and on Windows in
 WSL.
 
-You need Python 3.10 or later, and a copy of the repository: step 0 below gets it. Run
+You need Python 3.11 or later, and a copy of the repository: step 0 below gets it. Run
 everything from the repository's root, the folder that holds `README.md`.
-Python 3.11 or later is better: on 3.10 the image library stays at a version with known
-security flaws (newer versions need 3.11), and v0.2.0 ends support for 3.10.
 
 **Video:** [Try the toy game: quickstart and demo page](https://www.youtube.com/watch?v=Xq8Dwal1f6E) follows this page.
 
@@ -27,11 +25,14 @@ GPU training included, is in the [adapt guide](adapt-your-game.md#before-you-sta
 
 - **macOS:** as written. For the browser part, install Node 22 or later: the installer from
   <https://nodejs.org>, or `brew install node` if you use Homebrew.
-- **Linux:** install Python 3.10 or later, with its `venv` module, and Node 22 or later (for
+- **Linux:** install Python 3.11 or later, with its `venv` module, and Node 22 or later (for
   the browser part) with your package manager. Where a step says `open`, use `xdg-open`.
-- **Windows:** open PowerShell with "Run as administrator", type `wsl --install` and restart
-  the computer. Then open **Ubuntu** from the Start menu. The first time, it asks you to choose
-  a user name and a password. Everything from here on happens in Ubuntu's terminal.
+- **Windows:** open PowerShell with "Run as administrator", type
+  `wsl --install -d Ubuntu-24.04` (the Ubuntu the checks run on) and restart the computer.
+  Then open **Ubuntu 24.04** from the Start menu; a plain "Ubuntu" entry, if you have one from
+  before, may open Ubuntu 22.04, whose Python 3.10 is too old. The first time, it asks you to
+  choose a user name and a password. Everything from here on happens in Ubuntu's terminal;
+  `python3 --version` there must say 3.11 or later (24.04 has 3.12).
 
 On Windows, in Ubuntu, paste this into the terminal (`sudo` asks for that password):
 
@@ -85,7 +86,7 @@ pip prints many lines while it installs (a notice that a newer pip exists is har
 should see something like this as the last line:
 
 ```
-cardvision 0.1.0
+cardvision 0.2.0rc1
 ```
 
 **2. Run the toy quickstart.** One script draws the toy game (20 card images and a
@@ -233,18 +234,23 @@ list, your card images and a video. [how-it-works.md](how-it-works.md) explains 
 image file from your disk. It is not a browser extension, and it attaches to no website.
 
 **Try it with nothing to install:** <https://ryangswe.github.io/riftsight-vision/>. The page
-offers a choice of games. The **toy game (practice)** comes with the page: press **Load the
+offers three choices. The **toy game (practice)** comes with the page: press **Load the
 example table** and move the pointer over a card to see how hovering works (its models are
 stand-ins with no skill, and its cards are colored shapes). The **One Piece Card Game** loads
 the Kenbunshoku models from Hugging Face: drop a screenshot or a video of your own game and
-hover the cards to see their names. It shows names only, no card image. Either way the models
-run in your browser. Files you select are processed locally by this demo; its code does not
-upload their contents. Selecting One Piece downloads model files from Hugging Face.
+hover the cards to see their names. It shows names only, no card image. **Your game (files on
+this computer)** loads a release folder you choose, such as the `release/` that
+`cardvision try` writes ([your-game.md](your-game.md)), with an optional folder of card images.
+Whichever you pick, the models run in your browser. Files you select are processed locally by
+this demo; its code does not upload their contents. Selecting One Piece downloads model files
+from Hugging Face; Your game downloads nothing.
 
 **On your computer,** with Node 22 or later, two blocks do it: one writes a toy release, and
 one starts the demo page on the toy table. They are steps 1 to 3 of
 ["The demo page"](../browser/README.md#the-demo-page) in `browser/README.md`: follow them from
-there, in this terminal, and open the address the demo prints. Its step 1 prints a note,
+there, in this terminal, and open the address the demo prints. Its step 2 runs `npm ci`, which
+may print `npm warn install-scripts ... not yet covered by allowScripts` for esbuild, fsevents
+and protobufjs: harmless. Its step 1 prints a note,
 `OpenCV: FFMPEG: tag 0x30385056/'VP80' is not supported ...`: it is harmless, and the toy video
 is written. If the page says it cannot open a video of yours, convert it to H.264:
 `ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p video.mp4`

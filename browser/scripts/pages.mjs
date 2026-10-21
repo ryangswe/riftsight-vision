@@ -156,7 +156,9 @@ export function hostedPage(html, release, games = null) {
 // A game's release is either bundled with the site (copied in at build time from a folder on
 // disk, and fetched from the site itself) or at an https address (fetched from there, with its
 // folder and its host's storage allowed by the policy). Card images are shown only for a bundled
-// game that has them; a game at an address is names only.
+// game that has them; a game at an address is names only. The `local` choice has neither: its
+// release, and its card images if any, are folders the visitor chooses on their computer, read by
+// the page (demo/page.ts, "a release from files"), so it adds nothing to the policy.
 
 /** The name of the meta element that carries the picker's games, as JSON. */
 export const GAMES_META = "cardvision-games";
@@ -198,6 +200,16 @@ export const HOSTED_GAMES = {
     ],
     credit: { text: "Models: Kenbunshoku One Piece release B2.1 (Apache-2.0)", href: ONE_PIECE_PAGE },
   },
+  local: {
+    label: "Your game (files on this computer)",
+    models: "your models",
+    bundled: false,
+    local: true,
+    notes: [
+      "Files you choose are read on this computer by this page; nothing is uploaded, and this page makes no request for them.",
+    ],
+    credit: null,
+  },
 };
 
 /** The games `--games` names, checked: `{ games: [name, ...] }` or `{ problem }` in words. */
@@ -230,13 +242,16 @@ export function pickerGames(names) {
         notes: game.notes, credit: game.credit,
       };
     }
+    if (game.local) return { id, label: game.label, models: game.models, release: null, local: true, images: null, examples: [], notes: game.notes, credit: game.credit };
     return { id, label: game.label, models: game.models, release: game.release, images: null, examples: [], notes: game.notes, credit: game.credit };
   });
 }
 
-/** The policy of a page with a picker: what each of its games needs, and nothing more. */
+/** The policy of a page with a picker: what each of its games needs, and nothing more. The local
+ *  choice needs nothing: the page reads the folders chosen, and shows its card images from blob:
+ *  URLs, which the policy allows for the file on show already. */
 export function gamesPolicy(games) {
-  const remote = games.filter((game) => /^https?:/.test(game.release)).map((game) => {
+  const remote = games.filter((game) => typeof game.release === "string" && /^https?:/.test(game.release)).map((game) => {
     const checked = releaseAddress(game.release);
     if (!checked.release) throw new Error(`game ${game.id}: ${checked.problem}`);
     return checked.release;

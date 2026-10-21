@@ -3,18 +3,31 @@
 # Start here
 
 This toolkit finds trading cards in a video frame and names them, so that a viewer can rest
-the pointer on a card and read it. It was built for Riftbound and is laid out so that you can
-point it at your own game. Pick the line that fits you.
+the pointer on a card and read it. Built for Riftbound, it can be pointed at your own game.
+Pick the line that fits you.
 
 ## Where to go
 
 1. **Just curious?** Open the [hosted demo](https://ryangswe.github.io/riftsight-vision/):
-   nothing to install. Move the pointer over the toy game's example table, or drop a
-   screenshot or a video of a One Piece Card Game match. The models run in your browser.
-2. **You have a list of your game's cards, such as a spreadsheet, and their images?**
-   [Your game](your-game.md) takes you from those and a video to card names on that video,
-   with the released models, on a laptop, in an afternoon. The [quickstart](quickstart.md)
-   shows the tools on a toy game.
+   nothing to install. Hover the toy game's example table, drop a screenshot or a video of a
+   One Piece Card Game match, or pick **Your game** and choose a release folder on your
+   computer. The models run in your browser.
+2. **You have a list of your game's cards, such as a spreadsheet, and their images?** Put them
+   and a video in `my-game` in your Downloads folder (`cards.csv`, `images/`, `video.mp4`);
+   then three lines, after the two folders, take you to card names and a report
+   ([Your game](your-game.md) has the details and the steps behind them). Run them from the
+   repository's folder, once the [quickstart](quickstart.md)'s steps 0 and 1 have installed it:
+
+   ```
+   . .venv/bin/activate
+   export GAME="$HOME/Downloads/my-game"
+   export WEIGHTS="$HOME/Downloads/cardvision-weights"
+   cardvision fetch-weights "$WEIGHTS"
+   cardvision try "$GAME/cards.csv" --images "$GAME/images" --video "$GAME/video.mp4" --weights "$WEIGHTS"
+   open "$GAME/cardvision-try/report.html"
+   ```
+
+   The [quickstart](quickstart.md) shows the tools on a toy game.
 3. **Names show on your video?** Make a browser extension that viewers install to hover cards
    on YouTube and Twitch: [Extension](extension.md).
 4. **They don't, or too few?** Train both models for your game: [Train](train.md). Be ready for
@@ -22,7 +35,8 @@ point it at your own game. Pick the line that fits you.
 5. **You want numbers you can publish?** Calibrate, then score held-out recordings once:
    [Measure](measure.md).
 
-A coding agent follows the same path in [AGENTS.md](../AGENTS.md).
+A coding agent follows the same path in [AGENTS.md](../AGENTS.md). Building on the tools or
+the browser runtime? [Stability](stability.md) says what is kept stable.
 
 ## What you do
 
@@ -53,12 +67,11 @@ flowchart TD
     end
 ```
 
-**How to read it.** Boxes are steps, the diamond a decision, a dashed line a note. One loop
-repeats: label, train, check.
+**How to read it.** Boxes are steps, the diamond a decision, a dashed line a note.
 
-1. **Tier 0: Try.** Import your card list into a catalog: every card's id, name, kind and
-   image file. Build a bank from your card images with the released recognizer, run the
-   released models on a video, and read what they named. It needs a laptop and no GPU.
+1. **Tier 0: Try.** `cardvision try` imports your card list, builds a bank from your card
+   images with the released recognizer, runs the released models on a video and reports what
+   they named. A laptop, no GPU.
 2. **Names show?** If the cards you care about are named, go on to an extension. If not,
    tier 1 is the way forward.
 3. **Tier 1: Train.** Generate training scenes from your card images. Before you train, split
@@ -78,7 +91,7 @@ repeats: label, train, check.
 | What | For |
 | --- | --- |
 | macOS, Linux, or Ubuntu under WSL 2 on Windows | Everything. A native Windows shell is not supported ([quickstart](quickstart.md), "Which computer?") |
-| Python 3.10 or later | Everything |
+| Python 3.11 or later | Everything |
 | Node 22 or later. On macOS: the installer from <https://nodejs.org>, or `brew install node` | The demo page, and an extension |
 | A GPU | Train only. Nothing before it needs one |
 
@@ -91,9 +104,10 @@ into it. The pages use three folders in your Downloads folder, where you can fin
 | --- | --- | --- |
 | `$WORK`, `cardvision-toy` | The toy game and what the toy steps write | The [quickstart](quickstart.md), [Train](train.md) and [Measure](measure.md) |
 | `$GAME`, `my-game` | Your card list, images and video, and what the steps write for your game | [Your game](your-game.md) |
-| `$WEIGHTS`, `cardvision-weights` | The released models | [Your game](your-game.md), step 0 ([Getting the released weights](release-files.md)) |
+| `$WEIGHTS`, `cardvision-weights` | The released models | [Your game](your-game.md), "The three lines" ([Getting the released weights](release-files.md)) |
 
-A new terminal forgets these variables: paste the page's `export` lines again.
+A new terminal forgets these variables and the virtual environment: from the repository's folder,
+run `. .venv/bin/activate` and paste the page's `export` lines again.
 
 ## Prefer to watch?
 

@@ -43,6 +43,7 @@ from typing import Any
 from PIL import Image
 
 from cardvision.composites import textures as T
+from cardvision.composites.geometry import CARD_ASPECT
 from cardvision.composites.surfaces import is_surface, load_texture_index
 from cardvision.core.catalog import Catalog, is_url
 
@@ -196,6 +197,7 @@ class CardPool:
         cid = self.ids[int(rng.integers(0, len(self.ids)))]
         return self._art(cid, True), cid
 
-    def back(self, rng):
-        """A generated card back. Returns ``(RGBA image, "generated-back")``."""
-        return T.generated_back(rng), "generated-back"
+    def back(self, rng, card_aspect=CARD_ASPECT):
+        """A generated card back of upright aspect ``card_aspect``. Returns
+        ``(RGBA image, "generated-back")``."""
+        return T.generated_back(rng, card_aspect=card_aspect), "generated-back"

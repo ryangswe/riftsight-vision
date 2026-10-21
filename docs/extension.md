@@ -2,8 +2,8 @@
 
 # Extension: your own browser extension
 
-When the demo page names your cards on your video ([Your game](your-game.md), step 6, or
-[Train](train.md), step 8), a browser extension brings the same hover to videos on YouTube and
+When the report of `cardvision try` and the demo page name your cards on your video
+([Your game](your-game.md), or [Train](train.md), step 8), a browser extension brings the same hover to videos on YouTube and
 Twitch. **Each viewer installs your extension from a browser's store; it is not a stream-side
 overlay.** A streamer who wants viewers to hover cards asks them to install it.
 
@@ -53,8 +53,9 @@ That check used the demo's toy release, `$WORK/demo/release`, which
 "The demo page", step 1), not the release of Train, step 6. To repeat it, build with
 `--release "$WORK/demo/release"`. The release of Train, step 6, `$WORK/release`, builds too,
 but its ten-step detector finds nothing (Train, step 7), so an extension built with it names no
-card. With the released models and your own bank, use `$GAME/release` from
-[Your game](your-game.md), step 6; with your own trained models, your own release folder.
+card. With the released models and your own bank, use the release folder of
+[Your game](your-game.md): `$GAME/cardvision-try/release` from `cardvision try`, or
+`$GAME/release` from its step 6; with your own trained models, your own release folder.
 
 ## Card pictures
 

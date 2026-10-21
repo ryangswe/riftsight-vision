@@ -16,8 +16,10 @@ from cardvision.composites.finish import Canvas, add_foil, add_sleeve, rounded_r
 from cardvision.composites.geometry import (
     CARD_ASPECT,
     apply_h,
+    card_aspect,
     image_angle,
     local_scale,
+    parse_card_size,
     poly_area,
     scene_homography,
     unit_to_table,
@@ -479,3 +481,84 @@ def test_a_kinds_file_may_hold_the_object_bare_or_under_its_key(tmp_path):
 
 def test_the_card_aspect_is_that_of_a_standard_card():
     assert CARD_ASPECT == pytest.approx(63 / 88, abs=0.001)
+
+
+# -------------------------------------------------------------------------------- card size
+def test_a_card_size_gives_its_aspect_and_the_default_size_gives_the_constant():
+    # 63 / 88 is 0.71590..., which earlier runs wrote as 0.716: rounding to three decimals keeps it
+    assert card_aspect(*parse_card_size("63x88")) == CARD_ASPECT == 0.716
+    assert card_aspect(*parse_card_size("59x86")) == 0.686
+    assert parse_card_size(" 59.5X86.25 ") == (59.5, 86.25)
+
+
+@pytest.mark.parametrize("text", ["59", "59x", "x86", "59x86x2", "59 by 86", "abc", "", "0x86", "-59x86", "59x0",
+                                  "nanx86", "infx86", "88x63", "40x100", "100x99"])
+def test_a_card_size_that_is_not_a_card_is_refused(text):
+    with pytest.raises(ValueError, match="card size"):
+        card_aspect(*parse_card_size(text))
+
+
+class _NoJitter:
+    """A random generator whose normal draws are zero, so that a layout is its plain geometry."""
+
+    def __init__(self, seed):
+        self._rng = rng(seed)
+
+    def normal(self, loc=0.0, scale=1.0, size=None):
+        return np.zeros(size) + loc if size is not None else float(loc)
+
+    def __getattr__(self, name):
+        return getattr(self._rng, name)
+
+
+def test_the_layouts_follow_the_card_aspect_with_the_same_draws():
+    ratio = CARD_ASPECT / 0.686  # how much taller a 59 x 86 card is, at the same width
+    for seed in range(20):
+        # the same draws: the generator ends in the same state whatever the aspect
+        states = []
+        for aspect in (CARD_ASPECT, 0.686):
+            generator = rng(seed)
+            board.layout_board(generator, 60.0, aspect)
+            layout_table(generator, 12, 60.0, aspect)
+            states.append(generator.bit_generator.state)
+        assert states[0] == states[1]
+        # without the jitter, every slot of the near player's rows is as far from the center line
+        # as the card is tall, and where it was across
+        a, _ = board.layout_board(_NoJitter(seed), 60.0)
+        b, _ = board.layout_board(_NoJitter(seed), 60.0, 0.686)
+        assert [slot["role"] for slot in a] == [slot["role"] for slot in b]
+        for slot_a, slot_b in zip(a, b):
+            if slot_a.get("side") == "near" and slot_a["role"] not in ("hand-fan", "site-unit"):
+                assert slot_b["q"][0] == pytest.approx(slot_a["q"][0])
+                assert slot_b["q"][1] == pytest.approx(slot_a["q"][1] * ratio)
+        a, _ = layout_table(_NoJitter(seed), 12, 60.0)
+        b, _ = layout_table(_NoJitter(seed), 12, 60.0, 0.686)
+        for slot_a, slot_b in zip(a, b):
+            if slot_a["role"] == "slot":
+                assert slot_b["q"] == pytest.approx(slot_a["q"] * [1, ratio])
+
+
+def test_backs_and_card_shaped_distractors_take_the_card_aspect_with_the_same_draws():
+    for seed in range(6):
+        states, sizes = [], []
+        for aspect in (None, CARD_ASPECT, 0.686):
+            generator = rng(seed)
+            sizes.append(textures.generated_back(generator, card_aspect=aspect).size)
+            states.append(generator.bit_generator.state)
+        assert sizes == [(320, 447), (320, 447), (320, 466)] and states[0] == states[1] == states[2]
+    assert digest(np.asarray(textures.generated_back(rng(4), card_aspect=CARD_ASPECT))) == \
+        digest(np.asarray(textures.generated_back(rng(4))))
+    card_shaped = 0
+    for seed in range(120):
+        patches, states = [], []
+        for aspect in (CARD_ASPECT, 0.686):
+            generator = rng(seed)
+            patches.append(textures.distractor_patch(generator, 64, aspect)[0])
+            states.append(generator.bit_generator.state)
+        assert states[0] == states[1]
+        (wa, ha), (wb, hb) = patches[0].size, patches[1].size
+        if (wa, ha) != (wb, hb):  # a card-shaped one: the same width across, the run's card shape
+            card_shaped += 1
+            assert abs(min(wa, ha) / max(wa, ha) - CARD_ASPECT) < 0.01
+            assert abs(min(wb, hb) / max(wb, hb) - 0.686) < 0.01
+    assert card_shaped >= 10

@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import cardvision
 from cardvision import cli
 from cardvision.bank import build as bank_build
 from cardvision.bank import release as release_module
@@ -148,7 +149,7 @@ def test_hover_end_to_end(setup, capsys, tmp_path):
     assert code == 0, err
     result = json.loads((out / "evaluate-hover.json").read_text())
     assert (out / "evaluate-hover.md").read_text() == report
-    assert (result["kind"], result["measure"], result["package"]["version"]) == ("cardvision-evaluation", "hover", "0.1.0")
+    assert (result["kind"], result["measure"], result["package"]["version"]) == ("cardvision-evaluation", "hover", cardvision.__version__)
 
     overall = result["results"]["overall"]
     assert overall["counts"] == {
@@ -190,7 +191,7 @@ def test_the_report_says_exactly_what_was_scored(setup, capsys):
         assert f"`{Path(path).name}`" in report
     assert f"accept rule: tau {TOY_TAU}, delta {TOY_DELTA}" in report
     assert "hover selection: accepted-nms (suppression overlap 0.3)" in report
-    assert "cardvision 0.1.0" in report
+    assert f"cardvision {cardvision.__version__}" in report
     assert "no identity groups file was given" in report
     assert "named right = right / (right + wrong + nothing), over readable faces" in report
     assert ("wrong of shown = (faces named wrong + names shown on backs + non-adjacent names shown on off-card "

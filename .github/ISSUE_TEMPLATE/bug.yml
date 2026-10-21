@@ -46,7 +46,7 @@ body:
     attributes:
       label: Environment
       description: Operating system, Python version, and whether you installed from a lock file.
-      placeholder: "macOS 15, Python 3.10, requirements-lock.txt"
+      placeholder: "macOS 15, Python 3.12, requirements-lock.txt"
     validations:
       required: true
   - type: dropdown

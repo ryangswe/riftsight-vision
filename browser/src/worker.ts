@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The analysis worker. It loads one release when told to, then answers each frame it is sent
 // with what the pipeline found. Frames never leave the worker: pixels in, numbers out. The only
-// requests it makes are for the release document and the files that document pins, and, when
+// requests it makes are for the release document and the files that document pins (none when the
+// page hands it the release's files), and, when
 // the load request names a geometric stage, its settings, its descriptor index and OpenCV.js.
 // What it does with each request is in worker-host.ts; this file gives it the browser's parts.
 // It must be loaded as an ES module (`new Worker(url, { type: "module" })`, or imported from one):

@@ -72,11 +72,22 @@ const isPosInt = (v: unknown): v is number => typeof v === "number" && Number.is
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
 
-/** Whether a path is a plain relative one that stays inside the folder of the release document. */
+/**
+ * Whether a path is a plain relative one that stays inside the folder of the release document.
+ * The rule is the URL parser's view of the path, since the loader resolves it as an address:
+ * no scheme prefix (`http:x`, `data:`, `C:`), no backslash, no control character, no space at
+ * either end, not absolute, and no segment that is, or percent-encodes, `.` or `..` (the parser
+ * reads `%2e%2e` as `..`). `cardvision verify-release` applies the same rule.
+ */
 export function isRelativePath(path: unknown): path is string {
-  if (!isText(path) || path.includes("\\") || path.includes("://")) return false;
-  if (path.startsWith("/") || /^[A-Za-z]:/.test(path)) return false;
-  return !path.split("/").includes("..");
+  if (!isText(path) || path.includes("\\")) return false;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path)) return false;
+  if (/[\x00-\x1f\x7f]/.test(path) || /^ | $/.test(path)) return false;
+  if (path.startsWith("/")) return false;
+  return !path.split("/").some((segment) => {
+    const plain = segment.replace(/%2e/gi, ".");
+    return plain === "." || plain === "..";
+  });
 }
 
 function pinned(raw: unknown): PinnedFile | null {

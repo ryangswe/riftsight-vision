@@ -16,6 +16,8 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from cardvision.composites.geometry import CARD_ASPECT
+
 # ----------------------------------------------------------------------------- noise
 
 
@@ -143,8 +145,9 @@ def bg_marble(rng, w, h):
     return palette_map(veins, [c2, c1])
 
 
-def _zone_outlines(rng, img, w, h, n, color, fill_alpha=0.0):
-    """Printed playmat zone markers: card-shaped rounded rectangles (hard negatives), circles."""
+def _zone_outlines(rng, img, w, h, n, color, fill_alpha=0.0, card_aspect=CARD_ASPECT):
+    """Printed playmat zone markers: card-shaped rounded rectangles (hard negatives) of upright
+    aspect ``card_aspect``, circles."""
     pil = Image.fromarray((np.clip(img, 0, 1) * 255).astype(np.uint8))
     ov = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(ov)
@@ -152,7 +155,7 @@ def _zone_outlines(rng, img, w, h, n, color, fill_alpha=0.0):
     for _ in range(n):
         s = rng.uniform(40, 260)
         if rng.random() < 0.7:
-            ww, hh = (s * 0.716, s) if rng.random() < 0.6 else (s, s * 0.716)
+            ww, hh = (s * card_aspect, s) if rng.random() < 0.6 else (s, s * card_aspect)
         else:
             ww, hh = s * rng.uniform(0.5, 2.5), s
         x0, y0 = rng.uniform(-50, w), rng.uniform(-50, h)
@@ -167,9 +170,9 @@ def _zone_outlines(rng, img, w, h, n, color, fill_alpha=0.0):
     return np.asarray(pil, np.float32) / 255
 
 
-def bg_playmat(rng, w, h):
+def bg_playmat(rng, w, h, card_aspect=CARD_ASPECT):
     """Custom-playmat-like art: saturated low-frequency color fields (often bright), shapes,
-    printed zone outlines and a logo/text block."""
+    printed zone outlines (card-shaped at ``card_aspect``) and a logo/text block."""
     k = int(rng.integers(3, 6))
     bright = rng.random() < 0.5
     cols = [rand_color(rng, sat=(0.3, 1.0), val=(0.5, 1.0) if bright else (0.1, 0.8)) for _ in range(k)]
@@ -195,7 +198,8 @@ def bg_playmat(rng, w, h):
     pil = Image.alpha_composite(pil, ov).convert("RGB")
     img = np.asarray(pil, np.float32) / 255
     if rng.random() < 0.7:
-        img = _zone_outlines(rng, img, w, h, int(rng.integers(2, 12)), rand_color(rng, sat=(0, 0.4), val=(0.7, 1)))
+        img = _zone_outlines(rng, img, w, h, int(rng.integers(2, 12)), rand_color(rng, sat=(0, 0.4), val=(0.7, 1)),
+                             card_aspect=card_aspect)
     if rng.random() < 0.5:
         pil = Image.fromarray((img * 255).astype(np.uint8))
         draw_text_block(rng, pil, int(rng.uniform(0, w * 0.7)), int(rng.uniform(0, h * 0.8)), transparent=True)
@@ -216,13 +220,18 @@ BG_FAMILIES = {"felt": bg_felt, "wood": bg_wood, "weave": bg_weave, "gradient": 
 BG_WEIGHTS = {"felt": 0.2, "wood": 0.14, "weave": 0.1, "gradient": 0.1, "marble": 0.08, "playmat": 0.28, "desk": 0.1}
 
 
-def make_background(rng, w, h, family=None):
+def make_background(rng, w, h, family=None, card_aspect=CARD_ASPECT):
+    """A background of ``family`` (drawn by its weight when None), ``w`` x ``h``: a float array
+    (h, w, 3) and the family's name. ``card_aspect`` shapes the zone outlines of a playmat."""
     if family is None:
         fams = list(BG_WEIGHTS)
         family = fams[int(rng.choice(len(fams), p=np.array([BG_WEIGHTS[f] for f in fams]) / sum(BG_WEIGHTS.values())))]
     # generate at reduced size for the smooth families (fast), then upscale; add fine noise
     scale = 2 if family in ("gradient", "desk", "marble", "playmat") else 1
-    img = BG_FAMILIES[family](rng, w // scale, h // scale)
+    if family == "playmat":
+        img = bg_playmat(rng, w // scale, h // scale, card_aspect)
+    else:
+        img = BG_FAMILIES[family](rng, w // scale, h // scale)
     img = np.clip(img, 0, 1)
     if scale != 1:
         img = np.asarray(Image.fromarray((img * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC), np.float32) / 255
@@ -255,29 +264,35 @@ def rounded_mask(w, h, r, supersample=4):
     return m.resize((w, h), Image.LANCZOS)
 
 
-def texture_patch(rng, w, h):
+def texture_patch(rng, w, h, card_aspect=CARD_ASPECT):
     fam = ["felt", "wood", "weave", "gradient", "marble", "playmat"][int(rng.integers(0, 6))]
-    img, _ = make_background(rng, max(8, w), max(8, h), fam)
+    img, _ = make_background(rng, max(8, w), max(8, h), fam, card_aspect)
     return Image.fromarray((img * 255).astype(np.uint8)), fam
 
 
-def distractor_patch(rng, target_short):
-    """A pasted non-card: textured / photo-like / text / card-shaped rectangle. Returns (RGBA, sub)."""
+def distractor_patch(rng, target_short, card_aspect=CARD_ASPECT):
+    """A pasted non-card: textured / photo-like / text / card-shaped rectangle. Returns (RGBA, sub).
+
+    A card-shaped one has the upright aspect ``card_aspect``. It is drawn at the default card's
+    shape and then stretched to it, so that the random draws do not depend on the card size."""
     kind = rng.random()
     s = int(max(12, target_short))
+    card_shaped = False
     if rng.random() < 0.45:
-        ar = 0.716 if rng.random() < 0.7 else 0.7
+        card_shaped = rng.random() < 0.7
+        ar = CARD_ASPECT if card_shaped else 0.7
     else:
         ar = rng.uniform(0.3, 1.0)
-    w, h = (s, int(s / ar)) if rng.random() < 0.7 else (int(s / ar), s)
+    portrait = rng.random() < 0.7
+    w, h = (s, int(s / ar)) if portrait else (int(s / ar), s)
     # build at a comfortable resolution then the paste pipeline scales it
     bw = int(np.clip(w * rng.uniform(1.0, 2.0), 16, 500))
     bh = int(np.clip(bw * h / max(w, 1), 16, 700))
     if kind < 0.4:
-        pil, fam = texture_patch(rng, bw, bh)
+        pil, fam = texture_patch(rng, bw, bh, card_aspect)
         sub = f"texture-{fam}"
     elif kind < 0.7:
-        img = bg_playmat(rng, bw, bh)
+        img = bg_playmat(rng, bw, bh, card_aspect)
         pil, sub = Image.fromarray((np.clip(img, 0, 1) * 255).astype(np.uint8)), "photo-like"
     else:
         paper = rand_color(rng, sat=(0, 0.3), val=(0.6, 1.0))
@@ -285,6 +300,10 @@ def distractor_patch(rng, target_short):
         for k in range(int(rng.integers(1, 4))):
             draw_text_block(rng, pil, int(rng.uniform(0, bw * 0.3)), int(rng.uniform(0, bh * 0.7)))
         sub = "text"
+    if card_shaped and card_aspect != CARD_ASPECT:  # the run's card shape, at the same width
+        w, h = (s, int(s / card_aspect)) if portrait else (int(s / card_aspect), s)
+        bh = int(np.clip(bw * h / max(w, 1), 16, 700))
+        pil = pil.resize((bw, bh), Image.BILINEAR)
     # card-like decoration on some distractors so "has a border / rounded corners" != card
     if rng.random() < 0.4:
         d = ImageDraw.Draw(pil)
@@ -393,10 +412,12 @@ def die_patch(rng, size):
     return Image.fromarray(a.astype(np.uint8), "RGBA"), sub
 
 
-def generated_back(rng, w=320, h=447):
+def generated_back(rng, w=320, h=447, card_aspect=None):
     """A card back as an opaque sleeve shows it: a plain or graded color, a simple center
     pattern (disc, diamond or blob) and, on most, a border line. The colors are random.
-    Returns RGBA with rounded corners."""
+    Returns RGBA with rounded corners, ``w`` x ``h``, or ``w`` wide with the upright aspect
+    ``card_aspect`` when one is given. The pattern is always drawn at ``w`` x ``h`` and then
+    stretched, so that the random draws do not depend on the card size."""
     base = rand_color(rng, sat=(0.2, 0.95), val=(0.08, 0.8))
     img = palette_map(gradient(w, h, rng.uniform(0, 6.28)) * rng.uniform(0.2, 0.6) + 0.2,
                       [base * 0.7, base, base * 1.2])
@@ -423,5 +444,8 @@ def generated_back(rng, w=320, h=447):
         m = int(w * rng.uniform(0.04, 0.09))
         d.rounded_rectangle([m, m, w - m, h - m], radius=int(w * 0.04), outline=lc, width=int(max(1, w * 0.012)))
     pil = Image.alpha_composite(pil, ov)
-    pil.putalpha(rounded_mask(w, h, w * 0.045))
+    out_h = h if card_aspect is None else int(round(w / card_aspect))
+    if out_h != h:
+        pil = pil.resize((w, out_h), Image.BILINEAR)
+    pil.putalpha(rounded_mask(w, out_h, w * 0.045))
     return pil
