@@ -203,6 +203,14 @@ def _some_ids(card_ids: list[str], limit: int = 5) -> str:
 
 def _check_art(args: argparse.Namespace) -> int:
     """``check-bank-art`` without a bank: the images of the catalog's cards, by themselves."""
+    return report_card_images(args.catalog, args.art)
+
+
+def report_card_images(catalog: str | Path, art: str) -> int:
+    """Print the check ``check-bank-art`` makes with no bank: the image of every card of
+    ``catalog``, resolved against ``art`` (a folder or an http(s) URL prefix). Returns the exit
+    code: 0 whatever it lists, 1 when the catalog or the images cannot be read at all."""
+    args = argparse.Namespace(catalog=catalog, art=art)
     from cardvision.bank.art import check_art
     from cardvision.bank.suspect import suspect_lines
     from cardvision.core.catalog import CatalogError, load_catalog
@@ -346,7 +354,7 @@ COMMANDS: dict[str, tuple[str, Callable[[argparse.ArgumentParser], None], Callab
                    _build_bank_arguments, _build_bank),
     "check-refresh": ("Check that a new bank only adds to an old one, or re-embeds rows whose image changed.",
                       _check_refresh_arguments, _check_refresh),
-    "check-bank-art": ("Compare the image each bank row records with the image the card has now.",
+    "check-bank-art": ("List a catalog's card images that need a look; with --bank, which rows match the images now.",
                        _check_bank_art_arguments, _check_bank_art),
     "build-release": ("Pin models, bank, identity groups, catalog and settings in one release document.",
                       _build_release_arguments, _build_release),

@@ -1,6 +1,9 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # cardvision in a browser
 
+**Newcomers:** steps 1 to 3 of [The demo page](#the-demo-page) are all you need. The rest of
+this file is for integrators: the tests and build, the hosted demo, the scoring page and the API.
+
 The recognition pipeline of this repository as a TypeScript package that runs in a web page:
 the same detector, recognizer, bank, accept rule and hover rule as the Python package
 `cardvision`, loaded from the same release document, on ONNX Runtime Web (WebGPU, with a
@@ -38,13 +41,14 @@ Among other lines, you should see something like:
 
 ```
 added 58 packages, and audited 59 packages in 4s
- Test Files  28 passed (28)
-      Tests  495 passed | 6 skipped (501)
+ Test Files  N passed (N)
+      Tests  N passed | 6 skipped (N)
 dist/cardvision.js 902 KB, dist/worker.js 920 KB, dist/demo/demo.js 44 KB, dist/demo/score.js 30 KB, 8 ONNX Runtime files copied
 OpenCV.js NOT copied: vendor/opencv/ lacks opencv.mjs, opencv_js.wasm, opencv.mjs.LEGAL.txt (build it with node scripts/build-opencv.mjs --work FOLDER). This build runs without the geometric stage: asked for, it reports itself off.
 ```
 
-That run had no OpenCV.js built: the six tests that need it are skipped, with the reason in
+The counts grow as tests are added: what matters is that the `Test Files` and `Tests` lines
+say `passed` with no `failed`. That run had no OpenCV.js built: the six tests that need it are skipped, with the reason in
 their name, and the build says `OpenCV.js NOT copied` and builds the rest. With OpenCV.js built
 into `vendor/opencv/` (see "The geometric stage"), those tests run and the build copies it,
 `OpenCV.js copied: dist/opencv.mjs, dist/opencv_js.wasm 3326 KB, dist/opencv.mjs.LEGAL.txt`.
@@ -218,7 +222,7 @@ one cannot hide the other.
 | `Model loaded. Choose a file.` | A model has loaded and no file is open. |
 | `Opening NAME…` | The browser is decoding the file. |
 | `Ready. Move over a face-up card.` | A model has loaded **and** the file decoded to a picture. Nothing else reads as ready. |
-| `The file did not open.` | The browser cannot decode the file as an image or a video. The drop zone says which file: `fake.png is not a picture or video this browser can open. Choose another file.` |
+| `The file did not open.` | The browser cannot decode the file as an image or a video. The drop zone says which file: `fake.png is not a picture or video this browser can open. Choose another file.`; for a video, it adds the `ffmpeg` command that converts that file to H.264. A video that OpenCV reads may still be in a codec browsers do not play (MPEG-4 Part 2, for one): convert it with `ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p video.mp4` (install ffmpeg with `brew install ffmpeg`, `sudo apt install ffmpeg` or `winget install ffmpeg`, or export an H.264 MP4 from your video editor) |
 | `The model did not load.` | The release did not load. Beside the model line the page gives the address and the reason, `Could not load the model at /release/nope.json (release: HTTP 404). Check the address, then press Retry.`, and opens the address field with a `Retry` button. The file stays on show. No name, no outline and no figure of the model before it stays on screen. |
 | `No model loaded.` | The page knows no release address: see below. |
 | `The last frame was not analyzed (REASON).` | The worker gave no result for the newest frame. |

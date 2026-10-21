@@ -258,13 +258,52 @@ export function latestRequest(): LatestRequest {
   };
 }
 
-/** Where a game's card image is: the file name its catalog entry gives, in the game's image
- *  folder on the site. Null for a game with no images, or an entry with no file name. */
-export function gameArtUrl(game: Pick<Game, "images">, art: string | undefined, pageUrl: string): string | null {
-  if (game.images === null || art === undefined) return null;
-  const name = art.split(/[/\\]/).pop() ?? "";
-  if (name === "") return null;
-  return new URL(encodeURIComponent(name), new URL(game.images, pageUrl)).href;
+/**
+ * The path of a card's image inside an image folder, as the Python tools resolve a catalog's
+ * `art` against `--art`: relative, its folders kept (`HD/SET-001.jpg`). Null for an `art` those
+ * tools refuse, so that nothing is requested for it: blank, a backslash, an absolute path or a
+ * drive, a `..` segment, a scheme other than http(s), or a folder (a trailing `/`). An http(s)
+ * URL gives its last path segment, and that is a guess: `cardvision import-catalog --download`
+ * names the files it fetches by card id and writes those names into the catalog, so a catalog
+ * that still holds a URL was not downloaded by it. The guess serves images fetched by hand under
+ * their own names.
+ */
+export function artPath(art: string): string | null {
+  if (art.trim() === "" || art.endsWith("/")) return null;
+  if (/^https?:\/\//i.test(art)) {
+    let last: string;
+    try {
+      last = decodeURIComponent(new URL(art).pathname.split("/").pop() ?? "");
+    } catch {
+      return null;
+    }
+    return last === "" || /[/\\]/.test(last) || last === ".." ? null : last;
+  }
+  if (art.includes("://") || art.includes("\\") || art.startsWith("/") || /^[^/]:/.test(art)) return null;
+  const parts = art.split("/").filter((part) => part !== "" && part !== ".");
+  if (parts.length === 0 || parts.includes("..")) return null;
+  return parts.join("/");
+}
+
+/**
+ * The addresses to try, in order, for a card's image under an image folder `base`: the `art`
+ * path with its folders, as the Python tools read it, and then, when that has a folder, the bare
+ * file name, for a folder that holds every image flat. Empty when there is nothing to request.
+ */
+export function artUrls(base: string, art: string | undefined, pageUrl: string): string[] {
+  const path = art === undefined ? null : artPath(art);
+  if (path === null || base.trim() === "") return [];
+  const root = new URL(base.endsWith("/") ? base : `${base}/`, pageUrl);
+  const urls = [new URL(path.split("/").map(encodeURIComponent).join("/"), root).href];
+  const name = path.split("/").pop() ?? "";
+  if (name !== path) urls.push(new URL(encodeURIComponent(name), root).href);
+  return urls;
+}
+
+/** The addresses to try for a game's card image in the game's image folder on the site
+ *  (`artUrls`); none for a game with no images. */
+export function gameArtUrls(game: Pick<Game, "images">, art: string | undefined, pageUrl: string): string[] {
+  return game.images === null ? [] : artUrls(game.images, art, pageUrl);
 }
 
 /**

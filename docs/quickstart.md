@@ -23,7 +23,8 @@ Ubuntu under WSL 2 (the Windows Subsystem for Linux), where every step applies w
 A Windows terminal such as PowerShell is not supported. What was checked on which platform,
 GPU training included, is in the [adapt guide](adapt-your-game.md#before-you-start).
 
-- **macOS:** as written.
+- **macOS:** as written. For the browser part, install Node 22 or later: the installer from
+  <https://nodejs.org>, or `brew install node` if you use Homebrew.
 - **Linux:** install Python 3.10 or later, with its `venv` module, and Node 22 or later (for
   the browser part) with your package manager. Where a step says `open`, use `xdg-open`.
 - **Windows:** open PowerShell with "Run as administrator", type `wsl --install` and restart
@@ -49,6 +50,8 @@ Ubuntu is much slower with files on the Windows drive. To see the current folder
 Explorer, paste `explorer.exe .` into the terminal. A page that a step serves in Ubuntu, such as
 the demo at `http://127.0.0.1:8765/`, opens in your Windows browser with `localhost` in place of
 `127.0.0.1`: `http://localhost:8765/`.
+
+**Ran the README's Quickstart block?** It is steps 0 to 2 below: skip to step 3.
 
 **0. Get the code.** The toy walkthrough uses files in the source tree (`examples/` and
 `tests/`), so it needs the whole repository, not just the Python package. With `git`, paste
@@ -206,7 +209,7 @@ cardvision infer: 1 frame(s), 6 face(s), 1 back(s), 5 named
 
 When the detector keeps no box in a frame, it says so before this line and gives the
 highest score the detector saw, so that you can tell a near miss from nothing at all
-([adapt-your-game.md](adapt-your-game.md), tier 0).
+([your-game.md](your-game.md), step 5).
 
 What that shows:
 
@@ -217,15 +220,15 @@ What that shows:
 - `$WORK/out/table.jpg` is the frame with the boxes and names drawn on it. On macOS,
   `open "$WORK/out/table.jpg"` shows it.
 
-**Next:** [how-it-works.md](how-it-works.md) explains each step, and
-[adapt-your-game.md](adapt-your-game.md) takes you from here to your own game.
+**Next:** [your-game.md](your-game.md) takes you from here to your own game, with your card
+list, your card images and a video. [how-it-works.md](how-it-works.md) explains each step, and
+[start-here.md](start-here.md) lists where else to go.
 
 ## In a browser
 
-`browser/` is the pipeline as a TypeScript package for a web page. It loads the release
-document that `cardvision build-release` writes, runs both models on ONNX Runtime Web (WebGPU,
-with a WebAssembly fallback), and answers one question: with the pointer here, over this video
-or image, which card would be shown?
+`browser/` runs the same pipeline in a web page, from the release folder that
+`cardvision build-release` writes. Its demo page shows the card under the pointer on a video or
+image file from your disk. It is not a browser extension, and it attaches to no website.
 
 **Try it with nothing to install:** <https://ryangswe.github.io/riftsight-vision/>. The page
 offers a choice of games. The **toy game (practice)** comes with the page: press **Load the
@@ -234,73 +237,14 @@ stand-ins with no skill, and its cards are colored shapes). The **One Piece Card
 the Kenbunshoku models from Hugging Face: drop a screenshot or a video of your own game and
 hover the cards to see their names. It shows names only, no card image. Either way the models
 run in your browser. Files you select are processed locally by this demo; its code does not
-upload their contents. Selecting One Piece downloads model files from Hugging Face. It is the
-demo page below, built as a static site (`browser/README.md`, "The hosted demo"), and the link
-above works once the maintainer has published it.
+upload their contents. Selecting One Piece downloads model files from Hugging Face.
 
-Its own tests, and the build, need Node 22 or later. Paste this into the terminal, from the
-repository's root (the first line moves into `browser/`):
-
-```
-cd browser
-npm ci
-npm test
-npm run build
-```
-
-Among other lines, you should see something like:
-
-```
-added 58 packages, and audited 59 packages in 4s
- Test Files  28 passed (28)
-      Tests  495 passed | 6 skipped (501)
-dist/cardvision.js 902 KB, dist/worker.js 920 KB, dist/demo/demo.js 44 KB, dist/demo/score.js 30 KB, 8 ONNX Runtime files copied
-OpenCV.js NOT copied: vendor/opencv/ lacks opencv.mjs, opencv_js.wasm, opencv.mjs.LEGAL.txt (build it with node scripts/build-opencv.mjs --work FOLDER). This build runs without the geometric stage: asked for, it reports itself off.
-```
-
-The six skipped tests and the `OpenCV.js NOT copied` line are expected: they need OpenCV.js,
-an optional build ([browser/README.md](../browser/README.md), "The geometric stage"). npm also
-prints lines of its own, such as `npm warn install-scripts` notes (esbuild, fsevents,
-protobufjs) and an `npm notice` that a new major version of npm is available: both are harmless.
-Times and sizes may differ a little on your machine.
-
-`npm run demo -- --release RELEASE-FOLDER` serves a demo page on `127.0.0.1`. The page is one
-drop zone. You drop a video or image file from your disk on it, or choose one, and it starts:
-it shows the file, outlines the card under the pointer and shows its name. A line under the
-picture says which backend is running and what a frame costs. Add `--images FOLDER` and the
-tooltip shows the card's image too. With `--file PATH` the server also prints an address that
-opens that file with no file chooser, which is how a program that drives a browser opens the
-demo. [browser/README.md](../browser/README.md) has the steps, a toy release to try it on, and
-the API.
-
-**What the demo is, plainly.** It shows what the pipeline would display under the pointer on a
-local file. It is not a browser extension, it does not attach to any website, and it makes no
-request other than to its own local server: for the release folder and, if you name them, a
-folder of card images and the one file to open. The hosted copy's loader requests the site's
-own files and the files the chosen release pins, and checks each file's bytes against the hash
-the release pins. Its Content-Security-Policy limits requests to the site itself, a folder
-prefix on Hugging Face, and Hugging Face's storage hosts: it limits where a request can go, not
-what a request carries ([browser/README.md](../browser/README.md), "The
-Content-Security-Policy").
-
-The same server offers a scoring page, `score.html`. It finds the labeled frames of a manifest
-in video files from your disk, records what the browser runtime would show at each labeled
-position, and writes a file that `cardvision evaluate hover --browser-events` scores. Before a
-run it says how many rows it would read and how many have a matching video. The video
-files may be whole videos, or the sections that `cardvision fetch --download --keep-video` keeps.
-[method.md](method.md) says what that measures and what it does not.
-
-Python and the browser runtime are held to each other by a test that runs both on the same
-generated frames and compares boxes, decisions and what is shown under a grid of pointer
-positions. From the repository's root (if you are in `browser/`, run `cd ..` first), paste this
-into the terminal:
-
-```
-python -m pytest tests/test_browser_fixtures.py tests/test_browser_agreement.py -q
-```
-
-You should see something like:
-
-```
-49 passed in 28.63s
-```
+**On your computer,** with Node 22 or later, two blocks do it: one writes a toy release, and
+one starts the demo page on the toy table. They are steps 1 to 3 of
+["The demo page"](../browser/README.md#the-demo-page) in `browser/README.md`: follow them from
+there, in this terminal, and open the address the demo prints. Its step 1 prints a note,
+`OpenCV: FFMPEG: tag 0x30385056/'VP80' is not supported ...`: it is harmless, and the toy video
+is written. If the page says it cannot open a video of yours, convert it to H.264:
+`ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p video.mp4`
+(install ffmpeg with `brew install ffmpeg`, `sudo apt install ffmpeg` or `winget install ffmpeg`, or export an H.264 MP4 from your video editor). The rest of that file is for
+integrators.

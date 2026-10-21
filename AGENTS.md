@@ -4,10 +4,14 @@
 
 This file is for a coding agent asked to work in this repository, most often with a request
 like "adapt this to my game". It has the rules of the repository and then the adapt guide as
-numbered steps, each with a command, what to expect, and what to do if it fails.
+numbered steps, each with a command, what to expect, and what to do if it fails: tier 0
+(Try), then a browser extension, tier 1 (Train) and tier 2 (Measure).
 
 The same guide for people, with more explanation, is
-[docs/adapt-your-game.md](docs/adapt-your-game.md).
+[docs/adapt-your-game.md](docs/adapt-your-game.md) and its pages:
+[docs/your-game.md](docs/your-game.md) (tier 0 on the person's own files),
+[docs/extension.md](docs/extension.md), [docs/train.md](docs/train.md) and
+[docs/measure.md](docs/measure.md).
 
 ## What this repository is
 
@@ -32,7 +36,10 @@ checks it.
 3. **Do not download anything the person did not ask for.** `cardvision fetch --download`,
    `cardvision fetch-textures`, `cardvision import-catalog --download` and
    `cardvision train-detector --download-pretrained` reach the network. Downloading video is the person's own act under the platform's terms: ask
-   first, every time.
+   first, every time. **One exception:** the released weights of this repository, pinned by
+   hash in `docs/release-files.md`, may be downloaded with the block there (step S3). Tell
+   the person before you run it: eight files from this repository's v0.1.0 release on GitHub,
+   checked against the pinned hashes.
 4. **Do not fetch card art.** The person supplies a folder of card images they are entitled
    to use. If there is none, stop and ask.
 5. **Run the validator on every manifest you touch:**
@@ -98,12 +105,36 @@ echo "$WORK"
   deletes everything in the folder without asking: run it only when the person agrees, and
   never while the folder holds files of theirs, such as their own catalog.
 
-### S3. The toy game and stand-in models
+### S3. The released weights, or the toy stand-ins
 
-The released weights are release assets of v0.1.0: docs/release-files.md, "Getting the released
-weights", lists each file with its address and SHA-256. If the person has given you those files,
-use them wherever a command takes `--detector` and `--recognizer`. The toy game and two stand-in
-models let you check every command without them:
+**The released weights** are release assets of v0.1.0: `docs/release-files.md`, "Getting the
+released weights", lists each file with its address and SHA-256. For the person's game you need
+them. If the person has given you the files, put them in `$WEIGHTS`; otherwise tell the person
+what you are about to fetch (rule 3) and run the block of `docs/release-files.md`, "Download
+and check them":
+
+```
+export WEIGHTS="$HOME/Downloads/cardvision-weights"
+mkdir -p "$WEIGHTS"
+for name in release.json detector.onnx recognizer.onnx bank.json identity-groups.json catalog.json accept.json SHA256SUMS; do
+    curl -fL --proto '=https' -o "$WEIGHTS/$name" "https://github.com/ryangswe/riftsight-vision/releases/download/v0.1.0/$name"
+done
+(cd "$WEIGHTS" && echo "5054fc41bc3d85a66d934e494ef9f114a7b27ac08eca0a6328c95750428e0a73  release.json" | shasum -a 256 -c - && shasum -a 256 -c SHA256SUMS)
+cardvision verify-release "$WEIGHTS/release.json"
+```
+
+- **Expect:** every file reported `OK`, then `release 201478a00d6ef6ba: ok` and what the
+  release holds. (Not run when this file was checked: it needs the network.)
+- **If it fails:** a checksum that is not `OK`, or a refused release: delete `$WEIGHTS` and
+  run the block once more. If it fails again, stop and show the person the output. Never skip
+  or edit a check. On Linux, use `sha256sum` in place of `shasum -a 256` if `shasum` is missing.
+- **Use** `$WEIGHTS/detector.onnx`, `$WEIGHTS/recognizer.onnx` and `$WEIGHTS/accept.json`
+  wherever a command takes `--detector`, `--recognizer` and `--accept`. The released bank,
+  catalog, identity groups and release document belong to the released game, Riftbound.
+- **Note:** a new shell loses `WEIGHTS`. Set it again to the same path.
+
+**The toy game and two stand-in models** let you check every command without the released
+weights:
 
 ```
 python examples/toy_quickstart.py "$WORK/toy"
@@ -123,36 +154,47 @@ ls "$WORK/toy"
 - **If it fails** with `lies inside the repository`: `WORK` is not set, or points into the
   checkout. Do S2 again.
 
-## Tier 0: try it
+## Tier 0: Try
 
 Goal: names on a video of the person's game, with the released models, or proof that the
-commands work on the toy game.
+commands work on the toy game. The steps below show each command on the toy game. For the
+person's game, [docs/your-game.md](docs/your-game.md) has every block of this tier on two
+folders, `$GAME` (their card list `cards.csv`, their images in `images/`, their video
+`video.mp4`, and what the steps write) and `$WEIGHTS` (S3); a test runs those blocks on toy
+files. Use them as written there.
 
 ### 0.1 Catalog
 
-For the person's game, copy the template and fill it in from their card list:
+**For the person's game, import their card list first.** A spreadsheet must be exported as CSV
+(UTF-8) by the person; a TSV file or a JSON list of rows works too. Their files go in a folder
+outside the repository:
 
 ```
-cp -r games/_template "$WORK/my-game"
+export GAME="$HOME/Downloads/my-game"
+cardvision import-catalog "$GAME/cards.csv" --out "$GAME/catalog.json" --game my-game \
+    --images "$GAME/images"
 ```
 
-`games/_template/README.md` explains each field. `id` is unique; `art` is a file name inside
-the folder passed as `--art`.
-
-- **If the person's card list is a spreadsheet or a JSON file,** import it instead of
-  writing the catalog by hand (save a spreadsheet as CSV first):
-
-  ```
-  cardvision import-catalog CARDS.csv --out "$WORK/my-game/catalog.json" --game my-game \
-      --images IMAGES_DIR
-  ```
-
-  Show the person its report: the columns it took for each field, the columns it sent to
+- **Expect:** a report ending in `wrote .../my-game/catalog.json: N card(s)`.
+- **If it stops** with `no column for the card's id: name it with --map id=HEADER (the
+  columns are [...])`: this is the expected turn when the id column has a header the importer
+  does not know. Take the column that holds each card's id (ask the person if two could), and
+  run the same command again with `--map id="HEADER"`. The same holds for `name`.
+- **If it stops** with `NAME is a spreadsheet file: export it as CSV (UTF-8) first`: ask the
+  person to export it. With `the header looks semicolon-separated`: add `--delimiter ';'`.
+  With `catalog.json exists; pass --overwrite to replace it`: add `--overwrite` only when that
+  file is an earlier import's output, never a catalog the person wrote.
+- Show the person its report: the columns it took for each field, the columns it sent to
   `extra` (ask which should be `--facets` filters instead), the names under several ids and
   the identity rule it suggests, and the cards without art. Duplicate ids or a `printing_of`
   that names no card stop it, and nothing is written: fix the list, not the command. Image
   URLs stay URLs; do not add `--download` (rules 3 and 4). `games/_template/cards.example.csv`
   shows the columns.
+- **Never copy `games/_template` into `$GAME`,** or into any folder an import writes its
+  catalog to: the template's `catalog.json` is in the way. Copy the template only when there
+  is no list to import and the catalog is written by hand, into a folder of its own:
+  `cp -r games/_template "$WORK/my-game"`. `games/_template/README.md` explains each field.
+  `id` is unique; `art` is a file name inside the folder passed as `--art`.
 
 - **Decide first what counts as the same card.** By default (no `"identity"` field, or
   `"identity": "name"`) equal `name` means the same card: right when a name is one card and its
@@ -173,12 +215,14 @@ the folder passed as `--art`.
 Check any catalog:
 
 ```
-python -c "import sys; from cardvision.core.catalog import load_catalog; print(len(list(load_catalog(sys.argv[1]))), 'cards')" "$WORK/toy/catalog.json"
+cardvision check-catalog "$WORK/toy/catalog.json"
 ```
 
-- **Expect:** `20 cards` for the toy game; the number of cards for the person's game.
-- **If it fails:** the message names the card id and the position of the first problem. Fix
-  the catalog, not the loader.
+- **Expect:** `20 cards (0 without art), identity rule: name, game: toy` for the toy game.
+  For the person's game, `cardvision check-catalog "$GAME/catalog.json" --art "$GAME/images"`
+  gives their counts and then the image listing that `check-bank-art` gives below.
+- **If it fails:** exit code 1, and the message names the card id and the position of the
+  first problem. Fix the catalog (or the list, and import again), not the loader.
 
 Look at the images before any bank is built:
 
@@ -342,13 +386,15 @@ with the person's own catalog and bank. Every file goes in one folder.
 
 The toy check needs one more stand-in. The stand-in detector of S3 answers with nine rows,
 which is not the output of a real detector, and a release refuses it. The test suite writes a
-stand-in that a release takes, and a table to look at:
+stand-in release, and a table to look at. Its folder, `$WORK/demo/release`, stands in for
+`$WEIGHTS`: take the same three files from it as from the released weights (its recognizer is
+the toy one, which built `bank-all.json`):
 
 ```
 python tests/test_browser_fixtures.py --demo "$WORK/demo"
 mkdir -p "$WORK/tier0/release"
-cp "$WORK/demo/release/detector.onnx" "$WORK/toy/recognizer.onnx" "$WORK/toy/accept.json" \
-    "$WORK/toy/catalog.json" "$WORK/toy/bank-all.json" "$WORK/toy/bank-all.identity-groups.json" \
+cp "$WORK/demo/release"/{detector.onnx,recognizer.onnx,accept.json} "$WORK/tier0/release/"
+cp "$WORK/toy/catalog.json" "$WORK/toy/bank-all.json" "$WORK/toy/bank-all.identity-groups.json" \
     "$WORK/tier0/release/"
 cardvision build-release --detector "$WORK/tier0/release/detector.onnx" \
     --recognizer "$WORK/tier0/release/recognizer.onnx" --bank "$WORK/tier0/release/bank-all.json" \
@@ -362,11 +408,18 @@ cardvision verify-release "$WORK/tier0/release/release.json"
   .../tier0/release/release.json`; then `release <16 hex digits>: ok (toy, 20 cards in the
   bank, 20 in the catalog; every file present, unchanged and consistent)` and `bank: 20 of
   20 rows record their source image (artV)`.
-- **For the person's game:** put the released detector, the released recognizer and the
-  accept rule in one folder with their catalog, the bank of step 0.2 and the identity groups
-  file that step wrote beside the bank. Run the same two `cardvision` commands on that
-  folder. The accept rule is a JSON file with `tau`, `delta` and `rotationRetry`. The values
-  that come with the released models were calibrated for Riftbound (step 2.5).
+- **For the person's game:** the same three-file copy from `$WEIGHTS`, with their catalog,
+  the bank of step 0.2 and the identity groups file that step wrote beside the bank, then the
+  same two `cardvision` commands on that folder (docs/your-game.md, step 6):
+
+  ```
+  mkdir -p "$GAME/release"
+  cp "$WEIGHTS"/{detector.onnx,recognizer.onnx,accept.json} "$GAME/release/"
+  cp "$GAME/catalog.json" "$GAME/bank.json" "$GAME/bank.identity-groups.json" "$GAME/release/"
+  ```
+
+  The accept rule is a JSON file with `tau`, `delta` and `rotationRetry`. The values that come
+  with the released models were calibrated for Riftbound (step 2.5).
 - **Take exactly three files from the downloaded release:** the detector, the recognizer and,
   as a starting point only, the accept rule. The released bank, its catalog, its identity
   groups and its release document belong to the released game: never copy them into the
@@ -412,7 +465,148 @@ open the file in the demo: http://127.0.0.1:8765/?file=/file/table.png&images=/i
 - **Know:** the server runs until it is stopped. Stop it when you are done. If port 8765 is in
   use, add `--port 0` for any free port; the printed addresses then carry that port.
 
-## Tier 1: make it yours
+## Tier 0 → an extension
+
+Goal: a browser extension for the person's game that shows the card under the pointer on
+YouTube or Twitch videos, built on the release folder of step 0.6 (`$GAME/release`) or, after
+tier 1, on the release of step 1.6. Go here when the names on the person's video are good
+enough for them (step 0.4, and the demo page of step 0.6). The human guide is
+[docs/extension.md](docs/extension.md).
+
+- **Tell the person how it reaches viewers.** Each viewer installs the extension from a
+  browser's store (or loads it unpacked, for testing). It is not a stream-side overlay: a
+  streamer cannot turn it on for their viewers.
+- **Card pictures: names only, unless the person states their rights.** Never put another
+  publisher's card art in a public repository, the person's copy of the extension included.
+  Build names only (step E6) unless the person tells you they have the right to serve or bundle
+  the pictures; then follow `cdn/SETTINGS.md` in the copy, with a host they run. Do not fetch
+  card art (rule 4).
+- **The base is Kenbunshoku** (<https://github.com/ryangswe/kenbunshoku>), an Apache-2.0
+  Chrome extension for One Piece Card Game videos built on this repository's browser runtime.
+  Its README says it is looking for a maintainer: the person's copy is theirs to maintain.
+  Say so. Its guide, `docs/make-it-yours.md`, is the source of these steps; read it in the
+  copy, and follow it where it differs from this list.
+- **Status of these steps:** checked by Kenbunshoku's own guide on this repository's toy
+  release (names only, the geometric stage off, no host, Twitch only); not run by this
+  repository's tests. Report them as not run here.
+
+Run the steps in the copy's folder, not in this repository. Its own rules apply there.
+
+**E1. Copy the repository,** outside this checkout (tell the person: it downloads the
+Kenbunshoku repository):
+
+```
+git clone https://github.com/ryangswe/kenbunshoku.git "$HOME/Downloads/my-game-extension"
+cd "$HOME/Downloads/my-game-extension"
+```
+
+- **Expect:** git's lines and a folder with `kenbunshoku.config.json` in it.
+
+**E2. Install and test,** with Node 22 or later:
+
+```
+npm ci
+npm test
+```
+
+- **Expect:** the summary passes except one test, which fails by design until both the
+  `packageName` (E3) and the extension's key (E8) are changed: a copy must not keep one of
+  Kenbunshoku's and not the other. Tests of Kenbunshoku's own values are skipped once
+  `packageName` is not `kenbunshoku`. `DOMException` lines and stack traces ("Failed to load
+  iframe page ... Iframe page loading is disabled.") before the summary are harmless.
+
+**E3. Edit `kenbunshoku.config.json`.** The keys are explained at the top of
+`scripts/fork-config.mjs`. Ask the person for the names and the sites.
+
+- `name`, `shortName`, `description`: the extension's names; `packageName`: the release zip's
+  name.
+- `icons`: a folder with `icon-16.png`, `icon-32.png`, `icon-48.png` and `icon-128.png`,
+  square PNGs of those sizes in pixels. Make them from art of the person's own (ask them for
+  it); never from the publisher's logo or card art (E12).
+- `videoSites`: `{ "youtube": true|false, "twitch": true|false }`.
+- `imageHosts`: `[]` for names only.
+- `settingsUrl`: `null` (no fetch; the copy built into the extension is used).
+- `printedNumber`: `"none"`, unless the person wants the number printed on a card in image
+  addresses.
+- `geometric`: `null` (E7).
+- `projectUrl`, `modelUrl`, `maintainerContactUrl`, `updateUrlPrefix`: the person's, or
+  `null`. Keep `runtimeUrl`: it credits the runtime.
+- **Expect:** the build (E10) accepts the file; it refuses a file with a problem and says which.
+
+**E4. The release's legal files.** Rewrite `release-legal/`: `LICENSE` (the models' license:
+Apache-2.0 for the released weights), `NOTICE`, whose first line must contain
+`(id <release id>)`, and `PROVENANCE.md` (what the models were trained and built from). The
+release id is the 16 hexadecimal digits that `cardvision verify-release` prints for the
+release folder.
+
+- **Expect:** the build accepts this release, and refuses any other.
+
+**E5. No picture source of Kenbunshoku's.** Replace `data/source-files.json` with `{}`, and
+build without `--images-index`.
+
+- **Expect:** the build prints a line such as `{sourceFile} map from data/source-files.json:
+  optcgapi 0 of 20 cards`: expected in a copy that does not use that host.
+
+**E6. Names only.** In `cdn/config.json` set `"namesOnly": true`, `"primary": null`,
+`"fallbacks": []`, `"geometric": false` and `"cardLink": null`.
+
+- **Expect:** the tooltip shows each card's name, from the release's catalog, and the
+  extension requests no picture.
+
+**E7. The geometric stage off.** `"geometric": null` in `kenbunshoku.config.json` (E3), and
+delete `data/geometric.json`.
+
+- **Expect:** the build needs no `data/geometric.json`, asks for no unlimited storage and
+  ships no OpenCV.
+
+**E8. The extension's own key pair,** with the private key in a private folder of the home
+directory: outside Downloads, and outside the copy and any other repository:
+
+```
+mkdir -p "$HOME/.extension-keys" && chmod 700 "$HOME/.extension-keys"
+openssl genrsa -out "$HOME/.extension-keys/private-key.pem" 2048
+openssl rsa -in "$HOME/.extension-keys/private-key.pem" -pubout -out keys/unpacked-public.pem
+```
+
+- **Expect:** `keys/unpacked-public.pem` changed, and the private key in
+  `$HOME/.extension-keys/`. Never commit the private key, and tell the person where it is:
+  anyone who has it can publish an extension under their ID.
+
+**E9. Delete the One Piece text** that no longer applies: the README and the pages in `docs/`
+(their figures are for the One Piece models only), `PRIVACY.md` (rewrite it for the person's
+hosts, none for names only) and `cdn/README.md`. Keep `LICENSE` and the attributions in
+`NOTICE`, and add the person's own.
+
+**E10. Test and build** on the person's release folder. `$GAME` is the game's folder of
+step 0.1 (`export GAME="$HOME/Downloads/my-game"`); a new shell has lost it, so set it again,
+and the release folder is the one step 0.6 made (or, after tier 1, the release of step 1.6):
+
+```
+npm test
+npm run build -- --dev --release "$GAME/release"
+```
+
+- **Expect:** every test passes now (E3 and E8 done), and the build writes `dist/`.
+
+**E11. Load it and check on a local video** (the person's, in `$GAME` as in E10). Loading is
+the person's act, or yours in a browser you drive: in Chrome, `chrome://extensions`, **Developer mode** on, **Load unpacked**,
+choose `dist/`. Then:
+
+```
+npm run manual -- --video "$GAME/video.mp4"
+```
+
+- **Expect:** a server on `http://127.0.0.1:8770/`. Open it, turn card hovers on with the
+  button in the player, and rest the pointer on a card: its name shows. Stop the server
+  afterwards. Then the person tries a video on the sites they turned on.
+
+**E12. Before a store listing** (the person's act, not yours): a `--store` build, packaged with
+`npm run package`; every permission and every requested host explained in the listing; the
+extension said plainly to be unofficial and not affiliated with the game's publisher; the
+publisher's logos kept out of the extension's name and icon; only pictures the person has the
+right to serve. The store's own review and policies apply.
+
+## Tier 1: Train
 
 Goal: models trained for the person's game. The toy run trains for seconds from random
 weights. It proves the commands and yields models that find nothing. Say so.
@@ -608,7 +802,7 @@ cd ..
 python -m pytest tests/test_browser_fixtures.py tests/test_browser_agreement.py -q
 ```
 
-- **Expect:** a `Tests` line with no failures (about 495 passed; 6 are skipped when OpenCV.js is not built); a line `dist/cardvision.js ... KB, dist/worker.js ...
+- **Expect:** a `Tests` line with no failures (6 are skipped when OpenCV.js is not built); a line `dist/cardvision.js ... KB, dist/worker.js ...
   KB, ...`; then `49 passed`.
 - **If it fails:** `node --version` must be 22 or later. If the last command reports the
   agreement tests as skipped, `npm ci` did not run in `browser/`. If a comparison fails after a
@@ -646,7 +840,7 @@ python -m pytest tests/test_browser_fixtures.py tests/test_browser_agreement.py 
   `puppeteer-core`, which `npm ci` does not install: ask before you install it.
 - `browser/node_modules/` and `browser/dist/` are ignored by git. Never commit a build.
 
-## Tier 2: ship it
+## Tier 2: Measure
 
 Goal: numbers the person can state, and a routine for new cards. Read
 [docs/method.md](docs/method.md) before reporting any figure.

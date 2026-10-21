@@ -5,7 +5,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -157,6 +157,14 @@ describe("the local server", () => {
     // A folder keeps a request inside itself; the one file has no folder to leave.
     expect(paths.inside("/srv/release", "release.json")).toBe(resolve("/srv/release/release.json"));
     for (const path of ["../secret", "a/../../secret"]) expect(paths.inside("/srv/release", path), path).toBeNull();
+    // The image folder alike: a card image's folders are kept, and a path that leaves it is refused.
+    const image = (path: string) => paths.inside("/srv/images", path.slice(paths.IMAGES_BASE.length));
+    expect(image("/images/HD/SET-001.jpg")).toBe(resolve("/srv/images/HD/SET-001.jpg"));
+    for (const path of ["/images/../release/release.json", "/images/HD/../../secret", "/images/..\\secret", "/images//etc/passwd"]) {
+      const file = image(path);
+      expect(file === null || file.startsWith(resolve("/srv/images") + sep), path).toBe(true);
+    }
+    expect(image("/images/../release/release.json")).toBeNull();
     expect(paths.fileAddress("http://127.0.0.1:8765", served, true)).toBe("http://127.0.0.1:8765/?file=/file/my%20table.png&images=/images/");
     expect(paths.fileAddress("http://127.0.0.1:8765", served, false)).toBe("http://127.0.0.1:8765/?file=/file/my%20table.png");
   });

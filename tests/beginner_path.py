@@ -4,8 +4,8 @@
 The commands are not copied here: they are read out of the "Paste this into the terminal"
 blocks of ``docs/quickstart.md`` and ``browser/README.md`` each time, so that a page and this run
 cannot drift apart. The path is the quickstart's steps 1 to 4, the browser runtime's tests and
-build ("In a browser"), the demo's toy release and the demo server ("The demo page", steps 1
-and 2). The server is started, its page, the toy release document and the toy table are
+build (``browser/README.md``, "Run it"), the demo's toy release and the demo server ("The demo
+page", steps 1 and 2). The server is started, its page, the toy release document and the toy table are
 fetched over HTTP from the address it prints, and it is stopped.
 
     python3 tests/beginner_path.py                 run the path, from the repository's root
@@ -50,12 +50,19 @@ QUICKSTART = "docs/quickstart.md"
 @dataclass(frozen=True)
 class Block:
     """A "Paste this" block of a document: the first one after ``anchor`` in ``section``.
-    ``expect`` is a piece of its text, so that the wrong block is never run unnoticed."""
+    ``expect`` is a piece of its text, so that the wrong block is never run unnoticed.
+    ``folder`` is where the page says to run it: the repository's root, or a folder in it."""
     name: str
     document: str
     section: str
     anchor: str
     expect: str
+    folder: str = ""
+
+    @property
+    def where(self) -> str:
+        """What the text before the block must say about where it runs."""
+        return f"in `{self.folder}/`" if self.folder else FROM_ROOT
 
 
 PATH = (
@@ -63,7 +70,8 @@ PATH = (
     Block("toy", QUICKSTART, "# Quickstart on a toy game", "**2. Run the toy quickstart.**", "examples/toy_quickstart.py"),
     Block("bank", QUICKSTART, "# Quickstart on a toy game", "**3. Build a bank**", "cardvision build-bank"),
     Block("infer", QUICKSTART, "# Quickstart on a toy game", "**4. Detect and name the cards**", "cardvision infer"),
-    Block("browser-build", QUICKSTART, "## In a browser", "Its own tests, and the build", "npm run build"),
+    Block("browser-build", "browser/README.md", "## Run it", "Paste this into the terminal, in `browser/`", "npm run build",
+          folder="browser"),
     Block("demo-release", "browser/README.md", "## The demo page", "**1. Write the toy release.**",
           "tests/test_browser_fixtures.py --demo"),
     Block("demo-server", "browser/README.md", "## The demo page", "**2. Start the demo on the toy table.**", "npm run demo"),
@@ -139,8 +147,8 @@ def read_block(block: Block, root: Path = ROOT) -> str:
         raise Problem(f"{block.document}: no {block.anchor!r} in {block.section!r}")
     for before, commands in fenced_blocks(section[at:]):
         if PASTE.search(flat(before)):
-            if block in PATH and FROM_ROOT not in flat(before):
-                raise Problem(f"{block.document}, {block.anchor!r}: the block no longer says it runs {FROM_ROOT}")
+            if block in PATH and block.where not in flat(before):
+                raise Problem(f"{block.document}, {block.anchor!r}: the block no longer says it runs {block.where}")
             if block.expect not in commands:
                 raise Problem(f"{block.document}, {block.anchor!r}: the block no longer holds {block.expect!r}")
             return commands.strip() + "\n"
@@ -149,8 +157,9 @@ def read_block(block: Block, root: Path = ROOT) -> str:
 
 def path_script(root: Path, state: Path) -> tuple[str, str]:
     """The script of the path up to the demo server, and the server's own command (the last
-    line of its block). Every block starts from the repository's root, as its page says; what a
-    block sets (the Python environment, ``WORK``) carries on to the next, as in one terminal.
+    line of its block). Every block starts where its page says, the repository's root or a
+    folder in it; what a block sets (the Python environment, ``WORK``) carries on to the next,
+    as in one terminal.
     The script ends by writing what the server's command needs into ``state``."""
     parts = ["set -e", f"BEGINNER_ROOT={shlex.quote(str(root))}"]
     server = ""
@@ -159,7 +168,8 @@ def path_script(root: Path, state: Path) -> tuple[str, str]:
         if block.name == "demo-server":
             *commands_before, server = commands.rstrip("\n").split("\n")
             commands = "\n".join(commands_before) + "\n"
-        parts += [f"\n# ---- {block.name}: {block.document}, {block.anchor}", 'cd "$BEGINNER_ROOT"', commands.rstrip("\n")]
+        folder = f'"$BEGINNER_ROOT/{block.folder}"' if block.folder else '"$BEGINNER_ROOT"'
+        parts += [f"\n# ---- {block.name}: {block.document}, {block.anchor}", f"cd {folder}", commands.rstrip("\n")]
     parts += ["", f'{{ printf "%s\\n" "$PWD" "$WORK"; }} > {shlex.quote(str(state))}']
     return "\n".join(parts) + "\n", server
 

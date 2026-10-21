@@ -710,6 +710,11 @@ def import_catalog(source: str | Path, out: str | Path, options: ImportOptions, 
     # -- ids, names and printings
     first: dict[str, int] = {}
     for row in parsed:
+        if re.search(r"\s", row.id):
+            suggestion = re.sub(r"\s+", "_", row.id)
+            report.errors.append(f"row {row.number}: the id {row.id!r} holds a space, and an id may not: replace the "
+                                 f"spaces in the sheet before exporting (for example {suggestion!r}), "
+                                 f"or point --map id=HEADER at a column without spaces")
         if row.id in first:
             report.errors.append(f"row {row.number}: the id {row.id!r} is used twice (first in row {first[row.id]})")
         else:
@@ -801,17 +806,16 @@ def import_catalog(source: str | Path, out: str | Path, options: ImportOptions, 
         cards.append(card)
     doc["cards"] = cards
     try:
-        parse_catalog(doc, source=out.name)
+        catalog = parse_catalog(doc, source=out.name)
     except CatalogError as error:
         report.errors.append(str(error))
         return report
-    out.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(out, catalog_text(doc))
-    catalog = load_catalog(out)
-    report.written, report.cards = str(out), len(catalog)
 
-    # -- the existing art check, when every image is a local file
+    # -- the existing art check, when every image is a local file: before anything is written, since
+    # a list none of whose images is there is refused
     base = Path(report.art_base) if report.art_base else None
+    missing: set[str] = set()
+    checked = False
     if any(card["art"] is not None and is_url(card["art"]) for card in cards):
         report.notes.append("some art is a URL, so the images were not checked here; run cardvision check-bank-art")
     elif base is not None and catalog.ids_with_art():
@@ -819,14 +823,58 @@ def import_catalog(source: str | Path, out: str | Path, options: ImportOptions, 
         from cardvision.bank.suspect import suspect_lines
 
         found = check_art(catalog, base)
+        checked, missing = True, set(found.missing)
         report.art_check = {"usable": len(found.usable), "missing": found.missing,
                             "unreadable": [list(entry) for entry in found.unreadable],
                             "lines": suspect_lines(found.suspects)}
         if found.missing:
-            report.art_check["lines"].insert(0, f"no image under {base}, for example: {', '.join(found.missing[:5])}")
+            looked = catalog.art_location(found.missing[0], base)
+            report.art_check["lines"].insert(0, f"no image under {base}, for example: "
+                                                f"{', '.join(found.missing[:5])} (looked for {looked})")
     elif base is None and catalog.ids_with_art():
         report.notes.append("the images were not checked: pass --images with the folder the image paths are in")
+    refusal = _no_image_found(parsed, cards, options, report, catalog, base, checked, missing)
+    if refusal is not None:
+        report.errors.append(refusal)
+        return report
+    out.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(out, catalog_text(doc))
+    catalog = load_catalog(out)
+    report.written, report.cards = str(out), len(catalog)
     return report
+
+
+def _no_image_found(rows: Sequence[_Row], cards: Sequence[Mapping[str, Any]], options: ImportOptions,
+                    report: ImportReport, catalog: Any, base: Path | None, checked: bool,
+                    missing: set[str]) -> str | None:
+    """Why the import is refused when the list names images and not one of them is there, or None.
+
+    A file path counts as not there when ``_local_art`` refused it (outside ``--images``, ``..``)
+    or when it was looked for under ``--images`` and not found; a URL to download, when its
+    download failed. Nothing is judged when a path could not be looked for (no ``--images``) or
+    when URLs stay URLs."""
+    art = {card["id"]: card["art"] for card in cards}
+    listed = [row for row in rows if row.image is not None]
+    paths = [row for row in listed if not is_url(row.image)]  # type: ignore[arg-type]
+    urls = [row for row in listed if is_url(row.image)]  # type: ignore[arg-type]
+    if not listed or (urls and not options.download) or (paths and options.images is None):
+        return None
+    if any(art[row.id] is not None and row.id not in missing for row in listed):
+        return None
+    if not checked and any(art[row.id] is not None for row in listed):
+        return None  # images that were not looked for: nothing to judge
+    reasons = {entry["id"]: entry["reason"] for entry in report.without_art}
+    first = listed[0]
+    if first in urls:
+        example = ", for example" if len(urls) > 1 else ""
+        return (f"none of the {len(urls)} image download(s) succeeded: "
+                f"{reasons.get(first.id, first.image)}{example}. Check the addresses and the connection")
+    detail = (reasons.get(first.id, f"{first.image!r} was refused") if art[first.id] is None
+              else f"looked for {catalog.art_location(first.id, base)}")
+    example = ", for example" if len(listed) > 1 else ""
+    return (f"none of the {len(listed)} image(s) the list names is under --images {options.images}: {detail}"
+            f"{example}. Pass --images the folder the image column's paths start from (a path with a "
+            "folder, such as HD/x.jpg, is looked for inside it)")
 
 
 def _images(rows: Sequence[_Row], options: ImportOptions, out: Path, report: ImportReport,

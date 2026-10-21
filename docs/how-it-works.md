@@ -3,8 +3,8 @@
 # How it works
 
 This page describes the pipeline from a video frame to a card name. It is written from the
-code, and each section names the module that is the final word. For the same pipeline as a
-diagram, and the whole process around it, see [the process at a glance](overview.md).
+code, and each section names the module that is the final word. The whole process around it,
+from your card list to numbers you can state, is in [Start here](start-here.md).
 
 ```
 frame
@@ -33,6 +33,67 @@ add a card you add a row to the bank. No model is retrained.
 Two rules decide what is said. The **accept rule** decides whether a match is trusted enough
 to name a card. The **hover rule** decides which box a pointer is on. Saying nothing is a
 normal result: the design treats a wrong name as worse than a missing one.
+
+## At a glance
+
+```mermaid
+flowchart TD
+    FR["Video frame"] --> DET["Detector:<br/>face and back boxes"]
+    DET --> SUP1["Suppression:<br/>overlap 0.45, any class"]
+    SUP1 -- "back" --> BACK["Reported,<br/>never named"]
+    SUP1 -- "face" --> CROP["Crop the box"]
+    CROP --> REC["Recognizer:<br/>a 128-value vector"]
+    REC --> BANK["Bank: best match<br/>and its margin"]
+    BANK --> ACC{"Accept rule:<br/>tau and delta"}
+    ACC -- "Upright look<br/>not accepted" --> ROT["Rotation retry:<br/>three quarter turns"]
+    ROT --> REC
+    BANK -.-> GEO["Optional geometric stage:<br/>re-checks the top candidates"]
+    GEO -.-> ACC
+    ACC --> SUP2["Suppression among boxes<br/>that reach tau: overlap 0.3"]
+    SUP2 --> HOV["Hover rule: the smallest<br/>kept box under the pointer"]
+    HOV -- "Accepted" --> NAME["Its name"]
+    HOV -- "Not accepted" --> NONE["Nothing"]
+    SUP2 -.-> TRK["Browser runtime:<br/>tracker, for outlines"]
+```
+
+**How to read it.** Two models do the work and two rules decide what is said. A dashed line
+is optional or belongs to one runtime.
+
+1. **The frame** is brought to a width between 720 and 1920 pixels.
+2. **The detector** (YOLOX-Nano) finds boxes of two classes: **face**, a card lying face up,
+   and **back**, a card lying face down. Overlapping boxes are thinned by greedy suppression
+   at an overlap (IoU) of 0.45, whatever their class. A back is reported and never named.
+   Boxes under 24 pixels are dropped.
+3. **The crop.** Each face box is cut out of the frame and pooled to a 128 × 128 grid.
+4. **The recognizer** turns the crop into a 128-value vector. It knows nothing about any list
+   of cards.
+5. **The bank** holds one vector per card, computed from card images: the mean of the
+   recognizer's vectors for 16 views of the image (the image itself and 15 copies damaged as
+   video damages a card). The crop's vector is compared with every row: the **score** is the
+   highest similarity, and the **margin** is the score minus the best similarity among rows of
+   a different identity. To add a card you add a row to the bank; no model is retrained.
+6. **The accept rule.** A look is accepted when its score is at least `tau` and its margin is
+   at least `delta`. An accepted look names its card; otherwise the result is nothing.
+   Saying nothing is a normal result: a wrong name is treated as worse than a missing one.
+7. **The rotation retry.** The upright look is tried, and when it is accepted the turned
+   looks are never computed. Otherwise the three quarter turns are computed and all four
+   compete.
+8. **The optional geometric stage** is off unless you ask for it. It matches keypoints of the
+   crop with those of the recognizer's top candidates, fuses the result with the cosine, and
+   sends the fused scores through the same accept rule.
+9. **The second suppression.** The face boxes whose look reaches `tau` take part in the hover
+   rule. They are visited by score, highest first, and a box is kept unless it overlaps a kept
+   box by an IoU of 0.3 or more. This is the `accepted-nms` selection a release names.
+10. **The hover rule** decides which box the pointer is on: among the kept boxes, the topmost
+    one that contains the point, with the smallest box on top. It shows that box's name if
+    its look is accepted, and nothing otherwise. A kept box that fails the margin still takes
+    the pointer, so a doubtful card on top hides the card beneath it.
+11. **The tracker** is in the browser runtime only. It follows the kept boxes from frame to
+    frame and names a track from the mean of its last five vectors, for steady outlines. A
+    tooltip answers from the current frame and never waits for it. The Python tools analyze
+    each frame on its own.
+
+Each step has a section of its own below, which names its module.
 
 ## The catalog: the one file a game supplies
 
@@ -289,7 +350,7 @@ setting cannot be silently ignored.
 `tau` and `delta` belong to one model and one bank. The values above were calibrated for the
 released Riftbound models on crops of real footage. A retrained model or another game needs
 its own, and `cardvision calibrate` chooses them on labeled frames
-([adapt guide](adapt-your-game.md), tier 2).
+([Measure](measure.md), tier 2 of the adapt guide).
 
 ## 8. The rotation retry
 

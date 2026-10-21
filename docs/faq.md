@@ -157,9 +157,9 @@ What can be said from how it is built:
   scenes of your cards and a small number of labeled frames.
 
 [adapt-your-game.md](adapt-your-game.md) has the steps in three tiers, and
-[AGENTS.md](../AGENTS.md) has the same steps for a coding agent. Try tier 0 before anything
-else: it takes a folder of card images and tells you quickly whether the released models see
-your cards at all.
+[AGENTS.md](../AGENTS.md) has the same steps for a coding agent. Try tier 0
+([your-game.md](your-game.md)) before anything else: it takes your card list and images and
+tells you quickly whether the released models see your cards at all.
 
 Other games' catalogs, banks and weights are not kept in this repository. They live with
 their authors and are linked from the README's "Built with this" list.

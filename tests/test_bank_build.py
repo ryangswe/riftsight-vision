@@ -404,7 +404,7 @@ def test_write_bank_puts_the_groups_beside_the_bank(full, catalog, tmp_path):
     BB.write_bank(full.bank, catalog, bank_path)
     other = {**full.bank, "version": 2}
     before = (bank_path.read_bytes(), groups_path.read_bytes())
-    with pytest.raises(DocumentExistsError, match="already exists with different content"):
+    with pytest.raises(DocumentExistsError, match="already exists with different content; write to another path, or pass --overwrite to replace it"):
         BB.write_bank(other, catalog, bank_path)
     assert (bank_path.read_bytes(), groups_path.read_bytes()) == before
     BB.write_bank(other, catalog, bank_path, overwrite=True)

@@ -161,6 +161,15 @@ def test_extra_can_be_chosen_split_or_turned_off(tmp_path):
 
 
 # ------------------------------------------------------------------------------------ checks
+def test_an_id_with_a_space_is_refused_with_the_fix(tmp_path):
+    """An id may hold no space: the error names the id and says how to fix it."""
+    report, out = _import(tmp_path, "cards.csv", 'id,name\nSET-049 (p1),One\nSET-050,Two\n')
+    assert report.errors == ["row 1: the id 'SET-049 (p1)' holds a space, and an id may not: replace the spaces in "
+                             "the sheet before exporting (for example 'SET-049_(p1)'), or point --map id=HEADER at a "
+                             "column without spaces"]
+    assert not out.exists() and report.written is None
+
+
 def test_a_duplicate_id_is_an_error_and_nothing_is_written(tmp_path):
     report, out = _import(tmp_path, "cards.csv", "id,name\nA,One\nB,Two\nA,Three\n")
     assert report.errors == ["row 3: the id 'A' is used twice (first in row 1)"]
@@ -231,6 +240,59 @@ def test_local_images_are_checked_and_one_file_under_several_cards_is_reported(t
     assert [entry["id"] for entry in report.without_art] == ["E"] and "outside --images" in report.without_art[0]["reason"]
     assert report.art_check is not None and report.art_check["missing"] == ["D"]
     assert report.art_check["usable"] == 3
+
+
+def test_a_missing_image_names_the_path_it_looked_for(tmp_path):
+    images = tmp_path / "images"
+    (images / "HD").mkdir(parents=True)
+    (images / "HD" / "a.png").write_bytes(_image(seed=1))
+    report, out = _import(tmp_path, "cards.csv", "id,name,image\nA,Alder,HD/a.png\nB,Birch,HD/b.png\n", images=images)
+    assert out.exists() and load_catalog(out).card("A").art == "HD/a.png"
+    assert report.art_check is not None and report.art_check["usable"] == 1
+    assert report.art_check["lines"][0] == f"no image under {images}, for example: B (looked for {images / 'HD' / 'b.png'})"
+
+
+def test_a_list_none_of_whose_images_is_found_is_refused(tmp_path):
+    """The image column is mapped, but --images is the wrong folder: an error that names a path
+    it looked for, and nothing is written."""
+    images = tmp_path / "images"
+    (images / "HD").mkdir(parents=True)
+    (images / "HD" / "a.png").write_bytes(_image(seed=1))
+    report, out = _import(tmp_path, "cards.csv", "id,name,image\nA,Alder,a.png\nB,Birch,b.png\n", images=images)
+    assert not out.exists() and report.written is None
+    assert len(report.errors) == 1 and f"looked for {images / 'a.png'}" in report.errors[0]
+    assert "none of the 2 image(s)" in report.errors[0]
+    assert any("nothing was written" in line for line in report.lines())
+
+
+def test_a_list_whose_image_paths_all_leave_the_images_folder_is_refused(tmp_path):
+    """Paths that _local_art refuses count as not there: absolute paths into another folder, and
+    paths with "..". The error names the refused path, and nothing is written."""
+    images, elsewhere = tmp_path / "images", tmp_path / "elsewhere"
+    images.mkdir()
+    elsewhere.mkdir()
+    (elsewhere / "a.png").write_bytes(_image(seed=1))
+    (elsewhere / "b.png").write_bytes(_image(seed=2))
+    text = f"id,name,image\nA,Alder,{elsewhere / 'a.png'}\nB,Birch,{elsewhere / 'b.png'}\n"
+    report, out = _import(tmp_path, "cards.csv", text, images=images)
+    assert not out.exists() and report.written is None
+    assert len(report.errors) == 1 and report.errors[0].startswith("none of the 2 image(s) the list names is under")
+    assert f"{elsewhere / 'a.png'}" in report.errors[0] and "outside --images" in report.errors[0]
+    report, out = _import(tmp_path, "cards.csv", "id,name,image\nA,Alder,../a.png\n", images=images)
+    assert not out.exists() and len(report.errors) == 1 and "goes outside the images folder (..)" in report.errors[0]
+
+
+def test_ids_are_stripped_before_the_space_check(tmp_path):
+    report, out = _import(tmp_path, "cards.csv", "id,name\n  A  ,Alder\n")
+    assert report.errors == [] and [card.id for card in load_catalog(out)] == ["A"]
+    report, out = _import(tmp_path, "cards.csv", "id,name\nA\tB,Alder\n", force=True)
+    assert len(report.errors) == 1 and "the id 'A\\tB' holds a space" in report.errors[0]
+
+
+def test_a_list_with_no_image_column_imports_with_no_art(tmp_path):
+    report, out = _import(tmp_path, "cards.csv", "id,name\nA,Alder\nB,Birch\n", images=tmp_path)
+    assert report.errors == [] and all(card.art is None for card in load_catalog(out))
+    assert [entry["id"] for entry in report.without_art] == ["A", "B"]
 
 
 def test_without_an_images_folder_the_images_are_not_checked(tmp_path):
@@ -453,7 +515,10 @@ def awkward():
 def _download_one(tmp_path, url, **options):
     report, out = _import(tmp_path, "cards.csv", f"id,name,image\nA,Alder,{url}\n", download=True, **options)
     reason = report.without_art[0]["reason"] if report.without_art else None
-    return report, load_catalog(out).card("A").art, reason
+    # A list whose one download failed is refused, and nothing is written: its card has no art.
+    art = load_catalog(out).card("A").art if report.written else None
+    assert report.written or report.errors[0].startswith("none of the 1 image download(s) succeeded: ")
+    return report, art, reason
 
 
 def test_a_body_shorter_than_its_length_is_tried_again_and_never_saved(tmp_path, awkward):

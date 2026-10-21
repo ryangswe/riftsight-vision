@@ -14,7 +14,7 @@ be brought across, and nothing here promises that it will.
 
 The bank published with the release is frozen. New cards are not added to it here. Adding
 cards to your own copy is one command and needs no retraining:
-[docs/adapt-your-game.md](docs/adapt-your-game.md), "Refresh the bank".
+[docs/measure.md](docs/measure.md), "Refresh the bank when cards are added".
 
 ## What you can expect
 

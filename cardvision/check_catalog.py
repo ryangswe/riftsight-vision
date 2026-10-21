@@ -42,6 +42,6 @@ def run(args: argparse.Namespace) -> int:
           f"game: {catalog.game}")
     if args.art is None:
         return 0
-    from cardvision.bank.commands import _check_art
+    from cardvision.bank.commands import report_card_images
 
-    return _check_art(argparse.Namespace(catalog=args.catalog, art=args.art))
+    return report_card_images(args.catalog, args.art)

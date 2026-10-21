@@ -52,7 +52,7 @@ def write_document(path: str | Path, body: bytes, overwrite: bool = False) -> bo
             return False
         if not overwrite:
             raise DocumentExistsError(
-                f"{path} already exists with different content; write to another path, or allow overwriting"
+                f"{path} already exists with different content; write to another path, or pass --overwrite to replace it"
             )
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")

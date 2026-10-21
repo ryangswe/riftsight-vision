@@ -198,7 +198,7 @@ def test_building_again_gives_the_same_release_and_other_settings_another(folder
     again = R.build_release(folder / "release.json", **components(folder))
     assert (folder / "release.json").read_bytes() == before and again["id"] == read_json(folder / "release.json")["id"]
     other = components(folder, settings={"hover": {"selection": "best-score"}})
-    with pytest.raises(DocumentExistsError, match="already exists with different content"):
+    with pytest.raises(DocumentExistsError, match="already exists with different content; write to another path, or pass --overwrite to replace it"):
         R.build_release(folder / "release.json", **other)
     assert (folder / "release.json").read_bytes() == before
     changed = R.build_release(folder / "release.json", overwrite=True, **other)

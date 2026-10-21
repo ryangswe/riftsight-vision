@@ -18,7 +18,7 @@ const NO_FILE: MediaState = { kind: "none" };
 const OPENING: MediaState = { kind: "opening", name: "table.png" };
 const PICTURE: MediaState = { kind: "shown", name: "table.png", video: false };
 const VIDEO: MediaState = { kind: "shown", name: "table.webm", video: true };
-const NOT_A_PICTURE: MediaState = { kind: "undecodable", name: "fake.png" };
+const NOT_A_PICTURE: MediaState = { kind: "undecodable", name: "fake.png", video: false };
 const RUNNING: RunFacts = { detector: "webgpu", recognizer: "webgpu", frameMs: 25.52, cards: 3, frameError: null };
 
 const STATUS: DetailsStatus = {

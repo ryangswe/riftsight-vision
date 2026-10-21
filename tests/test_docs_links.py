@@ -148,3 +148,22 @@ def test_a_good_fixture_passes(tmp_path):
     page = tmp_path / "page.md"
     page.write_text("[a](other.md#other-page) [b](other.md#extra) [c](#real) [d](https://x.example/y#z)\n# Real\n")
     assert problems(page, tmp_path) == []
+
+
+# Anchors of the adapt guide that pages outside this repository link to (the example extension's
+# guide, video descriptions): the guide was split into pages, and the hub keeps them.
+INBOUND = {
+    "docs/adapt-your-game.md": ("tier-0-try-it", "tier-1-make-it-yours", "tier-2-ship-it",
+                                "9-put-it-in-a-browser-extension-optional",
+                                "measured-on-another-game-the-one-piece-card-game", "before-you-start",
+                                "if-something-fails"),
+}
+
+
+def test_the_anchors_other_sites_link_to_still_resolve():
+    for document, names in INBOUND.items():
+        found = anchors((ROOT / document).read_text(encoding="utf-8"))
+        assert [name for name in names if name not in found] == [], document
+    # Linked from video descriptions: the page stays, as a pointer to where it moved.
+    overview = (ROOT / "docs" / "overview.md").read_text(encoding="utf-8")
+    assert "(start-here.md)" in overview and "(how-it-works.md#at-a-glance)" in overview

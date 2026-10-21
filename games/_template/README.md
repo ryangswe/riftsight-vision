@@ -2,16 +2,20 @@
 
 # Template for another game
 
-Copy this folder into a folder of your own and fill in `catalog.json` there:
+**If your card list is a spreadsheet,** export it as CSV and let `cardvision import-catalog`
+write the catalog: [docs/your-game.md](../../docs/your-game.md), step 1, runs it, and
+[docs/commands.md](../../docs/commands.md#cardvision-import-catalog) has every option.
+`cards.example.csv` here shows the columns it knows by their headers: `id`, `name`, `kind`,
+`printing_of` and `image`; any others become filters (`--facets`) or go to each card's
+`extra`, and `--map id=HEADER` names a column under another header.
+
+**To write the catalog by hand,** copy this folder into a folder of your own and fill in
+`catalog.json` there. Copy it into a new folder, not into one that an import writes its
+catalog into:
 
 ```
 cp -r games/_template /path/to/my-game
 ```
-
-If your card list is already a spreadsheet, save it as CSV and let `cardvision import-catalog`
-write the catalog (docs/commands.md). `cards.example.csv` here shows the columns it expects:
-`id`, `name`, `kind`, `printing_of` and `image`, and any others, which become filters
-(`--facets`) or go to each card's `extra`.
 
 **Your game's folder does not go into this repository's `games/`.** Keep it in a work folder
 outside the checkout, or in a repository of your own (a fork counts, in a folder of its own).
@@ -158,7 +162,7 @@ Nothing but the labeling tool reads facets: they change no model, bank or measur
    shows the shape, and `games/riftbound/README.md` says what reads the file and how strictly.
    The thresholds in it were chosen for that game's models and bank, so treat them as a
    starting point and calibrate your own with `cardvision calibrate`
-   ([docs/adapt-your-game.md](../../docs/adapt-your-game.md), "Calibrate the accept rule").
+   ([docs/measure.md](../../docs/measure.md), "Calibrate the accept rule").
 
 3. Put the detector, the recognizer, the bank, its identity groups, the catalog and
    `accept.json` in one folder (subfolders are fine) and pin them together. From a downloaded

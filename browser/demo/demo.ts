@@ -54,7 +54,7 @@ import { type FrameAnalysis, hoverAt } from "../src/pipeline.js";
 import { createSession, pictureBox, type Session, type Shown } from "../src/session.js";
 import { boxAtPoint, type DetailsFile, detailsView, type DetailsView, SPARK_FRAMES } from "./details.js";
 import { renderDetails } from "./details-dom.js";
-import { addressRequest, byId, chosenBackend, type Game, gameArtUrl, hostedRelease, latestRequest, hostedWorkerScript, SERVED_IMAGES_BASE, SERVED_RELEASE_URL, serverConfig, WORKER_URL } from "./page.js";
+import { addressRequest, byId, chosenBackend, type Game, artUrls, gameArtUrls, hostedRelease, latestRequest, hostedWorkerScript, SERVED_IMAGES_BASE, SERVED_RELEASE_URL, serverConfig, WORKER_URL } from "./page.js";
 import { demoView, gameSource, HOSTED, hostedNote, isVideoType, MARK, type MediaState, modelOf, type ModelState, NO_FACTS, type PanelFrame, panelLines, type RunFacts } from "./view.js";
 
 /** Whether this page is a hosted build, and its release address: null for the local server's page. */
@@ -169,17 +169,24 @@ function say(element: HTMLElement, text: string | null): void {
   element.hidden = text === null;
 }
 
-/** Where a card's image is under the base in the options: the file name its catalog entry
- *  gives, inside that base. Null when the base is empty, so that nothing is fetched. */
-function artUrl(cardId: string): string | null {
-  if (hosted) return game ? gameArtUrl(game, artByCard.get(cardId), location.href) : null;
-  const base = imageBaseInput.value.trim();
-  const art = artByCard.get(cardId);
-  if (base === "" || art === undefined) return null;
-  const name = art.split(/[/\\]/).pop() ?? "";
-  if (name === "") return null;
-  return new URL(encodeURIComponent(name), new URL(base.endsWith("/") ? base : `${base}/`, location.href)).href;
+/** Where a card's image may be under the base in the options, in the order to try (`artUrls`):
+ *  the catalog's path with its folders, then the bare file name. None when the base is empty,
+ *  so that nothing is fetched. */
+function artCandidates(cardId: string): string[] {
+  return hosted ? (game ? gameArtUrls(game, artByCard.get(cardId), location.href) : [])
+    : artUrls(imageBaseInput.value.trim(), artByCard.get(cardId), location.href);
 }
+
+/** Whether a bare file name has loaded where the path with its folders did not: the image folder
+ *  holds every image flat, and the bare name is tried first from then on, until the release or
+ *  the image folder changes. */
+let flatImages = false;
+
+/** The addresses of the shown card's image: all of them, and those not tried yet. */
+let artAll: string[] = [];
+/** The bare-name address of the shown card's image, when it has a path with folders too. */
+let artBare: string | null = null;
+let artLeft: string[] = [];
 
 function draw(shown: Shown | null): void {
   if (!shown) {
@@ -197,7 +204,11 @@ function draw(shown: Shown | null): void {
   tooltipId.textContent = shown.cardId;
   if (shownCard !== shown.cardId) {
     shownCard = shown.cardId;
-    const url = artUrl(shown.cardId);
+    const candidates = artCandidates(shown.cardId);
+    artBare = candidates.length > 1 ? (candidates[candidates.length - 1] ?? null) : null;
+    artAll = flatImages ? [...candidates].reverse() : candidates;
+    const [url = null, ...rest] = artAll;
+    artLeft = rest;
     tooltipArt.hidden = url === null;
     if (url !== null) tooltipArt.src = url;
     else tooltipArt.removeAttribute("src");
@@ -385,6 +396,7 @@ function startSession(kind: Kind): void {
   sessionOn = kind;
   sessionSpent = false;
   artByCard = new Map();
+  flatImages = false;
   frameTimes = [];
   framesSeen = 0;
   say(imageNote, null);
@@ -440,7 +452,7 @@ function openFile(file: { blob: Blob; name: string; servedAt: string | null }): 
 
   const settle = (width: number, height: number): void => {
     const decoded = width > 0 && height > 0;
-    media = decoded ? { kind: "shown", name: file.name, video: kind === "video" } : { kind: "undecodable", name: file.name };
+    media = decoded ? { kind: "shown", name: file.name, video: kind === "video" } : { kind: "undecodable", name: file.name, video: kind === "video" };
     if (decoded) picture.style.setProperty("--ratio", String(width / height));
     // A video starts without sound. It has its own controls for the rest.
     if (decoded && kind === "video") void video.play().catch(() => undefined);
@@ -684,17 +696,30 @@ backendSelect.addEventListener("change", restart);
 alwaysOn.addEventListener("change", restart);
 allBoxes.addEventListener("change", render);
 imageBaseInput.addEventListener("change", () => {
+  flatImages = false;
   // The image of the card on show is asked for again, under the new base.
   shownCard = null;
   say(imageNote, null);
   render();
 });
 // A card image that does not load is left out of the tooltip, and the options say so.
+// The next address is tried first: a folder that holds every image flat has the bare file name.
 tooltipArt.addEventListener("error", () => {
+  const next = artLeft.shift();
+  if (next !== undefined) {
+    tooltipArt.src = next;
+    return;
+  }
+  flatImages = false;
   tooltipArt.hidden = true;
-  say(imageNote, `No image was found at ${new URL(tooltipArt.src).pathname}. The tooltip shows the name alone.`);
+  const tried = (artAll.length > 0 ? artAll : [tooltipArt.src]).map((url) => new URL(url).pathname);
+  say(imageNote, `No image was found at ${tried.join(" or ")}. The tooltip shows the name alone.`);
 });
-tooltipArt.addEventListener("load", () => say(imageNote, null));
+tooltipArt.addEventListener("load", () => {
+  // A bare name that loaded after the path with its folders failed: the folder is flat.
+  if (artBare !== null) flatImages = tooltipArt.src === artBare;
+  say(imageNote, null);
+});
 
 // The pointer over the picture, for the row of the box under it in Details.
 for (const element of [video, image] as HTMLElement[]) {

@@ -152,7 +152,7 @@ similarity and margin, which shows where right and wrong matches separate.
 
 The values in `games/riftbound/accept.json` belong to the released Riftbound models and their
 bank. The adapt guide runs the command on a toy game
-([adapt-your-game.md](adapt-your-game.md), tier 2).
+([measure.md](measure.md), tier 2).
 
 ### Report intervals by recording group
 

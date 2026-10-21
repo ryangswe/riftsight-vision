@@ -25,7 +25,8 @@ def test_every_block_is_found_where_the_pages_have_it():
                               "windows-packages", "windows-node"]
     assert commands["install"].startswith("python3 -m venv .venv\n. .venv/bin/activate\n")
     assert commands["infer"].startswith('cardvision infer "$WORK/toy/table.png" \\\n')
-    assert commands["browser-build"] == "cd browser\nnpm ci\nnpm test\nnpm run build\n"
+    assert commands["browser-build"] == "npm ci\nnpm test\nnpm run build\n"
+    assert BLOCKS["browser-build"].document == "browser/README.md" and BLOCKS["browser-build"].folder == "browser"
     assert commands["demo-server"].splitlines()[-1].startswith('npm run demo -- --release "$WORK/demo/release"')
     assert commands["windows-node"] == "nvm install --lts\n"
 
@@ -83,7 +84,11 @@ def test_the_path_script_runs_every_block_from_the_root_and_leaves_the_server_fo
     assert script.startswith("set -e\n")
     for block in PATH:
         assert f"# ---- {block.name}: " in script
-    assert script.count('cd "$BEGINNER_ROOT"') == len(PATH)
+    assert script.count('cd "$BEGINNER_ROOT') == len(PATH)
+    # The browser's tests and build run in browser/, as browser/README.md says; every other block
+    # from the root.
+    assert script.count('cd "$BEGINNER_ROOT/browser"') == 1
+    assert script.count('cd "$BEGINNER_ROOT"') == len(PATH) - 1
     assert server.startswith("npm run demo -- ") and server not in script
     # The quickstart's blocks for Windows are not part of the path.
     without_root = script.replace(str(ROOT), "")
@@ -170,3 +175,13 @@ def test_a_server_that_does_not_start_is_a_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(beginner_path, "SERVER_STARTS", 20)
     with pytest.raises(Problem, match="did not start: port in use"):
         beginner_path.serve_and_check("echo port in use; exit 1", tmp_path, tmp_path, None)
+
+
+def test_a_browser_block_that_no_longer_says_it_runs_in_browser_is_refused(tmp_path):
+    (tmp_path / "browser").mkdir()
+    text = (ROOT / "browser" / "README.md").read_text(encoding="utf-8")
+    anchor = "Paste this into the terminal, in `browser/`"
+    assert anchor in text
+    (tmp_path / "browser" / "README.md").write_text(text.replace(anchor, "Paste this into the terminal", 1), encoding="utf-8")
+    with pytest.raises(Problem, match="no 'Paste this into the terminal, in `browser/`'"):
+        read_block(BLOCKS["browser-build"], tmp_path)

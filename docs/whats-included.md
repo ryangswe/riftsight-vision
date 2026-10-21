@@ -2,6 +2,19 @@
 
 # What is in this repository, and what is not
 
+## What it does
+
+- **Finds and names cards in a frame of video.** A detector boxes card faces and card backs,
+  a recognizer matches each face against a bank built from card images, and an accept rule
+  shows nothing when a match is not trusted.
+- **Runs in Python and in a web page.** The `cardvision` command line, and a TypeScript runtime
+  on ONNX Runtime Web that says which card would be shown under the pointer.
+- **Can be pointed at your own game.** A bank built from your card images needs no
+  retraining; where that falls short, both models can be fine-tuned with the published trainers
+  and a labeling tool that runs on your own machine.
+- **Publishes its labels and its method.** Label manifests for frames of public videos, and the
+  evaluation tools that score what a viewer would see under the pointer.
+
 ## What is in this repository
 
 | | |
@@ -12,7 +25,7 @@
 | `data/` | Label manifests: for single frames of public videos, where the cards are and which cards they are. Text only. The format is in `data/SCHEMA.md`. |
 | `games/riftbound/` | Riftbound's catalog (card ids and names), accept rule, and the two training recipes. |
 | `games/_template/` | The starting point for another game. |
-| `docs/` | The quickstart, how it works, the commands, the release files, the model card, the data card, the evaluation method, the adapt guide, and what was tried and dropped. |
+| `docs/` | Start here, the quickstart, how it works, the commands, the release files, the model card, the data card, the evaluation method, the adapt guide and its pages (your game, train, measure, extension), and what was tried and dropped. Every page is listed in [reference.md](reference.md). |
 | `tests/` | The tests. They run on a toy game drawn by code. |
 | `examples/` | `toy_quickstart.py`: the [quickstart](quickstart.md) as one script. |
 
@@ -37,7 +50,7 @@ its identity groups, the catalog, and the release document that pins them togeth
 - **The browser extension.** `browser/` holds the recognition runtime that runs in a web page
   and a demo page for a file on your own disk, also hosted on GitHub Pages. It is not an
   extension, and it does not attach to any website. An example extension built on it is
-  described in the [adapt guide](adapt-your-game.md#9-put-it-in-a-browser-extension-optional).
+  described in [extension.md](extension.md).
 
 **So you cannot rebuild the released weights exactly.** Private images and Riot's card art
 were part of the training mix, and neither is published. What the published recipe reaches on

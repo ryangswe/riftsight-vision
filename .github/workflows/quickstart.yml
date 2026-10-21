@@ -4,8 +4,9 @@
 # besides macOS: Linux, and Windows in Ubuntu under WSL 2 (docs/quickstart.md, "Which
 # computer?"). tests/beginner_path.py reads the commands out of the "Paste this into the
 # terminal" blocks of docs/quickstart.md and browser/README.md: the quickstart's steps 1 to 4,
-# the browser runtime's tests and build, the demo's toy release and the demo server, whose page,
-# toy release and toy table it then fetches over HTTP. In WSL the repository is cloned into the
+# the browser runtime's tests and build (browser/README.md, "Run it", run in browser/), the
+# demo's toy release and the demo server, whose page, toy release and toy table it then
+# fetches over HTTP. In WSL the repository is cloned into the
 # Linux home first, as the quickstart says, Ubuntu is prepared with the quickstart's own blocks,
 # and the demo is also fetched from Windows at the localhost address the quickstart gives.
 #

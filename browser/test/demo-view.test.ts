@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { addressRequest } from "../demo/page.js";
-import { demoView, HINT, isVideoType, MARK, type MediaState, modelOf, type ModelState, NO_FACTS, type PanelStatus, panelLines, type RunFacts } from "../demo/view.js";
+import { demoView, h264Command, HINT, isVideoType, MARK, type MediaState, modelOf, type ModelState, NO_FACTS, type PanelStatus, panelLines, type RunFacts } from "../demo/view.js";
 
 const ADDRESS = "/release/release.json";
 const NO_MODEL: ModelState = { kind: "none" };
@@ -17,7 +17,7 @@ const NO_FILE: MediaState = { kind: "none" };
 const OPENING: MediaState = { kind: "opening", name: "table.png" };
 const PICTURE: MediaState = { kind: "shown", name: "table.png", video: false };
 const VIDEO: MediaState = { kind: "shown", name: "table.webm", video: true };
-const NOT_A_PICTURE: MediaState = { kind: "undecodable", name: "fake.png" };
+const NOT_A_PICTURE: MediaState = { kind: "undecodable", name: "fake.png", video: false };
 const NOT_FETCHED: MediaState = { kind: "unfetched", name: "table.png", reason: "the server answered 404" };
 const FILES = [NO_FILE, OPENING, PICTURE, VIDEO, NOT_A_PICTURE, NOT_FETCHED];
 
@@ -99,7 +99,15 @@ describe("what the demo page says", () => {
     expect(view.state).toEqual({ tone: "problem", text: "The file did not open.", word: "file not opened" });
     // The model is still loaded, and says so: one state does not hide the other.
     expect([view.modelLine, view.modelProblem, view.strip]).toEqual(["Model: toy · 20 cards", null, ["WebGPU"]]);
-    expect(demoView(LOADED, { kind: "undecodable", name: "notes.txt" }).fileProblem).toContain("notes.txt is not a picture or video");
+    expect(demoView(LOADED, { kind: "undecodable", name: "notes.txt", video: false }).fileProblem).toContain("notes.txt is not a picture or video");
+    // A video gets the command that converts it, with its own name in it.
+    expect(demoView(LOADED, { kind: "undecodable", name: "my clip.mp4", video: true }).fileProblem).toBe(
+      "my clip.mp4 is not a picture or video this browser can open. Choose another file, or convert the video to H.264: "
+      + "ffmpeg -i 'my clip.mp4' -c:v libx264 -pix_fmt yuv420p 'my clip-h264.mp4'");
+    expect(h264Command("it's.webm")).toBe("ffmpeg -i 'it'\\''s.webm' -c:v libx264 -pix_fmt yuv420p 'it'\\''s-h264.mp4'");
+    expect(h264Command("clip.mp4")).toBe("ffmpeg -i clip.mp4 -c:v libx264 -pix_fmt yuv420p clip-h264.mp4");
+    expect(h264Command("-clip.mp4")).toBe("ffmpeg -i ./-clip.mp4 -c:v libx264 -pix_fmt yuv420p ./-clip-h264.mp4");
+    expect(h264Command("$x`y`.mp4")).toBe("ffmpeg -i '$x`y`.mp4' -c:v libx264 -pix_fmt yuv420p '$x`y`-h264.mp4'");
   });
 
   it("says beside the model line that a model did not load, with the address and the reason, and keeps the file", () => {

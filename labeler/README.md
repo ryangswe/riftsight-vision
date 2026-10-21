@@ -1061,7 +1061,7 @@ Good to know:
   was cut or encoded again, where the times can be a little off. So keep PNG frames. Where
   the frames next to it look the same, because nothing moved, the frame kept can be one of
   those: it shows the same picture.
-- `docs/adapt-your-game.md` (tier 2) runs this route on a toy game and shows the output of
+- `docs/measure.md` (tier 2 of the adapt guide) runs this route on a toy game and shows the output of
   every step.
 
 ## Labels written by a script

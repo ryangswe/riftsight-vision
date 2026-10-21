@@ -25,8 +25,9 @@ export type MediaState =
   | { kind: "opening"; name: string }
   /** The browser decoded the file to a picture: an image, or a frame of a video. */
   | { kind: "shown"; name: string; video: boolean }
-  /** The browser could not decode the file as an image or as a video. */
-  | { kind: "undecodable"; name: string }
+  /** The browser could not decode the file as an image or as a video; `video` when its type
+   *  or name says it is a video, which may be in a codec this browser does not play. */
+  | { kind: "undecodable"; name: string; video: boolean }
   /** The file the page's address named could not be fetched from the local server. */
   | { kind: "unfetched"; name: string; reason: string };
 
@@ -70,6 +71,20 @@ export function loadingText(model: Extract<ModelState, { kind: "loading" }>): st
 
 /** The endings of a video file's name, for a file the browser gives no type for. */
 const VIDEO_NAME = /\.(mp4|m4v|webm|mov|mkv|ogv)$/i;
+
+
+/** The command that converts a video file to H.264, which browsers play: the file's own name,
+ *  quoted for a POSIX shell, and the output beside it as NAME-h264.mp4. */
+export function h264Command(name: string): string {
+  // Quoted only when needed (a plain name also works in Windows' cmd.exe, which keeps single
+  // quotes); a name that starts with "-" gets "./" so that ffmpeg does not read it as an option.
+  const arg = (text: string) => {
+    const path = text.startsWith("-") ? `./${text}` : text;
+    return /^[A-Za-z0-9._+\/-]+$/.test(path) ? path : `'${path.replace(/'/g, "'\\''")}'`;
+  };
+  const stem = name.replace(/\.[^./]*$/, "") || name;
+  return `ffmpeg -i ${arg(name)} -c:v libx264 -pix_fmt yuv420p ${arg(`${stem}-h264.mp4`)}`;
+}
 
 /** Whether a file goes to the video element: by its type, or by its name when it has no type.
  *  Anything else goes to the image element. */
@@ -204,7 +219,10 @@ export function demoView(model: ModelState, media: MediaState, facts: RunFacts =
   else if (model.kind === "failed") modelLine = "Model: not loaded";
 
   let fileProblem: string | null = null;
-  if (media.kind === "undecodable") fileProblem = `${media.name} is not a picture or video this browser can open. Choose another file.`;
+  if (media.kind === "undecodable") {
+    fileProblem = `${media.name} is not a picture or video this browser can open. Choose another file`
+      + (media.video ? `, or convert the video to H.264: ${h264Command(media.name)}` : ".");
+  }
   else if (media.kind === "unfetched") fileProblem = `${media.name} could not be loaded from ${hosted ? "this site" : "the local server"} (${media.reason}). Choose a file here instead.`;
 
   return {

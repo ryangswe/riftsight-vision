@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // @ts-expect-error: a script of this folder, in JavaScript with no declarations.
 import * as pages from "../scripts/pages.mjs";
-import { GAMES_META, gameArtUrl, hostedRelease, latestRequest, parseGames, RELEASE_META } from "../demo/page.js";
+import { artPath, artUrls, GAMES_META, gameArtUrls, hostedRelease, latestRequest, parseGames, RELEASE_META } from "../demo/page.js";
 import { aboutSize, demoView, gameSource, modelOf } from "../demo/view.js";
 
 const { buildPages, copyToy, gameNames, gamesPolicy, hostedPage, HOSTED_GAMES, ONE_PIECE_PAGE, pickerGames, REPOSITORY_URL, siteFiles, TOY_SITE } = pages;
@@ -182,11 +182,29 @@ describe("the page with a game picker", () => {
 
   it("finds a toy card's image in the game's folder, and none for a game with no images", () => {
     const [toy, onePiece] = games;
-    expect(gameArtUrl(toy, "TOY-001.png", PAGE)).toBe(`${PAGE}games/toy/images/TOY-001.png`);
-    expect(gameArtUrl(toy, "art/TOY-003A.png", PAGE)).toBe(`${PAGE}games/toy/images/TOY-003A.png`);
-    expect(gameArtUrl(toy, undefined, PAGE)).toBeNull();
-    expect(gameArtUrl(toy, "art/", PAGE)).toBeNull();
-    expect(gameArtUrl(onePiece, "OP01-001.png", PAGE)).toBeNull();
+    const images = `${PAGE}games/toy/images/`;
+    expect(gameArtUrls(toy, "TOY-001.png", PAGE)).toEqual([`${images}TOY-001.png`]);
+    // A path with a folder is tried as the Python tools read it, then as a bare name, for a flat folder.
+    expect(gameArtUrls(toy, "art/TOY-003A.png", PAGE)).toEqual([`${images}art/TOY-003A.png`, `${images}TOY-003A.png`]);
+    expect(gameArtUrls(toy, undefined, PAGE)).toEqual([]);
+    expect(gameArtUrls(toy, "art/", PAGE)).toEqual([]);
+    expect(gameArtUrls(onePiece, "OP01-001.png", PAGE)).toEqual([]);
+  });
+
+  it("resolves a card's image path as the Python tools do, folders kept, and refuses what they refuse", () => {
+    expect(artPath("SET-001.png")).toBe("SET-001.png");
+    expect(artPath("HD/SET-001.jpg")).toBe("HD/SET-001.jpg");
+    expect(artPath("./HD//SET-001.jpg")).toBe("HD/SET-001.jpg");
+    expect(artPath("https://example.com/cards/SET%20001.png")).toBe("SET 001.png");
+    for (const refused of ["", "  ", "HD/", "../SET-001.png", "HD/../../x.png", "/etc/x.png", "C:x.png", "c:/x.png", "1:x.png", "é:x.png",
+                           "HD\\SET-001.png", "..\\x.png", "ftp://example.com/x.png", "file:///x.png", "https://example.com/"]) {
+      expect(artPath(refused), refused).toBeNull();
+    }
+    const base = "http://127.0.0.1:8765/images/";
+    expect(artUrls("/images/", "HD/SET 001.jpg", "http://127.0.0.1:8765/")).toEqual([`${base}HD/SET%20001.jpg`, `${base}SET%20001.jpg`]);
+    expect(artUrls("/images", "SET-001.png", "http://127.0.0.1:8765/")).toEqual([`${base}SET-001.png`]);
+    expect(artUrls("", "SET-001.png", "http://127.0.0.1:8765/")).toEqual([]);
+    expect(artUrls("/images/", "../secret.png", "http://127.0.0.1:8765/")).toEqual([]);
   });
 
   it("says where each game's model comes from", () => {
