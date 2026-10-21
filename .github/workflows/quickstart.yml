@@ -28,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Run the beginner path as the documents write it
@@ -43,7 +43,7 @@ jobs:
       run:
         shell: wsl-bash {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: wsl
         continue-on-error: true
         uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
