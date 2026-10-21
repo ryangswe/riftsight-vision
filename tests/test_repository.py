@@ -228,7 +228,19 @@ def _locked(name: str) -> dict[str, str]:
     assert lines[0] == HEADER
     pins = [line for line in lines if line and not line.startswith("#")]
     assert all("==" in line for line in pins), "only exact versions; anything else is explained in a comment"
-    return dict(line.split("==") for line in pins)
+    # A package may be pinned twice, each line with a Python version marker (see the comment above
+    # it); the value then holds both pins, so the two files still have to agree line for line.
+    locked: dict[str, str] = {}
+    for line in pins:
+        requirement, _, marker = line.partition(";")
+        name, version = requirement.strip().split("==")
+        if marker.strip():
+            version = f"{version}; {marker.strip()}"
+            locked[name] = f"{locked[name]} | {version}" if name in locked else version
+        else:
+            assert name not in locked, f"{name} is pinned twice without a marker"
+            locked[name] = version
+    return locked
 
 
 def test_the_lock_files_agree_with_each_other_and_with_the_package():

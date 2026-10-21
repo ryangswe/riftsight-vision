@@ -10,6 +10,8 @@ WSL.
 
 You need Python 3.10 or later, and a copy of the repository: step 0 below gets it. Run
 everything from the repository's root, the folder that holds `README.md`.
+Python 3.11 or later is better: on 3.10 the image library stays at a version with known
+security flaws (newer versions need 3.11), and v0.2.0 ends support for 3.10.
 
 **Video:** [Try the toy game: quickstart and demo page](https://www.youtube.com/watch?v=Xq8Dwal1f6E) follows this page.
 

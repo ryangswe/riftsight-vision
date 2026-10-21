@@ -31,7 +31,11 @@ onnx==1.23.2
 onnxruntime==1.23.2
 opencv-python-headless==5.0.0.93
 packaging==26.3
-pillow==12.3.0
+# Pillow 13.0.0 fixes security flaws in reading JPEG, TIFF, GIF, EPS and PDF files and needs
+# Python 3.11 or later. Python 3.10 keeps 12.3.0, which has those flaws; support for 3.10 ends
+# with v0.2.0.
+pillow==12.3.0; python_version < "3.11"
+pillow==13.0.0; python_version >= "3.11"
 pluggy==1.6.0
 protobuf==7.36.2
 Pygments==2.21.0
