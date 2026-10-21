@@ -13,6 +13,9 @@ from collections.abc import Callable, Sequence
 from cardvision import __version__
 from cardvision.bank.commands import COMMANDS as BANK_COMMANDS
 from cardvision.calibrate import cli as calibrate_cli
+from cardvision.check_catalog import SUMMARY as CHECK_CATALOG_SUMMARY
+from cardvision.check_catalog import add_arguments as check_catalog_arguments
+from cardvision.check_catalog import run as check_catalog_run
 from cardvision.composites.commands import COMMANDS as COMPOSITE_COMMANDS
 from cardvision.data.commands import COMMANDS as DATA_COMMANDS
 from cardvision.evaluate import cli as evaluate_cli
@@ -31,6 +34,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     **COMPOSITE_COMMANDS,  # make-composites, fetch-textures
     **DATA_COMMANDS,  # validate-manifest, assign-roles, fetch, record-reachable
     **GEOMETRIC_COMMANDS,  # build-features, pack-features (the optional geometric stage)
+    "check-catalog": (CHECK_CATALOG_SUMMARY, check_catalog_arguments, check_catalog_run),
     "calibrate": (calibrate_cli.SUMMARY, calibrate_cli.add_arguments, calibrate_cli.run),
     "evaluate": (evaluate_cli.SUMMARY, evaluate_cli.add_arguments, evaluate_cli.run),
     "export": (export_cli.SUMMARY, export_cli.add_arguments, export_cli.run),
@@ -41,9 +45,37 @@ SUBCOMMANDS: dict[str, Subcommand] = {
 }
 
 
+# The order a newcomer meets the commands in. Every registered command is in exactly one group
+# (tests/test_cli.py pins it); a command registered but not listed here is shown under "Other".
+GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Start here", ("import-catalog", "check-catalog", "check-bank-art", "build-bank", "infer", "build-release",
+                    "verify-release")),
+    ("Train", ("make-composites", "fetch-textures", "train-recognizer", "train-detector", "export")),
+    ("Measure", ("evaluate", "calibrate", "check-refresh", "build-features", "pack-features")),
+    ("Data", ("validate-manifest", "fetch", "record-reachable", "assign-roles")),
+)
+
+
+def available_subcommands() -> str:
+    """A printable list of the registered subcommands, in groups."""
+    if not SUBCOMMANDS:
+        return "Available subcommands: none yet."
+    width = max(len(name) for name in SUBCOMMANDS)
+    grouped = [(title, [name for name in names if name in SUBCOMMANDS]) for title, names in GROUPS]
+    listed = {name for _title, names in grouped for name in names}
+    grouped.append(("Other", sorted(set(SUBCOMMANDS) - listed)))
+    lines = ["Available subcommands:"]
+    for title, names in grouped:
+        if names:
+            lines += ["", f"{title}:", *(f"  {name.ljust(width)}  {SUBCOMMANDS[name][0]}" for name in names)]
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The argument parser, with one sub-parser per registered subcommand."""
-    parser = argparse.ArgumentParser(prog="cardvision", description="Card detection and recognition tools.")
+    parser = argparse.ArgumentParser(prog="cardvision", description="Card detection and recognition tools.",
+                                     epilog=available_subcommands(),
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"cardvision {__version__}")
     if SUBCOMMANDS:
         sub = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -52,15 +84,6 @@ def build_parser() -> argparse.ArgumentParser:
             add_arguments(child)
             child.set_defaults(_run=run)
     return parser
-
-
-def available_subcommands() -> str:
-    """A printable list of the registered subcommands."""
-    if not SUBCOMMANDS:
-        return "Available subcommands: none yet."
-    width = max(len(name) for name in SUBCOMMANDS)
-    rows = [f"  {name.ljust(width)}  {SUBCOMMANDS[name][0]}" for name in sorted(SUBCOMMANDS)]
-    return "\n".join(["Available subcommands:", *rows])
 
 
 def main(argv: Sequence[str] | None = None) -> int:

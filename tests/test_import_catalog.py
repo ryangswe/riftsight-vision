@@ -242,7 +242,7 @@ def test_an_existing_catalog_is_not_replaced_without_force(tmp_path):
     out = tmp_path / "out" / "catalog.json"
     out.parent.mkdir()
     out.write_text("mine", encoding="utf-8")
-    with pytest.raises(CatalogImportError, match="--force"):
+    with pytest.raises(CatalogImportError, match="--overwrite"):
         _import(tmp_path, "cards.csv", SHEET)
     assert out.read_text(encoding="utf-8") == "mine"
     report, _ = _import(tmp_path, "cards.csv", SHEET, force=True)
@@ -399,7 +399,7 @@ def test_the_command_writes_the_catalog_and_a_report(tmp_path, capsys):
     saved = json.loads(report_file.read_text(encoding="utf-8"))
     assert saved["cards"] == 3 and saved["extra"] == ["Rules text"] and saved["identity"]["given"] is True
     assert cli.main(["import-catalog", str(source), "--out", str(out), "--game", "toy"]) == 1, "no overwrite"
-    assert "--force" in capsys.readouterr().err
+    assert "--overwrite" in capsys.readouterr().err
 
 
 def test_the_command_fails_when_the_rows_have_errors(tmp_path, capsys):
@@ -430,7 +430,7 @@ def test_the_command_downloads_only_with_download(tmp_path, server, capsys):
     assert cli.main(["import-catalog", str(source), "--out", str(out), "--game", "toy", "--art-out", str(art)]) == 0
     assert server.hits == {} and not art.exists() and "--download --art-out DIR" in capsys.readouterr().out
     assert cli.main(["import-catalog", str(source), "--out", str(out), "--game", "toy", "--art-out", str(art),
-                     "--download", "--delay", "0", "--force"]) == 0
+                     "--download", "--delay", "0", "--overwrite"]) == 0
     assert server.hits == {"/a.png": 1} and load_catalog(out).card("A").art == "A.png" and (art / "A.png").is_file()
 
 
@@ -528,3 +528,43 @@ def test_a_number_column_with_a_leading_zero_stays_text_and_the_report_says_whic
     assert catalog.card("A").facets["number"] == ("008",)
     assert report.facets[0]["why"] == "a value has a leading zero (008)"
     assert "taken as numbers (every value is one): cost" in report.lines()
+
+
+@pytest.mark.parametrize("suffix", [".xlsx", ".xls", ".numbers", ".ods", ".XLSX"])
+def test_a_spreadsheet_file_is_refused_with_what_to_do(tmp_path, suffix):
+    with pytest.raises(CatalogImportError) as refused:
+        _import(tmp_path, f"cards{suffix}", "not read")
+    assert str(refused.value) == (f"cards{suffix} is a spreadsheet file: export it as CSV (UTF-8) first, "
+                                  "then import the .csv")
+
+
+def test_a_semicolon_separated_csv_says_to_pass_a_delimiter(tmp_path):
+    with pytest.raises(CatalogImportError, match=r"header looks semicolon-separated \('id;name'\): pass --delimiter ';'"):
+        _import(tmp_path, "cards.csv", "id;name\nA;One\n")
+
+
+def test_a_delimiter_reads_a_semicolon_csv(tmp_path):
+    report, out = _import(tmp_path, "cards.csv", "id;name;cost\nA;One;3\nB;Two;1\n", delimiter=";")
+    assert report.written and [card.name for card in load_catalog(out)] == ["One", "Two"]
+
+
+def test_a_delimiter_is_for_csv_and_one_character_only(tmp_path):
+    with pytest.raises(CatalogImportError, match="--delimiter is for CSV files only"):
+        _import(tmp_path, "cards.tsv", "id\tname\nA\tOne\n", delimiter=";")
+    with pytest.raises(CatalogImportError, match="one character"):
+        _import(tmp_path, "cards.csv", "id,name\nA,One\n", delimiter=";;")
+
+
+def test_the_command_line_takes_overwrite_and_delimiter_and_still_takes_force(tmp_path, capsys):
+    source = _write(tmp_path / "cards.csv", "id;name\nA;One\n")
+    out = tmp_path / "catalog.json"
+    base = ["import-catalog", str(source), "--out", str(out), "--game", "toy"]
+    assert cli.main(base) == 1 and "pass --delimiter ';'" in capsys.readouterr().err
+    assert cli.main([*base, "--delimiter", ";"]) == 0
+    assert cli.main([*base, "--delimiter", ";"]) == 1 and "--overwrite" in capsys.readouterr().err
+    assert cli.main([*base, "--delimiter", ";", "--overwrite"]) == 0
+    assert cli.main([*base, "--delimiter", ";", "--force"]) == 0
+    cli.build_parser().parse_args([*base, "--overwrite"])
+    with pytest.raises(SystemExit):
+        cli.main(["import-catalog", "--help"])
+    assert "--force" not in capsys.readouterr().out

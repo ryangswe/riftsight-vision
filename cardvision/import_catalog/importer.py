@@ -133,6 +133,7 @@ class ImportOptions:
         max_bytes: the largest image file kept.
         timeout: seconds a request may take.
         input_format: ``"csv"``, ``"tsv"`` or ``"json"``; ``None`` goes by the file's suffix.
+        delimiter: the one character between a CSV's cells (``";"``); ``None`` is a comma. CSV only.
     """
 
     game: str
@@ -149,6 +150,7 @@ class ImportOptions:
     max_bytes: int = MAX_IMAGE_BYTES
     timeout: float = DEFAULT_TIMEOUT
     input_format: str | None = None
+    delimiter: str | None = None
 
 
 @dataclass
@@ -259,6 +261,9 @@ def _norm(header: str) -> str:
     return re.sub(r"[\s_\-]+", " ", str(header)).strip().casefold()
 
 
+_SPREADSHEET_SUFFIXES = (".xlsx", ".xls", ".numbers", ".ods")
+
+
 def _format_of(path: Path, given: str | None) -> str:
     if given is not None:
         if given not in FORMATS:
@@ -271,15 +276,26 @@ def _format_of(path: Path, given: str | None) -> str:
     return found
 
 
-def read_rows(path: str | Path, input_format: str | None = None) -> tuple[list[dict[str, Any]], list[str], str]:
+def read_rows(path: str | Path, input_format: str | None = None,
+              delimiter: str | None = None) -> tuple[list[dict[str, Any]], list[str], str]:
     """The rows of a card list, its headers in order, and its format.
 
     A CSV or TSV row maps each header to its cell (a string). A JSON row is the object as it
     is; its headers are the keys of all rows in order of first appearance. Raises
-    ``CatalogImportError`` when the file cannot be read as that format.
+    ``CatalogImportError`` when the file cannot be read as that format. ``delimiter`` is the
+    character between a CSV's cells (a comma when left out); it is for CSV only.
     """
     path = Path(path)
+    if path.suffix.lower() in _SPREADSHEET_SUFFIXES:
+        raise CatalogImportError(f"{path.name} is a spreadsheet file: export it as CSV (UTF-8) first, "
+                                 "then import the .csv")
     kind = _format_of(path, input_format)
+    if delimiter is not None:
+        if kind != "csv":
+            raise CatalogImportError(f"--delimiter is for CSV files only, and {path.name} is read as "
+                                     f"{kind.upper()}: leave --delimiter out")
+        if len(delimiter) != 1 or delimiter in "\r\n\"":
+            raise CatalogImportError(f"--delimiter must be one character such as ';', not {delimiter!r}")
     try:
         text = path.read_bytes().decode("utf-8-sig")
     except UnicodeDecodeError as error:
@@ -299,7 +315,7 @@ def read_rows(path: str | Path, input_format: str | None = None) -> tuple[list[d
         for row in rows:
             headers += [key for key in row if key not in headers]
         return rows, headers, kind
-    reader = csv.reader(io.StringIO(text, newline=""), delimiter="," if kind == "csv" else "\t")
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=(delimiter or ",") if kind == "csv" else "\t")
     try:
         table = list(reader)
     except csv.Error as error:
@@ -307,6 +323,9 @@ def read_rows(path: str | Path, input_format: str | None = None) -> tuple[list[d
     if not table:
         raise CatalogImportError(f"{path.name}: the file is empty")
     headers = [header.strip() for header in table[0]]
+    if kind == "csv" and delimiter is None and len(headers) == 1 and ";" in headers[0]:
+        raise CatalogImportError(f"{path.name}: the header looks semicolon-separated ({headers[0]!r}): "
+                                 "pass --delimiter ';'")
     for position, header in enumerate(headers):
         if header in headers[:position]:
             raise CatalogImportError(f"{path.name}: the header {header!r} is used twice")
@@ -600,13 +619,13 @@ def import_catalog(source: str | Path, out: str | Path, options: ImportOptions, 
     """
     source, out = Path(source), Path(out)
     if out.exists() and not force:
-        raise CatalogImportError(f"{out} exists; pass --force to replace it")
+        raise CatalogImportError(f"{out} exists; pass --overwrite to replace it")
     if options.identity is not None and options.identity not in IDENTITY_RULES:
         raise CatalogImportError(f"--identity must be one of {list(IDENTITY_RULES)}, not {options.identity!r}")
     if not isinstance(options.game, str) or not options.game.strip():
         raise CatalogImportError("--game must be a short name for the game")
     report = ImportReport(source=str(source))
-    rows, headers, report.format = read_rows(source, options.input_format)
+    rows, headers, report.format = read_rows(source, options.input_format, options.delimiter)
     columns = _resolve_columns(headers, options, report)
 
     taken = set(columns.values())

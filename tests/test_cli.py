@@ -64,10 +64,25 @@ def test_with_no_arguments_every_registered_subcommand_is_listed(capsys):
     assert cli.main([]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines[:2] == [f"cardvision {cardvision.__version__}", "Available subcommands:"]
-    listed = {line.split()[0]: line for line in lines[2:]}
+    listed = {line.split()[0]: line for line in lines[2:] if line.startswith("  ")}  # the rest are group headings
     assert sorted(listed) == sorted(cli.SUBCOMMANDS)
     for name, (summary, _add, _run) in cli.SUBCOMMANDS.items():
         assert listed[name].endswith(summary)
+
+
+def test_every_registered_command_is_in_exactly_one_group():
+    grouped = [name for _title, names in cli.GROUPS for name in names]
+    assert len(grouped) == len(set(grouped)), "a command is in two groups"
+    assert sorted(grouped) == sorted(cli.SUBCOMMANDS)
+    assert [title for title, _names in cli.GROUPS] == ["Start here", "Train", "Measure", "Data"]
+
+
+def test_the_listing_and_the_help_epilog_show_the_groups_in_order(capsys):
+    assert cli.main([]) == 0
+    out = capsys.readouterr().out
+    positions = [out.index(f"{title}:") for title in ("Start here", "Train", "Measure", "Data")]
+    assert positions == sorted(positions) and "Other:" not in out
+    assert cli.build_parser().epilog == cli.available_subcommands()
 
 
 @pytest.mark.parametrize("name", sorted(cli.SUBCOMMANDS))

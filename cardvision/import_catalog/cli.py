@@ -35,13 +35,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", type=Path, metavar="CARDS",
                         help="the card list: a .csv, a .tsv, or a .json list of rows (or {\"cards\": [...]})")
     parser.add_argument("--out", required=True, type=Path, help="the catalog to write; an existing file is refused")
-    parser.add_argument("--force", action="store_true", help="replace --out when it exists")
+    parser.add_argument("--overwrite", action="store_true", help="replace --out when it exists")
+    parser.add_argument("--force", dest="overwrite", action="store_true", help=argparse.SUPPRESS)  # the old name
     parser.add_argument("--game", required=True, help="a short name for the game, the catalog's \"game\"")
     parser.add_argument("--locale", default="en", help="the language of the card names (default en)")
     parser.add_argument("--identity", choices=("name", "printing"),
                         help="which entries are one card; left out, the rule the report suggests is written")
     parser.add_argument("--format", dest="input_format", choices=("csv", "tsv", "json"),
                         help="the card list's format, when its suffix does not say")
+    parser.add_argument("--delimiter", metavar="CHAR",
+                        help="the character between a CSV's cells, when it is not a comma (--delimiter ';'); "
+                             "CSV only")
     parser.add_argument("--map", action="append", metavar="FIELD=HEADER",
                         help="the column for a field (id, name, kind, printing_of, image), over the headers found "
                              "by themselves; may be given more than once")
@@ -81,9 +85,9 @@ def run(args: argparse.Namespace) -> int:
         facets=_columns(args.facets), splits=dict(_pairs(args.split, "--split")),
         extra=[] if args.no_extra else (_columns(args.extra) if args.extra else None),
         images=args.images, art_out=args.art_out, download=args.download, delay=args.delay,
-        input_format=args.input_format)
+        input_format=args.input_format, delimiter=args.delimiter)
     try:
-        report = import_catalog(args.source, args.out, options, force=args.force,
+        report = import_catalog(args.source, args.out, options, force=args.overwrite,
                                 progress=lambda line: print(f"  {line}", file=sys.stderr, flush=True))
     except (CatalogImportError, CertificatesMissing, OSError) as error:
         print(f"cardvision import-catalog: failed\n  - {error}", file=sys.stderr)
