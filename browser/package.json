@@ -19,13 +19,13 @@
     "test:webgpu": "node scripts/webgpu-test.mjs"
   },
   "dependencies": {
-    "onnxruntime-web": "1.29.0"
+    "onnxruntime-web": "1.30.0"
   },
   "devDependencies": {
-    "@types/node": "24.19.2",
+    "@types/node": "26.6.5",
     "@webgpu/types": "0.1.74",
     "esbuild": "0.28.2",
-    "typescript": "5.9.3",
-    "vitest": "5.0.3"
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
   }
 }
