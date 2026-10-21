@@ -4,7 +4,8 @@
 
 ## Reporting a problem
 
-Do not open a public issue for a security problem. Write to
+Do not open a public issue for a security problem. Use the "Report a vulnerability" button
+on this repository's Security tab (GitHub's private vulnerability reporting), or write to
 <riftsight.support@gmail.com>.
 
 Say what you found, how to reproduce it and which version or commit you used. You get an

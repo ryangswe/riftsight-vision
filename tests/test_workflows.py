@@ -257,6 +257,29 @@ def test_the_sign_off_check_tells_a_signed_commit_from_one_that_is_not(checkout,
     assert "MISSING   " in done.stdout and "MISMATCH  " in done.stdout and "git commit --amend --signoff" in done.stdout
 
 
+def test_the_sign_off_check_exempts_only_commits_authored_by_dependabot(checkout, tools):
+    step = steps_of("dco.yml")["Check Signed-off-by on every commit"]["run"]
+    # The job name is a required status check in the repository's ruleset: renaming it blocks every PR.
+    assert "\n    name: Every commit is signed off\n" in (WORKFLOWS / "dco.yml").read_text(encoding="utf-8")
+    base = git(checkout, "rev-parse", "HEAD")
+
+    def commit(email: str, message: str) -> None:
+        with open(checkout / "notes.txt", "a", encoding="utf-8") as handle:
+            handle.write(message + "\n")
+        git(checkout, "add", "-A")
+        git(checkout, "-c", "user.name=dependabot[bot]", "-c", f"user.email={email}", "commit", "--quiet", "-m", message)
+
+    bot = "49699333+dependabot[bot]@users.noreply.github.com"
+    commit(bot, "Bump a thing")
+    done = run_step(step, checkout, {**tools, "BASE": base, "HEAD": git(checkout, "rev-parse", "HEAD")})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "exempt    " in done.stdout
+    # A name alone is not enough, and a lookalike address is not the bot's.
+    commit(f"dependabot[bot]@{EXAMPLE_DOMAIN}", "Pretends to be the bot")
+    done = run_step(step, checkout, {**tools, "BASE": base, "HEAD": git(checkout, "rev-parse", "HEAD")})
+    assert done.returncode != 0 and "MISSING   " in done.stdout
+
+
 # ---------------------------------------------------------------------------------- pages.yml
 PAGES_STEPS = ("Install the browser runtime's locked dependencies", "Type-check and run the browser runtime's tests",
                "Install the Python package, for the toy game",

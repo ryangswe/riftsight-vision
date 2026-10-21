@@ -7,7 +7,9 @@
 # whose email is the commit's author email (or its committer email). By that line the
 # contributor certifies the Developer Certificate of Origin 1.1,
 # https://developercertificate.org/ . A persistent handle is accepted in place of a legal
-# name. Merge commits are not checked. The check is written out here; it uses no app.
+# name. Merge commits are not checked, and neither are commits authored by Dependabot, which
+# cannot sign off. A person reviews each of those pull requests before merging it. The check is
+# written out here; it uses no app.
 name: DCO
 
 on:
@@ -39,6 +41,12 @@ jobs:
             subject="$(git show -s --format='%h %s' "$commit")"
             author="$(git show -s --format='%ae' "$commit" | lower)"
             committer="$(git show -s --format='%ce' "$commit" | lower)"
+            case "$author" in
+              *+dependabot\[bot\]@users.noreply.github.com)
+                echo "exempt    $subject"
+                continue
+                ;;
+            esac
             # The emails of the commit's Signed-off-by trailers, one per line.
             signers="$(git show -s --format='%(trailers:key=Signed-off-by,valueonly=true)' "$commit" \
               | sed -n 's/^.*<\([^<> ]*@[^<> ]*\)>[[:space:]]*$/\1/p' | lower)"

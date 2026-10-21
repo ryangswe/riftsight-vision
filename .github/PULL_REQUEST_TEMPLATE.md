@@ -14,6 +14,10 @@
       persistent handle and a working email (`git commit -s`). By signing off I certify the
       Developer Certificate of Origin 1.1: https://developercertificate.org/
 
+## Changelog
+
+- [ ] `CHANGELOG.md` has a line for this change under Unreleased, or: no user-visible change.
+
 ## Provenance
 
 I confirm that this contribution contains:

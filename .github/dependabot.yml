@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependency updates: one grouped pull request a month per ecosystem. Each one goes through the
+# same checks as any other pull request, and a person reads it before merging.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /browser
+    schedule:
+      interval: monthly
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
