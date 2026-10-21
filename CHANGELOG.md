@@ -9,6 +9,25 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.2.0rc2] - 2026-10-21
+
+Second release candidate for 0.2.0, with fixes from the first one's soak. The released models are
+unchanged: release `201478a00d6ef6ba`.
+
+### Fixed
+
+- `cardvision try` says when cards in your list have no image: a `No image:` line before the
+  verdict, and a list in the report. It tells cards that can't be named (no printing of them has an
+  image) from printings with no image of their own (named only where they look like another
+  printing). Before, only `import-report.txt` and `try.log` said so.
+- From a newcomer's run of the docs: start-here.md says how to write a card list with another name
+  and where images go when the image column names a folder; the import's "none of the images"
+  error also offers moving the images; the report says the demo runs until Control-C.
+- The quickstart and AGENTS.md check `python3 --version` first and say what to do when it is older
+  than 3.11 (a Mac with an older python.org installer, for one).
+- The 0.2.0rc1 notes said runs of `make-composites` without `--card-size` write the same files as
+  0.1.0. They lay out the same scenes; Pillow 13.0.0 changes a few pixels of a few composites.
+
 ## [0.2.0rc1] - 2026-10-21
 
 Release candidate for 0.2.0. The released models are unchanged: the v0.1.0 files, release
@@ -18,8 +37,11 @@ Release candidate for 0.2.0. The released models are unchanged: the v0.1.0 files
 
 - `cardvision make-composites --card-size WxH`: the card size in millimeters (default `63x88`),
   which sets the shape of the layouts, generated backs and card-shaped distractors; the manifest
-  records it as `parameters.cardAspect`, and the label check reads it from there. Runs without
-  the flag write the same files as before.
+  records it as `parameters.cardAspect`, and the label check reads it from there. Without the
+  flag, a run lays out the same scenes as before with the same library versions. Pillow 13.0.0
+  (pinned for every supported Python, see Security) resizes images slightly differently, so a few
+  pixels of a few composites differ from 0.1.0's with Pillow 12.3.0, which is harmless for
+  training.
 - `cardvision try CARDS --images DIR --video FILE`: the steps of the your-game guide in one command
   (import, image check, bank, release folder, `infer`), ending in a `report.html` with the outcome,
   the contact sheet, the annotated frames and the line that opens the demo page (with `npm ci`
@@ -78,6 +100,7 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc2...HEAD
+[0.2.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc1...v0.2.0rc2
 [0.2.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.1.0...v0.2.0rc1
 [0.1.0]: https://github.com/ryangswe/riftsight-vision/releases/tag/v0.1.0

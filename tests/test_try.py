@@ -20,7 +20,7 @@ import pytest
 
 from cardvision import cli
 from cardvision.try_game import run as try_run
-from cardvision.try_game.report import verdict
+from cardvision.try_game.report import NoImage, no_image_sentence, verdict
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -95,6 +95,7 @@ def test_a_card_list_a_picture_and_the_stand_in_weights_give_every_output_and_a_
     page = (out / "report.html").read_text(encoding="utf-8")
     assert "Found and named" in page and "cd browser &amp;&amp; npm run demo -- --release" in page
     assert "extension.md" in page and "calibrated for the released game" in page
+    assert "No image" not in page and not any(line.startswith("No image") for line in lines)
     assert "Columns taken" in page and "Coral Triangle: TOY-003, TOY-003A" in page
     # Self-contained: no script, and every link and picture relative.
     assert "<script" not in page.lower()
@@ -164,6 +165,91 @@ def test_none_of_the_images_found_is_the_importer_error_and_nothing_is_written(d
                                "--weights", demo / "release")
     assert code == 1 and "none of the" in err and "is under --images" in err
     assert not (tmp_path / "cardvision-try").exists()
+
+
+def _without_images(demo: Path, tmp_path: Path, ids: set[str]) -> Path:
+    images = tmp_path / "images"
+    shutil.copytree(demo / "art", images)
+    for card in toy_cards(demo):
+        if card["id"] in ids:
+            (images / card["art"]).unlink()
+    return images
+
+
+def _by_name(demo: Path) -> dict[str, list[dict]]:
+    groups: dict[str, list[dict]] = {}
+    for card in toy_cards(demo):
+        groups.setdefault(card["name"], []).append(card)
+    return groups
+
+
+def test_a_card_with_no_image_is_named_in_the_last_lines_and_listed_in_the_report(demo, tmp_path, capsys):
+    cards = write_sheet(tmp_path / "cards.csv", demo, ["id", "name", "kind", "image"])
+    alone = next(group[0] for group in _by_name(demo).values() if len(group) == 1)
+    images = _without_images(demo, tmp_path, {alone["id"]})
+    code, lines, err = try_it(capsys, cards, "--images", images, "--video", demo / "table.png",
+                              "--weights", demo / "release")
+    assert code == 0, err
+    total = len(toy_cards(demo))
+    said = lines[-4]
+    assert said == (f"No image: 1 of the {total} cards in your list can't be named, since it has no image: "
+                    f"{alone['id']} ({alone['name']}). Add its image, or fix the image column, then run cardvision "
+                    "try again with --overwrite (the report lists them all).")
+    out = tmp_path / "cardvision-try"
+    page = (out / "report.html").read_text(encoding="utf-8")
+    assert page.index('<p class="warning">No image: 1 of the') < page.index("<h2>")
+    listed = page[page.index("Cards that can't be named: no image"):]
+    assert f"<code>{alone['id']}</code> {alone['name']}</li>" in listed
+    assert f"left out, no image found (1): {alone['id']}" in (out / "try.log").read_text(encoding="utf-8")
+
+
+def test_a_printing_with_no_image_while_another_has_one_is_told_apart(demo, tmp_path, capsys):
+    cards = write_sheet(tmp_path / "cards.csv", demo, ["id", "name", "kind", "image"])
+    group = next(group for group in _by_name(demo).values() if len(group) > 1)
+    gone = group[-1]
+    images = _without_images(demo, tmp_path, {gone["id"]})
+    code, lines, err = try_it(capsys, cards, "--images", images, "--video", demo / "table.png",
+                              "--weights", demo / "release")
+    assert code == 0, err
+    said = lines[-4]
+    assert said.startswith(f"No image: 1 of the {len(toy_cards(demo))} cards in your list has no image of its own: "
+                           f"{gone['id']} ({gone['name']}); it is named only where it looks like another printing")
+    assert "can't be named" not in said
+    page = (tmp_path / "cardvision-try" / "report.html").read_text(encoding="utf-8")
+    assert "Cards with no image of their own" in page and "Cards that can't be named" not in page
+    # Every printing gone: none of them can be named.
+    images = _without_images(demo, tmp_path / "all", {card["id"] for card in group})
+    code, lines, err = try_it(capsys, cards, "--images", images, "--video", demo / "table.png",
+                              "--weights", demo / "release", "--overwrite")
+    assert code == 0, err
+    said = lines[-4]
+    assert said.startswith(f"No image: {len(group)} of the") and "can't be named, since they have no image" in said
+    assert "of their own" not in said and all(f"{card['id']} ({card['name']})" in said for card in group)
+
+
+def test_a_card_whose_image_column_is_empty_is_reported(demo, tmp_path, capsys):
+    alone = next(group[0] for group in _by_name(demo).values() if len(group) == 1)
+    cards = tmp_path / "cards.csv"
+    with cards.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["id", "name", "kind", "image"])
+        for card in toy_cards(demo):
+            writer.writerow([card["id"], card["name"], card["kind"], "" if card["id"] == alone["id"]
+                             else card["art"] or ""])
+    code, lines, err = try_it(capsys, cards, "--images", demo / "art", "--video", demo / "table.png",
+                              "--weights", demo / "release")
+    assert code == 0, err
+    assert lines[-4].startswith("No image: 1 of the") and f"{alone['id']} ({alone['name']})" in lines[-4]
+
+
+def test_the_no_image_sentence_shows_five_of_each_and_counts_the_rest():
+    assert no_image_sentence(NoImage(total=10)) is None
+    none = [(f"C-{i}", f"Card, {i}") for i in range(8)]
+    said = no_image_sentence(NoImage(none=none, own=[("D-1", "Dee")], total=20))
+    assert said.startswith("No image: 8 of the 20 cards in your list can't be named, since they have no image: "
+                           "C-0 (Card, 0)")
+    assert "C-4 (Card, 4) and 3 more. 1 more has no image of its own: D-1 (Dee); it is named" in said
+    assert "C-5" not in said and said.endswith("(the report lists them all).")
 
 
 def test_a_video_is_sampled_to_at_most_max_frames_and_an_mp4v_one_gets_the_h264_line(demo, tmp_path, capsys):
