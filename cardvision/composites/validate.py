@@ -19,14 +19,15 @@ not pass or fail; a wrong label convention shows as a rate near chance (a quarte
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image
 
-from cardvision.composites.dataset import read_labels
-from cardvision.composites.geometry import CARD_ASPECT
+from cardvision.composites.dataset import MANIFEST_NAME, read_labels
+from cardvision.composites.geometry import CARD_ASPECT, check_aspect
 from cardvision.core.catalog import Catalog
 
 KINDS = ("face", "back", "distractor", "die", "hand", "overlay")
@@ -92,6 +93,24 @@ def label_problems(out_dir: str | Path, records: list[dict[str, Any]], catalog: 
     return problems
 
 
+def recorded_aspect(out_dir: str | Path) -> float:
+    """The upright card aspect a generated folder was made with: its manifest's
+    ``parameters.cardAspect``, or ``CARD_ASPECT`` for a folder whose manifest is absent or does
+    not record one. Raises ValueError for a recorded value outside the accepted range."""
+    path = Path(out_dir) / MANIFEST_NAME
+    if not path.is_file():
+        return CARD_ASPECT
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{path}: not valid JSON ({error})") from None
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{path}: not a JSON object, so it records no parameters")
+    parameters = manifest.get("parameters")
+    aspect = parameters.get("cardAspect") if isinstance(parameters, dict) else None
+    return CARD_ASPECT if aspect is None else check_aspect(aspect)
+
+
 def validate_labels(out_dir: str | Path, catalog: Catalog, art_dir: str | Path,
                     max_faces: int = 400) -> dict[str, Any]:
     """Check a generated folder. Returns a report:
@@ -99,8 +118,10 @@ def validate_labels(out_dir: str | Path, catalog: Catalog, art_dir: str | Path,
     ``scenes``, ``objects``, ``problemCount`` and ``problems`` (the first 20 sentences) for the
     structure; ``checkedFaces``, ``homographyUprightRate``, ``rectifiedCorrMedian``,
     ``rectifiedCorrP5`` and ``angleUprightRate`` for the geometry of up to ``max_faces`` faces.
+    The card aspect is the one the folder records (``recorded_aspect``).
     """
     out_dir = Path(out_dir)
+    aspect = recorded_aspect(out_dir)
     records = read_labels(out_dir)
     problems = label_problems(out_dir, records, catalog)
     rows = []
@@ -133,7 +154,7 @@ def validate_labels(out_dir: str | Path, catalog: Catalog, art_dir: str | Path,
         crop = im.crop((int(x0), int(y0), int(x1), int(y1))).rotate(o["angle"], expand=True, resample=Image.BILINEAR)
         cw, ch = crop.size
         k = 0.45
-        half_w, half_h = k * o["short"] / 2, k * o["short"] / 2 / CARD_ASPECT
+        half_w, half_h = k * o["short"] / 2, k * o["short"] / 2 / aspect
         middle = crop.crop((int(cw / 2 - half_w), int(ch / 2 - half_h), int(cw / 2 + half_w), int(ch / 2 + half_h)))
         art_middle = art.crop((int(art.width * (0.5 - k / 2)), int(art.height * (0.5 - k / 2)),
                                int(art.width * (0.5 + k / 2)), int(art.height * (0.5 + k / 2))))

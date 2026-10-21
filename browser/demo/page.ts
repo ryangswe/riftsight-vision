@@ -3,6 +3,7 @@
 // server what it offers, and the choice of backend. And what the demo page's own address may
 // ask of it (`addressRequest`).
 
+import { releaseFileKey } from "../src/messages.js";
 import type { ExecutionProvider } from "../src/providers.js";
 
 export const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -113,8 +114,12 @@ export interface Game {
   /** What the page calls its models while they load: "Downloading the One Piece models…". */
   models: string;
   /** The address of its release document: relative to the page for a release bundled with the
-   *  site, or an https address. */
-  release: string;
+   *  site, or an https address. Null for the choice whose release is a folder the visitor
+   *  chooses on their computer (`local`). */
+  release: string | null;
+  /** True for that choice: its release, and its card images if any, are files the visitor
+   *  chooses, read in the page. It has no images on the site and no examples. */
+  local?: true;
   /** The folder of its card images, relative to the page, or null: the tooltip shows names only. */
   images: string | null;
   /** Files bundled with the site that a button opens, as if they had been chosen. */
@@ -195,16 +200,18 @@ export function parseGames(text: string, pageUrl: string): Game[] {
   const games: Game[] = [];
   for (const item of given as Record<string, unknown>[]) {
     if (item === null || typeof item !== "object") continue;
-    const { id, label, models, release, images, examples, notes, credit } = item;
+    const { id, label, models, release, images, examples, notes, credit, local } = item;
     if (!isText(id) || !/^[a-z0-9-]+$/.test(id) || games.some((game) => game.id === id) || !isText(label) || !isText(models)) continue;
-    if (!(isHttps(release) || isSitePath(release, pageUrl))) continue;
+    if (local !== undefined && local !== true) continue;
+    // The visitor's own folder: no release address, no images on the site, no examples.
+    if (local === true ? release !== null || images !== null || !Array.isArray(examples) || examples.length > 0 : !(isHttps(release) || isSitePath(release, pageUrl))) continue;
     if (images !== null && !isSitePath(images, pageUrl)) continue;
     if (!Array.isArray(examples) || !examples.every((one) => one !== null && typeof one === "object" && isText(one.label) && isSitePath(one.path, pageUrl))) continue;
     if (!Array.isArray(notes) || !notes.every(isText)) continue;
     const linked = credit !== null && typeof credit === "object" ? credit as Record<string, unknown> : null;
     if (credit !== null && !(linked && isText(linked.text) && isHttps(linked.href))) continue;
     games.push({
-      id, label, models, release: release as string, images: images as string | null,
+      id, label, models, release: release as string | null, ...(local === true ? { local } : {}), images: images as string | null,
       examples: (examples as { label: string; path: string }[]).map(({ label, path }) => ({ label, path })),
       notes: [...(notes as string[])],
       credit: linked ? { text: linked.text as string, href: linked.href as string } : null,
@@ -327,4 +334,198 @@ export async function prefillRelease(input: HTMLInputElement): Promise<ServerCon
 /** The backend chosen in a page's "Backend" list: one provider, or null for the release's order. */
 export function chosenBackend(select: HTMLSelectElement): ExecutionProvider | null {
   return select.value === "" ? null : (select.value as ExecutionProvider);
+}
+
+// ------------------------------------------------------------------------- a release from files
+// The visitor's own release, read from a folder they choose on this computer (`<input type=file
+// webkitdirectory>`): no address is typed and nothing is fetched or uploaded. The page finds the
+// release document in the files chosen, hands the files it pins to the worker as they are, and
+// the worker checks each against the size and SHA-256 the document pins, as it does a fetched
+// one (src/load.ts, `filesFetch`).
+
+/** A file of a folder chosen on this computer, at its path in that folder: the browser's
+ *  `webkitRelativePath`, which begins with the chosen folder's own name (`my-game/release/x`). */
+export interface PickedFile {
+  path: string;
+  file: Blob;
+}
+
+/** The files of a folder input, at their paths. */
+export function pickedFiles(list: Iterable<File>): PickedFile[] {
+  return [...list].map((file) => ({ path: file.webkitRelativePath || file.name, file }));
+}
+
+/** The name of a release document. */
+export const RELEASE_DOCUMENT = "release.json";
+
+/** How many folders below the chosen one a release document is looked for. */
+export const RELEASE_DEPTH = 2;
+
+/** The folder part of a path, with its trailing `/` (`""` for none). */
+const folderOf = (path: string): string => path.slice(0, path.lastIndexOf("/") + 1);
+
+/**
+ * The release document among the files of a chosen folder: a `release.json` in the folder itself
+ * or in a folder at most `RELEASE_DEPTH` levels below it, the nearest one. Its `folder` is the
+ * path its files are relative to. Refused, in words, when there is none, or when two are equally
+ * near (the visitor then chooses the one folder meant).
+ */
+export function findReleaseDocument(files: readonly PickedFile[]): { document: PickedFile; folder: string } | { problem: string } {
+  const found = files.filter(({ path }) => {
+    const parts = path.split("/");
+    // The first part is the chosen folder's own name; a path with no folder is a file chosen alone.
+    const below = parts.length - 2;
+    return parts.at(-1) === RELEASE_DOCUMENT && below >= 0 && below <= RELEASE_DEPTH;
+  });
+  const root = files[0]?.path.split("/")[0] ?? "";
+  if (found.length === 0) {
+    return { problem: `No ${RELEASE_DOCUMENT} was found in ${root === "" ? "the folder chosen" : `${root}/`} or in the folders up to ${RELEASE_DEPTH} levels below it. Choose the folder that holds ${RELEASE_DOCUMENT}, the release folder that cardvision build-release wrote.` };
+  }
+  const depth = (file: PickedFile): number => file.path.split("/").length;
+  const nearest = Math.min(...found.map(depth));
+  const tied = found.filter((file) => depth(file) === nearest).sort((a, b) => (a.path < b.path ? -1 : 1));
+  if (tied.length > 1) {
+    return { problem: `The folder chosen holds more than one ${RELEASE_DOCUMENT} (${tied.map((file) => file.path).join(", ")}). Choose the release folder itself.` };
+  }
+  const document = tied[0]!;
+  return { document, folder: folderOf(document.path) };
+}
+
+/**
+ * The paths a release document pins: the files the loader reads beside it (the detector, the
+ * recognizer, the bank, the identity groups and the catalog). A document that is not JSON, or
+ * that lacks one of them, is said so; the worker reads the document again and refuses what it
+ * cannot honor, with its own reason.
+ */
+export function pinnedReleasePaths(text: string): { paths: string[] } | { problem: string } {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return { problem: `${RELEASE_DOCUMENT} is not JSON` };
+  }
+  const at = (value: unknown, ...keys: string[]): unknown => keys.reduce<unknown>((inner, key) => (inner !== null && typeof inner === "object" ? (inner as Record<string, unknown>)[key] : undefined), value);
+  const paths: string[] = [];
+  for (const keys of [["detector"], ["recognizer"], ["bank"], ["identity", "groups"], ["catalog"]]) {
+    const path = at(doc, ...keys, "path");
+    if (!isText(path)) return { problem: `${RELEASE_DOCUMENT} names no file for ${keys.join(".")}` };
+    paths.push(path);
+  }
+  return { paths };
+}
+
+/**
+ * The files to hand the worker for a release document found in a chosen folder: the document and
+ * each file it pins, by path relative to the document's folder (the worker's `files`). Refused,
+ * with the missing file named, when the folder lacks a file the document pins. Nothing else of the
+ * folder is handed over.
+ */
+export function releaseFilesFrom(files: readonly PickedFile[], found: { document: PickedFile; folder: string }, documentText: string): { files: Record<string, Blob> } | { problem: string } {
+  const pinned = pinnedReleasePaths(documentText);
+  if ("problem" in pinned) return pinned;
+  const inFolder = new Map<string, Blob>();
+  for (const { path, file } of files) {
+    if (!path.startsWith(found.folder)) continue;
+    const key = keyOf(path.slice(found.folder.length));
+    if (key !== null) inFolder.set(key, file);
+  }
+  // Each file is defined as an own property: a path such as `__proto__` is a key like any other,
+  // and assigning it would set the record's prototype instead.
+  const out: Record<string, Blob> = {};
+  const put = (key: string, file: Blob): void => {
+    Object.defineProperty(out, key, { value: file, enumerable: true, writable: true, configurable: true });
+  };
+  put(RELEASE_DOCUMENT, found.document.file);
+  const missing: string[] = [];
+  for (const path of pinned.paths) {
+    const key = keyOf(path);
+    const file = key === null ? undefined : inFolder.get(key);
+    if (file === undefined) missing.push(path);
+    else put(key!, file);
+  }
+  if (missing.length > 0) {
+    const where = found.folder === "" ? "the folder chosen" : found.folder;
+    return { problem: `${RELEASE_DOCUMENT} pins ${missing.join(", ")}, which ${missing.length === 1 ? "is" : "are"} not in ${where}. Choose the folder that holds the release document and every file it pins.` };
+  }
+  return { files: out };
+}
+
+/** A path's key among a release's files (`releaseFileKey`), or null for one that does not resolve. */
+function keyOf(path: string): string | null {
+  try {
+    return releaseFileKey(path);
+  } catch {
+    return null;
+  }
+}
+
+/** The names of the folders that hold card images, beside a release or at the top of the folder
+ *  chosen. */
+export const IMAGE_FOLDERS = ["images", "art"] as const;
+
+/**
+ * The card images among the files of a chosen folder: those under an `images/` or `art/` folder
+ * beside the release document, or else at the top of the folder chosen, the first that holds a
+ * file. Each is keyed by its path inside that folder. Null when there is none: the visitor may
+ * choose an image folder of its own (`imagesFrom`).
+ */
+export function imagesBeside(files: readonly PickedFile[], releaseFolder: string): { folder: string; images: Map<string, Blob> } | null {
+  const root = files[0]?.path.split("/")[0];
+  const places = [...IMAGE_FOLDERS.map((name) => `${releaseFolder}${name}/`), ...(root === undefined ? [] : IMAGE_FOLDERS.map((name) => `${root}/${name}/`))];
+  for (const place of new Set(places)) {
+    const images = new Map<string, Blob>();
+    for (const { path, file } of files) if (path.startsWith(place)) images.set(path.slice(place.length), file);
+    if (images.size > 0) return { folder: place, images };
+  }
+  return null;
+}
+
+/** Card images chosen on this computer, by path in their folder, and that folder's path. `auto`
+ *  when they were taken from beside a release folder, not chosen with the images button. */
+export interface LocalImages { folder: string; images: Map<string, Blob>; auto: boolean }
+
+/**
+ * The card images in effect once a release folder is chosen. Images the visitor chose with the
+ * images button stay. Images taken from beside an earlier release give way to those beside this
+ * one, or to none: they belong to the release they came with.
+ */
+export function imagesForRelease(current: LocalImages | null, files: readonly PickedFile[], releaseFolder: string): LocalImages | null {
+  if (current !== null && !current.auto) return current;
+  const beside = imagesBeside(files, releaseFolder);
+  return beside === null ? null : { ...beside, auto: true };
+}
+
+/** The card images in effect once a release address is typed: those taken from beside a release
+ *  folder go with it, and those the visitor chose stay. */
+export function imagesForAddress(current: LocalImages | null): LocalImages | null {
+  return current?.auto ? null : current;
+}
+
+/** The card images of a folder chosen for them alone, keyed by their path inside it. */
+export function imagesFrom(files: readonly PickedFile[]): { folder: string; images: Map<string, Blob> } {
+  const images = new Map<string, Blob>();
+  let folder = "";
+  for (const { path, file } of files) {
+    const cut = path.indexOf("/");
+    if (cut >= 0 && folder === "") folder = path.slice(0, cut + 1);
+    images.set(cut >= 0 ? path.slice(cut + 1) : path, file);
+  }
+  return { folder, images };
+}
+
+/**
+ * A card's image among images chosen on this computer, found as on a server (`artUrls`): the
+ * catalog's `art` path with its folders, as the Python tools read it, then its bare file name, for
+ * a folder that holds every image flat. Null when neither is there, or for an `art` those tools
+ * refuse (`artPath`).
+ */
+export function localArt(images: ReadonlyMap<string, Blob>, art: string | undefined): { path: string; file: Blob } | null {
+  const path = art === undefined ? null : artPath(art);
+  if (path === null) return null;
+  const name = path.split("/").pop() ?? path;
+  for (const key of name === path ? [path] : [path, name]) {
+    const file = images.get(key);
+    if (file !== undefined) return { path: key, file };
+  }
+  return null;
 }

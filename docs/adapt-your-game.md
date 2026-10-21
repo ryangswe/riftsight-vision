@@ -156,7 +156,7 @@ the whole block, paste it into the terminal and press Return. A block after "You
 something like" is what the commands print: you do not type it. Your timings, ids and folder
 names will differ.
 
-**Install** (Python 3.10 or later). Paste this into the terminal, from the repository's root:
+**Install** (Python 3.11 or later). Paste this into the terminal, from the repository's root:
 
 ```
 python3 -m venv .venv

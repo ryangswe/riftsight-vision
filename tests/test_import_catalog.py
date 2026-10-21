@@ -101,21 +101,72 @@ def test_a_file_that_is_not_utf8_or_has_no_known_suffix_is_refused(tmp_path):
 
 # ----------------------------------------------------------------------------------- columns
 def test_a_mapping_names_the_columns_that_are_not_found_by_themselves(tmp_path):
-    text = "Number,Title,Category,Picture\nN1,One,unit,n1.png\n"
+    text = "Ref,Label,Group,Face\nN1,One,unit,n1.png\n"
     with pytest.raises(CatalogImportError, match="--map id=HEADER"):
         _import(tmp_path, "cards.csv", text)
     report, out = _import(tmp_path, "cards.csv", text,
-                          mapping={"id": "number", "name": "Title", "kind": "Category", "art": "Picture"})
-    assert report.columns == {"id": "Number", "name": "Title", "kind": "Category", "image": "Picture"}
+                          mapping={"id": "ref", "name": "Label", "kind": "Group", "art": "Face"})
+    assert report.columns == {"id": "Ref", "name": "Label", "kind": "Group", "image": "Face"}
     assert load_catalog(out).card("N1").art == "n1.png"
 
 
-def test_two_columns_that_could_each_be_a_field_must_be_chosen_between(tmp_path):
+def test_two_columns_that_could_each_be_a_field_take_the_first_in_order_and_say_so(tmp_path):
     text = "id,name,image,art\nA,One,a.png,b.png\n"
-    with pytest.raises(CatalogImportError, match="--map image=HEADER"):
-        _import(tmp_path, "cards.csv", text)
-    report, out = _import(tmp_path, "cards.csv", text, mapping={"image": "art"})
+    report, out = _import(tmp_path, "cards.csv", text)
+    assert report.columns["image"] == "image" and report.also_matched == {"image": ["art"]}
+    assert 'image column: "image" (also matched: "art"; --map image=HEADER to choose)' in report.lines()
+    assert load_catalog(out).card("A").art == "a.png" and load_catalog(out).card("A").extra == {"art": "b.png"}
+    report, out = _import(tmp_path, "chosen.csv", text, mapping={"image": "art"}, force=True)
     assert load_catalog(out).card("A").art == "b.png" and load_catalog(out).card("A").extra == {"image": "a.png"}
+    assert report.also_matched == {}
+
+
+def test_a_set_code_loses_to_a_number_and_the_report_names_both(tmp_path):
+    text = "Set Code,Number,Title\nS1,7,One\n"
+    report, out = _import(tmp_path, "cards.csv", text)
+    assert report.columns["id"] == "Number" and report.also_matched == {"id": ["Set Code"]}
+    assert 'id column: "Number" (also matched: "Set Code"; --map id=HEADER to choose)' in report.lines()
+    assert load_catalog(out).card("7").name == "One"
+    report, _ = _import(tmp_path, "pick.csv", text, mapping={"id": "Set Code"}, force=True)
+    assert report.columns["id"] == "Set Code" and report.also_matched == {}
+
+
+@pytest.mark.parametrize("field_name, headers", [
+    ("id", ["Card No", "Card No.", "Card Number", "Number", "Collector Number", "Collector No", "Card Code",
+            "Set Code", "Serial"]),
+    ("name", ["Title", "Card Title"]),
+    ("kind", ["Card Type", "Category"]),
+    ("image", ["Picture", "Image Link", "Art URL", "Img", "Image Path"]),
+    ("printing_of", ["Reprint", "Alternate Of"]),
+])
+def test_each_alias_fills_its_field(tmp_path, field_name, headers):
+    values = {"id": "A1", "name": "One", "kind": "unit", "image": "a.png", "printing_of": "A0"}
+    for header in headers:
+        # The other required field is named by --map, so only the alias under test is found by itself.
+        mapping = {"name": "Zed"} if field_name == "id" else {"id": "Zed"}
+        row = {"Zed": "A0" if field_name != "id" else "One", header: values[field_name]}
+        if field_name not in ("id", "name"):
+            row["Zed2"] = "One"
+            mapping["name"] = "Zed2"
+        text = ",".join(row) + "\n" + ",".join(row.values()) + "\n"
+        report, _ = _import(tmp_path, f"{field_name}-{header}.csv", text, mapping=mapping, force=True)
+        assert report.columns[field_name] == header
+
+
+def test_a_vanguard_shaped_sheet_imports_without_a_mapping(tmp_path):
+    text = ("Card No.,Card Name,Grade,Clan,Image,Text\n"
+            "SYN/001,Sample One,3,Alpha,syn001.png,Does a thing.\n"
+            "SYN/002,Sample Two,1,Beta,syn002.png,Does another.\n")
+    report, out = _import(tmp_path, "sheet.csv", text, facets=["Grade", "Clan"])
+    assert report.errors == []
+    assert report.columns == {"id": "Card No.", "name": "Card Name", "image": "Image"}
+    assert report.also_matched == {}
+    catalog = load_catalog(out)
+    assert catalog.card("SYN/001").name == "Sample One" and catalog.card("SYN/002").art == "syn002.png"
+    text = "Set Code,Card Name,Type,Grade,Nation,Rarity,Image,Text\nSYN001,Sample One,Normal,3,Alpha,R,s1.png,x\n"
+    report, out = _import(tmp_path, "sheet2.csv", text, force=True)
+    assert report.columns == {"id": "Set Code", "name": "Card Name", "kind": "Type", "image": "Image"}
+    assert load_catalog(out).card("SYN001").kind == "Normal"
 
 
 def test_a_column_that_is_not_there_is_named(tmp_path):
@@ -633,3 +684,13 @@ def test_the_command_line_takes_overwrite_and_delimiter_and_still_takes_force(tm
     with pytest.raises(SystemExit):
         cli.main(["import-catalog", "--help"])
     assert "--force" not in capsys.readouterr().out
+
+
+def test_a_card_hash_header_is_the_id(tmp_path):
+    text = "Card #,Card Name,Image\nSYN-001,Sample One,s1.png\nSYN-002,Sample Two,s2.png\n"
+    report, out = _import(tmp_path, "hash.csv", text)
+    assert report.errors == [] and report.columns["id"] == "Card #"
+    # "Card No." comes before it, so a sheet with both takes "Card No." and names the other.
+    text = "Card #,Card No.,Card Name\n1,SYN-001,Sample One\n"
+    report, _ = _import(tmp_path, "both.csv", text, force=True)
+    assert report.columns["id"] == "Card No." and report.also_matched == {"id": ["Card #"]}

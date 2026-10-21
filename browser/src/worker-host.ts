@@ -164,6 +164,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
       .loadRelease(request.releaseUrl, {
         wasmPaths,
         ...(request.providers ? { providers: request.providers } : {}),
+        ...(request.files ? { files: request.files } : {}),
         onProgress: (progress) => deps.post({ kind: "release-progress", phase: progress.phase, bytes: progress.phase === "downloading" ? progress.bytes : null }),
       })
       .then(async (result) => {

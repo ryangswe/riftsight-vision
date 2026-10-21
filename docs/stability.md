@@ -9,7 +9,8 @@ What you can build on, what may change, and how you'll hear about it.
 These are the public surface: changed only as [versioning](#versioning) and
 [deprecation](#deprecation) below describe.
 
-- **The `cardvision` commands, their flags and their exit codes:** `import-catalog`,
+- **The `cardvision` commands, their flags and their exit codes** (`try` and `fetch-weights` from
+  v0.2.0): `try`, `fetch-weights`, `import-catalog`,
   `check-catalog`, `check-bank-art`, `build-bank`, `infer`, `build-release`, `verify-release`,
   `make-composites`, `fetch-textures`, `train-recognizer`, `train-detector`, `export`,
   `evaluate`, `calibrate`, `check-refresh`, `build-features`, `pack-features`,
@@ -54,10 +55,15 @@ Before anything in the public surface is removed or changed incompatibly:
 Security fixes are the exception: they ship as soon as they are ready, and the changelog says
 what changed.
 
+Support for a Python version ends when that version reaches its end of life upstream, or when a
+security fix needs a newer one, whichever comes first. The changelog says so in the release that
+ends it.
+
 ## Supported versions
 
-- **Python: 3.11 and 3.12 from v0.2.0.** Python 3.10 works until then. It reaches its end of life
-  in October 2026, and the image library's security fixes need 3.11.
+- **Python: 3.11 or later; CI tests 3.11 and 3.12.** Newer versions may work but are not tested.
+  Python 3.10 is not supported from v0.2.0: it reaches its end of life in October 2026, and the
+  image library's security fixes need 3.11.
 - **Browsers:** the browser runtime has been run in Chrome and Firefox (see
   [browser/README.md](../browser/README.md)). It uses WebGPU where the browser offers it and
   WebAssembly otherwise. Other browsers may work but are not checked.

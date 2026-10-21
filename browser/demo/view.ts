@@ -16,9 +16,11 @@ export type ModelState =
   | { kind: "none" }
   /** `phase` and `bytes` say where the load is, when the worker has said (`SessionStatus.loading`);
    *  `name` is what the page calls the models, such as "the One Piece models". */
-  | { kind: "loading"; address: string; phase?: "downloading" | "preparing"; bytes?: number | null; name?: string }
+  | { kind: "loading"; address: string; phase?: "downloading" | "preparing"; bytes?: number | null; name?: string; local?: true }
   | { kind: "loaded"; address: string; game: string; cards: number }
-  | { kind: "failed"; address: string; reason: string };
+  /** `local`, for a release read from a folder chosen on this computer: `address` is then the
+   *  path of its release document in that folder, and nothing was downloaded. */
+  | { kind: "failed"; address: string; reason: string; local?: true };
 
 export type MediaState =
   | { kind: "none" }
@@ -40,16 +42,18 @@ export interface ReleaseReport {
 }
 
 /** The model state for a session's report. `address` is the release address the session was
- *  given; `name`, when given, is what the page calls its models while they load. */
-export function modelOf(address: string, report: ReleaseReport | null, name?: string): ModelState {
+ *  given; `name`, when given, is what the page calls its models while they load; `local`, that
+ *  the release is read from a folder chosen on this computer, so it is read, not downloaded. */
+export function modelOf(address: string, report: ReleaseReport | null, name?: string, local = false): ModelState {
   if (address === "") return { kind: "none" };
   if (report?.state === "ready" && report.release) return { kind: "loaded", address, game: report.release.game, cards: report.release.bankCards };
-  if (report?.state === "failed") return { kind: "failed", address, reason: report.error ?? "no reason given" };
+  if (report?.state === "failed") return { kind: "failed", address, reason: report.error ?? "no reason given", ...(local ? { local: true as const } : {}) };
   const loading = report?.loading ?? null;
   return {
     kind: "loading", address,
     ...(loading ? { phase: loading.phase, bytes: loading.bytes } : {}),
     ...(name !== undefined ? { name } : {}),
+    ...(local ? { local: true as const } : {}),
   };
 }
 
@@ -64,8 +68,9 @@ export function aboutSize(bytes: number): string {
 export function loadingText(model: Extract<ModelState, { kind: "loading" }>): string {
   const name = model.name ?? "the model";
   if (model.phase === "preparing") return `Preparing ${name}…`;
-  if (model.phase === "downloading" && typeof model.bytes === "number") return `Downloading ${name} (${aboutSize(model.bytes)})…`;
-  if (model.phase === "downloading") return `Downloading ${name}…`;
+  const verb = model.local ? "Reading" : "Downloading";
+  if (model.phase === "downloading" && typeof model.bytes === "number") return `${verb} ${name} (${aboutSize(model.bytes)})…`;
+  if (model.phase === "downloading") return `${verb} ${name}…`;
   return `Loading ${name}…`;
 }
 
@@ -234,6 +239,7 @@ export function demoView(model: ModelState, media: MediaState, facts: RunFacts =
     hint: ready && !named,
     modelLine,
     modelProblem: model.kind !== "failed" ? null
+      : model.local ? `Could not load the release in ${model.address} (${model.reason}). Choose the release folder again.`
       : hosted ? `Could not load the model from ${model.address} (${model.reason}). Press Retry to try again.`
       : `Could not load the model at ${model.address} (${model.reason}). Check the address, then press Retry.`,
     fileName: fileOpen ? media.name : null,

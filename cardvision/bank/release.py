@@ -290,12 +290,20 @@ def with_id(doc: Mapping[str, Any]) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------ verification
 def _path_problem(path: Any) -> str | None:
+    """Why a pinned path is refused, or None. The browser's ``isRelativePath`` applies the same rule.
+
+    A browser resolves the path as an address, so the rule is the URL parser's view of it: no
+    scheme prefix (``http:x``, ``data:``, ``C:``), no backslash, no control character, no space at
+    either end, not absolute, and no segment that is, or percent-encodes, ``.`` or ``..`` (the
+    parser reads ``%2e%2e`` as ``..``).
+    """
     if not _is_text(path):
         return "must be a non-empty relative path"
-    if "\\" in path or "://" in path:
+    if "\\" in path or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", path) \
+            or re.search(r"[\x00-\x1f\x7f]", path) or path.startswith(" ") or path.endswith(" "):
         return f"{path!r} must be a plain relative path with forward slashes"
-    pure = PurePosixPath(path)
-    if pure.is_absolute() or re.match(r"^[A-Za-z]:", path) or ".." in pure.parts:
+    segments = [re.sub(r"%2e", ".", segment, flags=re.IGNORECASE) for segment in path.split("/")]
+    if path.startswith("/") or any(segment in (".", "..") for segment in segments):
         return f"{path!r} must stay inside the folder of the release document"
     return None
 

@@ -6,13 +6,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cardvision"
-version = "0.1.0"
+version = "0.2.0rc1"
 description = "Card detection and recognition for trading-card game video."
 readme = "README.md"
 license = "Apache-2.0"
 # NOTICE refers the reader to PROVENANCE.md and TRADEMARK.md, so both travel with it.
 license-files = ["LICENSE", "LICENSE-DATA", "NOTICE", "PROVENANCE.md", "TRADEMARK.md"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
     "onnxruntime>=1.17",
@@ -47,8 +47,6 @@ geometric = [
 # certifi is a bundle of CA certificates: some Python builds ship none (the macOS installer from
 # python.org is one), and every https request then fails. The downloader and the other commands
 # that download (fetch-textures, train-detector --download-pretrained) use it when it is installed.
-# The downloader says that its support for Python 3.10 is deprecated: use Python 3.11 or later
-# for this extra.
 download = [
     "yt-dlp>=2024.4.9",
     "certifi>=2024.2.2",

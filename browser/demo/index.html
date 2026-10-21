@@ -80,6 +80,20 @@
       <input id="release-url" type="text" placeholder="/release/release.json" spellcheck="false" required>
       <button id="load-model" class="button" type="submit">Load</button>
     </form>
+    <!-- A release folder on this computer, read by the page: no address, nothing fetched or
+         uploaded (page.ts, "a release from files"). The hosted page's "Your game" choice and the
+         local server's page offer it. -->
+    <div id="local-release" class="local-release" hidden>
+      <p id="local-intro" class="quiet">Or choose a release folder on this computer. Its files are read by this page; nothing is uploaded.</p>
+      <div class="local-buttons">
+        <input id="release-folder" class="behind" type="file" webkitdirectory multiple>
+        <label id="choose-release" class="button" for="release-folder">Choose the release folder…</label>
+        <input id="images-folder" class="behind" type="file" webkitdirectory multiple>
+        <label id="choose-images" class="button" for="images-folder">Choose the card images folder…</label>
+      </div>
+      <p id="local-problem" class="message problem" role="alert" hidden></p>
+      <p id="local-note" class="quiet" hidden></p>
+    </div>
     <div id="model-command" hidden>
       <p class="quiet">Or stop the server and start it with a release folder. The model then loads by itself:</p>
       <pre class="command">npm run demo -- --release RELEASE-FOLDER</pre>

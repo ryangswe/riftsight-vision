@@ -9,6 +9,7 @@ import { configureOrt, ortWebVersion, takeSessionFailures } from "./ort.js";
 import type { Cv } from "./geometric/features.js";
 import { type GeometricStage, openGeometricStage, type StageIndex, type StageVoter, voteIdentities } from "./geometric/stage.js";
 import type { FrameAnalysis, Pipeline } from "./pipeline.js";
+import { RELEASE_FILES_BASE, releaseFileKey } from "./messages.js";
 import type { ExecutionProvider } from "./providers.js";
 import {
   buildReleasePipeline,
@@ -36,6 +37,11 @@ export interface LoadOptions {
   providers?: readonly ExecutionProvider[];
   /** How bytes are fetched and hashed, in place of `fetch` and the Web Crypto API. */
   deps?: Partial<ReleaseDeps>;
+  /** The release's files, by path relative to the release document's folder, in place of a
+   *  server: `releaseUrl` is then the document's path among them (`release.json`), and nothing is
+   *  fetched (`filesFetch`). Each file is checked against the size and SHA-256 the document pins,
+   *  as a fetched one is. */
+  files?: Record<string, Blob>;
   /** Told where the load is: downloading the files the release pins (`bytes`, their sum, once the
    *  release document is read), then preparing the models (starting the ONNX Runtime sessions).
    *  Advisory: what it throws is ignored, and the load goes on. A load that fails before the
@@ -63,6 +69,22 @@ export interface LoadedRelease {
   dispose(): Promise<void>;
 }
 
+/**
+ * A `fetchFn` that answers from a release's files and never from a network: an address under
+ * `RELEASE_FILES_BASE` gets the bytes of the file at that path relative to the release document's
+ * folder, and any other address, or a path that is not among the files, is refused with the path
+ * in words. What it answers is then checked like anything fetched.
+ */
+export function filesFetch(files: Record<string, Blob>): ReleaseDeps["fetchFn"] {
+  return async (url: string) => {
+    if (!url.startsWith(RELEASE_FILES_BASE)) throw new Error(`${url} is not one of the release's files`);
+    const path = releaseFileKey(url.slice(RELEASE_FILES_BASE.length));
+    const file = Object.hasOwn(files, path) ? files[path] : undefined;
+    if (file === undefined) throw new Error(`no file ${path} among the release's files`);
+    return { ok: true, status: 200, arrayBuffer: () => file.arrayBuffer() };
+  };
+}
+
 const factories: ReleaseModelFactories = {
   embedder: (bytes, settings, providers) => Embedder.create(bytes, settings, providers),
   detector: (bytes, settings, providers) => Detector.create(bytes, settings, providers),
@@ -71,11 +93,12 @@ const factories: ReleaseModelFactories = {
 /**
  * Load the release whose document is at `releaseUrl`: fetch it and every file it pins, check
  * each against its size and SHA-256 and against the others, and start both models. The
- * document's paths are relative to it. All-or-nothing: any failure rejects with a
- * `ReleaseError` and nothing stays loaded.
+ * document's paths are relative to it. With `options.files` the same is read from those files
+ * instead, and nothing is fetched. All-or-nothing: any failure rejects with a `ReleaseError` and
+ * nothing stays loaded.
  */
 export async function loadRelease(releaseUrl: string | URL, options: LoadOptions = {}): Promise<LoadedRelease> {
-  const base = typeof location !== "undefined" ? location.href : undefined;
+  const base = options.files ? RELEASE_FILES_BASE : typeof location !== "undefined" ? location.href : undefined;
   const url = new URL(releaseUrl, base).href;
   const progress = (said: LoadProgress): void => {
     try {
@@ -85,7 +108,8 @@ export async function loadRelease(releaseUrl: string | URL, options: LoadOptions
     }
   };
   progress({ phase: "downloading", bytes: null });
-  const loaded = await loadReleaseData(url, { ...defaultReleaseDeps, ...options.deps }, {
+  const deps: ReleaseDeps = { ...defaultReleaseDeps, ...options.deps, ...(options.files ? { fetchFn: filesFetch(options.files) } : {}) };
+  const loaded = await loadReleaseData(url, deps, {
     ortWeb: ortWebVersion(),
     ...(options.onProgress ? { onDocument: (bytes: number) => progress({ phase: "downloading", bytes }) } : {}),
   });

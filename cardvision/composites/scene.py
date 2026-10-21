@@ -57,6 +57,7 @@ from cardvision.composites.finish import Canvas, add_foil, add_sleeve, color_jit
 from cardvision.composites.geometry import (
     CARD_ASPECT,
     apply_h,
+    check_aspect,
     image_angle,
     local_scale,
     log_uniform,
@@ -139,13 +140,14 @@ def stream(seed: int, split: str, index: int, *tags: int) -> np.random.Generator
     return np.random.default_rng([seed, SPLIT_BASE[split], index, *tags])
 
 
-def layout_table(rng, n_target, s0):
-    """Rows of card slots for one or two players, in table coordinates (card width ``s0``).
+def layout_table(rng, n_target, s0, aspect=CARD_ASPECT):
+    """Rows of card slots for one or two players, in table coordinates (card width ``s0``,
+    upright card aspect ``aspect``).
 
     Returns ``(slots, card width)``; a slot is ``{"q", "theta", "role"}`` and, for a card of a
     deck pile, ``"back": True``. The far player's half is turned half a turn.
     """
-    w, h = s0, s0 / CARD_ASPECT
+    w, h = s0, s0 / aspect
     out = []
     halves = ["near", "far"] if rng.random() < 0.6 else ["near"]
     gap = h * rng.uniform(0.2, 1.0)
@@ -251,13 +253,18 @@ def background_mode(cfg, pool) -> str:
     return mode
 
 
-def build_scene(pool, split, index, seed=0, settings=None):
+def build_scene(pool, split, index, seed=0, settings=None, card_aspect=CARD_ASPECT):
     """Generate one scene. Returns ``(record, JPEG bytes)``.
 
     ``pool`` is a ``cards.CardPool``. ``record`` is the scene's entry in ``labels.jsonl``.
+    ``card_aspect`` is the width over the height of an upright card of the game: it sets the
+    spacing of the layouts and the shape of backs and card-shaped distractors. A face's shape
+    follows its image. The random draws of a scene do not depend on it; what it moves is where
+    the cards lie, and so which board slots fall inside the frame.
     """
     if split not in SPLIT_BASE:
         raise ValueError(f"split must be one of {list(SPLITS)}, not {split!r}")
+    aspect = check_aspect(card_aspect)
     cfg = settings if settings is not None else Settings()
     bg_mode = background_mode(cfg, pool)
     photo = _photometric(cfg, pool)
@@ -272,7 +279,7 @@ def build_scene(pool, split, index, seed=0, settings=None):
     Hinv = np.linalg.inv(Hs)
     # --- background. The procedural one is always drawn from the scene stream, so that every
     # later draw is the same whatever the background mode; a scan replaces it on its own stream.
-    bg, family = T.make_background(rng, W, H)
+    bg, family = T.make_background(rng, W, H, card_aspect=aspect)
     bg_src = None
     share = BACKGROUND_SHARE[bg_mode]
     if share > 0:
@@ -303,7 +310,7 @@ def build_scene(pool, split, index, seed=0, settings=None):
     if not probe:
         if mode == "table":
             s0 = log_uniform(rng, SIZE_MIN, SIZE_MAX)
-            slots, wt = layout_table(rng, n_target, s0)
+            slots, wt = layout_table(rng, n_target, s0, aspect)
             phi = rng.uniform(0, 360)
             Rphi = rot2(phi)
             shift = np.array([rng.uniform(-0.3, 0.3) * W, rng.uniform(-0.3, 0.3) * H])
@@ -329,9 +336,9 @@ def build_scene(pool, split, index, seed=0, settings=None):
             final1920 = log_uniform(lrng, *BOARD_CARD_PX["pip" if pip else "full"])
             final = final1920 * W / 1920.0  # the same share of the frame at either resolution
             s0 = final / s_win
-            slots, board_info = B.layout_board(rng, s0)
+            slots, board_info = B.layout_board(rng, s0, aspect)
             bg, family, bg_src = surface_background(stream(seed, split, index, STREAM_SURFACE), pool.surfaces,
-                                                    pool.textures_dir, W, H)
+                                                    pool.textures_dir, W, H, aspect)
             if tilt > 0:
                 bg = warp_to_table(bg, W, H, Hinv)
             cv = Canvas(bg)
@@ -340,7 +347,7 @@ def build_scene(pool, split, index, seed=0, settings=None):
             phi = 90.0 * kq + lrng.uniform(-8, 8) if aligned else lrng.uniform(0, 360)
             xs = np.array([sl["q"][0] for sl in slots])
             ys = np.array([sl["q"][1] for sl in slots])
-            nat_w = xs.max() - xs.min() + s0 / CARD_ASPECT
+            nat_w = xs.max() - xs.min() + s0 / aspect
             cover = lrng.uniform(0.70, 1.0)
             span = H if (aligned and kq % 2 == 1) else W  # the frame side the board's long axis meets
             kx = float(np.clip(cover * span / nat_w, 0.85, 2.0))
@@ -365,7 +372,7 @@ def build_scene(pool, split, index, seed=0, settings=None):
                 "surface": family, "preset": preset}})
         elif mode == "board":
             s0 = log_uniform(rng, SIZE_MIN, SIZE_MAX)
-            slots, board_info = B.layout_board(rng, s0)
+            slots, board_info = B.layout_board(rng, s0, aspect)
             phi = rng.uniform(0, 360)
             Rphi = rot2(phi)
             shift = np.array([rng.uniform(-0.3, 0.3) * W, rng.uniform(-0.3, 0.3) * H])
@@ -415,7 +422,7 @@ def build_scene(pool, split, index, seed=0, settings=None):
         leader_dice = []
         for pl in placements:
             if pl.get("diceSlot") and pool.leader_dice and not pl["back"] and rng.random() < 0.6:
-                h_t = pl["wt"] / CARD_ASPECT
+                h_t = pl["wt"] / aspect
                 for k in range(int(rng.integers(1, 3))):
                     off = rot2(pl["theta"]) @ np.array([rng.uniform(-0.25, 0.25) * pl["wt"],
                                                         -h_t * rng.uniform(0.05, 0.22)])
@@ -442,14 +449,14 @@ def build_scene(pool, split, index, seed=0, settings=None):
             wt = p["wt"]
             ls = local_scale(Hs, p["q"])
             if p["back"]:
-                src, sub = pool.back(rng)
+                src, sub = pool.back(rng, aspect)
                 cid, rec["kind"] = None, "back"
             else:
-                src, cid, sub = pool.face(rng, wt * ls / CARD_ASPECT * 1.3, p.get("draw"))
+                src, cid, sub = pool.face(rng, wt * ls / aspect * 1.3, p.get("draw"))
                 rec["kind"] = "face"
             ar = src.width / src.height
             if ar > 1.05 and not p["back"]:
-                wt_card = wt / CARD_ASPECT  # a landscape card: the same short side as an upright one
+                wt_card = wt / aspect  # a landscape card: the same short side as an upright one
             else:
                 wt_card = wt
             # Shrink the source to about 1.4 times its largest size in the image, then warp.
@@ -503,7 +510,7 @@ def build_scene(pool, split, index, seed=0, settings=None):
                 rec["side"] = p["side"]
             src_img = card
         elif kind == "distractor":
-            patch, sub = T.distractor_patch(rng, 64)
+            patch, sub = T.distractor_patch(rng, 64, aspect)
             wt = p["wt"]
             ht = wt * patch.height / patch.width
             A = unit_to_table(p["q"], wt, ht, p["theta"])
@@ -585,12 +592,12 @@ def build_scene(pool, split, index, seed=0, settings=None):
         # the arrangement and the window scale were drawn before the layout
         if preset is not None:
             img, ids, objects, broadcast = G.compose(grng, img, ids, objects, W, H, inset_fn=pool.inset_art,
-                                                     probe=probe, preset=preset)
+                                                     probe=probe, preset=preset, card_aspect=aspect)
     elif cfg.boards:
         grng = stream(seed, split, index, STREAM_BROADCAST)
         if grng.random() < BROADCAST_SHARE[split]:
             img, ids, objects, broadcast = G.compose(grng, img, ids, objects, W, H, inset_fn=pool.inset_art,
-                                                     probe=probe)
+                                                     probe=probe, card_aspect=aspect)
     # --- degradation
     deg = {}
     gains = rng.uniform(0.9, 1.1, 3)

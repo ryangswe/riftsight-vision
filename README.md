@@ -14,15 +14,15 @@ belong to Riot Games.
 
 **It reads cards. It cannot draw them.** This is recognition, not image generation.
 
-**Try it with nothing to install:** <https://ryangswe.github.io/riftsight-vision/>. Move the
-pointer over the toy game's example table, or drop a screenshot or a video of your own One Piece
-Card Game match. The models run in your browser.
+**Try it with nothing to install:** <https://ryangswe.github.io/riftsight-vision/>. Pick the toy
+game and move the pointer over its example table, pick the One Piece Card Game and drop a
+screenshot or a video of your own match, or pick "Your game (files on this computer)" and choose a
+release folder you made with this toolkit. The models run in your browser.
 
 - **New here?** [docs/start-here.md](docs/start-here.md) picks the page for you.
-- **Have a spreadsheet of your cards?** [docs/your-game.md](docs/your-game.md) takes it, your
-  card images and a video to card names on that video.
-- **Prefer to watch?** [Six walkthrough videos](https://www.youtube.com/playlist?list=PLMxsDo8Cxri0)
-  follow the same steps on the toy game, from the big picture to your own browser extension.
+- **Have a spreadsheet of your cards?** [docs/your-game.md](docs/your-game.md): three lines to card names on your video.
+- **Building on it?** [docs/stability.md](docs/stability.md) says what is kept stable.
+- **Prefer to watch?** [Six walkthrough videos](https://www.youtube.com/playlist?list=PLMxsDo8Cxri0) follow the steps on the toy game.
 
 ## How well it works
 
@@ -33,7 +33,7 @@ wrong. The [model card](docs/model-card.md#evaluation) has the figures by source
 ## Quickstart
 
 This runs the whole pipeline on a toy game drawn from colored shapes: no card art, no video,
-no download beyond the Python packages. You need Python 3.10 or later (macOS, Linux, or Ubuntu
+no download beyond the Python packages. You need Python 3.11 or later (macOS, Linux, or Ubuntu
 under WSL 2 on Windows), and Node 22 or later for the browser part. Paste this into the terminal:
 
 ```

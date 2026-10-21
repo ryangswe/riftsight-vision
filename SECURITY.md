@@ -12,12 +12,6 @@ Say what you found, how to reproduce it and which version or commit you used. Yo
 answer within 7 days. One person maintains this repository, so a fix can take longer than the
 answer.
 
-## Known issues
-
-- On Python 3.10, `requirements-lock.txt` installs Pillow 12.3.0, which has known flaws in
-  reading JPEG, TIFF, GIF, EPS and PDF files. The fixed Pillow (13.0.0) needs Python 3.11, and
-  3.11 or later gets it. Use Python 3.11 or later; v0.2.0 ends support for 3.10.
-
 ## What counts
 
 - Code in this repository that can be made to run something it should not, read or write

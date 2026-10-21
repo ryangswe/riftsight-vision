@@ -24,7 +24,7 @@
 // when it opens, to load the model before any file is chosen.
 //
 // The page makes three kinds of request and no other: for the release document and the files it
-// pins; for the image of the card under the pointer, only if a base for card images is set (it
+// pins (none when the release is a folder chosen on this computer, below); for the image of the card under the pointer, only if a base for card images is set (it
 // is set to the local server's own image folder when the server has one); and, only if the
 // page's address names it, for the one file the local server was started with. It keeps
 // nothing and sends nothing.
@@ -48,13 +48,25 @@
 // `--file PATH`: it serves that one file and prints an address, `/?file=/file/NAME`, and the page
 // at that address opens the file as if it had been chosen. The address can name that file and
 // the server's own image folder, and nothing else (`addressRequest` in page.ts).
+//
+// A release can also be a folder on this computer, chosen with a folder button: the hosted page's
+// "Your game" choice (a game with `local` in the picker) and the local server's page offer it. The
+// page finds the release document in the files chosen and hands the worker that document and the
+// files it pins, as they are; the worker checks each against the size and SHA-256 the document
+// pins, as it does a fetched one, and fetches nothing. Card images come from an `images/` or
+// `art/` folder beside the release, or from a second folder button, and are shown from blob: URLs
+// made for them, which are revoked when the images or the game change. No address is typed for
+// either, and nothing is uploaded.
 
 import { sourceSize } from "../src/capture.js";
 import { type FrameAnalysis, hoverAt } from "../src/pipeline.js";
 import { createSession, pictureBox, type Session, type Shown } from "../src/session.js";
 import { boxAtPoint, type DetailsFile, detailsView, type DetailsView, SPARK_FRAMES } from "./details.js";
 import { renderDetails } from "./details-dom.js";
-import { addressRequest, byId, chosenBackend, type Game, artUrls, gameArtUrls, hostedRelease, latestRequest, hostedWorkerScript, SERVED_IMAGES_BASE, SERVED_RELEASE_URL, serverConfig, WORKER_URL } from "./page.js";
+import {
+  addressRequest, byId, chosenBackend, findReleaseDocument, type Game, artUrls, gameArtUrls, hostedRelease, imagesForAddress, imagesForRelease, imagesFrom, latestRequest, hostedWorkerScript,
+  localArt, type LocalImages, type PickedFile, pickedFiles, RELEASE_DOCUMENT, releaseFilesFrom, SERVED_IMAGES_BASE, SERVED_RELEASE_URL, serverConfig, WORKER_URL,
+} from "./page.js";
 import { demoView, gameSource, HOSTED, hostedNote, isVideoType, MARK, type MediaState, modelOf, type ModelState, NO_FACTS, type PanelFrame, panelLines, type RunFacts } from "./view.js";
 
 /** Whether this page is a hosted build, and its release address: null for the local server's page. */
@@ -121,6 +133,12 @@ const gameExamples = byId<HTMLDivElement>("game-examples");
 const gameState = byId<HTMLParagraphElement>("game-state");
 const gameStateMark = byId<HTMLSpanElement>("game-state-mark");
 const gameStateText = byId<HTMLSpanElement>("game-state-text");
+const localBlock = byId<HTMLDivElement>("local-release");
+const localIntro = byId<HTMLParagraphElement>("local-intro");
+const releaseFolderInput = byId<HTMLInputElement>("release-folder");
+const imagesFolderInput = byId<HTMLInputElement>("images-folder");
+const localProblem = byId<HTMLParagraphElement>("local-problem");
+const localNote = byId<HTMLParagraphElement>("local-note");
 
 type Kind = "video" | "image";
 
@@ -154,6 +172,23 @@ let placeKept = false;
  *  Details; and the session's count of frames when the last one was taken. */
 let frameTimes: number[] = [];
 let framesSeen = 0;
+/** The release read from a folder chosen on this computer, while it is the one in effect: the
+ *  files handed to the worker, by path relative to the release document's folder. */
+let localRelease: { files: Record<string, Blob> } | null = null;
+/** Card images chosen on this computer, by path in their folder, that folder's path, and whether
+ *  they were taken from beside a release folder (`auto`) rather than chosen. */
+let localImages: LocalImages | null = null;
+/** The blob: URL made for each local card image shown, by its path; revoked with the images. */
+let localArtUrls = new Map<string, string>();
+/** The path of the local card image the tooltip shows, and the card whose image was not found. */
+let localArtPath: string | null = null;
+let localArtMissing: string | null = null;
+/** The path of a local card image that the browser could not show. */
+let localArtBroken: string | null = null;
+/** Why the folder chosen holds no release the page can hand over; null when there is no problem. */
+let localProblemText: string | null = null;
+/** Counts folder choices: a document still being read when another folder is chosen is dropped. */
+let localChoice = 0;
 /** Where the pointer is over the picture, in viewport coordinates; null when it is elsewhere. */
 let pointer: { x: number; y: number } | null = null;
 /** What Details shows now: it is written again only when it changes. */
@@ -173,8 +208,46 @@ function say(element: HTMLElement, text: string | null): void {
  *  the catalog's path with its folders, then the bare file name. None when the base is empty,
  *  so that nothing is fetched. */
 function artCandidates(cardId: string): string[] {
+  localArtPath = null;
+  localArtBroken = null;
+  if (localImages) {
+    // Found as on a server (`localArt`): the path with its folders, then the bare name.
+    const found = localArt(localImages.images, artByCard.get(cardId));
+    localArtMissing = found === null ? cardId : null;
+    if (found === null) return [];
+    localArtPath = found.path;
+    let url = localArtUrls.get(found.path);
+    if (url === undefined) {
+      url = URL.createObjectURL(found.file);
+      localArtUrls.set(found.path, url);
+    }
+    return [url];
+  }
   return hosted ? (game ? gameArtUrls(game, artByCard.get(cardId), location.href) : [])
     : artUrls(imageBaseInput.value.trim(), artByCard.get(cardId), location.href);
+}
+
+/** Free the blob: URLs of the local card images, and forget the images when `forget` says so. */
+function revokeLocalArt(forget: boolean): void {
+  for (const url of localArtUrls.values()) URL.revokeObjectURL(url);
+  localArtUrls = new Map();
+  localArtPath = null;
+  localArtMissing = null;
+  localArtBroken = null;
+  if (forget) localImages = null;
+  // The image of the card on show is looked up again.
+  shownCard = null;
+}
+
+/** What the page says about the card images chosen on this computer, or null for none. */
+function localImagesText(): string | null {
+  if (!localImages) return null;
+  const count = localImages.images.size;
+  const said = `Card images: ${count} ${count === 1 ? "file" : "files"} from ${localImages.folder === "" ? "the folder chosen" : localImages.folder}.`;
+  if (localArtBroken !== null) return `${said} ${localArtBroken} could not be shown as an image; the tooltip shows the name alone.`;
+  if (localArtMissing === null) return said;
+  const art = artByCard.get(localArtMissing);
+  return `${said} No image for ${localArtMissing}${art === undefined ? "" : ` (${art})`} is there; the tooltip shows the name alone.`;
 }
 
 /** Whether a bare file name has loaded where the path with its folders did not: the image folder
@@ -306,10 +379,12 @@ function detailsFile(): DetailsFile | null {
 
 /** Write to the page what view.ts decides for the model and the file as they are now. */
 function render(): void {
-  if (session) model = modelOf(address, session.status(), game?.models);
+  if (session) model = modelOf(address, session.status(), game?.models, localRelease !== null);
   const shown = model.kind === "loaded" && media.kind === "shown" ? session?.atPointer() ?? null : null;
   if (shown) named = true;
-  const view = demoView(model, media, facts(), named, refused, hosted !== null);
+  // The "Your game" choice has no fixed address: it speaks as the local server's page does.
+  const localGame = game?.local === true;
+  const view = demoView(model, media, facts(), named, refused, hosted !== null && !localGame);
 
   // The model step leads the page while there is no model: it moves above the stage.
   if (page.dataset.step !== view.step) {
@@ -319,7 +394,7 @@ function render(): void {
   }
   const leads = view.step === "model";
   // A hosted page with a release address has nothing to ask for: it says what went wrong, and offers Retry.
-  modelIntro.hidden = !leads || (hosted !== null && (hosted.release !== null || game !== null));
+  modelIntro.hidden = !leads || (hosted !== null && (hosted.release !== null || (game !== null && !localGame)));
   modelCommand.hidden = !leads || hosted !== null;
   modelLine.hidden = view.modelLine === null;
   setText(modelText, view.modelLine ?? "");
@@ -328,8 +403,14 @@ function render(): void {
   // A model that did not load is put right where it is said: the address field opens under the
   // message, and its button tries again with whatever the field then holds. A hosted page's
   // address is fixed: the field shows it, and its button tries it again.
-  const showForm = hosted ? model.kind === "failed" : leads || formOpen || model.kind === "failed";
+  const showForm = hosted ? model.kind === "failed" && !localGame : leads || formOpen || model.kind === "failed";
   modelForm.hidden = !showForm;
+  // The folder buttons: always on the "Your game" choice, and beside the address field on the
+  // local server's page. The hosted page's other choices have none.
+  localBlock.hidden = !(localGame || (hosted === null && showForm));
+  localIntro.hidden = localGame;
+  say(localProblem, localProblemText);
+  say(localNote, localImagesText());
   changeModel.setAttribute("aria-expanded", String(showForm));
   setText(loadModel, model.kind === "failed" ? "Retry" : "Load");
   loadModel.classList.toggle("primary", leads);
@@ -396,6 +477,7 @@ function startSession(kind: Kind): void {
   sessionOn = kind;
   sessionSpent = false;
   artByCard = new Map();
+  localArtMissing = null;
   flatImages = false;
   frameTimes = [];
   framesSeen = 0;
@@ -408,7 +490,8 @@ function startSession(kind: Kind): void {
   model = { kind: "loading", address };
   const backend = chosenBackend(backendSelect);
   const started = createSession(kind === "video" ? video : image, {
-    releaseUrl: address,
+    // A release from a folder on this computer is read from its files, and nothing is fetched.
+    ...(localRelease ? { releaseUrl: RELEASE_DOCUMENT, releaseFiles: localRelease.files } : { releaseUrl: address }),
     ...(hosted ? { workerUrl: hostedWorkerUrl(), wasmPaths: new URL("lib/", location.href).href } : { workerUrl: new URL(WORKER_URL, location.href) }),
     mode: alwaysOn.checked ? "always-on" : "pointer",
     ...(backend === null ? {} : { providers: [backend] }),
@@ -614,9 +697,16 @@ async function openExample(example: Game["examples"][number]): Promise<void> {
 function chooseGame(chosenGame: Game): void {
   if (game?.id === chosenGame.id && session) return;
   game = chosenGame;
+  // Nothing chosen on this computer for the game before is kept: its files, its images and their blob: URLs.
+  forgetLocal();
   const radio = document.getElementById(`game-${chosenGame.id}`) as HTMLInputElement | null;
   if (radio) radio.checked = true;
-  setText(gameSourceLine, gameSource(chosenGame.release, location.href));
+  gameSourceLine.hidden = chosenGame.release === null;
+  setText(gameSourceLine, chosenGame.release === null ? "" : gameSource(chosenGame.release, location.href));
+  if (chosenGame.local) {
+    setText(modelIntroTitle, LOCAL_GAME.title);
+    setText(modelIntroText, LOCAL_GAME.text);
+  }
   gameNotes.replaceChildren(...chosenGame.notes.map((note) => {
     const line = document.createElement("p");
     line.textContent = note;
@@ -643,10 +733,62 @@ function chooseGame(chosenGame: Game): void {
   draw(null);
   tooltipArt.hidden = true;
   tooltipArt.removeAttribute("src");
-  address = new URL(chosenGame.release, location.href).href;
+  address = chosenGame.release === null ? "" : new URL(chosenGame.release, location.href).href;
   releaseInput.value = address;
   formOpen = false;
   startSession("image");
+}
+
+/** What the model step says on the "Your game" choice, before a folder is chosen. */
+const LOCAL_GAME = {
+  title: "Choose your release folder",
+  text: `Choose the folder that holds ${RELEASE_DOCUMENT}, such as the release folder that cardvision build-release wrote, and, if you like, a folder of card images. This page reads them on this computer: nothing is uploaded, and it makes no request for them.`,
+};
+
+/** Forget the release and the card images chosen on this computer, and free their blob: URLs. */
+function forgetLocal(): void {
+  localChoice += 1;
+  localRelease = null;
+  localProblemText = null;
+  revokeLocalArt(true);
+}
+
+/**
+ * A release folder chosen on this computer: find its release document, hand the worker that
+ * document and the files it pins, and load it. A folder with no document, or one that lacks a file
+ * the document pins, is said so, and the model in effect stays. Card images in an `images/` or
+ * `art/` folder beside the release are taken too, unless images were chosen with the images
+ * button; images taken from beside an earlier release are let go (`imagesForRelease`).
+ */
+async function chooseReleaseFolder(files: PickedFile[]): Promise<void> {
+  const choice = ++localChoice;
+  const refuse = (problem: string): void => {
+    localProblemText = problem;
+    render();
+  };
+  const found = findReleaseDocument(files);
+  if ("problem" in found) return refuse(found.problem);
+  let text: string;
+  try {
+    text = await found.document.file.text();
+  } catch (error) {
+    if (choice === localChoice) refuse(`${found.document.path} could not be read (${error instanceof Error ? error.message : String(error)})`);
+    return;
+  }
+  // Another folder, another game or a typed address was chosen meanwhile.
+  if (choice !== localChoice) return;
+  const taken = releaseFilesFrom(files, found, text);
+  if ("problem" in taken) return refuse(taken.problem);
+  localProblemText = null;
+  const images = imagesForRelease(localImages, files, found.folder);
+  if (images !== localImages) {
+    revokeLocalArt(true);
+    localImages = images;
+  }
+  localRelease = { files: taken.files };
+  address = found.document.path;
+  formOpen = false;
+  restart();
 }
 
 fileInput.addEventListener("change", () => {
@@ -681,8 +823,30 @@ stage.addEventListener("drop", (event) => {
 window.addEventListener("dragover", (event) => event.preventDefault());
 window.addEventListener("drop", (event) => event.preventDefault());
 
+releaseFolderInput.addEventListener("change", () => {
+  const files = pickedFiles(releaseFolderInput.files ?? []);
+  // Emptied, so that choosing the same folder again is a change too.
+  releaseFolderInput.value = "";
+  if (files.length > 0) void chooseReleaseFolder(files);
+});
+imagesFolderInput.addEventListener("change", () => {
+  const files = pickedFiles(imagesFolderInput.files ?? []);
+  imagesFolderInput.value = "";
+  if (files.length === 0) return;
+  revokeLocalArt(true);
+  localImages = { ...imagesFrom(files), auto: false };
+  say(imageNote, null);
+  render();
+});
+
 modelForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  // An address typed on the local server's page takes the place of a folder chosen.
+  localChoice += 1;
+  localRelease = null;
+  localProblemText = null;
+  // Card images taken from beside that folder go with it; images chosen with the button stay.
+  if (imagesForAddress(localImages) !== localImages) revokeLocalArt(true);
   address = releaseInput.value.trim();
   formOpen = false;
   restart();
@@ -697,6 +861,8 @@ alwaysOn.addEventListener("change", restart);
 allBoxes.addEventListener("change", render);
 imageBaseInput.addEventListener("change", () => {
   flatImages = false;
+  // An image base typed takes the place of an image folder chosen.
+  revokeLocalArt(true);
   // The image of the card on show is asked for again, under the new base.
   shownCard = null;
   say(imageNote, null);
@@ -712,6 +878,11 @@ tooltipArt.addEventListener("error", () => {
   }
   flatImages = false;
   tooltipArt.hidden = true;
+  if (localArtPath !== null) {
+    localArtBroken = localArtPath;
+    say(localNote, localImagesText());
+    return;
+  }
   const tried = (artAll.length > 0 ? artAll : [tooltipArt.src]).map((url) => new URL(url).pathname);
   say(imageNote, `No image was found at ${tried.join(" or ")}. The tooltip shows the name alone.`);
 });

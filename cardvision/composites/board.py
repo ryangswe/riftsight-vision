@@ -2,9 +2,10 @@
 """A two-player game board: where the cards of a game in progress lie on the table.
 
 ``layout_board`` returns slots in table coordinates: origin at the table center, +y towards
-the near player, card width ``s0``, upright card height ``s0 / CARD_ASPECT``. Each slot has a
-position ``q``, a table angle ``theta``, a ``role``, a ``draw`` group that says which cards may
-fill it, and ``back`` for a face-down card. The slots come in drawing order, lowest first.
+the near player, card width ``s0``, upright card height ``s0 / aspect`` (the run's card aspect,
+``CARD_ASPECT`` by default). Each slot has a position ``q``, a table angle ``theta``, a
+``role``, a ``draw`` group that says which cards may fill it, and ``back`` for a face-down card.
+The slots come in drawing order, lowest first.
 
 Each player's half holds:
 
@@ -98,9 +99,10 @@ def half(rng, w, h, gap):
     return out
 
 
-def layout_board(rng, s0):
-    """A whole board for card width ``s0`` (table units). Returns ``(slots, info)``."""
-    w, h = s0, s0 / CARD_ASPECT
+def layout_board(rng, s0, aspect=CARD_ASPECT):
+    """A whole board for card width ``s0`` (table units) and upright card aspect ``aspect``
+    (width over height). Returns ``(slots, info)``."""
+    w, h = s0, s0 / aspect
     gap = h * rng.uniform(0.9, 1.4)  # half the height of the center band that holds the sites
     slots = []
     # Site cards on the center line. They are landscape cards; the scene generator gives a

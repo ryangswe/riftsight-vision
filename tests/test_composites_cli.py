@@ -108,6 +108,27 @@ def test_split_textures_kinds_and_check(toy, tmp_path, capsys):
     assert tree(tmp_path / "val")["labels.jsonl"] != tree(tmp_path / "train")["labels.jsonl"]
 
 
+def test_the_card_size_sets_the_aspect_and_its_default_changes_nothing(toy, tmp_path, capsys):
+    assert make(toy, tmp_path / "plain") == 0
+    assert make(toy, tmp_path / "given", "--card-size", "63x88") == 0
+    assert tree(tmp_path / "plain") == tree(tmp_path / "given")
+    assert make(toy, tmp_path / "small", "--card-size", "59x86", "--check") == 0
+    out = capsys.readouterr().out
+    assert json.loads(out[out.rindex("\n{"):])["problemCount"] == 0
+    manifest = json.loads((tmp_path / "small" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["parameters"]["cardAspect"] == 0.686
+    assert tree(tmp_path / "small")["labels.jsonl"] != tree(tmp_path / "plain")["labels.jsonl"]
+
+
+@pytest.mark.parametrize(("size", "message"), [("59", "as WxH"), ("59x86mm", "as WxH"), ("0x86", "positive"),
+                                               ("88x63", "outside 0.5 to 1"), ("30x86", "outside 0.5 to 1")])
+def test_a_card_size_that_is_not_a_card_is_refused(toy, tmp_path, capsys, size, message):
+    assert make(toy, tmp_path / "out", "--card-size", size) == 1
+    said = capsys.readouterr().err
+    assert "cardvision make-composites: failed" in said and message in said
+    assert not (tmp_path / "out").exists()
+
+
 def test_make_composites_reports_what_is_wrong(toy, tmp_path, capsys):
     assert make(toy, tmp_path / "out") == 0
     capsys.readouterr()

@@ -27,6 +27,7 @@ import numpy as np
 from PIL import Image
 
 from cardvision.composites import textures as T
+from cardvision.composites.geometry import CARD_ASPECT
 
 # Which scans count as playing surfaces, by the category and the asset id in the index.
 # A category that maps to None is never one (walls; pavement, brick, cobbles, tarmac).
@@ -113,14 +114,15 @@ def warp_to_table(bg, W, H, Hinv):
     return np.asarray(warped, np.float32) / 255
 
 
-def surface_background(srng, surfaces, textures_dir, W, H):
+def surface_background(srng, surfaces, textures_dir, W, H, card_aspect=CARD_ASPECT):
     """The table under a board that fills the frame: half the time a surface-like scan (when
     there are any), otherwise one of the procedural surface families.
+    ``card_aspect`` shapes the zone outlines of a playmat.
     Returns ``(image, family name, scan record or None)``."""
     if surfaces and srng.random() < 0.5:
         bg, record = texture_background(srng, surfaces, textures_dir, W, H)
         return bg, "texture-surface", record
     fams = list(SURFACE_FAMILIES)
     fam = fams[int(srng.choice(len(fams), p=np.array([SURFACE_FAMILIES[f] for f in fams])))]
-    bg, fam = T.make_background(srng, W, H, fam)
+    bg, fam = T.make_background(srng, W, H, fam, card_aspect)
     return bg, fam, None

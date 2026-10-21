@@ -161,12 +161,13 @@ def predraw(grng):
     return {"variant": variant, "s": float(s)}
 
 
-def compose(grng, img, ids, objects, W, H, inset_fn=None, probe=False, preset=None):
+def compose(grng, img, ids, objects, W, H, inset_fn=None, probe=False, preset=None, card_aspect=CARD_ASPECT):
     """Lay the table image out as a broadcast frame.
 
     ``inset_fn(grng)`` returns ``(card image, card id)`` for a featured card; without it, and
     in card-free (``probe``) scenes, none is drawn. Returns ``(image, id map, objects, info)``:
-    the table's objects moved with their window, followed by the graphics.
+    the table's objects moved with their window, followed by the graphics. ``card_aspect`` is
+    the run's upright card aspect; it bounds the height of a featured card in a side panel.
     """
     variant = _draw_variant(grng) if preset is None else preset["variant"]
     out = Out(W, H, grng)
@@ -248,7 +249,7 @@ def compose(grng, img, ids, objects, W, H, inset_fn=None, probe=False, preset=No
         chh = H * grng.uniform(0.35, 0.65)
         if inset[0] == "panel":
             pw = inset[1][1] - inset[1][0]
-            chh = min(chh, pw * 0.92 / CARD_ASPECT)
+            chh = min(chh, pw * 0.92 / card_aspect)
         cw = chh * card.width / card.height
         if cw >= 16 and chh >= 16:
             pil = card.resize((max(8, int(round(cw))), max(8, int(round(chh)))), Image.LANCZOS)

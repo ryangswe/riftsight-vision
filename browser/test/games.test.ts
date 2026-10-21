@@ -36,12 +36,12 @@ const docWith = (metas: Record<string, string>) => ({
 }) as unknown as Pick<Document, "querySelector">;
 
 describe("the games a hosted build can offer", () => {
-  it("are the toy game and the One Piece Card Game, and --games names them in the picker's order", () => {
-    expect(Object.keys(HOSTED_GAMES)).toEqual(["toy", "one-piece"]);
+  it("are the toy game, the One Piece Card Game and the visitor's own, and --games names them in the picker's order", () => {
+    expect(Object.keys(HOSTED_GAMES)).toEqual(["toy", "one-piece", "local"]);
     expect(gameNames("toy,one-piece")).toEqual({ games: ["toy", "one-piece"] });
     expect(gameNames(" one-piece , toy ")).toEqual({ games: ["one-piece", "toy"] });
-    expect(gameNames("").problem).toBe("--games names no game: give one or more of toy, one-piece, separated by commas");
-    expect(gameNames("toy,chess").problem).toBe("--games toy,chess: chess is not a game this build knows (toy, one-piece)");
+    expect(gameNames("").problem).toBe("--games names no game: give one or more of toy, one-piece, local, separated by commas");
+    expect(gameNames("toy,chess").problem).toBe("--games toy,chess: chess is not a game this build knows (toy, one-piece, local)");
     expect(gameNames("toy,toy").problem).toBe("--games toy,toy: a game is named twice");
     expect(gameNames("constructor").problem).toContain("constructor is not a game this build knows");
   });
@@ -79,6 +79,21 @@ describe("the games a hosted build can offer", () => {
     });
     expect(ONE_PIECE_PAGE).toBe("https://huggingface.co/JuicyKaraageNo1/kenbunshoku-onepiece");
   });
+
+  it("give the visitor's own game no release address, no images and no examples: its files are chosen on this computer", () => {
+    const [local] = pickerGames(["local"]);
+    expect(local).toEqual({
+      id: "local",
+      label: "Your game (files on this computer)",
+      models: "your models",
+      release: null,
+      local: true,
+      images: null,
+      examples: [],
+      notes: ["Files you choose are read on this computer by this page; nothing is uploaded, and this page makes no request for them."],
+      credit: null,
+    });
+  });
 });
 
 describe("the policy of a page with a game picker", () => {
@@ -104,6 +119,19 @@ describe("the policy of a page with a game picker", () => {
     for (const policy of [toyOnly, gamesPolicy(pickerGames(["toy", "one-piece"]))]) {
       expect(policy).not.toMatch(/'unsafe-eval'|'unsafe-inline'|frame-ancestors|\*(?!\.hf\.co)/);
     }
+  });
+
+  it("is the same for a build that adds the visitor's own game: it allows no source at all", () => {
+    const withLocal = gamesPolicy(pickerGames(["toy", "one-piece", "local"]));
+    const today = gamesPolicy(pickerGames(["toy", "one-piece"]));
+    const connect = (policy: string) => policy.split("; ").find((part: string) => part.startsWith("connect-src "));
+    expect(connect(withLocal)).toBe(`connect-src 'self' ${ONE_PIECE_FOLDER} https://*.hf.co`);
+    expect(connect(withLocal)).toBe(connect(today));
+    expect(withLocal).toBe(today);
+    // Alone, it needs nothing but the site: its card images are shown from blob: URLs.
+    const alone = gamesPolicy(pickerGames(["local"]));
+    expect(alone).toContain("; connect-src 'self'; ");
+    expect(alone).toContain("; img-src blob: data:; ");
   });
 
   it("refuses a game whose release is not an https address", () => {
@@ -178,6 +206,22 @@ describe("the page with a game picker", () => {
     expect(one({ ...toy, images: "https://example.github.io/project/games/toy/images/" })).toHaveLength(1);
     // What is kept is what the page uses, and nothing else.
     expect(one({ ...onePiece, extra: "ignored" })).toEqual([onePiece]);
+  });
+
+  it("takes the visitor's own game only with no release address, no images and no examples", () => {
+    const [local] = pickerGames(["local"]);
+    const [onePiece] = pickerGames(["one-piece"]);
+    const one = (game: unknown) => parseGames(JSON.stringify([game]), PAGE);
+    expect(one(local)).toEqual([local]);
+    expect(one({ ...local, release: ONE_PIECE_RELEASE })).toEqual([]);
+    expect(one({ ...local, release: "games/toy/release/release.json" })).toEqual([]);
+    expect(one({ ...local, images: "games/toy/images/" })).toEqual([]);
+    expect(one({ ...local, examples: [{ label: "x", path: "games/toy/table.png" }] })).toEqual([]);
+    expect(one({ ...local, local: "yes" })).toEqual([]);
+    // A game with a release and no `local` is not a local one; one with no release and no `local` is refused.
+    expect(one({ ...onePiece, local: false })).toEqual([]);
+    expect(one({ ...local, local: undefined })).toEqual([]);
+    expect(one(onePiece)[0]).not.toHaveProperty("local");
   });
 
   it("finds a toy card's image in the game's folder, and none for a game with no images", () => {
@@ -272,13 +316,16 @@ describe("the built site with a game picker", () => {
   let root = "";
   let out = "";
   let again = "";
+  let withLocal = "";
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), "pages-games-"));
     out = join(root, "site");
     again = join(root, "again");
+    withLocal = join(root, "with-local");
     const toy = toyFolder(root);
     await buildPages({ games: "toy,one-piece", toy, out });
     await buildPages({ games: "toy,one-piece", toy, out: again });
+    await buildPages({ games: "toy,one-piece,local", toy, out: withLocal });
   }, 120_000);
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -302,6 +349,19 @@ describe("the built site with a game picker", () => {
     const html = readFileSync(join(out, "index.html"), "utf-8");
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="${gamesPolicy(pickerGames(["toy", "one-piece"]))}">`);
     expect(addresses(html)).toEqual([ONE_PIECE_FOLDER, ONE_PIECE_RELEASE, ONE_PIECE_PAGE, REPOSITORY_URL, "https://*.hf.co"].sort());
+  });
+
+  it("with the visitor's own game too, carries the same policy, the same files and no other address", () => {
+    const html = readFileSync(join(withLocal, "index.html"), "utf-8");
+    const policy = (page: string) => /<meta http-equiv="Content-Security-Policy" content="([^"]*)">/.exec(page)?.[1];
+    expect(policy(html)).toBe(policy(readFileSync(join(out, "index.html"), "utf-8")));
+    expect(policy(html)).toContain(`; connect-src 'self' ${ONE_PIECE_FOLDER} https://*.hf.co; `);
+    expect(addresses(html)).toEqual([ONE_PIECE_FOLDER, ONE_PIECE_RELEASE, ONE_PIECE_PAGE, REPOSITORY_URL, "https://*.hf.co"].sort());
+    expect(JSON.parse(metaContent(html, GAMES_META) ?? "").map((game: { id: string }) => game.id)).toEqual(["toy", "one-piece", "local"]);
+    expect(siteFiles(withLocal)).toEqual(siteFiles(out));
+    // The scripts are the same build: the choice is data, and the page has the folder buttons already.
+    for (const script of ["demo.js", "lib/worker.js"]) expect(readFileSync(join(withLocal, script)).equals(readFileSync(join(out, script))), script).toBe(true);
+    expect(html).toMatch(/<input id="release-folder" class="behind" type="file" webkitdirectory multiple>/);
   });
 
   it("has a worker that finds its own files from its module's address, since a hosted page starts it from a blob: URL", () => {

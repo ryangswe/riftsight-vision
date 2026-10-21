@@ -10470,5 +10470,142 @@
     }
    ]
   }
+ },
+ "paths": {
+  "note": "paths a release document may pin, and whether verify-release accepts each: a plain relative path that stays inside the document's folder as the URL parser reads it (no scheme prefix, backslash, control character, space at an end, absolute path, or segment that is or percent-encodes . or ..).",
+  "paths": [
+   {
+    "path": "models/a.onnx",
+    "accepted": true
+   },
+   {
+    "path": "a b/x.onnx",
+    "accepted": true
+   },
+   {
+    "path": "v1.2/a.onnx",
+    "accepted": true
+   },
+   {
+    "path": "a/b:c.onnx",
+    "accepted": true
+   },
+   {
+    "path": "...",
+    "accepted": true
+   },
+   {
+    "path": "a%2fb.json",
+    "accepted": true
+   },
+   {
+    "path": "a/../b",
+    "accepted": false
+   },
+   {
+    "path": "..",
+    "accepted": false
+   },
+   {
+    "path": "./a.onnx",
+    "accepted": false
+   },
+   {
+    "path": "a/./b",
+    "accepted": false
+   },
+   {
+    "path": "C:/a",
+    "accepted": false
+   },
+   {
+    "path": "a\\b",
+    "accepted": false
+   },
+   {
+    "path": "",
+    "accepted": false
+   },
+   {
+    "path": "   ",
+    "accepted": false
+   },
+   {
+    "path": "/abs/a.onnx",
+    "accepted": false
+   },
+   {
+    "path": "//evil.test/x",
+    "accepted": false
+   },
+   {
+    "path": "https://evil.test/x",
+    "accepted": false
+   },
+   {
+    "path": "http:evil.com/x",
+    "accepted": false
+   },
+   {
+    "path": "data:application/json,{}",
+    "accepted": false
+   },
+   {
+    "path": "blob:x",
+    "accepted": false
+   },
+   {
+    "path": "javascript:1",
+    "accepted": false
+   },
+   {
+    "path": "file:/etc/passwd",
+    "accepted": false
+   },
+   {
+    "path": "%2e%2e/x",
+    "accepted": false
+   },
+   {
+    "path": "%2E%2e/x",
+    "accepted": false
+   },
+   {
+    "path": ".%2e/x",
+    "accepted": false
+   },
+   {
+    "path": "a/%2e%2e/%2e%2e/x",
+    "accepted": false
+   },
+   {
+    "path": "%2e/x",
+    "accepted": false
+   },
+   {
+    "path": "\u0001http://evil.test/x",
+    "accepted": false
+   },
+   {
+    "path": "a\tb.json",
+    "accepted": false
+   },
+   {
+    "path": "a.json\n",
+    "accepted": false
+   },
+   {
+    "path": " a.json",
+    "accepted": false
+   },
+   {
+    "path": "a.json ",
+    "accepted": false
+   },
+   {
+    "path": "a\u007fb.json",
+    "accepted": false
+   }
+  ]
  }
 }

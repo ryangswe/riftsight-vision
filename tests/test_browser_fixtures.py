@@ -945,6 +945,36 @@ def section_events() -> dict:
     }
 
 
+# A path a release pins, and whether it is one: a plain relative path that stays inside the
+# folder of the release document, by the URL parser's reading of it.
+PINNED_PATHS = [
+    ("models/a.onnx", True), ("a b/x.onnx", True), ("v1.2/a.onnx", True), ("a/b:c.onnx", True),
+    ("...", True), ("a%2fb.json", True),
+    ("a/../b", False), ("..", False), ("./a.onnx", False), ("a/./b", False), ("C:/a", False),
+    ("a\\b", False), ("", False), ("   ", False), ("/abs/a.onnx", False), ("//evil.test/x", False),
+    ("https://evil.test/x", False), ("http:evil.com/x", False), ("data:application/json,{}", False),
+    ("blob:x", False), ("javascript:1", False), ("file:/etc/passwd", False), ("%2e%2e/x", False),
+    ("%2E%2e/x", False), (".%2e/x", False), ("a/%2e%2e/%2e%2e/x", False), ("%2e/x", False),
+    ("\x01http://evil.test/x", False), ("a\tb.json", False), ("a.json\n", False), (" a.json", False),
+    ("a.json ", False), ("a\x7fb.json", False),
+]
+
+
+def section_paths() -> dict:
+    """The paths a release may pin: each with whether ``verify-release`` takes it."""
+    rows = []
+    for path, expected in PINNED_PATHS:
+        accepted = R._path_problem(path) is None
+        assert accepted == expected, f"{path!r}: accepted {accepted}, expected {expected}"
+        rows.append({"path": path, "accepted": accepted})
+    return {
+        "note": "paths a release document may pin, and whether verify-release accepts each: a plain relative path "
+                "that stays inside the document's folder as the URL parser reads it (no scheme prefix, backslash, "
+                "control character, space at an end, absolute path, or segment that is or percent-encodes . or ..).",
+        "paths": rows,
+    }
+
+
 def build_contract() -> dict:
     return {
         "about": "Inputs and the answers the Python package gives for them. Written by tests/test_browser_fixtures.py "
@@ -964,6 +994,7 @@ def build_contract() -> dict:
         "dhash": section_dhash(),
         "events": section_events(),
         "geometricIndex": section_geometric_index(),
+        "paths": section_paths(),
     }
 
 

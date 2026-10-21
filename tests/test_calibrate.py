@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 import support_calibration as support
+import cardvision
 from cardvision import cli
 from cardvision.bank import build as bank_build
 from cardvision.bank import release as release_module
@@ -331,7 +332,7 @@ def test_the_default_grid_on_the_toy_set(setup, capsys, tmp_path):
     code, printed, err = run(capsys, "calibrate", *setup.arguments("--max-wrong", "0.15", "--out", str(out)))
     assert code == 0, err
     result = json.loads((out / "calibrate.json").read_text())
-    assert (result["kind"], result["version"], result["package"]["version"]) == ("cardvision-calibration", 1, "0.1.0")
+    assert (result["kind"], result["version"], result["package"]["version"]) == ("cardvision-calibration", 1, cardvision.__version__)
     assert (out / "calibrate.md").read_text() == printed
     assert sorted(path.name for path in out.iterdir()) == ["accept.json", "calibrate-grid.csv", "calibrate.json", "calibrate.md"]
 

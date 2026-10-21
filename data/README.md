@@ -70,9 +70,8 @@ you, and they may restrict downloading and automated access; handing the step to
 not change that. Videos are fetched one at a time, never in parallel, with a pause between
 them, and each downloaded file is deleted once its frames have been read.
 
-The `download` extra brings the downloader and `certifi`, a bundle of CA certificates. Use
-Python 3.11 or later for this extra: the downloader says that its support for Python 3.10 is
-deprecated.
+The `download` extra brings the downloader and `certifi`, a bundle of CA certificates. It needs
+Python 3.11 or later, like the rest of the package.
 
 **If the first download fails with `CERTIFICATE_VERIFY_FAILED`**, your Python has no CA
 certificates of its own. The macOS installer from python.org ships none. Nothing reached the

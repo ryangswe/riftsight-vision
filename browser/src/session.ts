@@ -45,8 +45,14 @@ import type { ExecutionProvider } from "./providers.js";
 import { CONFIRM_FRAMES } from "./temporal-gate.js";
 
 export interface SessionOptions {
-  /** URL of the release document. Its paths are relative to it. */
+  /** URL of the release document. Its paths are relative to it. With `releaseFiles`, the
+   *  document's path among those files (`release.json`). */
   releaseUrl: string | URL;
+  /** The release's files, by path relative to the release document's folder, when they come from
+   *  the page (a folder the visitor chose) and not from a server. They are handed to the worker,
+   *  which reads the release from them and fetches nothing for it; each file is checked against
+   *  the size and SHA-256 the document pins, as a fetched one is. */
+  releaseFiles?: Record<string, Blob>;
   /** URL of the worker script (the built `worker.js`). Default: `worker.js` beside this module. */
   workerUrl?: string | URL;
   /** URL of the folder that holds ONNX Runtime's `.wasm` files. Default: the worker's folder. */
@@ -371,7 +377,8 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
   };
   const load: WorkerRequest = {
     kind: "load",
-    releaseUrl: new URL(options.releaseUrl, location.href).href,
+    releaseUrl: options.releaseFiles ? String(options.releaseUrl) : new URL(options.releaseUrl, location.href).href,
+    ...(options.releaseFiles ? { files: options.releaseFiles } : {}),
     ...(options.wasmPaths !== undefined ? { wasmPaths: options.wasmPaths } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
     ...(options.geometricUrl !== undefined ? { geometricUrl: new URL(options.geometricUrl, location.href).href } : {}),

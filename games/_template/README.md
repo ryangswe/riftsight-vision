@@ -3,11 +3,13 @@
 # Template for another game
 
 **If your card list is a spreadsheet,** export it as CSV and let `cardvision import-catalog`
-write the catalog: [docs/your-game.md](../../docs/your-game.md), step 1, runs it, and
+write the catalog: `cardvision try` runs it with the rest of the path
+([docs/your-game.md](../../docs/your-game.md)), step 1 there runs it alone, and
 [docs/commands.md](../../docs/commands.md#cardvision-import-catalog) has every option.
 `cards.example.csv` here shows the columns it knows by their headers: `id`, `name`, `kind`,
-`printing_of` and `image`; any others become filters (`--facets`) or go to each card's
-`extra`, and `--map id=HEADER` names a column under another header.
+`printing_of` and `image` (and the usual other names, such as `Card No.` or `Picture`); any
+others become filters (`--facets`) or go to each card's `extra`, and `--map id=HEADER` names a
+column under a header it does not know.
 
 **To write the catalog by hand,** copy this folder into a folder of your own and fill in
 `catalog.json` there. Copy it into a new folder, not into one that an import writes its

@@ -26,7 +26,7 @@ from cardvision.composites import scene as S
 from cardvision.composites.board import DRAW_GROUPS
 from cardvision.composites.broadcast import VARIANTS
 from cardvision.composites.cards import CardPool
-from cardvision.composites.geometry import CARD_ASPECT
+from cardvision.composites.geometry import CARD_ASPECT, check_aspect
 from cardvision.composites.surfaces import SURFACE_FAMILIES
 from cardvision.composites.textures import BG_WEIGHTS
 from cardvision.core.catalog import Catalog
@@ -46,27 +46,30 @@ def read_labels(out_dir: str | Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
-def _scene_line(pool: CardPool, out_dir: Path, split: str, index: int, seed: int, settings: S.Settings) -> str:
-    record, jpeg = S.build_scene(pool, split, index, seed, settings)
+def _scene_line(pool: CardPool, out_dir: Path, split: str, index: int, seed: int, settings: S.Settings,
+                card_aspect: float) -> str:
+    record, jpeg = S.build_scene(pool, split, index, seed, settings, card_aspect)
     (out_dir / record["file"]).write_bytes(jpeg)
     return json.dumps(record)
 
 
-def _start_worker(catalog, art_dir, textures_dir, split, kinds, settings, seed, out_dir) -> None:
+def _start_worker(catalog, art_dir, textures_dir, split, kinds, settings, seed, out_dir, card_aspect) -> None:
     _worker.update(pool=CardPool(catalog, art_dir, textures_dir, split, kinds), split=split, settings=settings,
-                   seed=seed, out_dir=Path(out_dir))
+                   seed=seed, out_dir=Path(out_dir), card_aspect=card_aspect)
 
 
 def _work(indices: list[int]) -> list[str]:
     w = _worker
-    return [_scene_line(w["pool"], w["out_dir"], w["split"], index, w["seed"], w["settings"]) for index in indices]
+    return [_scene_line(w["pool"], w["out_dir"], w["split"], index, w["seed"], w["settings"], w["card_aspect"])
+            for index in indices]
 
 
-def parameters() -> dict[str, Any]:
-    """The fixed numbers of the generator, as written into every manifest."""
+def parameters(card_aspect: float = CARD_ASPECT) -> dict[str, Any]:
+    """The fixed numbers of the generator, as written into every manifest, with the run's
+    upright card aspect (``cardAspect``)."""
     return {
         "resolutions": [list(size) for size in S.RESOLUTIONS],
-        "cardAspect": CARD_ASPECT,
+        "cardAspect": card_aspect,
         "cardWidthPx": [S.SIZE_MIN, S.SIZE_MAX],
         "maxTiltDegrees": S.MAX_TILT,
         "visibleMin": S.VISIBLE_MIN,
@@ -141,7 +144,7 @@ def positive_cards(out_dir: str | Path) -> int:
 def generate(catalog: Catalog, art_dir: str | Path, out_dir: str | Path, n: int, seed: int = 0,
              split: str = "train", textures_dir: str | Path | None = None, settings: S.Settings | None = None,
              kinds: Mapping[str, Any] | None = None, workers: int = 1, overwrite: bool = False,
-             progress: Callable[[int, int], None] | None = None) -> dict[str, Any]:
+             progress: Callable[[int, int], None] | None = None, card_aspect: float = CARD_ASPECT) -> dict[str, Any]:
     """Generate scenes 0 to ``n - 1`` of a split into ``out_dir``. Returns the manifest.
 
     Args:
@@ -158,6 +161,9 @@ def generate(catalog: Catalog, art_dir: str | Path, out_dir: str | Path, n: int,
         kinds: a ``kinds`` object to use in place of the catalog's.
         workers: processes to spread the scenes over. The output does not depend on it.
         progress: called with ``(scenes done, n)`` as the work goes on.
+        card_aspect: width over height of an upright card of the game, from 0.5 to 1.0
+            (``geometry.card_aspect`` makes it from a size in millimeters). It is recorded in the
+            manifest as ``parameters.cardAspect``.
     """
     if split not in S.SPLITS:
         raise ValueError(f"split must be one of {list(S.SPLITS)}, not {split!r}")
@@ -167,6 +173,7 @@ def generate(catalog: Catalog, art_dir: str | Path, out_dir: str | Path, n: int,
         raise ValueError("seed must be a non-negative whole number")
     if workers < 1:
         raise ValueError("workers must be at least 1")
+    card_aspect = check_aspect(card_aspect)
     settings = settings if settings is not None else S.Settings()
     out_dir = Path(out_dir)
     labels_path, manifest_path = out_dir / LABELS_NAME, out_dir / MANIFEST_NAME
@@ -193,12 +200,12 @@ def generate(catalog: Catalog, art_dir: str | Path, out_dir: str | Path, n: int,
         if workers == 1:
             for chunk in chunks:
                 for index in chunk:
-                    keep([_scene_line(pool, out_dir, split, index, seed, settings)], handle)
+                    keep([_scene_line(pool, out_dir, split, index, seed, settings, card_aspect)], handle)
         else:
             import multiprocessing
 
             start = (catalog, str(art_dir), None if textures_dir is None else str(textures_dir), split, kinds,
-                     settings, seed, str(out_dir))
+                     settings, seed, str(out_dir), card_aspect)
             with multiprocessing.get_context("spawn").Pool(workers, _start_worker, start) as processes:
                 for lines in processes.imap(_work, chunks):
                     keep(lines, handle)
@@ -220,7 +227,7 @@ def generate(catalog: Catalog, art_dir: str | Path, out_dir: str | Path, n: int,
         "textures": None if textures_dir is None else {"scans": len(pool.textures),
                                                        "surfaceLike": len(pool.surfaces)},
         "settings": resolved,
-        "parameters": parameters(),
+        "parameters": parameters(card_aspect),
         "counts": tally.result(),
     }
     manifest_path.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")

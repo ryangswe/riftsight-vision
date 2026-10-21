@@ -296,7 +296,7 @@ def test_the_pages_workflow_tests_first_and_deploys_with_the_least_permissions()
         "npm ci\n", "npm test\n",
         "python -m pip install -r requirements-lock.txt\npython -m pip install --no-deps -e .\n",
         'python tests/test_browser_fixtures.py --demo "${RUNNER_TEMP}/toy"\n',
-        'npm run build:pages -- --games toy,one-piece --toy "${RUNNER_TEMP}/toy"\n']
+        'npm run build:pages -- --games toy,one-piece,local --toy "${RUNNER_TEMP}/toy"\n']
     # The games are named in the workflow: no repository variable and no secret is read.
     assert "vars." not in text and "DEMO_RELEASE_URL" not in text
     assert "secrets." not in text
@@ -368,6 +368,7 @@ def test_the_pages_steps_write_the_toy_game_and_build_the_site_with_the_game_pic
     assert (site / "games" / "toy" / "release" / "release.json").is_file() and (site / "games" / "toy" / "table.png").is_file()
     assert len(list((site / "games" / "toy" / "images").glob("*.png"))) == 20
     assert "game toy: Toy game (practice)" in done.stdout and "game one-piece: One Piece Card Game (Kenbunshoku models)" in done.stdout
+    assert "game local: Your game (files on this computer), its model from a folder the visitor chooses" in done.stdout
 
 
 # ----------------------------------------------------------------------------- quickstart.yml

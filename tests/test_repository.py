@@ -312,3 +312,44 @@ def test_the_tools_share_one_set_of_theme_values():
 def test_shared_theme_reads_the_first_block_only():
     text = ":root {\n  --a: 1px; /* note */\n  --b: linear-gradient(1deg, #000,\n    #fff);\n}\n:root { --c: 2px; }\n"
     assert shared_theme(text) == [("--a", "1px"), ("--b", "linear-gradient(1deg, #000, #fff)")]
+
+
+def test_the_release_files_table_equals_the_pins_in_code():
+    """``fetch-weights`` checks downloads against ``cardvision/release_assets.py``; the table in
+    ``docs/release-files.md`` must give the same files and hashes, and the download block the
+    same address and file list."""
+    from cardvision import release_assets
+
+    text = (ROOT / "docs" / "release-files.md").read_text(encoding="utf-8")
+    table = dict(re.findall(r"^\| `([^`]+)` \|[^|]*\| `([0-9a-f]{64})` \|$", text, re.MULTILINE))
+    assert table == {asset.name: asset.sha256 for asset in release_assets.ASSETS}
+    assert f"releases/download/{release_assets.RELEASE_TAG}/" in text
+    assert release_assets.BASE_URL.endswith(f"/releases/download/{release_assets.RELEASE_TAG}/")
+    assert f"`{release_assets.MODEL_RELEASE_ID}`" in text
+    block = re.search(r"for name in ([^;\n]+); do", text)
+    assert block and set(block.group(1).split()) == set(table)
+
+
+def test_the_hand_block_s_release_document_hash_is_the_pinned_one():
+    """The block that checks ``release.json`` by hand, ``echo "<sha>  release.json"``, is in
+    docs/release-files.md; wherever a page of the repository holds one, it must be the hash
+    pinned in code. Every Markdown file git tracks is read (or, outside a git checkout, every
+    one under the root)."""
+    import subprocess
+
+    from cardvision import release_assets
+
+    pinned = next(a.sha256 for a in release_assets.ASSETS if a.name == "release.json")
+    pattern = re.compile(r'echo "([0-9a-f]{64})  release\.json"')
+    text = (ROOT / "docs" / "release-files.md").read_text(encoding="utf-8")
+    assert pattern.findall(text) == [pinned]
+    try:
+        listed = subprocess.run(["git", "ls-files", "*.md"], cwd=ROOT, capture_output=True, text=True, check=True)
+        pages = [ROOT / name for name in listed.stdout.splitlines()]
+    except (OSError, subprocess.CalledProcessError):
+        pages = [path for path in text_files() if path.suffix == ".md"]
+    assert len(pages) > 10
+    found = {str(page.relative_to(ROOT)): pattern.findall(page.read_text(encoding="utf-8")) for page in pages
+             if page.is_file()}
+    assert {page: hashes for page, hashes in found.items() if set(hashes) - {pinned}} == {}
+    assert found.get("docs/release-files.md") == [pinned]
