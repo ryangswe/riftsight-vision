@@ -72,7 +72,11 @@ then **Download ZIP**. Unpack it, and `cd` into the unpacked folder (GitHub name
 branch, such as `riftsight-vision-main`). On Windows, unpack it in Ubuntu's home folder, not on
 the Windows drive.
 
-**1. Install.** Paste this into the terminal, from the repository's root:
+**1. Install.** First check the Python version: `python3 --version` must say 3.11 or later. If it
+says 3.10 or older (a Mac with an older installer from python.org, for one), install a newer
+Python (`brew install python@3.12`, or the installer from <https://www.python.org>) and type
+`python3.12` where the first line below says `python3`. Then paste this into the terminal, from
+the repository's root:
 
 ```
 python3 -m venv .venv
@@ -86,7 +90,7 @@ pip prints many lines while it installs (a notice that a newer pip exists is har
 should see something like this as the last line:
 
 ```
-cardvision 0.2.0rc1
+cardvision 0.2.0rc2
 ```
 
 **2. Run the toy quickstart.** One script draws the toy game (20 card images and a

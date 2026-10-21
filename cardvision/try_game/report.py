@@ -11,7 +11,7 @@ import json
 import os
 import re
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,7 @@ code, pre { font-family: ui-monospace, monospace; background: #f3f3f3; }
 pre { padding: .6rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
 table { border-collapse: collapse; } td, th { border: 1px solid #ccc; padding: .25rem .6rem; text-align: left; }
 .verdict { font-size: 1.2rem; padding: .8rem; border-left: .4rem solid #888; background: #fafafa; }
+.warning { padding: .8rem; border-left: .4rem solid #b45309; background: #fffbeb; }
 .strip { display: flex; flex-wrap: wrap; gap: .5rem; } .strip img { height: 8rem; border: 1px solid #ccc; }
 .sheet img { max-width: 100%; border: 1px solid #ccc; margin-bottom: 1rem; }
 """
@@ -47,6 +48,16 @@ class Verdict:
 
 
 @dataclass
+class NoImage:
+    """The catalog's cards with no bank row, in catalog order. ``none``: no card of their identity
+    has an image, so they can never be named. ``own``: another printing has one, so they are named
+    only where they look like it (an alternate art usually does not)."""
+    none: list[tuple[str, str]] = field(default_factory=list)
+    own: list[tuple[str, str]] = field(default_factory=list)
+    total: int = 0
+
+
+@dataclass
 class Facts:
     """Everything the page shows."""
     out: Path        # where the files are as the page is written
@@ -62,11 +73,77 @@ class Facts:
     from_catalog: bool
     demo_line: str
     codec_hint: str | None
+    no_image: NoImage = field(default_factory=lambda: NoImage())
 
 
 def read_results(path: Path) -> list[dict[str, Any]]:
     """The frames ``infer`` printed, one JSON object a line."""
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def cards_without_image(catalog: Path, bank: Path) -> NoImage:
+    from cardvision.core.catalog import load_catalog
+
+    loaded = load_catalog(catalog)
+    rows = {row["cardId"] for row in json.loads(bank.read_text(encoding="utf-8"))["entries"]}
+    known = {loaded.identity_of(card.id) for card in loaded.cards if card.id in rows}
+    found = NoImage(total=len(loaded.cards))
+    for card in loaded.cards:
+        if card.id not in rows:
+            (found.own if loaded.identity_of(card.id) in known else found.none).append((card.id, card.name))
+    return found
+
+
+def _examples(cards: list[tuple[str, str]], shown: int) -> str:
+    listed = ", ".join(f"{card_id} ({name})" if name else card_id for card_id, name in cards[:shown])
+    return listed + (f" and {len(cards) - shown} more" if len(cards) > shown else "")
+
+
+def no_image_sentence(found: NoImage, where: str = "the report lists them all", shown: int = 5) -> str | None:
+    """What a run says when cards have no image: how many, a few of them, where the rest are,
+    what to do."""
+    none, own = found.none, found.own
+    if not none and not own:
+        return None
+    said = []
+    if none:
+        one = len(none) == 1
+        said.append(f"{len(none)} of the {found.total} cards in your list can't be named, since "
+                    f"{'it has' if one else 'they have'} no image: {_examples(none, shown)}.")
+    if own:
+        one = len(own) == 1
+        said.append(f"{len(own)} {'more' if none else f'of the {found.total} cards in your list'} "
+                    f"{'has' if one else 'have'} no image of {'its' if one else 'their'} own: "
+                    f"{_examples(own, shown)}; {'it is' if one else 'they are'} named only where "
+                    f"{'it looks' if one else 'they look'} like another printing that has one.")
+    many = len(none) + len(own) > 1
+    return (f"No image: {' '.join(said)} Add {'their images' if many else 'its image'}, or fix the image column, "
+            f"then run cardvision try again with --overwrite ({where}).")
+
+
+def _no_image_warning(facts: Facts) -> str:
+    said = no_image_sentence(facts.no_image, where="listed under The card list below")
+    return f'<p class="warning">{escape(said)}</p>' if said else ""
+
+
+def _no_image_list(facts: Facts) -> str:
+    def items(cards: list[tuple[str, str]]) -> str:
+        return "<ul>" + "".join(f"<li><code>{escape(card_id)}</code> {escape(name)}</li>"
+                                for card_id, name in cards) + "</ul>"
+
+    why = (f'The reasons are in <a href="{_href(facts.out / "import-report.txt", facts.out)}"><code>'
+           f'import-report.txt</code></a> and <a href="{_href(facts.out / "try.log", facts.out)}"><code>try.log'
+           "</code></a>.")
+    parts = []
+    if facts.no_image.none:
+        parts.append("<h3>Cards that can't be named: no image</h3><p>Neither these cards nor another printing of "
+                     f"them has an image, so the model has nothing to match them to. {why}</p>"
+                     + items(facts.no_image.none))
+    if facts.no_image.own:
+        parts.append("<h3>Cards with no image of their own</h3><p>Another printing of each has an image, so they "
+                     "are named only where they look like it; an alternate art usually does not. "
+                     f"{why}</p>" + items(facts.no_image.own))
+    return "".join(parts)
 
 
 def _is_face(box: dict[str, Any]) -> bool:
@@ -218,6 +295,7 @@ def write_report(path: Path, facts: Facts) -> None:
         f"<p>{escape(when)}. Video: <code>{escape(str(facts.video))}</code> ({escape(facts.sampling_note)}). "
         f"Card images: <code>{escape(str(facts.images))}</code>. Weights: <code>{escape(str(facts.weights))}</code>.</p>",
         f'<p class="verdict">{escape(found.sentence)}</p>',
+        _no_image_warning(facts),
         _hint(facts),
     ]
     if found.kind == "named":
@@ -225,7 +303,8 @@ def write_report(path: Path, facts: Facts) -> None:
             "<h2>Next: see it in the demo page</h2>",
             "<p>From the repository's root, with Node 22 or later, paste this line"
             + (" (it installs the page's packages first, with <code>npm ci</code>)" if "npm ci" in facts.demo_line
-               else "") + ". Open the address it prints, and rest the pointer on a card.</p>",
+               else "") + ". Open the address it prints, and rest the pointer on a card. It runs until you press "
+            "Control-C in that terminal: use a new terminal for anything else.</p>",
             f"<pre>{escape(facts.demo_line)}</pre>",
             f"<p>Then make it a browser extension your viewers install: {_doc_link('extension.md', facts.final)}.</p>",
         ]
@@ -239,7 +318,7 @@ def write_report(path: Path, facts: Facts) -> None:
             "<p>The demo page shows what is named now. From the repository's root, with Node 22 or later, paste "
             "this line"
             + (" (it installs the page's packages first, with <code>npm ci</code>)" if "npm ci" in facts.demo_line
-               else "") + ":</p>",
+               else "") + ". It runs until you press Control-C in that terminal.</p>",
             f"<pre>{escape(facts.demo_line)}</pre>",
         ]
     else:
@@ -279,6 +358,6 @@ def write_report(path: Path, facts: Facts) -> None:
         parts += [f'<a href="{_href(p, out)}"><img src="{_href(p, out)}" alt="{escape(p.name, quote=True)}" '
                   'loading="lazy"></a>' for p in frames]
         parts.append("</div>")
-    parts += ["<h2>The card list</h2>", _import_notes(facts), "<h2>The accept rule</h2>", _accept_rule(out, facts.final),
+    parts += ["<h2>The card list</h2>", _import_notes(facts), _no_image_list(facts), "<h2>The accept rule</h2>", _accept_rule(out, facts.final),
               "</body></html>", ""]
     path.write_text("\n".join(part for part in parts if part), encoding="utf-8")

@@ -119,6 +119,12 @@ annotated frames:
 - **Found, few named:** the recognizer does not separate your cards: [Train](train.md).
 - **No cards found:** read step 5 below.
 
+If some cards in your list have no image, `try` says so before the verdict, in a line that
+starts `No image:`, and the report lists them. The model knows a card only by its images: a card
+with no image, and no other printing that has one, can't be named; a printing with no image of
+its own is named only where it looks like another printing. Add their images (or fix the image
+column) and run `try` again with `--overwrite`.
+
 The report, `try.log` and the demo line hold absolute paths that name your home folder, and
 often your user name: check them before you share them.
 

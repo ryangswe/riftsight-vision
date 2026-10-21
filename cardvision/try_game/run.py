@@ -494,7 +494,8 @@ def codec_hint(file: Path, codec: str | None) -> str | None:
 
 
 def run_try(args: argparse.Namespace) -> int:
-    from cardvision.try_game.report import Facts, read_results, verdict, write_report
+    from cardvision.try_game.report import (Facts, cards_without_image, no_image_sentence, read_results, verdict,
+                                            write_report)
 
     cards, images, video, out = _check_inputs(args)
     replaced = _check_out(out, args.overwrite)
@@ -524,6 +525,8 @@ def run_try(args: argparse.Namespace) -> int:
         hint = codec_hint(sampling.demo_file, codec)
         demo = demo_line(out / "release", images, sampling.demo_file, install=not demo_installed())
         found = verdict(read_results(stage / "out" / "results.jsonl"))
+        no_images = cards_without_image(stage / "catalog.json", stage / "bank.json")
+        no_image = no_image_sentence(no_images)
         log.write()
         for name in ("import-report.txt", "import-report.json"):    # name the files where they end up
             path = stage / name
@@ -532,7 +535,7 @@ def run_try(args: argparse.Namespace) -> int:
         write_report(stage / "report.html", Facts(
             out=stage, final=out, cards=cards, images=images, video=video, weights=weights,
             sampling_note=sampling.note, verdict=found, infer_lines=result["infer"], import_report=result["import"],
-            from_catalog=result["from_catalog"], demo_line=demo, codec_hint=hint))
+            from_catalog=result["from_catalog"], demo_line=demo, codec_hint=hint, no_image=no_images))
         built = True
     finally:
         if not built:
@@ -542,6 +545,8 @@ def run_try(args: argparse.Namespace) -> int:
     _put_in_place(stage, out, args.overwrite)
     if hint is not None:
         print(hint)
+    if no_image is not None:
+        print(no_image)
     print(found.sentence)
     print(f"report: {out / 'report.html'}")
     print(demo)

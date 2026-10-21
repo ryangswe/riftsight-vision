@@ -884,7 +884,8 @@ def _no_image_found(rows: Sequence[_Row], cards: Sequence[Mapping[str, Any]], op
     example = ", for example" if len(listed) > 1 else ""
     return (f"none of the {len(listed)} image(s) the list names is under --images {options.images}: {detail}"
             f"{example}. Pass --images the folder the image column's paths start from (a path with a "
-            "folder, such as HD/x.jpg, is looked for inside it)")
+            "folder, such as HD/x.jpg, is looked for inside it), or move the images to match the column "
+            "(HD/x.jpg goes in a folder HD inside the --images folder)")
 
 
 def _images(rows: Sequence[_Row], options: ImportOptions, out: Path, report: ImportReport,
