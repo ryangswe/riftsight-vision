@@ -85,6 +85,20 @@ const shape = (gs) => gs.map((g) => [g.card.id, g.tiles.map((t) => [t.id, t.prin
   assert.strictEqual(N.tileAt([], { g: 0, t: 0 }), null);
 }
 
+// a catalog without facets says that more filters exist; one with facets does not
+{
+  const doc = fakeDoc();
+  const els = {};
+  const $ = (id) => (els[id] = els[id] || doc.createElement("div"));
+  $("pickerInput");
+  for (const [facets, hidden] of [[null, false], [[], false], [[{ key: "color", label: "Color" }], true]]) {
+    const S = { picker: { query: "", scope: "all", hl: { g: 0, t: 0 }, list: null, grid: [] }, filters: {}, catalog: cat, facets,
+      deckIds: [], decklists: [], byId: new Map(cat.map((c) => [c.id, c])) };
+    N.panel({ S, $, mode: () => "identify", renderChrome() {}, cardWho: (id) => id }).renderFilters();
+    assert.strictEqual($("facetHint").hidden, hidden, JSON.stringify(facets));
+  }
+}
+
 // every answer clears the search and the filters
 {
   for (const a of ["pick", "unknown", "card-back", "not-card", "unreadable", "back", "clear", "accept-new", "accept-both"]) assert.ok(N.clearsSearch(a), a);

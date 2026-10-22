@@ -9,6 +9,24 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.2.0rc4] - 2026-10-22
+
+Fourth release candidate for 0.2.0. The Riftbound catalog gets the released models' cards and
+the labeling tool's filters. The released models are unchanged: release `201478a00d6ef6ba`.
+
+### Added
+
+- The Riftbound catalog (`games/riftbound/catalog.json`) declares three facets, Domain, Energy
+  and Set, so the labeling tool's Names pass filters by them. The labeling tool says when a
+  catalog declares no facets, and where to read how to add them.
+
+### Fixed
+
+- `games/riftbound/catalog.json` now holds the same cards as the released models' `catalog.json`
+  (release `201478a00d6ef6ba`): 20 cards it lacked, most of them from Radiance, and the English
+  names of RAD-053, RAD-078 and RAD-123, which it had under their Chinese preview names. Labels
+  can now name those cards.
+
 ## [0.2.0rc3] - 2026-10-22
 
 Third release candidate for 0.2.0. It adds `cardvision next`, a short `AGENTS.md` with one
@@ -125,7 +143,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc3...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc4...HEAD
+[0.2.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc3...v0.2.0rc4
 [0.2.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc2...v0.2.0rc3
 [0.2.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc1...v0.2.0rc2
 [0.2.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.1.0...v0.2.0rc1

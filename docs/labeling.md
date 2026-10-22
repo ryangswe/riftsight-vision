@@ -206,6 +206,11 @@ While naming, check the yellow TOP marker and fix it if it is on the wrong edge.
 A card with several printings: pick the printing on screen when you can tell, else the base
 card.
 
+The filters above the list of cards narrow it: Type always, then whatever the catalog declares
+as facets (Riftbound's catalog has Domain, Energy and Set). A catalog without facets shows only
+Type; [the labeling tool's catalog section](../labeler/README.md#the-catalog) says how to add
+them, such as a color, a cost or a set.
+
 ## Points
 
 In point mode each point is answered with what lies under its center: a card (and which), a

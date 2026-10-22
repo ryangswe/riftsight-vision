@@ -43,9 +43,13 @@ def test_the_riftbound_catalog_holds_no_url_and_no_art(riftbound):
     # Every image is a bare file name made of the card id; nothing else is said about the art.
     assert all(card.art == f"{card.id}.webp" and not is_url(card.art) for card in riftbound)
     document = json.loads(text)
-    assert set(document) == {"game", "locale", "cards", "kinds"}
+    assert set(document) == {"game", "locale", "facets", "cards", "kinds"}
     keys = {"id", "name", "kind", "printingOf", "art"}
-    assert all(set(card) in (keys, keys | {"token"}) for card in document["cards"])
+    assert all(set(card) - {"token", "facets"} == keys for card in document["cards"])
+    # The facets are the labeling tool's filters, game facts only: domain, energy and set.
+    assert [facet["key"] for facet in document["facets"]] == ["domain", "energy", "set"]
+    assert all(set(card.get("facets", {})) <= {"domain", "energy", "set"} for card in document["cards"])
+    assert all("energy" in card["facets"] and "set" in card["facets"] for card in document["cards"])
     assert all(card["token"] is True for card in document["cards"] if "token" in card)   # never written as false
     assert not re.search(r"\b[0-9a-f]{16,}\b", text)  # no hash of anything
 

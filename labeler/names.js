@@ -669,6 +669,8 @@
     function renderFilters() {
       const rows = Filters.chipRows(S.catalog, S.facets);
       $("filters").hidden = !rows.length;
+      // a catalog that declares no facets: say that more filters exist and where they come from
+      $("facetHint").hidden = Array.isArray(S.facets) && S.facets.length > 0;
       Filters.renderChips(doc(), $("kindChips"), rows, S.filters, setFilter);
     }
 
