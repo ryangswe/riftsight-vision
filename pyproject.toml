@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cardvision"
-version = "0.2.0rc2"
+version = "0.2.0rc3"
 description = "Card detection and recognition for trading-card game video."
 readme = "README.md"
 license = "Apache-2.0"

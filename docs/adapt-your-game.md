@@ -30,7 +30,8 @@ process as one diagram and picks the page for you.
 - You need images of your game's cards that you are entitled to use. This repository
   contains no card art for any game, and before you publish a bank or weights for a game you
   do not own, check what its publisher allows.
-- [AGENTS.md](../AGENTS.md) has the same steps in a form a coding agent can run and check.
+- The [playbooks](../playbooks/) have the same steps in a form a coding agent can run and
+  check; [AGENTS.md](../AGENTS.md) is where it starts.
 
 ## Measured on another game: the One Piece Card Game
 

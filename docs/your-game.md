@@ -51,6 +51,9 @@ are outside the repository on purpose. Put three things in `$GAME` (`open "$GAME
 A new terminal forgets `$GAME`, `$WEIGHTS` and the virtual environment: paste
 `. .venv/bin/activate` and the two `export` lines again.
 
+**Not sure where you are?** `cardvision next "$GAME"` looks at the folder and says what is done
+and what to do next, with the command to paste; it changes nothing.
+
 ## The three lines
 
 **1. Get the released weights.** One command downloads the eight files of this repository's

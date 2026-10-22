@@ -24,6 +24,7 @@ from cardvision import fetch_weights as fetch_weights_cli
 from cardvision.geometric.commands import COMMANDS as GEOMETRIC_COMMANDS
 from cardvision.import_catalog import cli as import_catalog_cli
 from cardvision.infer import cli as infer_cli
+from cardvision import next_step as next_cli
 from cardvision.train_detector import cli as train_detector_cli
 from cardvision.train_recognizer import cli as train_recognizer_cli
 from cardvision.try_game import cli as try_cli
@@ -43,6 +44,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "import-catalog": (import_catalog_cli.SUMMARY, import_catalog_cli.add_arguments, import_catalog_cli.run),
     "fetch-weights": (fetch_weights_cli.SUMMARY, fetch_weights_cli.add_arguments, fetch_weights_cli.run),
     "infer": (infer_cli.SUMMARY, infer_cli.add_arguments, infer_cli.run),
+    "next": (next_cli.SUMMARY, next_cli.add_arguments, next_cli.run),
     "train-detector": (train_detector_cli.SUMMARY, train_detector_cli.add_arguments, train_detector_cli.run),
     "train-recognizer": (train_recognizer_cli.SUMMARY, train_recognizer_cli.add_arguments, train_recognizer_cli.run),
     "try": (try_cli.SUMMARY, try_cli.add_arguments, try_cli.run),
@@ -52,7 +54,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
 # The order a newcomer meets the commands in. Every registered command is in exactly one group
 # (tests/test_cli.py pins it); a command registered but not listed here is shown under "Other".
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Start here", ("try", "import-catalog", "check-catalog", "check-bank-art", "build-bank", "infer", "build-release",
+    ("Start here", ("next", "try", "import-catalog", "check-catalog", "check-bank-art", "build-bank", "infer", "build-release",
                     "verify-release", "fetch-weights")),
     ("Train", ("make-composites", "fetch-textures", "train-recognizer", "train-detector", "export")),
     ("Measure", ("evaluate", "calibrate", "check-refresh", "build-features", "pack-features")),

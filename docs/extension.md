@@ -69,5 +69,5 @@ repository contains no card art for any game.
 
 ## With a coding agent
 
-[AGENTS.md](../AGENTS.md), "Tier 0 → an extension", has the same steps as numbered commands
+[playbooks/make-extension.md](../playbooks/make-extension.md) has the same steps as numbered commands
 for a coding agent, each with what to expect, and the rules it follows about pictures.

@@ -11,7 +11,7 @@ from urllib.parse import unquote
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-PATTERNS = ("README.md", "AGENTS.md", "docs/*.md", "browser/README.md", "games/*/README.md", "labeler/*.md",
+PATTERNS = ("README.md", "AGENTS.md", "docs/*.md", "playbooks/*.md", "browser/README.md", "games/*/README.md", "labeler/*.md",
             "data/README.md", "CONTRIBUTING.md", "SUPPORT.md")
 
 FENCE = re.compile(r"^\s*(```+|~~~+)")

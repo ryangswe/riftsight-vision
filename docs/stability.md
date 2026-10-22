@@ -9,13 +9,14 @@ What you can build on, what may change, and how you'll hear about it.
 These are the public surface: changed only as [versioning](#versioning) and
 [deprecation](#deprecation) below describe.
 
-- **The `cardvision` commands, their flags and their exit codes** (`try` and `fetch-weights` from
-  v0.2.0): `try`, `fetch-weights`, `import-catalog`,
+- **The `cardvision` commands, their flags and their exit codes** (`next`, `try` and
+  `fetch-weights` from v0.2.0): `next`, `try`, `fetch-weights`, `import-catalog`,
   `check-catalog`, `check-bank-art`, `build-bank`, `infer`, `build-release`, `verify-release`,
   `make-composites`, `fetch-textures`, `train-recognizer`, `train-detector`, `export`,
   `evaluate`, `calibrate`, `check-refresh`, `build-features`, `pack-features`,
   `validate-manifest`, `fetch`, `record-reachable` and `assign-roles`. Report text meant for
-  people may be reworded.
+  people may be reworded; the object `next --json` prints keeps its fields and ids, and changes
+  its `schemaVersion` when its shape changes.
 - **The files a release is made of:**
   - the release document (`release.json`);
   - the bank;
