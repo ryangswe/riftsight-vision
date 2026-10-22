@@ -35,7 +35,8 @@ What it does:
 - **Checks on the labeling itself**: a walk that reviews every box, a repeat set to measure
   how consistent a labeler is, and a report of labels per hour from the tool's own timing log.
 
-The label format is described in [FORMAT.md](FORMAT.md), with a guide to how to label.
+The label format is described in [FORMAT.md](FORMAT.md); what gets a box, and which kind, in
+[How to label](../docs/labeling.md).
 
 ## Five-minute start
 

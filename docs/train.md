@@ -332,7 +332,7 @@ Here the server was started and its page loaded (HTTP 200). **The labeling itsel
 done here**: it is a person's work. These flags open straight into the Boxes pass; when it is
 finished the page offers the next pass and switches the running tool to it, and **← Project**
 leads to the project's screen, which shows how far each pass is and writes the export. `labeler/README.md` has a five-minute start on toy data of its own, which
-needs no flag, and `labeler/FORMAT.md` has the rules for what gets a box.
+needs no flag, and [How to label](labeling.md) has the rules for what gets a box.
 
 **d. Export a manifest** (**not run here**: it needs labels made in the tool; the test suite
 covers it). A manifest names a video and a time, never a file, so the export needs to know
