@@ -212,7 +212,7 @@ trained on, not from the role. A `train` row can be `false`; no other role can b
 
 - **Who.** One person, the author. Contributed rows name their contributor in `credit`.
 - **Tool.** The labeling tool in [labeler/](../labeler/README.md).
-- **Rules.** [labeler/FORMAT.md](../labeler/FORMAT.md), "Part 2: how to label". In short: a
+- **Rules.** [How to label](labeling.md). In short: a
   box around every card in the frame; the whole card for a card worth learning from, the
   visible part only for an ignore region; the card's own top marked; a name where one can be
   given, with a separate answer to "can it be read from this frame alone".

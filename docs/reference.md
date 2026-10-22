@@ -41,7 +41,7 @@ New here? [Start here](start-here.md) picks the page for you. This is the full l
 | --- | --- |
 | Know what the label manifests contain, how they were made, what a video id reveals, and how to have rows removed | [data-card.md](data-card.md) |
 | Read the label manifests and their format | [data/README.md](../data/README.md), [data/SCHEMA.md](../data/SCHEMA.md) |
-| Use the labeling tool, read its label format, and learn how to label | [labeler/README.md](../labeler/README.md), [labeler/FORMAT.md](../labeler/FORMAT.md) |
+| Use the labeling tool, read its label format, and learn how to label | [labeler/README.md](../labeler/README.md), [labeler/FORMAT.md](../labeler/FORMAT.md), [How to label](labeling.md) |
 
 ## Community and legal
 

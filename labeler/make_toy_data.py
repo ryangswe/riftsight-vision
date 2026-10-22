@@ -893,7 +893,7 @@ def _render_frame(video: str, seed: int, k: int) -> tuple:
 
 
 def truth_entry(c: dict) -> dict:
-    """One card as the right answer: the box a careful labeler draws for it (labeler/FORMAT.md)."""
+    """One card as the right answer: the box a careful labeler draws for it (docs/labeling.md)."""
     names = {cid: nm for cid, nm, _k, _o in CARDS}
     whole = [[round(v, 1) for v in q] for q in c["cardCorners"]]
     box = [[round(v, 1) for v in q] for q in rect_corners(c["seenBox"])] if c["ignore"] else whole

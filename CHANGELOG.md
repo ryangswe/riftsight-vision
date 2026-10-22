@@ -9,6 +9,13 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- [How to label](docs/labeling.md): what gets a box and which kind, by one rule (about half or
+  more hidden → an ignore box on the visible part), with the cases that make people hesitate and
+  links to pictures of real labeled frames. It replaces the rules section of
+  `labeler/FORMAT.md`.
+
 ## [0.2.0rc2] - 2026-10-21
 
 Second release candidate for 0.2.0, with fixes from the first one's soak. The released models are
