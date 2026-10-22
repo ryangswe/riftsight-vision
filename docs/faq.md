@@ -156,8 +156,9 @@ What can be said from how it is built:
 - **If either falls short,** both can be fine-tuned with the published trainers on generated
   scenes of your cards and a small number of labeled frames.
 
-[adapt-your-game.md](adapt-your-game.md) has the steps in three tiers, and
-[AGENTS.md](../AGENTS.md) has the same steps for a coding agent. Try tier 0
+[adapt-your-game.md](adapt-your-game.md) has the steps in three tiers, and the
+[playbooks](../playbooks/) have the same steps for a coding agent, which starts at
+[AGENTS.md](../AGENTS.md). Try tier 0
 ([your-game.md](your-game.md)) before anything else: it takes your card list and images and
 tells you quickly whether the released models see your cards at all.
 

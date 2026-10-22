@@ -9,6 +9,7 @@ the same list; each command has its own `--help`.
 
 | Command | What it does |
 | --- | --- |
+| `cardvision next` | Look at your game folder and say what is done and the next step: the command to paste, with your real paths, and the page to read. It only looks: it writes nothing and needs no network. [Below](#cardvision-next). |
 | `cardvision try` | Steps 1 to 6 of [your-game.md](your-game.md) in one command: import your card list, check the images, build a bank and a release folder, run the released models on your video, and write `report.html` with what came out and what to do next. [Below](#cardvision-try). |
 | `cardvision import-catalog` | Write a catalog from a card list you already have: a spreadsheet saved as CSV or TSV, or a JSON list. Reports duplicate ids, names under several ids, the identity rule it suggests and the cards without art. With `--download`, downloads the images the list links to. |
 | `cardvision check-catalog` | Load a catalog as every other command does, and print its card count, how many cards have no art, its identity rule and its game. A bad catalog exits 1 with the loader's message (the card id and position). With `--art DIR`, also look at the image of every card, as `check-bank-art` does with no bank. |
@@ -53,6 +54,80 @@ the same list; each command has its own `--help`.
 Nothing reaches the network unless you ask for it by flag: `fetch --download`,
 `fetch-weights`, `try --download`, `fetch-textures`, `import-catalog --download`, `train-detector --download-pretrained`, and
 `train-recognizer` when it starts from torchvision's pretrained weights.
+
+## `cardvision next`
+
+```
+cardvision next "$GAME"
+```
+
+It looks at your game folder and says, line by line, what is done, then the one next step:
+a sentence, the commands to paste (with your real paths, quoted for the shell) and the page
+to read. It only looks: it writes, creates and downloads nothing, runs no other command and
+loads no model, so it is quick and safe to run at any time. Coding agents run it first.
+
+- **Where it looks.** `GAME` is the argument, else `$GAME`, else `~/Downloads/my-game`;
+  `--weights DIR`, else `$WEIGHTS`, else `~/Downloads/cardvision-weights`. The first line says
+  which folder it looked at and why. When the weights folder lacks the files and the last
+  `try --download` put them in `cardvision-try/weights`, that folder is taken. A `GAME`
+  written the Windows way (`C:\...`) gets a hint about WSL paths; a folder the terminal may not
+  read (on macOS, the Files and Folders permission) is said so, with how to allow it.
+- **What it checks, in order:** the folder; a card list at its top (`.csv`, `.tsv`, or a
+  `.json` catalog or list of rows; a `catalog.json` beside another list is taken for the one
+  the step-by-step page wrote); the card images (the folder the last `try` used, as its
+  `try.log` records for this run's own catalog, while it holds image files and is neither `/`,
+  the home folder nor a folder holding the game folder; else `images/` or
+  `art/`, else the one folder holding image files); a video, a picture or a folder of
+  pictures at the top (any folder but the card images' one); the three files
+  `try` needs in the weights folder; a completed run of `try` in `cardvision-try/` (its
+  `.cardvision-try` names `report.html`), and whether the card list, the newest file under the
+  images folder or the video is newer than its report (edited, or only copied again: the time
+  alone can't tell); then the run's verdict and its cards
+  with no image.
+- **The next step** is the first of these not done: what to put where; `fetch-weights`; the
+  `try` line (with `--overwrite` when a run is there); then, by the verdict, a clearer view
+  ([your-game.md](your-game.md), step 5), [train.md](train.md), the images to add, or the
+  demo line and [extension.md](extension.md). Labeling, training, measuring and extension
+  builds are not tracked.
+- When several card lists or videos are there, it takes the one named `cards` (or `video`),
+  or for card lists the one CSV or TSV among them, and says so; when none stands out, the next
+  step is to choose. When several folders hold image files and none is `images/` or `art/`,
+  the next step is to rename the card images' folder to `images/`.
+- **`STOP (coding agents: ask the person first):`** follows the `Next:` line when the step
+  needs the person: a download, files only they have, a choice, a permission, or training's
+  cost and time. **`Playbook (for coding agents):`**, last, names the page in `playbooks/` an
+  agent loads for the step.
+- Names are shown with control characters escaped (`\r`, `\x1b`). A command that holds such a
+  name is not printed: the step is to rename it (`--json` still gives the command as it is).
+- Exit codes: 0 whenever it could look, whatever it found; 2 for a usage error, such as a
+  `GAME` that is a file.
+
+**`--json`** prints one object instead, for agents and tools. Its shape is kept stable
+([stability.md](stability.md)); a change of shape changes `schemaVersion`:
+
+| Field | Holds |
+| --- | --- |
+| `schemaVersion` | `1` |
+| `game`, `weights` | `{path, chosen}`: the absolute path, and `argument`, `environment` or `default` |
+| `checks` | In this order, one `{id, state, detail, paths, taken, blocks, source}` each, with the ids `folder`, `cards`, `images`, `video`, `weights`, `try`, `verdict` and `no-image`. `state` is `done`, `missing`, `choice` (several found) or `changed` (inputs newer than the last try's report); `detail` is the line for people; `paths`, the absolute paths it is about; `taken`, the path a choice took when one stood out, else `null`; `blocks`, `true` for a choice none stood out in; `source`, on `images` and `weights` only (else `null`): `game-folder`, `last-try`, `last-try-download`, `argument`, `environment` or `default` |
+| `next` | `{id, say, stop, notes, commands, doc, after, playbook}`, below |
+| `verdict` | `null` before a run, else `{kind, frames, framesWithFaces, faces, backs, named, distinct}`, `kind` being `named`, `few` or `none` |
+| `noImage` | `null` before a run, else `{none, own, total}`: the cards that can't be named for want of an image, those with no image of their own, and the list's count |
+
+`next.id` is one of `folder`, `folder-access` (the folder can't be read), `cards`, `images`,
+`video` (put it there, or choose), `weights`, `try`, `add-images`, `clearer-view`, `train` and
+`demo`. `say` is the sentence;
+`notes`, lines that go with it; `commands`, the lines to paste, in order; `doc`, the page to
+read from the repository's root, with an anchor when it is a section; `after`, the lines that
+follow. `playbook` is `playbooks/try-my-game.md` up to and including the try and its report
+(and adding images), `playbooks/make-extension.md` after a `named` verdict, and
+`playbooks/train.md` after `few` or `none`. `stop` is `null`, or `{reason, say}` with
+`reason` one of `download` (fetch-weights), `persons-file` (the card list, the images or
+the video are not there, or a clearer video is needed: they come from the person, never from
+a download by the agent), `persons-choice` (several card lists, image folders or videos),
+`persons-permission` (the folder can't be read until the person allows it) and
+`spend-or-time` (the verdict points to training: a GPU and labeling time). Running `try` and
+opening the demo carry no stop.
 
 ## `cardvision try`
 

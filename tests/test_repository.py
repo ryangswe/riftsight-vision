@@ -14,7 +14,7 @@ HEADER = f"# {IDENTIFIER}"
 
 # The folders whose files carry the license line, and how each kind of file writes it. JSON and
 # CSV have no comments, so data files cannot carry one; any other kind of file has to be listed here.
-LICENSED_FOLDERS = ("cardvision", "tests", "labeler", "games", "data", "examples", "browser", "docs", ".github")
+LICENSED_FOLDERS = ("cardvision", "tests", "labeler", "games", "data", "examples", "browser", "docs", "playbooks", ".github")
 SLASHES = f"// {IDENTIFIER}"
 LICENSE_LINE = {
     ".py": HEADER, ".toml": HEADER, ".txt": HEADER, ".yml": HEADER, ".yaml": HEADER,

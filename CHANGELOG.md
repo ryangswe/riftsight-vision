@@ -9,12 +9,30 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.2.0rc3] - 2026-10-22
+
+Third release candidate for 0.2.0. It adds `cardvision next`, a short `AGENTS.md` with one
+playbook per job, and a labeling guide. The released models are unchanged: release
+`201478a00d6ef6ba`.
+
 ### Added
 
+- `cardvision next [GAME]`: looks at the game folder, the weights folder and the last `try` run,
+  and says what is done and the one next step, with the exact command, the doc to read, the
+  playbook for a coding agent, and a `STOP:` line when the step needs the person (a download,
+  their own files, a choice, money or time). `--json` prints the same as a stable object. It
+  only reads.
 - [How to label](docs/labeling.md): what gets a box and which kind, by one rule (about half or
   more hidden → an ignore box on the visible part), with the cases that make people hesitate and
   links to pictures of real labeled frames. It replaces the rules section of
   `labeler/FORMAT.md`.
+
+### Changed
+
+- `AGENTS.md` is a short router (start with `cardvision next`, one playbook per job, when to stop
+  and ask the person). Its step-by-step tiers moved into `playbooks/`: `setup.md`,
+  `try-my-game.md`, `make-extension.md`, `train.md` and `measure.md`. A test keeps the agent
+  files short and checks that every command and flag they show exists.
 
 ## [0.2.0rc2] - 2026-10-21
 
@@ -107,7 +125,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc2...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc3...HEAD
+[0.2.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc2...v0.2.0rc3
 [0.2.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc1...v0.2.0rc2
 [0.2.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.1.0...v0.2.0rc1
 [0.1.0]: https://github.com/ryangswe/riftsight-vision/releases/tag/v0.1.0

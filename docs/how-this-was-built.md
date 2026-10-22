@@ -149,8 +149,8 @@ useful thing you can send.
 ## Why say this at all
 
 Because it is true, and because you would want to know. It also explains the shape of the
-repository: [AGENTS.md](../AGENTS.md) holds the adapt guide as steps a coding agent can run and
-check. The guides are written so that someone who is not a developer, working with a coding
+repository: the [playbooks](../playbooks/), reached from [AGENTS.md](../AGENTS.md), hold the
+adapt guide as steps a coding agent can run and check. The guides are written so that someone who is not a developer, working with a coding
 agent, can build something like this for their own card game. The hard parts are judgment calls
 such as what to label, what to measure, and when a result is real. A guide can only make
 recommendations. The guide makes those decisions explicit, but it cannot make them for you.

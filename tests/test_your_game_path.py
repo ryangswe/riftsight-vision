@@ -221,13 +221,13 @@ def test_the_page_s_try_line_is_the_one_the_commands_page_gives_and_its_flags_ex
 
 def test_the_three_lines_elsewhere_are_the_page_s():
     """start-here.md's block activates the virtual environment, sets the two folders as the page does and then runs the page's
-    three lines; AGENTS.md's step 0.0 runs the same `try` line."""
+    three lines; playbooks/try-my-game.md's step 0.0 runs the same `try` line."""
     import textwrap
 
     start = (ROOT / "docs" / "start-here.md").read_text(encoding="utf-8")
     blocks = [textwrap.dedent(block).strip() for _, block in fenced_blocks(start)]
     three = ". .venv/bin/activate\n" + VARIABLES + "\n".join(['cardvision fetch-weights "$WEIGHTS"', TRY, 'open "$GAME/cardvision-try/report.html"'])
     assert three in blocks, blocks
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    zero = agents[agents.index("### 0.0 "):agents.index("### 0.1 ")]
+    agents = (ROOT / "playbooks" / "try-my-game.md").read_text(encoding="utf-8")
+    zero = agents[agents.index("## 0.0 "):agents.index("## 0.1 ")]
     assert any(TRY in block and VARIABLES in block for _, block in fenced_blocks(zero))

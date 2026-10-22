@@ -30,6 +30,8 @@ Pick the line that fits you.
    A list with another name goes inside the quotes as it is: `"$GAME/My Cards.csv"`. If its
    image column names a folder (`HD/x.jpg`), keep that folder inside `images/`
    (`images/HD/x.jpg`). The [quickstart](quickstart.md) shows the tools on a toy game.
+   Lost between steps? `cardvision next "$GAME"` says where you are and what to do next, with
+   the command to paste.
 3. **Names show on your video?** Make a browser extension that viewers install to hover cards
    on YouTube and Twitch: [Extension](extension.md).
 4. **They don't, or too few?** Train both models for your game: [Train](train.md). Be ready for

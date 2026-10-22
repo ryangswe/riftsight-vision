@@ -11,7 +11,7 @@ New here? [Start here](start-here.md) picks the page for you. This is the full l
 | See the whole process, and pick where to go | [start-here.md](start-here.md) |
 | Run the pipeline on a toy game, step by step, and the browser runtime | [quickstart.md](quickstart.md) |
 | Point it at another card game, in tiers: try, train, measure, and an extension | [adapt-your-game.md](adapt-your-game.md): [your-game.md](your-game.md), [train.md](train.md), [measure.md](measure.md), [extension.md](extension.md) |
-| Have a coding agent run those tiers as steps it can run and check, with the rules it must follow here | [AGENTS.md](../AGENTS.md) |
+| Have a coding agent run those tiers as steps it can run and check, with the rules it must follow here | [AGENTS.md](../AGENTS.md), which points it to the [playbooks](../playbooks/) |
 | Get the released weights, bank and catalog, and check them | [release-files.md](release-files.md) |
 | Look up a command of `cardvision` or of the labeling tool, and run the tests | [commands.md](commands.md) |
 | Run the browser runtime, its demo and scoring pages, and its API, and see where it and the Python package differ | [browser/README.md](../browser/README.md) |
