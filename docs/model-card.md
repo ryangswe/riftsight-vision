@@ -201,7 +201,8 @@ under Evaluation):
 
 - **The run.** One seed (1337), 34 epochs from ImageNet weights. The checkpoint kept was
   epoch 10's, chosen on the public validation sets. Its bank held the 1,472 cards of the
-  published catalog; no labeled face in the evaluation set is outside it.
+  catalog as the repository published it then; no labeled face in the evaluation set is
+  outside it.
 - **Behind the released detector,** it named 991/1,053 = 94.11 % (90.88–96.88) of readable
   faces right, against 92.50 % for the released recognizer. Wrong of shown: 1.39 %
   (0.64–2.17) against 1.62 %. The paired difference in named right, +1.61 points (−0.16 to
@@ -494,10 +495,11 @@ released weights.
 
 - **What ran.** One run of each public recipe: the detector from the COCO weights (seed
   1337), the recognizer from ImageNet weights (seed 1337). The public-only arm is release
-  `1df8452de1bead6a`, with a bank of the 1,472 cards of the published catalog; no labeled face
-  in the evaluation set is outside it. The released arm is release `201478a00d6ef6ba`: the
-  released detector and recognizer with a bank of 1,492 cards. Of its 20 extra cards, one was
-  shown on this set, twice, on a card of the same name in the published catalog, and both
+  `1df8452de1bead6a`, with a bank of the 1,472 cards of the catalog as the repository
+  published it then; no labeled face in the evaluation set is outside it. The released arm is
+  release `201478a00d6ef6ba`: the released detector and recognizer with a bank of 1,492 cards.
+  Of its 20 extra cards, one was shown on this set, twice, on a card of the same name in that
+  1,472-card catalog, and both
   counted right; no other extra card was shown. An extra card can also change a margin without
   being shown, and that effect was not tested: no same-catalog run of the released arm was
   made. Both arms used the same accept rule (`tau` 0.62, `delta`

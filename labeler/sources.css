@@ -189,7 +189,7 @@ body.no-work #layout { grid-template-columns: 1fr; }
 #kindChips { display: flex; flex-direction: column; gap: var(--space-1); }
 .facet-label { font-size: 11px; min-width: 3.5em; max-width: 12em; flex: 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #kindChips select { font-size: 11px; min-height: 22px; max-width: 14em; }
-.filter-hint { font-size: 11px; }
+.filter-hint, .facet-hint { font-size: 11px; }
 /* a long value or label is cut with … (its title has it whole); a chip never wraps inside */
 .chip { font-size: 11px; padding: 0 var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--border);
   flex: 0 1 auto; min-width: 0; max-width: 18em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

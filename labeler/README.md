@@ -388,7 +388,8 @@ repository uses (`games/<game>/catalog.json`; `cardvision/core/catalog.py` docum
   `"facets": [{"key": "color", "label": "Color"}, {"key": "cost", "label": "Cost", "type": "number"}]`,
   and on each card `"facets": {"color": ["Red", "Blue"], "cost": 3}` (a list when the card has
   several values). `cardvision/core/catalog.py` ("Facets") has the rules; the server will not
-  start on a catalog that breaks them. One value per row is active at a time, a card must match
+  start on a catalog that breaks them. A catalog without facets shows Type alone, with a line
+  under the filters that points here. One value per row is active at a time, a card must match
   every active row, and a card with several values matches any of them. A row of more than 12
   values is a drop-down. A long label or value is cut with … (pointing at it shows it whole), a
   row wider than the panel scrolls sideways, and many rows scroll inside the filters, so the
