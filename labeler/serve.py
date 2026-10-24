@@ -98,6 +98,7 @@ STATIC_FILES = {
     "/filters.js": "application/javascript; charset=utf-8",
     "/labeltools.js": "application/javascript; charset=utf-8",
     "/boxgeom.js": "application/javascript; charset=utf-8",
+    "/boxedit.js": "application/javascript; charset=utf-8",
     "/boxsize.js": "application/javascript; charset=utf-8",
     "/timinglog.js": "application/javascript; charset=utf-8",
     "/centergeom.js": "application/javascript; charset=utf-8",
@@ -194,6 +195,10 @@ GATE = Gate()
 # tool was stopped and started again, maybe on another project with the same set ids) is told
 # so, and nothing it sends is written.
 RUN_ID = secrets.token_hex(8)
+# What the page may expect of this server. The page (sources.js, PAGE_API) refuses to start against a
+# lower number and asks for a restart: a serve.py started before an update keeps its old Python while
+# serving the new page files from disk. Raise both together when the page needs new server behavior.
+PAGE_API = 2
 OTHER_RUN = ("The tool was started again, or switched to another pass, since this page was loaded, so this page belongs to the run before. "
              "Nothing was saved. Reload the page to work in what the tool runs now.")
 SAVE_ROUTES = ("labels", "timing", "verify-reveal", "remove-frame")  # the requests that write label files, the timing log or the removed frames
@@ -1901,6 +1906,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "not found"}, 404)
         if path == "/api/config":
             return self._json({"mode": CFG.mode, "role": CFG.role, "k": CFG.k, "seed": CFG.seed, "zoom": CFG.zoom, "snap": CFG.snap,
+                               "pageApi": PAGE_API,
                                "prefill": prefill_on(),
                                "identifyTurns": True,  # the identity pass may turn a box's top edge
                                "identifyEdits": True,  # ... and move, resize or rotate a box (training and development box sets)

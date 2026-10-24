@@ -83,8 +83,9 @@ generated scenes and card-free frames. Measured side by side on the first client
 it gave fewer wrong names and cost no more to run in a browser.
 
 **What the comparison also showed.** Given exact card corners in place of upright boxes,
-recognition gained 4 to 6 points. Getting that needs a detector that outputs four corners,
-which the released one does not. It is an open improvement.
+recognition gained 4 to 6 points. Getting that needs a model that outputs four corners,
+which the released detector does not. Two attempts at one failed; see
+[Four corners from a model](#four-corners-from-a-model).
 
 ## A larger pretrained encoder
 
@@ -123,6 +124,31 @@ upright before recognition.
 **Why it was dropped.** Quarter turns are already handled without it: when the upright look
 is not accepted, the recognizer tries the three other orientations. A head that adds only
 what the retry already does is not worth its weights.
+
+## Four corners from a model
+
+**What it was.** Two ways to get each card's four corners, so that a card seen at an angle
+could be cropped flat: a corner branch added to the detector, reading the same features as its
+boxes, and a separate small network that takes one detected card's crop and places its
+corners. Both were trained on generated scenes alone, with tilted cards whose corners are
+exact, and both were judged on held-out tilted scenes by a pass rule written down before any
+result, over two training seeds.
+
+**What happened.** Neither passed.
+
+- **The corner branch.** Its corner error was 11.4 to 11.7 px, against 10.6 px for the corners
+  of the plain upright box: no better than the box. The slope of its predicted tilt against
+  the true tilt was about 0, against a bar of 0.7: it drew upright rectangles. Several
+  variants of the branch stopped at the same place.
+- **The per-crop network.** It placed corners well: 2.6 px, against 16.7 px for the box's
+  corners on the same cards. It did not follow tilt toward or away from the camera closely
+  enough: a slope of 0.43 to 0.45 and a correlation of 0.51 to 0.54 between predicted and true
+  tilt, and a median tilt error of 13 to 14 degrees, against bars of 0.7, 0.7 and 6 degrees.
+
+**Why it was dropped.** A corner branch on the detection features learns upright rectangles.
+A small per-crop network places corners well but does not recover a card's tilt reliably
+enough to pass. The labeling tool keeps its four-cornered boxes, so real angled frames can be
+labeled as they come; a later attempt can start from those instead of generated scenes alone.
 
 ## Batch hard negatives
 

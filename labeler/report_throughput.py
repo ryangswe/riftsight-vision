@@ -124,7 +124,7 @@ def report(root: Path, set_id: str, idle: float = 120.0) -> dict:
     except (OSError, ValueError, AttributeError):
         set_mode = None
     # a training-mode (corner) target with prefill corners is not a box; a box set's prefill box is
-    box_sources = lc.BOX_CORNER_SOURCES if set_mode == "box" else ("box", "propagated", "carried")
+    box_sources = lc.BOX_CORNER_SOURCES + (lc.BOX_QUAD_SOURCE,) if set_mode == "box" else ("box", "propagated", "carried")
     boxes = [it for it in items if it.get("cornerSource") in box_sources]
     outcomes = Counter(it["outcome"] for it in labeled)
     elig = Counter(it.get("eligible") for it in labeled if it["outcome"] == "card")

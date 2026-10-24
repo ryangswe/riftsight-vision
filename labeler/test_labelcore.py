@@ -281,7 +281,7 @@ class BoxFormat(unittest.TestCase):
     def test_box_rules(self):
         bad = {"name": "f00001.jpg", "targets": [
             self.box_target(corners=[[0, 0], [10, 2], [10, 10], [0, 10]]),  # not axis-aligned
-            self.box_target(id="B002", cornerSource="hand"),                  # not a box source
+            self.box_target(id="B002", cornerSource="snap"),                  # not a box source
             self.box_target(id="B003", ignore="yes"),
             self.box_target(id="B004", labelSource="prefill-accepted")]}
         errs = lc.validate_frame(bad, "box")
@@ -303,6 +303,49 @@ class BoxFormat(unittest.TestCase):
         car["targets"][0]["labelSource"] = "carried-corrected"
         self.assertEqual(lc.validate_frame(car, "box", "development"), [])
         self.assertTrue(lc.validate_frame(car, "box", "test"))
+
+    QUAD = [[240, 110], [300, 112], [306, 205], [238, 200]]  # a box whose corners were freed (Shift+drag a corner)
+
+    def test_a_box_with_free_corners(self):
+        """In a box set, `cornerSource: hand` marks a box whose corners were freed in the Boxes pass:
+        any convex, clockwise outline is allowed for it, and for it alone."""
+        quad = self.box_target(corners=self.QUAD, cornerSource="hand")
+        for role in ("training", "development", "test", None):
+            self.assertEqual(lc.validate_frame({"name": "f", "targets": [quad]}, "box", role), [], role)
+        self.assertTrue(lc.is_box_quad(self.QUAD))
+        self.assertTrue(lc.is_box_quad(lc.box_corners(0, 0, 63, 88)), "a rectangle is one too")
+        for bad in ([[240, 110], [300, 200], [300, 110], [240, 200]],    # folded: the edges cross
+                    [[240, 110], [238, 200], [306, 205], [300, 112]],    # counter-clockwise
+                    [[240, 110], [300, 112], [270, 111], [238, 200]],    # a corner bent inward
+                    [[240, 110], [240.5, 110], [306, 205], [238, 200]],  # a side under one pixel
+                    [[240, 110], [300, 112], [306, "x"], [238, 200]], "nope"):
+            with self.subTest(bad=bad):
+                self.assertFalse(lc.is_box_quad(bad))
+                errs = lc.validate_frame({"name": "f", "targets": [self.box_target(corners=bad, cornerSource="hand")]}, "box")
+                self.assertTrue(errs and any("free corners" in e for e in errs), errs)
+        # every other corner source in a box set is still a rectangle
+        for cs in ("box", "carried", "propagated"):
+            with self.subTest(cs=cs):
+                self.assertTrue(lc.validate_frame({"name": "f", "targets": [self.box_target(corners=self.QUAD, cornerSource=cs)]}, "box", "training"))
+        # kept from the previous frame: labelSource carried, its corners still free; not in a test set
+        kept = dict(quad, labelSource="carried", carriedFrom={"frame": "f0", "target": "B001"})
+        self.assertEqual(lc.validate_frame({"name": "f", "targets": [kept]}, "box", "development"), [])
+        self.assertTrue(lc.validate_frame({"name": "f", "targets": [kept]}, "box", "test"))
+        # a repeat set keeps the free corners
+        self.assertEqual(lc.strip_answers(quad, "box")["cornerSource"], "hand")
+        self.assertEqual(lc.strip_answers(self.box_target(), "box")["cornerSource"], "box")
+
+    def test_the_names_pass_turns_the_top_of_a_box_with_free_corners_only(self):
+        quad = self.box_target(corners=self.QUAD, cornerSource="hand")
+        turned = dict(quad, corners=[self.QUAD[1], self.QUAD[2], self.QUAD[3], self.QUAD[0]])
+        for role in ("training", "test"):
+            self.assertEqual(lc.geometry_changes({"targets": [quad]}, {"targets": [turned]}, "box", role), [], role)
+        new = {"targets": [json.loads(json.dumps(turned))]}
+        self.assertEqual(lc.mark_orientation({"targets": [quad]}, new, "box"), ["B001"])
+        # a box with free corners has no angle, and is not moved or reshaped in this pass
+        self.assertTrue(lc.geometry_changes({"targets": [quad]}, {"targets": [dict(turned, angle=90)]}, "box", "training"))
+        moved = dict(quad, corners=[[p[0] + 5, p[1]] for p in self.QUAD])
+        self.assertTrue(lc.geometry_changes({"targets": [quad]}, {"targets": [moved]}, "box", "training"))
 
     def prefill_box(self, **kw):
         c = lc.box_corners(100, 50, 163, 138)
@@ -329,7 +372,10 @@ class BoxFormat(unittest.TestCase):
         self.assertTrue(errs and "unreviewed" in errs[0], errs)
         # a detector "box" must still be a rectangle; training mode keeps its own rules
         self.assertTrue(lc.validate_frame({"name": "f", "targets": [self.prefill_box(corners=[[0, 0], [10, 2], [10, 10], [0, 10]])]}, "box", "training"))
-        self.assertTrue(lc.validate_frame({"name": "f", "targets": [self.prefill_box(cornerSource="hand")]}, "box", "training"))
+        self.assertTrue(lc.validate_frame({"name": "f", "targets": [self.prefill_box(cornerSource="snap")]}, "box", "training"))
+        # a model's box whose corners were freed in the Boxes pass is a box with free corners
+        freed = self.prefill_box(cornerSource="hand", labelSource="prefill-corrected", corners=[[100, 50], [163, 50], [170, 140], [100, 138]])
+        self.assertEqual(lc.validate_frame({"name": "f", "targets": [freed]}, "box", "training"), [])
         self.assertEqual(lc.validate_frame({"name": "f", "targets": [self.prefill_box()]}, "training", "training"), [])
 
     def test_identity_pass_keeps_box_prefill_provenance(self):

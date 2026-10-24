@@ -35,6 +35,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                              "for a recognizer and YOLOX-Nano for a detector")
     parser.add_argument("--classes", type=int, default=2, metavar="N",
                         help="detector only: number of classes of the default network (default 2: face, back)")
+    parser.add_argument("--no-fp16-weights", action="store_true",
+                        help="detector only: write no half-precision copy (<name>-fp16w.onnx) and skip its parity check; "
+                             "the float32 file, which a release ships, is still checked")
     parser.add_argument("--key", default="model", metavar="KEY",
                         help='where the weights are inside the checkpoint (default "model")')
     parser.add_argument("--trust-checkpoint", action="store_true",
@@ -86,7 +89,8 @@ def _run(args: argparse.Namespace) -> int:
     else:
         from cardvision.export.detector import export_detector
 
-        report = export_detector(model, args.out, name, overwrite=args.overwrite)
+        report = export_detector(model, args.out, name, overwrite=args.overwrite,
+                                 fp16_weights_copy=not args.no_fp16_weights)
     print(json.dumps(report, indent=2))
     return 0
 

@@ -73,9 +73,12 @@ the edge that is the card's top.
   text reads along.
 - **Card backs and ignore boxes:** orientation does not matter; do not spend time on it.
 
-A card seen at an angle is a trapezoid on screen. In box mode, draw the rotated rectangle that
-covers it best. Where no rectangle fits (a steep camera), mark it ignore and leave such footage
-to corner mode, which records the four corners exactly.
+A card seen at an angle is a trapezoid on screen. In box mode, draw a box and select it (click
+it), then Shift+drag one of its corners onto the card's corner: the box's corners come free, and
+each corner then moves on its own. Drag the other corners onto the card's corners. `s` snaps
+them to the card's edges, but only moves a corner that is already close: put each corner near
+the card first. `e` makes the box a rectangle again. The top stays where it was. Mark such a card ignore only
+when the one rule says so: about half or more of it is hidden.
 
 ## Stacks, fans and rows
 
@@ -233,8 +236,8 @@ yourself or answer Unknown.
 
 ## Which footage to label for training
 
-Pick tables seen from above or at a slight angle (within about 30 degrees), where a rotated
-rectangle still fits a card. Skip frames of steeply angled tables in box mode.
+Pick tables seen from above or at an angle. On a steep camera, pull each card's corners onto
+the card in box mode (Shift+drag a corner), as for any card seen at an angle.
 
 ## Labels for measuring a model
 

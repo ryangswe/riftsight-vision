@@ -32,6 +32,31 @@ def demo_packages_installed(monkeypatch):
     monkeypatch.setattr(try_run, "demo_installed", lambda: True)
 
 
+RELEASED_JSON = b"the released release.json"
+
+
+def pin(monkeypatch, content: bytes | Path = b"stand-in") -> None:
+    """Make the release table pin the three weight files to ``content`` (bytes, or the files of a
+    folder), so that stand-in files count as the released ones. Nothing is downloaded."""
+    import hashlib
+
+    from cardvision import release_assets
+
+    def asset(name: str) -> release_assets.Asset:
+        data = content if isinstance(content, bytes) else (content / name).read_bytes()
+        return release_assets.Asset(name, len(data), hashlib.sha256(data).hexdigest())
+
+    pinned = tuple(asset(name) for name in try_run.WEIGHT_FILES)
+    release = release_assets.Asset("release.json", len(RELEASED_JSON), hashlib.sha256(RELEASED_JSON).hexdigest())
+    bank = release_assets.Asset("bank.json", len(b"released bank"), hashlib.sha256(b"released bank").hexdigest())
+    monkeypatch.setattr(release_assets, "ASSETS", pinned + (release, bank))
+
+
+@pytest.fixture(autouse=True)
+def stand_in_weights_are_released(monkeypatch):
+    pin(monkeypatch)
+
+
 def ask(capsys, *argv) -> tuple[int, str, str]:
     code = cli.main(["next", *map(str, argv)])
     printed = capsys.readouterr()
@@ -637,7 +662,8 @@ def demo(tmp_path_factory):
     return folder
 
 
-def test_after_a_real_try_it_says_found_and_named_and_shows_the_demo_line(demo, tmp_path, capsys):
+def test_after_a_real_try_it_says_found_and_named_and_shows_the_demo_line(demo, tmp_path, capsys, monkeypatch):
+    pin(monkeypatch, demo / "release")
     game = tmp_path / "my-game"
     game.mkdir()
     cards = json.loads((demo / "release" / "catalog.json").read_text(encoding="utf-8"))["cards"]
@@ -662,7 +688,8 @@ def test_after_a_real_try_it_says_found_and_named_and_shows_the_demo_line(demo, 
                                                            game / "table.png")]
 
 
-def test_a_folder_of_frames_beside_another_picture_folder_is_the_video_after_try(demo, tmp_path, capsys):
+def test_a_folder_of_frames_beside_another_picture_folder_is_the_video_after_try(demo, tmp_path, capsys, monkeypatch):
+    pin(monkeypatch, demo / "release")
     """``cards-art/`` (the card images), ``frames/`` (a picture) and ``cards.csv``, no video file:
     before a run the images are ambiguous; after ``try --images cards-art --video frames`` the
     run's images folder is known and ``frames/`` is the video."""
@@ -692,3 +719,321 @@ def test_a_folder_of_frames_beside_another_picture_folder_is_the_video_after_try
     assert states(found) == {key: "done" for key in CHECK_IDS} and found["next"]["id"] == "demo"
     assert found["next"]["commands"] == [try_run.demo_line(game / "cardvision-try" / "release", game / "cards-art",
                                                            game / "frames" / "table.png")]
+
+
+# ------------------------------------------------------------------------------ the weights are verified
+def weights_check(found: dict) -> dict:
+    return next(check for check in found["checks"] if check["id"] == "weights")
+
+
+def as_download(folder: Path) -> Path:
+    """Make a weights folder look like a download of the release: it holds the pinned release.json."""
+    (folder / "release.json").write_bytes(RELEASED_JSON)
+    return folder
+
+
+def test_weights_that_match_the_pins_are_done(tmp_path, capsys):
+    found = ask_json(capsys, game_folder(tmp_path), "--weights", weights_folder(tmp_path))
+    check = weights_check(found)
+    assert check["state"] == "done"
+    assert found["next"]["id"] == "try"
+
+
+def test_missing_weights_keep_the_download_step(tmp_path, capsys):
+    folder = weights_folder(tmp_path)
+    (folder / "accept.json").unlink()
+    found = ask_json(capsys, game_folder(tmp_path), "--weights", folder)
+    check = weights_check(found)
+    assert check["state"] == "missing" and "no accept.json" in check["detail"]
+    assert found["next"]["id"] == "weights" and found["next"]["stop"]["reason"] == "download"
+    assert found["next"]["commands"] == [f"cardvision fetch-weights {folder}"]
+
+
+def test_a_weights_file_of_the_wrong_size_in_a_download_is_named_with_the_fix(tmp_path, capsys):
+    folder = as_download(weights_folder(tmp_path))
+    (folder / "detector.onnx").write_bytes(b"cut short")
+    found = ask_json(capsys, game_folder(tmp_path), "--weights", folder)
+    check = weights_check(found)
+    assert check["state"] == "missing"
+    assert "detector.onnx is not the released file (9 bytes, the released file is 8)" in check["detail"]
+    step = found["next"]
+    assert step["id"] == "weights" and step["stop"]["reason"] == "download"
+    assert step["commands"] == [f"cardvision fetch-weights {folder} --overwrite"]
+    assert any(note.startswith("detector.onnx: 9 bytes") for note in step["notes"])
+    assert "problems" not in check
+
+
+def test_a_wrong_hash_in_a_download_is_named_in_the_text(tmp_path, capsys):
+    folder = as_download(weights_folder(tmp_path))
+    (folder / "recognizer.onnx").write_bytes(b"stand-on")
+    game = game_folder(tmp_path)
+    code, text, _err = ask(capsys, game, "--weights", folder)
+    assert code == 0
+    assert "recognizer.onnx is not the released file" in text and "SHA-256 differs" in text
+    assert f"cardvision fetch-weights {folder} --overwrite" in text
+    assert "detector.onnx" not in text.split("Next:")[1]
+
+
+def test_missing_and_wrong_weights_in_a_download_are_fixed_by_one_command(tmp_path, capsys):
+    folder = as_download(weights_folder(tmp_path))
+    (folder / "accept.json").unlink()
+    (folder / "detector.onnx").write_bytes(b"wrong")
+    game = game_folder(tmp_path)
+    check = weights_check(ask_json(capsys, game, "--weights", folder))
+    assert "no accept.json" in check["detail"] and "detector.onnx is not the released file" in check["detail"]
+    assert ask_json(capsys, game, "--weights", folder)["next"]["commands"] == [
+        f"cardvision fetch-weights {folder} --overwrite"]
+
+
+def test_your_own_release_folder_is_done_and_gets_no_overwrite_advice(tmp_path, capsys):
+    folder = weights_folder(tmp_path)
+    (folder / "release.json").write_text('{"schemaVersion": 1, "kind": "release"}')
+    (folder / "detector.onnx").write_bytes(b"my own detector, trained here")
+    for name in ("bank.json", "catalog.json"):
+        (folder / name).write_bytes(b"mine")
+    game = game_folder(tmp_path)
+    code, text, _err = ask(capsys, game, "--weights", folder)
+    assert code == 0 and "--overwrite" not in text
+    check = weights_check(ask_json(capsys, game, "--weights", folder))
+    assert check["state"] == "done" and "your own release folder; its models are not checked" in check["detail"]
+    assert ask_json(capsys, game, "--weights", folder)["next"]["id"] == "try"
+
+
+def test_wrong_files_with_no_release_json_never_get_overwrite_advice(tmp_path, capsys):
+    folder = weights_folder(tmp_path)
+    (folder / "detector.onnx").write_bytes(b"maybe my own")
+    game = game_folder(tmp_path)
+    step = ask_json(capsys, game, "--weights", folder)["next"]
+    assert step["id"] == "weights"
+    assert step["commands"] == [f"cardvision fetch-weights {folder}-released"]
+    assert "--overwrite" not in json.dumps(step) and "a folder of its own (new, or one fetch-weights already filled)" in step["say"]
+    assert "--overwrite" not in ask(capsys, game, "--weights", folder)[1]
+
+
+def own_release(tmp_path: Path) -> Path:
+    folder = weights_folder(tmp_path)
+    (folder / "release.json").write_text('{"schemaVersion": 1, "kind": "release"}')
+    return folder
+
+
+def test_an_own_release_folder_with_a_file_missing_is_told_to_copy_it_not_to_fetch(tmp_path, capsys):
+    folder = own_release(tmp_path)
+    (folder / "accept.json").unlink()
+    step = ask_json(capsys, game_folder(tmp_path), "--weights", folder)["next"]
+    assert step["id"] == "weights" and step["commands"] == []
+    assert "copy the missing file into it" in step["say"] and "accept.json" in step["say"]
+    assert "--weights the released models' folder" in step["say"]
+    assert "fetch-weights " not in step["say"].replace("fetch-weights into", "")
+
+
+def test_an_unknown_folder_with_a_missing_file_and_its_own_bank_gets_the_new_folder_advice(tmp_path, capsys):
+    folder = weights_folder(tmp_path)
+    (folder / "accept.json").unlink()
+    (folder / "bank.json").write_bytes(b"my own bank")
+    step = ask_json(capsys, game_folder(tmp_path), "--weights", folder)["next"]
+    assert step["commands"] == [f"cardvision fetch-weights {folder}-released"]
+    assert "--overwrite" not in json.dumps(step)
+    assert "a folder of its own (new, or one fetch-weights already filled)" in step["say"]
+    assert any(note.startswith("bank.json:") for note in step["notes"])
+
+
+def test_a_missing_file_in_a_clean_unknown_folder_keeps_the_plain_fetch(tmp_path, capsys):
+    folder = weights_folder(tmp_path)
+    (folder / "accept.json").unlink()
+    assert ask_json(capsys, game_folder(tmp_path), "--weights", folder)["next"]["commands"] == [
+        f"cardvision fetch-weights {folder}"]
+
+
+def test_a_release_json_that_is_not_json_is_not_an_own_release(tmp_path, capsys):
+    folder = weights_folder(tmp_path)
+    (folder / "release.json").write_text("<html><body>saved page</body></html>")
+    (folder / "detector.onnx").write_bytes(b"wrong")
+    step = ask_json(capsys, game_folder(tmp_path), "--weights", folder)["next"]
+    assert next_step.release_kind(folder) == "unknown"
+    assert step["commands"] == [f"cardvision fetch-weights {folder}-released"]
+    (folder / "release.json").write_text('{"no": "version"}')
+    assert next_step.release_kind(folder) == "unknown"
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads every file")
+def test_a_weights_file_that_can_t_be_read_gets_a_permissions_step_not_overwrite(tmp_path, capsys):
+    folder = as_download(weights_folder(tmp_path))
+    (folder / "detector.onnx").chmod(0)
+    try:
+        found = ask_json(capsys, game_folder(tmp_path), "--weights", folder)
+    finally:
+        (folder / "detector.onnx").chmod(0o644)
+    step = found["next"]
+    assert step["id"] == "weights" and step["stop"]["reason"] == "persons-permission"
+    assert step["commands"] == [f"ls -l {folder}/detector.onnx"] and "--overwrite" not in json.dumps(step)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads every file")
+def test_the_permissions_step_names_the_unreadable_file_not_the_first_wrong_one(tmp_path, capsys):
+    folder = as_download(weights_folder(tmp_path))
+    (folder / "detector.onnx").write_bytes(b"wrong size")
+    (folder / "recognizer.onnx").chmod(0)
+    try:
+        found = ask_json(capsys, game_folder(tmp_path), "--weights", folder)
+    finally:
+        (folder / "recognizer.onnx").chmod(0o644)
+    step = found["next"]
+    assert step["commands"] == [f"ls -l {folder}/recognizer.onnx"]
+    assert step["say"].startswith("This file can't be read: check its permissions")
+    assert step["stop"]["reason"] == "persons-permission" and "terminal read this folder" not in step["stop"]["say"]
+    assert all(note.startswith("recognizer.onnx:") for note in step["notes"])
+
+
+def test_the_suggested_fix_is_one_fetch_weights_accepts(tmp_path, capsys, monkeypatch):
+    """Without --overwrite fetch-weights stops on a wrong file; with it, it goes on to download."""
+    from cardvision import fetch_weights
+
+    folder = as_download(weights_folder(tmp_path))
+    (folder / "bank.json").write_bytes(b"released bank")
+    (folder / "detector.onnx").write_bytes(b"wrong")
+    seen = []
+    monkeypatch.setattr(fetch_weights, "_get", lambda url, limit: seen.append(url) or b"stand-in")
+    assets = fetch_weights.release_assets.ASSETS
+    with pytest.raises(fetch_weights.FetchWeightsError, match="differ"):
+        fetch_weights.fetch_weights(folder, assets=assets, base_url="http://x/")
+    assert not seen
+    game = game_folder(tmp_path)
+    command = ask_json(capsys, game, "--weights", folder)["next"]["commands"][0]
+    assert command.endswith("--overwrite")
+    fetch_weights.fetch_weights(folder, assets=assets, base_url="http://x/", overwrite=True, say=lambda _line: None)
+    assert seen == ["http://x/detector.onnx"]
+    assert weights_check(ask_json(capsys, game, "--weights", folder))["state"] == "done"
+
+
+def test_the_last_try_s_good_download_stands_in_for_wrong_weights(tmp_path, capsys):
+    game = game_folder(tmp_path)
+    folder = weights_folder(tmp_path)
+    (folder / "detector.onnx").write_bytes(b"wrong")
+    as_download(folder)
+    downloaded = game / "cardvision-try" / "weights"
+    downloaded.mkdir(parents=True)
+    for name in try_run.WEIGHT_FILES:
+        (downloaded / name).write_bytes(b"stand-in")
+    assert weights_check(ask_json(capsys, game, "--weights", folder))["source"] == "last-try-download"
+
+
+def test_next_does_not_change_the_weights_it_checked(tmp_path, capsys):
+    folder = as_download(weights_folder(tmp_path))
+    (folder / "detector.onnx").write_bytes(b"wrong")
+    before = sorted((path.name, path.read_bytes()) for path in folder.iterdir())
+    ask(capsys, game_folder(tmp_path), "--weights", folder)
+    assert sorted((path.name, path.read_bytes()) for path in folder.iterdir()) == before
+
+
+# ------------------------------------------------------------------------------ --images
+def art_game(tmp_path: Path) -> tuple[Path, Path]:
+    """A game folder with a list and a video but no images/ folder, and art kept elsewhere."""
+    game = tmp_path / "my-game"
+    game.mkdir()
+    (game / "cards.csv").write_text("id,name,image\nA-1,Alpha,a.png\n", encoding="utf-8")
+    (game / "video.mp4").write_bytes(b"video")
+    art = tmp_path / "elsewhere" / "card-art"
+    art.mkdir(parents=True)
+    (art / "a.png").write_bytes(b"png")
+    return game, art
+
+
+def test_without_images_art_elsewhere_reads_as_missing(tmp_path, capsys):
+    game, _art = art_game(tmp_path)
+    found = ask_json(capsys, game, "--weights", weights_folder(tmp_path))
+    assert states(found)["images"] == "missing" and found["next"]["id"] == "images"
+
+
+def test_images_names_the_card_images_folder_and_the_try_line_carries_it(tmp_path, capsys):
+    game, art = art_game(tmp_path)
+    weights = weights_folder(tmp_path)
+    found = ask_json(capsys, game, "--weights", weights, "--images", art)
+    check = next(check for check in found["checks"] if check["id"] == "images")
+    assert check["state"] == "done" and check["source"] == "argument" and check["paths"] == [str(art)]
+    assert check["detail"] == f"{art}/ (1 file, given with --images)"
+    assert found["next"]["id"] == "try"
+    assert found["next"]["commands"] == [f"cardvision try {game}/cards.csv --images {art} --video {game}/video.mp4 "
+                                         f"--weights {weights}"]
+
+
+def test_images_wins_over_the_images_folder_in_the_game(tmp_path, capsys):
+    game, art = art_game(tmp_path)
+    (game / "images").mkdir()
+    (game / "images" / "b.png").write_bytes(b"png")
+    found = ask_json(capsys, game, "--weights", weights_folder(tmp_path), "--images", art)
+    assert found["checks"][2]["paths"] == [str(art)]
+
+
+def test_images_may_be_a_folder_inside_the_game_and_is_shown_relative(tmp_path, capsys):
+    game, _art = art_game(tmp_path)
+    (game / "pictures").mkdir()
+    (game / "pictures" / "a.png").write_bytes(b"png")
+    found = ask_json(capsys, game, "--weights", weights_folder(tmp_path), "--images", game / "pictures")
+    assert found["checks"][2]["detail"] == "pictures/ (1 file, given with --images)"
+
+
+@pytest.mark.parametrize("make, words", [(lambda tmp: tmp / "nowhere", "no such folder"),
+                                         (lambda tmp: (tmp / "empty").mkdir() or tmp / "empty", "holds no image files")])
+def test_images_that_is_not_usable_is_missing_and_says_so(tmp_path, capsys, make, words):
+    game, _art = art_game(tmp_path)
+    given = make(tmp_path)
+    found = ask_json(capsys, game, "--weights", weights_folder(tmp_path), "--images", given)
+    check = found["checks"][2]
+    assert check["state"] == "missing" and check["source"] == "argument" and words in check["detail"]
+    assert found["next"]["id"] == "images" and "--images" in " ".join(found["next"]["notes"])
+
+
+def test_images_that_is_a_file_is_not_a_folder(tmp_path, capsys):
+    game, art = art_game(tmp_path)
+    found = ask_json(capsys, game, "--weights", weights_folder(tmp_path), "--images", art / "a.png")
+    assert "not a folder" in found["checks"][2]["detail"]
+
+
+def test_images_is_in_the_human_output_too(tmp_path, capsys):
+    game, art = art_game(tmp_path)
+    _code, text, _err = ask(capsys, game, "--weights", weights_folder(tmp_path), "--images", art)
+    assert f"done     card images: {art}/ (1 file, given with --images)" in text
+    assert f"--images {art}" in text
+
+
+def test_a_choice_of_image_folders_points_at_images_too(tmp_path, capsys):
+    game, _art = art_game(tmp_path)
+    for name in ("one", "two"):
+        (game / name).mkdir()
+        (game / name / "a.png").write_bytes(b"png")
+    found = ask_json(capsys, game, "--weights", weights_folder(tmp_path))
+    assert "Rename the card images' folder to images/, or name it with --images DIR" in found["next"]["say"]
+    assert ask_json(capsys, game, "--weights", weights_folder(tmp_path), "--images", game / "one")["checks"][2]["state"] == "done"
+
+
+def test_the_json_checks_keep_their_fields(tmp_path, capsys):
+    found = ask_json(capsys, game_folder(tmp_path), "--weights", weights_folder(tmp_path))
+    assert found["schemaVersion"] == 1
+    for check in found["checks"]:
+        assert list(check) == ["id", "state", "detail", "paths", "taken", "blocks", "source"]
+
+
+def test_images_that_differs_from_the_last_try_s_marks_the_try_changed(tmp_path, capsys):
+    game = game_folder(tmp_path)
+    weights = weights_folder(tmp_path)
+    out = fake_run(game, NAMED)
+    log_images(out, game / "images")
+    other = tmp_path / "other-art"
+    other.mkdir()
+    (other / "a.png").write_bytes(b"png")
+    os.utime(other / "a.png", (1, 1))     # older than the report, so only the folder differs
+    same = ask_json(capsys, game, "--weights", weights, "--images", game / "images")
+    assert states(same)["try"] == "done"
+    found = ask_json(capsys, game, "--weights", weights, "--images", other)
+    assert states(found)["try"] == "changed" and "is not the card images' folder the last try used" in \
+        next(c for c in found["checks"] if c["id"] == "try")["detail"]
+    step = found["next"]
+    assert step["id"] == "try" and step["commands"][0].endswith("--overwrite") and f"--images {other}" in step["commands"][0]
+    assert "images' folder you gave is not the one the last try used" in step["say"]
+
+
+def test_images_that_is_empty_or_too_wide_is_refused(tmp_path, capsys):
+    game = game_folder(tmp_path)
+    for given in ("", "  ", tmp_path, "/"):
+        code, out, err = ask(capsys, game, "--images", given)
+        assert code == 2 and out == "" and "card images" in err

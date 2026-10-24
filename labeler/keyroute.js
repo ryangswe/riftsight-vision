@@ -79,7 +79,17 @@
     return (o.focus || "none") === "none" && !o.onFrame ? "menu" : "as-is";
   }
 
-  const api = { focusKind, route, tabFrom };
+  // D arms "a box beside the selected one" for the next arrow. It stays armed only in the context
+  // it was armed in: the same set, frame, pass and selection. `armedFor` records that context;
+  // `stillArmed` is false once any of it changed (a click on another box, another frame, another
+  // pass), so a later arrow moves the box or changes frame as usual.
+  function armedFor(ctx) {
+    const c = ctx || {};
+    return JSON.stringify([c.set || null, c.frame == null ? null : c.frame, c.mode || null, (c.sel || []).slice().sort()]);
+  }
+  function stillArmed(armed, ctx) { return typeof armed === "string" && armed === armedFor(ctx); }
+
+  const api = { focusKind, route, tabFrom, armedFor, stillArmed };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.LabelerKeyRoute = api;
 })(typeof window !== "undefined" ? window : globalThis);

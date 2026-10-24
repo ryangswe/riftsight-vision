@@ -1871,7 +1871,7 @@ class NodeTests(unittest.TestCase):
         node = shutil.which("node")
         if node is None:
             self.skipTest("node not on PATH")
-        for script in ("test_picker.js", "test_quadsnap.js", "test_snap.js", "test_labeltools.js", "test_filters.js", "test_boxgeom.js", "test_timinglog.js", "test_centergeom.js", "test_verifycore.js",
+        for script in ("test_picker.js", "test_quadsnap.js", "test_snap.js", "test_labeltools.js", "test_filters.js", "test_boxgeom.js", "test_boxedit.js", "test_timinglog.js", "test_centergeom.js", "test_verifycore.js",
                        "test_uistate.js", "test_keyroute.js", "test_savegate.js", "test_boxsize.js", "test_names.js"):
             res = subprocess.run([node, str(HERE / script)], capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, f"{script}: {res.stdout}\n{res.stderr}")

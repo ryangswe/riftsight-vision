@@ -50,6 +50,13 @@ const W = 1920, H = 1080;
 assert.deepStrictEqual(G.boxCorners(300, 200, 240, 110, W, H), [[240, 110], [300, 110], [300, 200], [240, 200]]);
 assert.deepStrictEqual(G.boxCorners(-5, 10, 30, 2000, W, H), [[0, 10], [30, 10], [30, 1080], [0, 1080]], "clamped into the frame");
 assert.deepStrictEqual(G.translateCorners([[10, 10], [20, 10], [20, 30], [10, 30]], -50, 5, W, H), [[0, 15], [10, 15], [10, 35], [0, 35]], "stays in the frame");
+// A box already past an edge (a turned card cut by the frame) is not pulled back in, nor pushed further out.
+assert.deepStrictEqual(G.translateCorners([[10, -20], [40, -10], [30, 20], [0, 10]], 5, 3, W, H, true), [[15, -17], [45, -7], [35, 23], [5, 13]], "moves inward freely");
+assert.deepStrictEqual(G.translateCorners([[10, -20], [40, -10], [30, 20], [0, 10]], -5, -3, W, H, true), [[10, -20], [40, -10], [30, 20], [0, 10]], "not further out, not pulled in");
+assert.deepStrictEqual(G.translateCorners([[10, -20], [40, -10], [30, 20], [0, 10]], 0, 0, W, H), [[10, 0], [40, 10], [30, 40], [0, 30]], "without keepOverhang it is moved inside (paste)");
+assert.deepStrictEqual(G.resizePoint({ x: -5000, y: -30 }, 0, 1920, 1080), { x: 0, y: 0 }, "upright handles stop at the frame");
+assert.deepStrictEqual(G.resizePoint({ x: 100, y: -30 }, 20, 1920, 1080), { x: 100, y: -30 }, "turned handles may pass the frame");
+assert.deepStrictEqual(G.resizePoint({ x: -5000, y: 5000 }, 20, 1920, 1080), { x: -960, y: 1620 }, "by at most half a frame");
 {
   const r = { cx: 100, cy: 100, w: 60, h: 80, angle: 0 };
   assert.strictEqual(G.hitCorner(r, { x: 71, y: 61 }, 5), "tl");
@@ -713,6 +720,397 @@ for (let a = -360; a <= 360; a += 0.0037) { const r = G.roundAngle(a); assert.ok
   assert.deepStrictEqual(G.fitAction(moved, null, W1, H1).reason, "edited");
   // heldBack keeps the proposals' positions: a null stays null
   assert.deepStrictEqual(G.heldBack([null, { rect: rects[0], card: "X" }], []), [null, -1]);
+}
+
+// ---- visible parts (the stacking view) -----------------------------------------------------
+{
+  const CW = 126, CH = 176; // a synthetic 63:88 card
+  const bx = (x, y, extra) => Object.assign({ corners: [[x, y], [x + CW, y], [x + CW, y + CH], [x, y + CH]] }, extra || {});
+  const xs = (c) => [Math.min(...c.map((p) => p[0])), Math.max(...c.map((p) => p[0]))];
+  const TOLV = 1; // frame px: the grid is under a pixel a cell here
+
+  // a stack drawn left to right, each box on top of the one before: 40 px of each lower box shows
+  const ltr = [0, 1, 2, 3].map((i) => bx(100 + 40 * i, 50));
+  const v = G.visibleParts(ltr);
+  assert.deepStrictEqual(v.map((p) => p.rank), [1, 2, 3, 4]);
+  for (let i = 0; i < 3; i++) {
+    const [x0, x1] = xs(v[i].corners);
+    close(x0, 100 + 40 * i, TOLV, "left edge");
+    close(x1, 140 + 40 * i, TOLV, "right edge at the box above");
+    assert.ok(x1 <= 140 + 40 * i + 0.05, "never reaches into the box above");
+    close(v[i].share, 40 / CW, 0.01, "share");
+  }
+  assert.deepStrictEqual(v[3].corners, ltr[3].corners, "the top box keeps its corners");
+  assert.strictEqual(v[3].share, 1);
+
+  // the same boxes, each restacked UNDER the one before (zOrder): the right part shows
+  const rtl = [0, 1, 2, 3].map((i) => bx(100 + 40 * i, 50, { zOrder: 10 - i }));
+  const w = G.visibleParts(rtl);
+  assert.deepStrictEqual(w.map((p) => p.rank), [4, 3, 2, 1]);
+  for (let i = 1; i < 4; i++) close(xs(w[i].corners)[0], 100 + 40 * i + CW - 40, TOLV, "right part");
+
+  // the middle box brought to the front cuts both neighbors
+  const mid = G.visibleParts([bx(100, 50), bx(160, 50, { zOrder: 5 }), bx(220, 50)]);
+  close(xs(mid[0].corners)[1], 160, TOLV);
+  close(xs(mid[2].corners)[0], 286, TOLV);
+
+  // a tilted box stays tilted, in its own corner order
+  const tilt = (cx, cy, deg) => ({ corners: G.cornersFromRectRaw({ cx, cy, w: CW, h: CH, angle: deg }) });
+  const a = (20 * Math.PI) / 180;
+  const tv = G.visibleParts([tilt(300, 300, 20), tilt(300 + 63 * Math.cos(a), 300 + 63 * Math.sin(a), 20)]);
+  const c = tv[0].corners;
+  close((Math.atan2(c[1][1] - c[0][1], c[1][0] - c[0][0]) * 180) / Math.PI, 20, 0.1, "tilt kept");
+  close(Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]), 63, TOLV, "half the width");
+  close(tv[0].share, 0.5, 0.01);
+
+  // an ignore box covers like any other box; a wholly covered box has no visible part
+  const ig = G.visibleParts([bx(100, 50), bx(180, 50, { ignore: true })]);
+  close(xs(ig[0].corners)[1], 180, TOLV);
+  const hid = G.visibleParts([bx(100, 50), { corners: [[90, 40], [290, 40], [290, 240], [90, 240]] }]);
+  assert.strictEqual(hid[0].corners, null);
+  assert.strictEqual(hid[0].share, 0);
+
+  // a box only touching another one's edge is not covered; the result is deterministic
+  const touch = G.visibleParts([bx(100, 50), bx(100 + CW, 50)]);
+  assert.strictEqual(touch[0].share, 1);
+  assert.deepStrictEqual(G.visibleParts(ltr), v);
+}
+
+// ---- a box beside another (D then an arrow) --------------------------------------------------
+{
+  const r = { cx: 300, cy: 200, w: 100, h: 140, angle: 0 };
+  assert.deepStrictEqual(G.besideRect(r, "right"), { cx: 400, cy: 200, w: 100, h: 140, angle: 0 });
+  assert.deepStrictEqual(G.besideRect(r, "left"), { cx: 200, cy: 200, w: 100, h: 140, angle: 0 });
+  assert.deepStrictEqual(G.besideRect(r, "down"), { cx: 300, cy: 340, w: 100, h: 140, angle: 0 });
+  assert.deepStrictEqual(G.besideRect(r, "up"), { cx: 300, cy: 60, w: 100, h: 140, angle: 0 });
+  assert.strictEqual(G.besideRect(r, "sideways"), null);
+  // the new box touches the old one along a whole side: shared corners, no gap, no overlap
+  const c0 = G.cornersFromRectRaw(r), c1 = G.cornersFromRectRaw(G.besideRect(r, "right"));
+  close(c1[0][0], c0[1][0], 1e-9); close(c1[3][1], c0[2][1], 1e-9);
+  // a box turned a quarter (a card lying sideways): "right" on screen is along its own left edge,
+  // so the step is its height, and the new box keeps the turn
+  const q = { cx: 300, cy: 200, w: 100, h: 140, angle: 90 };
+  const qr = G.besideRect(q, "right");
+  close(qr.cx, 440, 1e-9); close(qr.cy, 200, 1e-9); assert.strictEqual(qr.angle, 90); assert.strictEqual(qr.w, 100);
+  // a tilted box: the neighbor stays in the box's own row, a full width along its top edge
+  const t = { cx: 300, cy: 200, w: 100, h: 140, angle: 20 };
+  const tr = G.besideRect(t, "right");
+  close(Math.hypot(tr.cx - 300, tr.cy - 200), 100, 1e-9);
+  close((Math.atan2(tr.cy - 200, tr.cx - 300) * 180) / Math.PI, 20, 1e-9);
+  // the visible parts of a row built this way: each box wholly visible (they only touch)
+  const row = [r, G.besideRect(r, "right")].map((x) => ({ corners: G.cornersFromRectRaw(x) }));
+  assert.deepStrictEqual(G.visibleParts(row).map((p) => p.share), [1, 1]);
+}
+
+// ---- stacks: overlaps, layers within a stack, a layer up / down among overlapping boxes --------
+{
+  const sq = (x, y, w, h) => ({ corners: [[x, y], [x + (w || 100), y], [x + (w || 100), y + (h || 140)], [x, y + (h || 140)]] });
+  assert.ok(G.quadsOverlap(sq(0, 0).corners, sq(50, 0).corners));
+  assert.ok(!G.quadsOverlap(sq(0, 0).corners, sq(100, 0).corners), "touching is not overlapping");
+  assert.ok(!G.quadsOverlap(sq(0, 0).corners, sq(300, 0).corners));
+  // a tilted box near the corner of another: the separating axis is the tilted one's
+  const tl = { corners: G.cornersFromRectRaw({ cx: 185, cy: 70, w: 100, h: 140, angle: 45 }) };
+  assert.ok(!G.quadsOverlap(sq(0, 0).corners, tl.corners));
+
+  // two stacks and a lone box: layers count within each stack; a chain is one stack
+  const ts = [sq(0, 0), sq(500, 0), sq(50, 0), sq(900, 0), sq(550, 0), sq(100, 0)];
+  const L = G.stackLayers(ts);
+  assert.deepStrictEqual(L.map((x) => x.layer), [1, 1, 2, 1, 2, 3]);
+  assert.deepStrictEqual(L.map((x) => x.size), [3, 2, 3, 1, 2, 3]);
+  assert.strictEqual(L[0].stack, L[2].stack); assert.strictEqual(L[0].stack, L[5].stack);
+  assert.notStrictEqual(L[0].stack, L[1].stack);
+  // a chain: 0 overlaps 1, 1 overlaps 2, 0 and 2 do not touch
+  const chain = G.stackLayers([sq(0, 0), sq(80, 0), sq(160, 0)]);
+  assert.deepStrictEqual(chain.map((x) => [x.size, x.layer]), [[3, 1], [3, 2], [3, 3]]);
+
+  // `.` moves past the next OVERLAPPING box, skipping boxes elsewhere in the frame
+  // order (bottom first): 0 (stack A), 1 (elsewhere), 2 (stack A)
+  const fr = [sq(0, 0), sq(700, 0), sq(50, 0)];
+  const z = G.reorderAmongOverlaps(fr, 0, 1);
+  assert.deepStrictEqual(z, [2, 0, 1], "box 0 jumps above box 2, over the unrelated box 1");
+  assert.strictEqual(G.reorderAmongOverlaps(fr, 2, 1), null, "nothing overlapping above");
+  const down = G.reorderAmongOverlaps(fr, 2, -1);
+  assert.deepStrictEqual(down, [1, 2, 0], "box 2 drops just below box 0");
+  assert.strictEqual(G.reorderAmongOverlaps(fr, 1, 1), null, "a lone box has no overlapping box to pass");
+  // in a stack of three, one press passes exactly one overlapping box
+  const st = [sq(0, 0), sq(40, 0), sq(80, 0)];
+  assert.deepStrictEqual(G.reorderAmongOverlaps(st, 0, 1), [1, 0, 2]);
+  assert.deepStrictEqual(G.reorderAmongOverlaps(st, 2, -1), [0, 2, 1]);
+  // the plain frame-wide reorder is unchanged
+  assert.deepStrictEqual(G.reorder(fr, 0, 1), [1, 0, 2]);
+
+  // a step changes the visible parts of its own stack only: every other box comes out the same
+  const frame = [sq(0, 0), sq(500, 0), sq(60, 0), sq(900, 0), sq(560, 0), sq(120, 0), sq(620, 0)];
+  const before = G.visibleParts(frame);
+  const stackOf = G.stackLayers(frame).map((x) => x.stack);
+  for (const [idx, dir] of [[0, 1], [5, -1], [1, 1], [6, -1], [2, 1]]) {
+    const z = G.reorderAmongOverlaps(frame, idx, dir);
+    assert.ok(z, `step ${idx} ${dir}`);
+    const after = G.visibleParts(frame.map((t, i) => Object.assign({}, t, { zOrder: z[i] })));
+    let changed = false;
+    frame.forEach((_, i) => {
+      if (stackOf[i] !== stackOf[idx]) assert.deepStrictEqual([after[i].corners, after[i].share], [before[i].corners, before[i].share], `box ${i} outside the stack`);
+      else if (JSON.stringify(after[i].corners) !== JSON.stringify(before[i].corners)) changed = true;
+    });
+    assert.ok(changed, "the step changed its own stack");
+  }
+}
+
+// ---- several boxes copied and pasted as one group ----------------------------------------------
+{
+  const mk = (id, x, extra) => Object.assign({ id, corners: [[x, 100], [x + 100, 100], [x + 100, 240], [x, 240]], outcome: "card" }, extra || {});
+  const src = [mk("B1", 100), mk("B2", 160, { outcome: "card-back" }), mk("B3", 220, { ignore: true, identity: "NEW-001" })];
+  const clips = src.map((t) => G.makeClip(t, "f1.jpg"));
+  // the same frame: the group moves 12 px together, each box keeping its kind
+  const g = G.pasteGroup(clips, "f1.jpg", W, H, ["B4", "B5", "B6"], [null, null, null]);
+  assert.deepStrictEqual(g.targets.map((t) => t.corners[0]), [[112, 112], [172, 112], [232, 112]]);
+  assert.deepStrictEqual(g.targets.map((t) => [t.outcome, !!t.ignore]), [["card", false], ["card-back", false], ["card", true]]);
+  // another frame: exactly where they were; zOrders from the caller
+  const o = G.pasteGroup(clips, "f2.jpg", W, H, ["B1", "B2", "B3"], [5, 6, 7]);
+  assert.deepStrictEqual(o.targets.map((t) => t.corners), src.map((t) => t.corners));
+  assert.deepStrictEqual(o.targets.map((t) => t.zOrder), [5, 6, 7]);
+  // a group near the edge moves inside as one: the spacing between its boxes is kept
+  const edge = [mk("B1", 1800), mk("B2", 1860)].map((t) => G.makeClip(t, "f1.jpg")); // runs 40 px off the right edge
+  const e = G.pasteGroup(edge, "f2.jpg", 1920, 1080, ["B1", "B2"], [null, null]);
+  assert.deepStrictEqual(e.targets.map((t) => t.corners[1][0]), [1860, 1920]);
+  close(e.targets[1].corners[0][0] - e.targets[0].corners[0][0], 60, 1e-9, "spacing kept");
+  // a group wider than the frame is refused whole, never pasted in part
+  const wide = [mk("B1", 0), mk("B2", 1900)].map((t) => G.makeClip(t, "f1.jpg"));
+  const r = G.pasteGroup(wide, "f2.jpg", 1920, 1080, ["B1", "B2"], [null, null]);
+  assert.ok(r.refused && !r.targets);
+  // one box: exactly pasteTarget
+  assert.deepStrictEqual(G.pasteGroup([clips[0]], "f1.jpg", W, H, ["B9"], [null]).targets[0], G.pasteTarget(clips[0], "f1.jpg", W, H, "B9", null));
+}
+
+// ---- new target ids: several at once never share one ---------------------------------
+{
+  // a gap in the ids (B002 deleted): a two-box paste once got B004 twice
+  const ts = [{ id: "B001" }, { id: "B003" }];
+  const ids = G.newTargetIds(ts, 2, "B");
+  assert.strictEqual(ids.length, 2);
+  assert.notStrictEqual(ids[0], ids[1], "two pasted boxes, two ids");
+  for (const id of ids) assert.ok(!ts.some((t) => t.id === id), `${id} is new`);
+  assert.deepStrictEqual(ids, ["B004", "B005"]);
+  // no gap: the numbers go on from the count, as before
+  assert.deepStrictEqual(G.newTargetIds([{ id: "B001" }, { id: "B002" }], 3, "B"), ["B003", "B004", "B005"]);
+  // ids of another prefix do not block, a run of taken ones is skipped, an empty frame starts at 1
+  assert.deepStrictEqual(G.newTargetIds([{ id: "P003" }, { id: "B003" }, { id: "B004" }], 2, "B"), ["B005", "B006"]);
+  assert.deepStrictEqual(G.newTargetIds(undefined, 2, "Q"), ["Q001", "Q002"]);
+  assert.deepStrictEqual(G.newTargetIds([], 0, "B"), []);
+  // the paste itself keeps the ids it is given, so the group's ids are distinct end to end
+  const clips = [{ cx: 300, cy: 300, w: 60, h: 84 }, { cx: 400, cy: 300, w: 60, h: 84 }]
+    .map((r, k) => G.makeClip({ id: `B00${k + 1}`, corners: G.cornersFromRect(r), outcome: "card" }, "f0.jpg"));
+  const res = G.pasteGroup(clips, "f1.jpg", W, H, ids, [null, null]);
+  assert.deepStrictEqual(res.targets.map((t) => t.id), ids);
+}
+
+// ---- resize of a turned box: every corner within export.py's QUAD_RANGE ----------------
+{
+  // the bound is export.py's own
+  const py = require("fs").readFileSync(require("path").join(__dirname, "export.py"), "utf8");
+  const m = py.match(/^QUAD_RANGE = \((-?[\d.]+), (-?[\d.]+)\)/m);
+  assert.ok(m, "export.py defines QUAD_RANGE");
+  assert.deepStrictEqual(G.QUAD_RANGE, [Number(m[1]), Number(m[2])], "boxgeom.js and export.py agree on QUAD_RANGE");
+  const inRange = (c, w, h) => c.every((p) => p[0] >= -w && p[0] <= 2 * w && p[1] >= -h && p[1] <= 2 * h);
+  assert.ok(G.cornersInRange([[0, 0], [W, 0], [W, H], [0, H]], W, H));
+  assert.ok(G.cornersInRange([[-W, -H], [2 * W, -H], [2 * W, 2 * H], [-W, 2 * H]], W, H), "the bound itself is inside");
+  assert.ok(!G.cornersInRange([[-W - 0.1, 0], [W, 0], [W, H], [0, H]], W, H));
+  const handles = ["tl", "tr", "br", "bl", "t", "b", "l", "r"];
+  const origs = [];
+  for (const [cx, cy] of [[960, 540], [20, 20], [1900, 1060], [-200, 540], [960, 1250], [2100, -150]])
+    for (const [w, h] of [[120, 168], [400, 560], [1500, 900]]) origs.push({ cx, cy, w, h });
+  const ptrs = [];
+  for (let x = -2 * W; x <= 3 * W; x += W / 4) for (let y = -2 * H; y <= 3 * H; y += H / 4) ptrs.push({ x, y });
+  let tried = 0, kept = 0, wouldEscape = 0;
+  for (let angle = -179; angle <= 180; angle += 7) {
+    for (const o0 of origs) {
+      const o = Object.assign({}, o0, { angle });
+      if (!G.cornersInRange(G.cornersFromRect(o), W, H)) continue; // a resize starts from a box the export takes
+      for (const hd of handles) for (const p of ptrs) {
+        tried++;
+        const raw = G.resizeRect(o, hd, G.resizePoint(p, angle, W, H), G.MIN_BOX);
+        if (!inRange(G.cornersFromRect(raw), W, H)) wouldEscape++;
+        const r = G.resizeWithin(o, hd, p, W, H, G.MIN_BOX);
+        if (!r) continue;
+        kept++;
+        const c = G.cornersFromRect(Object.assign({}, r, { angle: G.roundAngle(r.angle) }));
+        assert.ok(inRange(c, W, H), `angle ${angle} handle ${hd} at ${p.x},${p.y}: ${JSON.stringify(c)}`);
+      }
+    }
+  }
+  assert.ok(wouldEscape > 0, "the sweep reaches resizes that the handle bound alone lets past the range");
+  assert.ok(kept > tried / 2, `most resizes are still allowed (${kept} of ${tried})`);
+  // an upright box is never refused: setRect cuts it at the frame
+  assert.ok(G.resizeWithin({ cx: 100, cy: 100, w: 60, h: 80, angle: 0 }, "br", { x: 9999, y: 9999 }, W, H, G.MIN_BOX));
+  // a box already past the range: a resize toward it is allowed, one further out is refused
+  const past = { cx: 960, cy: 540, w: 5900, h: 400, angle: 10 };
+  const pastC = G.cornersFromRect(past);
+  assert.ok(!G.cornersInRange(pastC, W, H));
+  const before = G.rangeExcess(pastC, W, H);
+  assert.ok(before > 0);
+  const toward = G.resizeWithin(past, "r", { x: past.cx + 2000, y: past.cy }, W, H, G.MIN_BOX);
+  assert.ok(toward && G.rangeExcess(G.cornersFromRect(toward), W, H) <= before, "shorter: allowed");
+  assert.strictEqual(G.resizeWithin(past, "b", { x: past.cx, y: 1600 }, W, H, G.MIN_BOX), null, "taller: refused");
+  assert.strictEqual(G.rangeExcess([[0, 0], [W, H]], W, H), 0);
+  // the unit is a fraction of the frame, so a frame that is not square is judged as the export does
+  close(G.rangeExcess([[-W - W / 10, 0], [W, 2 * H + H / 20]], W, H), 0.1);
+  close(G.rangeExcess([[0, 205]], 2000, 100), 0.05, 1e-9, "5 px over a 100 px frame is 0.05, not 5");
+  // a corner exactly on the limit is within it, and further out is not
+  const edge = [[-W, -H], [2 * W, 2 * H]];
+  assert.strictEqual(G.rangeExcess(edge, W, H), 0);
+  assert.ok(G.rangeNoWorse(edge, edge, W, H) && G.rangeNoWorse(edge, [[0, 0]], W, H));
+  assert.ok(!G.rangeNoWorse([[2 * W + 1, 0]], [[0, 0]], W, H));
+  // from an in-range box, rangeNoWorse agrees with cornersInRange
+  for (const c of [[[0, 0], [W, H]], [[-W, 0], [2 * W, 5]], [[-W - 1, 0]], [[0, 2 * H + 1]], [[3 * W, 0]]]) {
+    assert.strictEqual(G.rangeNoWorse(c, [[10, 10]], W, H), G.cornersInRange(c, W, H));
+  }
+  // a turned box dragged a little past the edge still resizes
+  assert.ok(G.resizeWithin({ cx: 100, cy: 100, w: 60, h: 80, angle: 30 }, "tl", { x: -40, y: -40 }, W, H, G.MIN_BOX));
+}
+
+// ---- a box with free corners (Shift+drag a corner in the Boxes pass) ---------------------
+{
+  const box = { id: "B001", corners: G.cornersFromRect({ cx: 500, cy: 400, w: 120, h: 168, angle: 20 }), angle: 20, cornerSource: "box" };
+  assert.ok(!G.isQuad(box) && G.isQuad({ cornerSource: "hand" }) && !G.isQuad(null));
+  // the gesture: Shift+drag on a corner of a box frees it; a quad's own handles move on their own
+  assert.strictEqual(G.quadDragMode(box, { mode: "resize", handle: "br" }, true), "corner");
+  assert.strictEqual(G.quadDragMode(box, { mode: "resize", handle: "br" }, false), null, "a plain corner drag resizes, as before");
+  assert.strictEqual(G.quadDragMode(box, { mode: "resize", handle: "b" }, true), null, "Shift on an edge: a plain resize");
+  assert.strictEqual(G.quadDragMode(box, { mode: "rotate" }, true), null);
+  const q0 = Object.assign({}, box, { cornerSource: "hand" });
+  delete q0.angle;
+  assert.strictEqual(G.quadDragMode(q0, { mode: "resize", handle: "tl" }, false), "corner");
+  assert.strictEqual(G.quadDragMode(q0, { mode: "resize", handle: "l" }, false), "edge");
+  assert.strictEqual(G.quadDragMode(q0, { mode: "rotate" }, false), "qrotate");
+  assert.strictEqual(G.quadDragMode(q0, { mode: "move" }, false), null);
+
+  // detach: one corner moves, the other three stay exactly; the page then stores it as hand
+  const br = box.corners[2];
+  const d = { mode: "corner", handle: "br", corners: box.corners, start: { x: br[0], y: br[1] } };
+  const r1 = G.quadDrag(d, { x: br[0] + 15, y: br[1] + 9 }, W, H);
+  assert.ok(r1.corners, JSON.stringify(r1));
+  assert.deepStrictEqual([r1.corners[0], r1.corners[1], r1.corners[3]], [box.corners[0], box.corners[1], box.corners[3]]);
+  assert.deepStrictEqual(r1.corners[2], [G.r1(br[0] + 15), G.r1(br[1] + 9)]);
+  const t = G.setQuadCorners(JSON.parse(JSON.stringify(box)), r1.corners);
+  assert.ok(G.isQuad(t) && t.angle === undefined, "a freed box keeps no angle");
+  assert.ok(!G.isRectangle(t.corners) && G.isConvexQuad(t.corners, G.MIN_BOX));
+  // the card's own top stays: the first corner and the top edge are where they were
+  assert.deepStrictEqual(t.corners.slice(0, 2), box.corners.slice(0, 2));
+  // each corner alone
+  for (let i = 0; i < 4; i++) {
+    const p = t.corners[i], m = G.moveQuadCorner(t.corners, i, { x: p[0] + 3, y: p[1] - 2 }, W, H);
+    assert.ok(m.corners, `corner ${i}`);
+    for (let k = 0; k < 4; k++) if (k !== i) assert.deepStrictEqual(m.corners[k], t.corners[k], `corner ${i} moves only itself`);
+  }
+  // convexity: a drag that folds the box over (a corner across the opposite diagonal), bends a
+  // corner inward, or makes a side shorter than MIN_BOX is refused
+  const c = t.corners, mid = G.quadCenter(c);
+  assert.strictEqual(G.moveQuadCorner(c, 2, { x: c[0][0] - 30, y: c[0][1] - 30 }, W, H).refused, "fold", "dragged past the opposite corner");
+  assert.strictEqual(G.moveQuadCorner(c, 1, { x: c[3][0] - 5, y: c[3][1] + 5 }, W, H).refused, "fold", "across the diagonal");
+  assert.strictEqual(G.moveQuadCorner(c, 2, { x: mid.x + (c[0][0] - mid.x) * 0.3, y: mid.y + (c[0][1] - mid.y) * 0.3 }, W, H).refused, "fold", "bent inward past the middle");
+  assert.strictEqual(G.moveQuadCorner(c, 1, { x: c[0][0] + 5, y: c[0][1] }, W, H).refused, "fold", "a side under MIN_BOX");
+  // a straight (180°) corner is refused, as labelcore.is_convex refuses it on save
+  const straight = [[100, 100], [200, 100], [200, 300], [100, 200]].map((p, i) => (i === 3 ? [100, 200] : p));
+  const flat = [[100, 100], [200, 100], [300, 100], [100, 300]]; // corner 1 lies on the line from 0 to 2
+  assert.ok(!G.isConvexQuad(flat, 1), "a corner on its neighbors' line");
+  assert.strictEqual(G.moveQuadCorner(straight, 3, { x: 100, y: 250 }, W, H).corners !== undefined, true, "a real corner is kept");
+  assert.strictEqual(G.moveQuadCorner([[100, 100], [200, 100], [200, 300], [100, 300]], 1, { x: 150, y: 200 }, W, H).refused, "fold",
+    "corner 1 dragged onto the line from corner 0 to corner 2");
+  // the range: a corner past QUAD_RANGE (the export's) is refused; up to it is kept
+  const far = (2 * W + 5 - mid.x) / (c[2][0] - mid.x); // pulled out along its own diagonal: still convex
+  assert.strictEqual(G.moveQuadCorner(c, 2, { x: mid.x + (c[2][0] - mid.x) * far, y: mid.y + (c[2][1] - mid.y) * far }, W, H).refused, "range");
+  const edge = G.moveQuadCorner([[0, 0], [100, 0], [100, 100], [0, 100]], 2, { x: 2 * W, y: 2 * H }, W, H);
+  assert.ok(edge.corners, "a corner exactly at the range's end is kept");
+  // an edge: its two corners move together, the others stay
+  const e = G.quadDrag({ mode: "edge", handle: "r", corners: c, start: { x: 0, y: 0 } }, { x: 6, y: -4 }, W, H);
+  assert.deepStrictEqual([e.corners[0], e.corners[3]], [c[0], c[3]]);
+  assert.deepStrictEqual(e.corners[1], [G.r1(c[1][0] + 6), G.r1(c[1][1] - 4)]);
+  assert.strictEqual(G.moveQuadEdge(c, 1, -400, 0, W, H).refused, "fold", "an edge dragged across the box");
+  // turning: about its center, its shape and corner order kept (r, R, w, W and the knob)
+  for (const deg of [90, -90, 5, -1, 180, 37]) {
+    const rq = G.rotateQuad(c, deg, W, H);
+    assert.ok(rq.corners, `${deg}`);
+    const m2 = G.quadCenter(rq.corners);
+    close(m2.x, mid.x, 0.1); close(m2.y, mid.y, 0.1);
+    for (let i = 0; i < 4; i++) close(Math.hypot(rq.corners[i][0] - rq.corners[(i + 1) % 4][0], rq.corners[i][1] - rq.corners[(i + 1) % 4][1]),
+      Math.hypot(c[i][0] - c[(i + 1) % 4][0], c[i][1] - c[(i + 1) % 4][1]), 0.2, `side ${i} after ${deg}°`);
+  }
+  const quarter = G.rotateQuad(c, 90, W, H).corners;
+  const back4 = [90, 90, 90].reduce((q) => G.rotateQuad(q, 90, W, H).corners, quarter);
+  for (let i = 0; i < 4; i++) { close(back4[i][0], c[i][0], 0.3); close(back4[i][1], c[i][1], 0.3); }
+  const knob = G.knobOf(t, 24), top = G.knobOf(t, 0);
+  close(top.x, (c[0][0] + c[1][0]) / 2, 1e-9); close(top.y, (c[0][1] + c[1][1]) / 2, 1e-9);
+  assert.ok(!G.pointInQuad(c, knob), "the knob is outside the box, beyond its top edge");
+  const kd = { mode: "qrotate", corners: c, center: mid, startAngle: G.angleFromCenter(mid, knob) };
+  const turned = G.quadDrag(kd, { x: mid.x + (knob.y - mid.y) * -1, y: mid.y + (knob.x - mid.x) }, W, H); // the knob dragged a quarter round
+  assert.ok(turned.corners);
+  close(G.quadCenter(turned.corners).x, mid.x, 0.1);
+  assert.strictEqual(G.rotateQuad([[10, 10], [1900, 10], [1900, 1070], [10, 1070]], 45, W, H).refused, undefined, "inside the range");
+  assert.strictEqual(G.rotateQuad([[-1500, 10], [3000, 10], [3000, 1070], [-1500, 1070]], 45, W, H).refused, "range");
+  // hit-testing on the quad's own corners and sides
+  assert.strictEqual(G.hitQuadCorner(c, { x: c[2][0] + 2, y: c[2][1] - 2 }, 5), "br");
+  const hs = G.handleAt(t, { x: c[2][0] + 1, y: c[2][1] }, 24, 5, 3);
+  assert.deepStrictEqual(hs, { mode: "resize", handle: "br" });
+  const mr = [(c[1][0] + c[2][0]) / 2, (c[1][1] + c[2][1]) / 2];
+  assert.deepStrictEqual(G.handleAt(t, { x: mr[0], y: mr[1] }, 24, 5, 3), { mode: "resize", handle: "r" });
+  assert.deepStrictEqual(G.handleAt(t, knob, 24, 5, 3), { mode: "rotate" });
+  assert.strictEqual(G.handleAt(t, mid, 24, 5, 3), null, "inside: a move, no handle");
+  assert.deepStrictEqual(G.handlePoints(t), c);
+  // a rectangle's handles are as before
+  assert.deepStrictEqual(G.handleAt(box, { x: br[0], y: br[1] }, 24, 5, 3), { mode: "resize", handle: "br" });
+  assert.strictEqual(G.nearestEdgeOf(t, { x: mr[0] + 1, y: mr[1] }, 4), 1);
+  assert.strictEqual(G.nearestEdgeOf(box, { x: mr[0], y: mr[1] }, 400), G.nearestEdge(G.rectFromCorners(box.corners, box.angle), { x: mr[0], y: mr[1] }, 400));
+
+  // back to a rectangle (E): its center, its top edge's direction; a rectangle comes back exactly
+  const back = G.quadBackToRect(t.corners, W, H);
+  close(back.cx, mid.x, 1e-9); close(back.cy, mid.y, 1e-9);
+  assert.ok(Math.abs(G.normalizeAngle(back.angle - 20)) < 3, `about the box's own angle: ${back.angle}`);
+  const exact = G.quadToRect(box.corners);
+  close(exact.w, 120, 0.1); close(exact.h, 168, 0.1); close(exact.angle, 20, 0.05);
+  // a turned quad near the range's end whose rectangle would reach past it: refused
+  const nearEnd = [[3343.2, 178], [3835.6, 264.8], [3743.6, 959.4], [2827.7, 797.9]];
+  assert.ok(G.cornersInRange(nearEnd, W, H) && G.isConvexQuad(nearEnd, G.MIN_BOX));
+  assert.strictEqual(G.quadBackToRect(nearEnd, W, H), null, "a rectangle that would leave the range is refused");
+  assert.strictEqual(G.rectSource(t), "box");
+  assert.strictEqual(G.rectSource({ carriedFrom: { frame: "f", target: "B" } }), "carried");
+  assert.strictEqual(G.rectSource({ prefill: { i: 0 } }), "prefill-edited");
+
+  // copy / paste / group paste keep it a quad; D then an arrow gives one beside it
+  const clip = G.makeClip(t, "set/f1");
+  const pasted = G.pasteTarget(clip, "set/f1", W, H, "B009", null);
+  assert.ok(G.isQuad(pasted) && pasted.angle === undefined);
+  assert.deepStrictEqual(pasted.corners, t.corners.map((p) => [G.r1(p[0] + G.PASTE_OFFSET), G.r1(p[1] + G.PASTE_OFFSET)]));
+  const grp = G.pasteGroup([clip, G.makeClip(box, "set/f1")], "set/f2", W, H, ["B010", "B011"], [null, null]);
+  assert.deepStrictEqual(grp.targets.map((x) => [x.cornerSource, x.angle]), [["hand", undefined], ["box", 20]]);
+  const bes = G.besideOf(t, "right");
+  assert.ok(bes.corners && G.isConvexQuad(bes.corners, G.MIN_BOX));
+  const shift = [bes.corners[0][0] - c[0][0], bes.corners[0][1] - c[0][1]];
+  for (let i = 0; i < 4; i++) { close(bes.corners[i][0] - c[i][0], shift[0], 0.11); close(bes.corners[i][1] - c[i][1], shift[1], 0.11); }
+  assert.ok(Math.hypot(...shift) > 100, "the same outline, beside it");
+  assert.strictEqual(G.besideOf(box, "right").corners, null, "a rectangle: a rectangle beside it, as before");
+  // carry-over keeps it free; an edit of a model's box keeps it free; m makes it a rectangle again
+  const carried = G.carryTargets([t], "f1", false)[0];
+  assert.deepStrictEqual([carried.cornerSource, carried.labelSource], ["hand", "carried"]);
+  assert.strictEqual(G.carryTargets([box], "f1", false)[0].cornerSource, "carried");
+  const model = Object.assign(JSON.parse(JSON.stringify(t)), { prefill: { i: 0, corners: box.corners, angle: 20, outcome: "card" }, pending: true });
+  G.editProvenance(model, true);
+  assert.deepStrictEqual([model.labelSource, model.cornerSource, model.pending], ["prefill-corrected", "hand", undefined]);
+  const keptQ = Object.assign(JSON.parse(JSON.stringify(t)), { carriedFrom: { frame: "f0", target: "B001" } });
+  G.moveOnto(keptQ, { corners: box.corners, angle: 20 });
+  assert.deepStrictEqual([keptQ.cornerSource, keptQ.angle], ["carried", 20]);
+  // layers and the stacking view
+  const under = { id: "U", corners: G.cornersFromRect({ cx: 520, cy: 420, w: 120, h: 168, angle: 0 }), zOrder: 0 };
+  const ts = [under, Object.assign({}, t, { zOrder: 1 })];
+  assert.deepStrictEqual(G.reorderAmongOverlaps(ts, 1, -1), [1, 0]);
+  assert.deepStrictEqual(G.stackLayers(ts).map((x) => x.layer), [1, 2]);
+  const parts = G.visibleParts(ts);
+  assert.deepStrictEqual(parts[1].corners, t.corners, "the top one is wholly seen");
+  assert.ok(parts[0].share > 0 && parts[0].share < 0.5, `the one under it is mostly covered: ${parts[0].share}`);
+  const lowered = G.visibleParts([Object.assign({}, t, { zOrder: 0 }), Object.assign({}, under, { zOrder: 1 })]);
+  assert.ok(lowered[0].share > 0 && lowered[0].share < 0.5, `a quad under a box: ${lowered[0].share}`);
+  assert.ok(G.cornersInRange(lowered[0].corners, W, H) && G.pointInQuad(t.corners, G.quadCenter(lowered[0].corners)), "its visible part lies inside it");
+  // a quad on its own is wholly seen
+  assert.deepStrictEqual(G.visibleParts([t])[0], { rank: 1, share: 1, corners: t.corners });
 }
 
 console.log("test_boxgeom.js: all assertions passed");

@@ -55,7 +55,7 @@ class Check:
     paths: list[str] = field(default_factory=list)
     blocks: bool = False    # several found and none taken: the way on waits for a choice
     taken: str | None = None    # the path a choice that does not block took
-    source: str | None = None   # images and weights: where the folder came from (SOURCES)
+    source: str | None = None   # images and weights: where the folder came from
 
 
 @dataclass
@@ -81,6 +81,7 @@ class Step:
     notes: list[str] = field(default_factory=list)
     after: list[str] = field(default_factory=list)
     stop: str | None = None     # a key of STOPS: the step needs the person before an agent goes on
+    stop_say: str | None = None     # this step's own reason, where the key's text would not fit
 
     @property
     def playbook(self) -> str:
@@ -285,6 +286,13 @@ def images_of_last_try(out: Path) -> Path | None:
     return None
 
 
+def _resolved(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return path
+
+
 def too_wide(folder: Path, game: Path) -> bool:
     """Whether a logged images folder is one ``next`` won't walk: ``/``, the home folder, or a
     folder that holds the game folder's parent (a log written by hand could name one)."""
@@ -310,7 +318,97 @@ def _name(path: Path, game: Path) -> str:
 
 
 # ------------------------------------------------------------------------------ the look
-def look(game: Where, weights: Where) -> Look:
+def release_kind(folder: Path) -> str:
+    """What a weights folder is, by its ``release.json``: ``released`` when that file is the pinned
+    one (a download of the release, in which every pinned file is meant to be the released one),
+    ``own`` when it is another JSON document with a ``schemaVersion`` (a release folder the person
+    built, whose models are theirs), and ``unknown`` when there is none or it is anything else."""
+    from cardvision.fetch_weights import _sha256_of
+
+    name = "release.json"
+    pin = next((asset for asset in release_assets.ASSETS if asset.name == name), None)
+    path = folder / name
+    if pin is None or not _safe(Path.is_file, path):
+        return "unknown"
+    try:
+        if path.stat().st_size == pin.bytes and _sha256_of(path) == pin.sha256:
+            return "released"
+        document = json.loads(path.read_text(encoding="utf-8-sig"))     # a saved web page is no release
+    except (OSError, ValueError):
+        return "unknown"
+    return "own" if isinstance(document, dict) and "schemaVersion" in document else "unknown"
+
+
+def differing_pins(folder: Path) -> list[str]:
+    """The files in ``folder`` that bear the name of a file of the release but are not it (by
+    size, then SHA-256): what ``fetch-weights`` would refuse to replace without ``--overwrite``.
+    At most about 8.5 MB are read."""
+    from cardvision.fetch_weights import _sha256_of
+
+    found = []
+    for asset in release_assets.ASSETS:
+        path = folder / asset.name
+        try:
+            if _safe(Path.is_file, path) and (path.stat().st_size != asset.bytes or _sha256_of(path) != asset.sha256):
+                found.append(asset.name)
+        except OSError:
+            continue
+    return found
+
+
+def weight_problems(folder: Path) -> tuple[list[str], list[tuple[str, str, str]], str]:
+    """The files ``try`` reads from a weights folder that are not there; those that are there
+    but are not the released file, as ``(name, kind, words)`` with ``kind`` one of ``size``,
+    ``sha256`` and ``unreadable``; and the folder's ``release_kind``. Each file is checked against
+    the table ``fetch-weights`` checks its downloads against (``cardvision.release_assets``); the
+    size first, so that a file of the wrong size is not read. A person's own release folder is
+    not checked: its models are not meant to be the released ones. Local only: about 7.7 MB are
+    read at most."""
+    from cardvision.fetch_weights import _sha256_of
+    from cardvision.try_game.run import WEIGHT_FILES
+
+    kind = release_kind(folder)
+    pins = {asset.name: asset for asset in release_assets.ASSETS}
+    missing: list[str] = []
+    wrong: list[tuple[str, str, str]] = []
+    for name in WEIGHT_FILES:
+        path = folder / name
+        if not _safe(Path.is_file, path):
+            missing.append(name)
+            continue
+        pin = pins.get(name)
+        if pin is None or kind == "own":
+            continue
+        try:
+            size = path.stat().st_size
+            if size != pin.bytes:
+                wrong.append((name, "size", f"{size} bytes, the released file is {pin.bytes}"))
+            elif _sha256_of(path) != pin.sha256:
+                wrong.append((name, "sha256", "same size, but not the released file's contents (SHA-256 differs)"))
+        except OSError as error:
+            wrong.append((name, "unreadable", f"can't be read ({error.strerror or type(error).__name__})"))
+    return missing, wrong, kind
+
+
+def _given_images_check(root: Path, given: Where) -> Check:
+    """The card images' folder given with ``--images``."""
+    folder = given.path
+    if not _safe(Path.exists, folder):
+        hint = f"; {WINDOWS_HINT}" if looks_like_windows(given.raw) else ""
+        return Check("images", "card images", "missing", f"--images {_name(folder, root)}: no such folder{hint}",
+                     [str(folder)], source="argument")
+    if not _safe(Path.is_dir, folder):
+        return Check("images", "card images", "missing", f"--images {_name(folder, root)}: not a folder",
+                     [str(folder)], source="argument")
+    count = len(_image_files(folder, nested=True))
+    if not count:
+        return Check("images", "card images", "missing", f"{_name(folder, root)} holds no image files (given with "
+                     "--images)", [str(folder)], source="argument")
+    return Check("images", "card images", "done", f"{_name(folder, root)} ({plural(count, 'file')}, given with "
+                 "--images)", [str(folder)], source="argument")
+
+
+def look(game: Where, weights: Where, images: Where | None = None) -> Look:
     from cardvision.try_game.run import MARKER, OUTPUTS, WEIGHT_FILES, earlier_run
 
     root, checks, look_weights = game.path, [], weights
@@ -340,11 +438,16 @@ def look(game: Where, weights: Where) -> Look:
         cards_found, cards, spreadsheets = find_cards(root)
         image_found, images_folder = find_images(root)
     checks.append(_cards_check(root, there, cards_found, cards, spreadsheets))
-    used = (images_of_last_try(root / TRY_FOLDER) if there and "try.log" in earlier_run(root / TRY_FOLDER)
-            else None)
-    if used is not None and too_wide(used, root):
-        used = None
-    if used is not None and used.is_dir() and _image_files(used, nested=True):
+    used = None
+    if images is None:
+        used = (images_of_last_try(root / TRY_FOLDER) if there and "try.log" in earlier_run(root / TRY_FOLDER)
+                else None)
+        if used is not None and too_wide(used, root):
+            used = None
+    if images is not None:      # --images wins over the folders and the last try's log
+        images_folder = images.path
+        images_check = _given_images_check(root, images)
+    elif used is not None and used.is_dir() and _image_files(used, nested=True):
         count = len(_image_files(used, nested=True))
         images_folder = used
         images_check = Check("images", "card images", "done",
@@ -362,20 +465,26 @@ def look(game: Where, weights: Where) -> Look:
 
     # The weights: the folder chosen, else the one try --download filled in the last run's folder.
     folder = weights.path
-    missing = [name for name in WEIGHT_FILES if not _safe(Path.is_file, folder / name)]
+    missing, wrong, kind = weight_problems(folder)
     downloaded = root / TRY_FOLDER / "weights"
-    if not missing:
-        checks.append(Check("weights", "released weights", "done", f"{folder} ({weights.words})", [str(folder)],
+    if not missing and not wrong:
+        own = "; your own release folder; its models are not checked" if kind == "own" else ""
+        checks.append(Check("weights", "released weights", "done", f"{folder} ({weights.words}{own})", [str(folder)],
                             source=weights.chosen))
-    elif there and all(_safe(Path.is_file, downloaded / name) for name in WEIGHT_FILES):
+    elif there and weight_problems(downloaded)[:2] == ([], []):
         weights = Where(downloaded, weights.chosen, weights.words, weights.raw)
         checks.append(Check("weights", "released weights", "done",
                             f"{_name(downloaded, root)} (from the last try's download)", [str(downloaded)],
                             source="last-try-download"))
     else:
-        what = ("not a folder" if _safe(Path.exists, folder) and not _safe(Path.is_dir, folder)
-                else f"no {', '.join(missing)}")
-        checks.append(Check("weights", "released weights", "missing", f"{what} in {folder} ({weights.words})",
+        if _safe(Path.exists, folder) and not _safe(Path.is_dir, folder):
+            what = f"not a folder: {folder}"
+        else:
+            parts = ([f"no {', '.join(missing)}"] if missing else [])
+            parts += [f"{name} is not the released file ({words})" if how != "unreadable" else f"{name} {words}"
+                      for name, how, words in wrong]
+            what = f"{'; '.join(parts)} in {folder}"
+        checks.append(Check("weights", "released weights", "missing", f"{what} ({weights.words})",
                             [str(folder)], source=weights.chosen))
 
     # The try run.
@@ -400,6 +509,9 @@ def look(game: Where, weights: Where) -> Look:
             newest = _newest(path)
             if newest is not None and newest[0] > stamp:
                 changed.append(newest[1])
+    last_images = images_of_last_try(out) if run_ok and "try.log" in ran else None
+    images_differ = (images is not None and last_images is not None and read_error is None and not changed
+                     and _resolved(last_images) != _resolved(images.path))
     if not out_there:
         try_check = Check("try", "try run", "missing", "not run yet", [str(out)])
     elif not run_ok:
@@ -409,6 +521,10 @@ def look(game: Where, weights: Where) -> Look:
         try_check = Check("try", "try run", "missing", detail, [str(out)])
     elif read_error is not None:
         try_check = Check("try", "try run", "missing", f"its files can't be read ({read_error})", [str(out)])
+    elif images_differ:
+        try_check = Check("try", "try run", "changed",
+                          f"--images {_name(images.path, root)} is not the card images' folder the last try used "
+                          f"({_name(last_images, root)})", [str(report), str(images.path)])
     elif changed:
         try_check = Check("try", "try run", "changed",
                           f"{_and([_name(path, root) for path in changed])} {'is' if len(changed) == 1 else 'are'} "
@@ -423,11 +539,26 @@ def look(game: Where, weights: Where) -> Look:
         checks.append(Check("verdict", "verdict", "missing", "no try run to read"))
         checks.append(Check("no-image", "cards with no image", "missing", "no try run to read"))
     else:
-        last = " (from the last try)" if changed else ""
+        last = " (from the last try)" if changed or images_differ else ""
         results = str(out / "out" / "results.jsonl")
         checks.append(Check("verdict", "verdict", "done", _verdict_words(verdict) + last, [results]))
         checks.append(_no_image_check(no_image, out, last))
 
+    weights_fix = None
+    if wrong or missing:     # what to do, by what the folder is; fetch-weights never goes into a folder of yours
+        differing = differing_pins(folder) if kind != "own" else []
+        lines = [f"{name}: {words}" for name, _how, words in wrong]
+        lines += [f"{name}: not the released file" for name in differing if name not in {w[0] for w in wrong}]
+        unreadable_files = [f"{name}: {words}" for name, how, words in wrong if how == "unreadable"]
+        if unreadable_files:
+            weights_fix = ("permissions", unreadable_files)
+        elif kind == "own":
+            weights_fix = ("own-missing", [", ".join(missing)])
+        elif kind == "released":
+            if wrong or differing:
+                weights_fix = ("overwrite", lines)
+        elif differing:
+            weights_fix = ("new-folder", lines)
     if unreadable:
         for check in checks:
             if check.detail == "no game folder":
@@ -439,7 +570,7 @@ def look(game: Where, weights: Where) -> Look:
                     stop="persons-permission")
     else:
         step = _next(root, weights, checks, cards, images_folder, video, verdict, no_image, ran, out, bool(foreign),
-                     game.raw)
+                     game.raw, images is not None, weights_fix, images_differ)
     return Look(game, look_weights, checks, step, _verdict_json(verdict), _no_image_json(no_image))
 
 
@@ -554,7 +685,8 @@ STOPS = {
 PUT = {
     "cards": "card list: your spreadsheet exported as CSV (UTF-8), such as cards.csv; a TSV file or a JSON list of "
              "rows works too",
-    "images": "images/: one cleanly cropped image per card, named as your list's image column says",
+    "images": "images/: one cleanly cropped image per card, named as your list's image column says "
+              "(or keep them elsewhere and run cardvision next with --images DIR)",
     "video": "video.mp4: a video of your game; a photo, a screenshot or a folder of them works too",
 }
 
@@ -570,8 +702,13 @@ def try_line(cards: Path, images: Path, video: Path, weights: Path, overwrite: b
 def _choose(check_id: str) -> str:
     """How the person settles a choice that blocks."""
     if check_id == "images":
-        return "rename the card images' folder to images/"
+        return "rename the card images' folder to images/, or name it with --images DIR"
     return "keep the one you mean in the folder and move the others out"
+
+
+def _images_missing_note(check: Check) -> str:
+    return ("card images: " + check.detail + "; give --images a folder with one cleanly cropped image per card, "
+            "named as your list's image column says")
 
 
 def _blocking(check: Check) -> bool:
@@ -581,7 +718,8 @@ def _blocking(check: Check) -> bool:
 
 def _next(root: Path, weights: Where, checks: list[Check], cards: Path | None, images: Path | None,
           video: Path | None, verdict: Any, no_image: Any, ran: set[str], out: Path, foreign: bool,
-          raw: str) -> Step:
+          raw: str, images_given: bool = False, weights_fix: tuple[str, list[str]] | None = None,
+          images_differ: bool = False) -> Step:
     from cardvision.try_game.run import demo_installed, demo_line, shell_arg
 
     by_id = {check.id: check for check in checks}
@@ -596,13 +734,44 @@ def _next(root: Path, weights: Where, checks: list[Check], cards: Path | None, i
         first = blocking[0]
         missing = [check for check in blocking if check.state == "missing"]
         if first.state == "missing":
-            notes = [PUT[check.id] for check in missing]
+            notes = [_images_missing_note(check) if check.id == "images" and images_given else PUT[check.id]
+                     for check in missing]
             notes += [f"{check.label}: {check.detail}; {_choose(check.id)}"
                       for check in blocking if check.state == "choice"]
             return Step(first.id, f"put what is missing in {root}:", YOUR_FOLDERS, notes=notes, stop="persons-file")
         return Step(first.id, f"choose the {first.label} to use: {first.detail}. {_choose(first.id)[:1].upper()}"
                               f"{_choose(first.id)[1:]}, then run cardvision next again.", YOUR_FOLDERS,
                     stop="persons-choice")
+    if by_id["weights"].state == "missing" and weights_fix:
+        mode, lines = weights_fix
+        if mode == "permissions":
+            first = lines[0].split(":")[0]       # the first file that can't be read, not the first wrong one
+            return Step("weights", "This file can't be read: check its permissions, then run cardvision next again.",
+                        THREE_LINES, [f"ls -l {shell_arg(str(weights.path / first))}"], notes=lines,
+                        stop="persons-permission",
+                        stop_say="only they can let the terminal read this file, with its permissions.")
+        if mode == "own-missing":
+            return Step("weights", f"your release folder is missing files ({lines[0]}): copy the missing file into "
+                                   "it (such as accept.json from the released models), or give --weights the "
+                                   "released models' folder. fetch-weights into your folder would offer to replace "
+                                   "your own files, so it is not suggested.", THREE_LINES, notes=[],
+                        stop="persons-choice")
+        if mode == "overwrite":
+            # release.json here is the released one, so every pinned file in this folder is meant to be the
+            # released one: fetch-weights --overwrite replaces only files that differ from it.
+            return Step("weights", "some of the released models in the weights folder are not the released files (a "
+                                   "download that stopped, or a file changed); download them again over the wrong "
+                                   "ones:", THREE_LINES,
+                        [f"cardvision fetch-weights {shell_arg(str(weights.path))} --overwrite"],
+                        notes=lines, stop="download")
+        # No pinned release.json: the folder may hold the person's own files, which --overwrite would replace.
+        fresh = Path(f"{weights.path}-released")
+        return Step("weights", "some of the files in the weights folder are not the released ones, and the folder has "
+                               "no released release.json, so they may be your own: leave it alone, download the "
+                               "released models into a folder of its own (new, or one fetch-weights already "
+                               "filled), and give that folder to cardvision next "
+                               "and try with --weights:", THREE_LINES,
+                    [f"cardvision fetch-weights {shell_arg(str(fresh))}"], notes=lines, stop="download")
     if by_id["weights"].state == "missing":
         from cardvision.release_assets import RELEASE_TAG
 
@@ -614,7 +783,10 @@ def _next(root: Path, weights: Where, checks: list[Check], cards: Path | None, i
         picks = [f"{check.label}: the line takes {_name(path, root)}, the most likely of several; put another in its "
                  "place if you mean it" for check, path in zip(inputs, (cards, images, video)) if check.state == "choice"]
         overwrite = bool(ran)
-        if try_check.state == "changed":
+        if try_check.state == "changed" and images_differ:
+            say = ("run try again: the card images' folder you gave is not the one the last try used (--overwrite "
+                   "replaces only what try wrote):")
+        elif try_check.state == "changed":
             say = ("run try again: some of your files are newer than the last try's report (--overwrite replaces "
                    "only what try wrote):")
         elif overwrite:
@@ -623,7 +795,7 @@ def _next(root: Path, weights: Where, checks: list[Check], cards: Path | None, i
             say = "try the released models on your cards:"
         notes = picks + ([f"{TRY_FOLDER}/ holds files try did not write and never replaces: move them out first"]
                          if foreign else [])
-        if try_check.state == "changed":
+        if try_check.state == "changed" and not images_differ:
             notes.append(f"if nothing was edited (the files were only copied again), the last report still holds: "
                          f"{shell_arg(str(out / 'report.html'))}")
         return Step("try", say, THREE_LINES, [try_line(cards, images, video, weights.path, overwrite)], notes,
@@ -669,7 +841,7 @@ def as_json(found: Look) -> dict[str, Any]:
         "checks": [{"id": check.id, "state": check.state, "detail": check.detail, "paths": check.paths,
                     "taken": check.taken, "blocks": check.blocks, "source": check.source} for check in found.checks],
         "next": {"id": step.id, "say": step.say,
-                 "stop": None if step.stop is None else {"reason": step.stop, "say": STOPS[step.stop]},
+                 "stop": None if step.stop is None else {"reason": step.stop, "say": step.stop_say or STOPS[step.stop]},
                  "notes": step.notes, "commands": step.commands, "doc": step.doc.link(), "after": step.after,
                  "playbook": step.playbook},
         "verdict": found.verdict,
@@ -683,7 +855,7 @@ def as_text(found: Look) -> str:
     lines += [f"  {check.state:<8} {check.label}: {check.detail}" for check in found.checks]
     lines.append(f"Next: {step.say}")
     if step.stop is not None:
-        lines.append(f"{STOP_PREFIX} {STOPS[step.stop]}")
+        lines.append(f"{STOP_PREFIX} {step.stop_say or STOPS[step.stop]}")
     unsafe = _unsafe_names(step.commands)
     if unsafe:      # a command a terminal can't take safely is not shown; the step is to rename
         lines[-1 if step.stop is None else -2] = "Next: rename what is named below, then run cardvision next again:"
@@ -736,6 +908,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--weights", type=Path, metavar="DIR",
                         help="the folder of the released weights (default: $WEIGHTS, else "
                              "~/Downloads/cardvision-weights)")
+    parser.add_argument("--images", metavar="DIR",
+                        help="the folder of the card images, as for try --images (default: the folder the last try "
+                             "used, else images/ or art/ in the game folder)")
     parser.add_argument("--json", action="store_true",
                         help="print one JSON object (schemaVersion 1) instead of the lines for people")
 
@@ -748,7 +923,20 @@ def run(args: argparse.Namespace) -> int:
         print(f"cardvision next: {game.path} ({game.words}) is a file, not a folder; give the folder that holds your "
               f"card list, images and video, such as: cardvision next {_quoted(game.path.parent)}", file=sys.stderr)
         return 2
-    found = look(game, weights)
+    given = getattr(args, "images", None)
+    images = None
+    if given is not None:
+        given = str(given)
+        if not given.strip():
+            print("cardvision next: --images is empty; give the folder of the card images (if you typed it as "
+                  "\"$ART\", that shell variable is empty)", file=sys.stderr)
+            return 2
+        images = Where(_absolute(given), "argument", "given with --images", given)
+        if too_wide(images.path, game.path):
+            print(f"cardvision next: --images {images.path} is too wide to look through; give the folder of the card "
+                  "images, such as ~/Downloads/my-game/images", file=sys.stderr)
+            return 2
+    found = look(game, weights, images)
     try:     # a name that is not valid UTF-8 is printed escaped rather than stopping the command
         sys.stdout.reconfigure(errors="backslashreplace")
     except (AttributeError, ValueError):

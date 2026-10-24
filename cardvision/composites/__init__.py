@@ -32,10 +32,14 @@ split and settings always give the same bytes.
     ``licenseUrl`` and ``sha256``.
 ``camera``
     ``tilt`` and ``dir`` in degrees, ``focal`` in px, and ``H``, the 3 x 3 map from the table
-    plane to the image.
+    plane to the image. In a close-up the background is flat (``tilt`` 0) and ``focal`` is the
+    camera's focal length in front of which the cards are posed.
 ``layout``
-    ``"table"``, ``"scatter"``, ``"board"`` or ``"probe"``. ``board`` describes a game board
-    (None otherwise) and ``broadcast`` the broadcast graphics (None when there are none).
+    ``"table"``, ``"scatter"``, ``"board"``, ``"closeup"`` or ``"probe"``. ``board`` describes
+    a game board (None otherwise) and ``broadcast`` the broadcast graphics (None when there are
+    none). Close-ups (``--closeups``) are drawn in train and val scenes, never in probe ones. A
+    close-up also has ``closeup``: the effects drawn around its cards
+    (``defocus``, ``dim``, ``glow``, ``vignette``).
 ``photometric``, ``light``, ``glare``, ``degrade``
     What was done to the picture: the photometric setting's name, the lighting, the strength
     of each glare blob, and the degradation steps with their values.
@@ -62,7 +66,7 @@ An object always has the keys down to ``source``; the ones after it are there wh
     and overlays.
 ``angle``, ``tableAngle``
     ``angle`` is the direction of the object's top in the image, in degrees clockwise from
-    image-up; ``tableAngle`` its rotation on the table.
+    image-up; ``tableAngle`` its rotation on the table, and for a close-up card its ``roll``.
 ``visible``
     The share of the object's area that is on top in the image, from 0 to 1. Being covered and
     being cut by the frame edge both lower it.
@@ -85,6 +89,11 @@ An object always has the keys down to ``source``; the ones after it are there wh
 ``role``, ``side``, ``tags``
     The slot the card fills in its layout, whose side of a board it is on, and, in broadcast
     frames, ``["overlay"]`` or ``["inset", "overlay"]``.
+``pose``
+    For a close-up card: ``tilt``, the angle in degrees between the card's normal and the
+    camera's axis (15 to 45), ``dir``, the direction of the axis it is tilted about, and
+    ``roll``, its turn in its own plane. ``closeup.tilt_from_h`` reads the tilt back from
+    ``H`` and the camera's ``focal``.
 
 ``manifest.json`` records the run: ``format`` and ``formatVersion``, ``seed``, ``split``,
 ``scenes``, the SHA-256 of ``labels.jsonl``, how many catalog cards had an image
@@ -94,15 +103,18 @@ missing file, a URL, or ``"art": null``), the
 generator, and ``counts`` of objects, positives, layouts and backgrounds. ``parameters.cardAspect``
 is the width over the height of an upright card in that run (``--card-size``; 0.716 for the
 default 63 x 88 mm); ``validate`` reads it, and takes 0.716 when a folder does not record it.
+``parameters.closeups`` and ``settings.closeups`` are there only for a run that draws close-ups:
+their share, tilt range, card height share and the other fixed numbers of ``closeup``.
 
 Modules
 =======
 
 ``scene`` builds one scene; ``dataset`` writes a set of them; ``validate`` checks a written
 set. ``cards`` supplies faces and generated backs, ``board`` the game-board layout,
-``photometric`` the color effects, ``broadcast`` the stream graphics, ``textures`` every
-procedural texture, ``surfaces`` the scanned backgrounds, ``finish`` sleeves, foil and the
-canvas, ``geometry`` the plane maps, and ``fetch`` downloads the scans.
+``photometric`` the color effects, ``broadcast`` the stream graphics, ``closeup`` the poses
+and glow of close-ups, ``textures`` every procedural texture, ``surfaces`` the scanned
+backgrounds, ``finish`` sleeves, foil and the canvas, ``geometry`` the plane maps, and ``fetch``
+downloads the scans.
 """
 
 from cardvision.composites.cards import CardPool, KindSettings, load_kinds

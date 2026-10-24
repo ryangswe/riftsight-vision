@@ -491,6 +491,24 @@ def test_the_limits_also_choose_the_unseen_validation_crops(toy, edges, tmp_path
     assert cut_ids(wider.unseen.rows) == {"unseen-in", "unseen-out"}
 
 
+def test_close_up_scenes_give_no_crops_and_are_counted(edges, tmp_path):
+    folder, objects = edges
+    mixed = tmp_path / "mixed"
+    (mixed / "images").mkdir(parents=True)
+    (mixed / "images" / "00000.png").write_bytes((folder / "images" / "00000.png").read_bytes())
+    table = json.loads((folder / "labels.jsonl").read_text(encoding="utf-8"))
+    closeup = {**table, "index": 1, "layout": "closeup"}
+    (mixed / "labels.jsonl").write_text(json.dumps(table) + "\n" + json.dumps(closeup) + "\n", encoding="utf-8")
+    lines: list[str] = []
+    rows, record = S.composite_crops(mixed, tmp_path / "cache", margin=support.MARGIN, log=lines.append)
+    alone, _ = S.composite_crops(folder, tmp_path / "cache-alone", margin=support.MARGIN, log=lambda line: None)
+    # The table scene gives exactly the crops it gives alone; the close-up gives none.
+    assert sorted(Path(row["path"]).name for row in rows) == sorted(Path(row["path"]).name for row in alone)
+    assert all(Path(row["path"]).name.startswith("00000-") for row in rows) and record["crops"] == 10
+    named = sum(o["kind"] == "face" and o["positive"] and bool(o["cardId"]) for o in objects.values())
+    assert f"'{S.IN_A_CLOSEUP}': {named}" in lines[0]
+
+
 def test_composite_crops_are_cut_again_when_a_limit_changes(edges, tmp_path):
     folder, _ = edges
     lines: list[str] = []

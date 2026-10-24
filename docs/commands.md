@@ -24,7 +24,7 @@ the same list; each command has its own `--help`.
 
 | Command | What it does |
 | --- | --- |
-| `cardvision make-composites` | Generate labeled training scenes from card images. `--card-size WxH` gives the card size in millimeters (default `63x88`); for cards of another size, such as 59 x 86 mm, pass `--card-size 59x86`. |
+| `cardvision make-composites` | Generate labeled training scenes from card images. `--card-size WxH` gives the card size in millimeters (default `63x88`); for cards of another size, such as 59 x 86 mm, pass `--card-size 59x86`. `--closeups SHARE` draws that share of the scenes (0 to 1; default 0, none) as close-ups: one large card, sometimes two, tilted 15 to 45 degrees toward the camera, in train and val scenes, never probe ones. They are meant to teach a detector the summon or activation shot of a digital client and a webcam held close over the table; the other scenes stay the same, and recognizer training leaves close-up scenes out. |
 | `cardvision fetch-textures` | Download and verify the CC0 background scans the generator can use. |
 | `cardvision train-recognizer` | Train the recognizer from a config file. Needs the training environment. |
 | `cardvision train-detector` | Fine-tune the detector from a config file. Needs the training environment and YOLOX. |
@@ -59,6 +59,7 @@ Nothing reaches the network unless you ask for it by flag: `fetch --download`,
 
 ```
 cardvision next "$GAME"
+cardvision next "$GAME" --images "$GAME/card-art"
 ```
 
 It looks at your game folder and says, line by line, what is done, then the one next step:
@@ -67,7 +68,12 @@ to read. It only looks: it writes, creates and downloads nothing, runs no other 
 loads no model, so it is quick and safe to run at any time. Coding agents run it first.
 
 - **Where it looks.** `GAME` is the argument, else `$GAME`, else `~/Downloads/my-game`;
-  `--weights DIR`, else `$WEIGHTS`, else `~/Downloads/cardvision-weights`. The first line says
+  `--weights DIR`, else `$WEIGHTS`, else `~/Downloads/cardvision-weights`; `--images DIR`
+  names the card images' folder as `try --images` does, wherever it is (it wins over the
+  last `try`'s log and the folders below; an empty value, `/`, the home folder or a folder
+  holding the game folder is refused with exit code 2). When it is not the folder the last
+  `try` used, the `try` check is `changed` and the next step is the `try` line with
+  `--overwrite`. The first line says
   which folder it looked at and why. When the weights folder lacks the files and the last
   `try --download` put them in `cardvision-try/weights`, that folder is taken. A `GAME`
   written the Windows way (`C:\...`) gets a hint about WSL paths; a folder the terminal may not
@@ -76,15 +82,25 @@ loads no model, so it is quick and safe to run at any time. Coding agents run it
   `.json` catalog or list of rows; a `catalog.json` beside another list is taken for the one
   the step-by-step page wrote); the card images (the folder the last `try` used, as its
   `try.log` records for this run's own catalog, while it holds image files and is neither `/`,
-  the home folder nor a folder holding the game folder; else `images/` or
+  the home folder nor a folder holding the game folder; else, with no `--images`, `images/` or
   `art/`, else the one folder holding image files); a video, a picture or a folder of
   pictures at the top (any folder but the card images' one); the three files
-  `try` needs in the weights folder; a completed run of `try` in `cardvision-try/` (its
+  `try` needs in the weights folder, each by its size and SHA-256 against the table
+  `fetch-weights` checks its downloads against (read from disk, about 7.7 MB, no network),
+  unless the folder's `release.json` is not the released one but a JSON document with a
+  `schemaVersion`: then it is your own release folder, its models are yours, and the check is `done` ("your own release folder; its models
+  are not checked"); a completed run of `try` in `cardvision-try/` (its
   `.cardvision-try` names `report.html`), and whether the card list, the newest file under the
   images folder or the video is newer than its report (edited, or only copied again: the time
   alone can't tell); then the run's verdict and its cards
   with no image.
-- **The next step** is the first of these not done: what to put where; `fetch-weights`; the
+- **The next step** is the first of these not done: what to put where; `fetch-weights`. When a file is there but is not the released one, the step names it:
+  in a download of the release (the pinned `release.json` is there) it is `fetch-weights DIR
+  --overwrite`, which replaces files that differ (without it, `fetch-weights` stops); with
+  no `release.json` the files may be yours, so it is `fetch-weights` into a new, empty folder
+  to give with `--weights`, never `--overwrite`; `fetch-weights` is never suggested into your
+  own release folder, so a file missing from it is yours to copy in; a file the terminal can't read gets a step
+  to check its permissions; the
   `try` line (with `--overwrite` when a run is there); then, by the verdict, a clearer view
   ([your-game.md](your-game.md), step 5), [train.md](train.md), the images to add, or the
   demo line and [extension.md](extension.md). Labeling, training, measuring and extension
@@ -92,7 +108,7 @@ loads no model, so it is quick and safe to run at any time. Coding agents run it
 - When several card lists or videos are there, it takes the one named `cards` (or `video`),
   or for card lists the one CSV or TSV among them, and says so; when none stands out, the next
   step is to choose. When several folders hold image files and none is `images/` or `art/`,
-  the next step is to rename the card images' folder to `images/`.
+  the next step is to rename the card images' folder to `images/` or name it with `--images`.
 - **`STOP (coding agents: ask the person first):`** follows the `Next:` line when the step
   needs the person: a download, files only they have, a choice, a permission, or training's
   cost and time. **`Playbook (for coding agents):`**, last, names the page in `playbooks/` an
@@ -109,7 +125,7 @@ loads no model, so it is quick and safe to run at any time. Coding agents run it
 | --- | --- |
 | `schemaVersion` | `1` |
 | `game`, `weights` | `{path, chosen}`: the absolute path, and `argument`, `environment` or `default` |
-| `checks` | In this order, one `{id, state, detail, paths, taken, blocks, source}` each, with the ids `folder`, `cards`, `images`, `video`, `weights`, `try`, `verdict` and `no-image`. `state` is `done`, `missing`, `choice` (several found) or `changed` (inputs newer than the last try's report); `detail` is the line for people; `paths`, the absolute paths it is about; `taken`, the path a choice took when one stood out, else `null`; `blocks`, `true` for a choice none stood out in; `source`, on `images` and `weights` only (else `null`): `game-folder`, `last-try`, `last-try-download`, `argument`, `environment` or `default` |
+| `checks` | In this order, one `{id, state, detail, paths, taken, blocks, source}` each, with the ids `folder`, `cards`, `images`, `video`, `weights`, `try`, `verdict` and `no-image`. `state` is `done`, `missing`, `choice` (several found) or `changed` (inputs newer than the last try's report, or `--images` naming another folder than the last try's); `detail` is the line for people; `paths`, the absolute paths it is about; `taken`, the path a choice took when one stood out, else `null`; `blocks`, `true` for a choice none stood out in; `source`, on `images` and `weights` only (else `null`): `game-folder`, `last-try`, `last-try-download`, `argument`, `environment` or `default` |
 | `next` | `{id, say, stop, notes, commands, doc, after, playbook}`, below |
 | `verdict` | `null` before a run, else `{kind, frames, framesWithFaces, faces, backs, named, distinct}`, `kind` being `named`, `few` or `none` |
 | `noImage` | `null` before a run, else `{none, own, total}`: the cards that can't be named for want of an image, those with no image of their own, and the list's count |
@@ -125,7 +141,7 @@ follow. `playbook` is `playbooks/try-my-game.md` up to and including the try and
 `reason` one of `download` (fetch-weights), `persons-file` (the card list, the images or
 the video are not there, or a clearer video is needed: they come from the person, never from
 a download by the agent), `persons-choice` (several card lists, image folders or videos),
-`persons-permission` (the folder can't be read until the person allows it) and
+`persons-permission` (the folder, or a weights file, can't be read until the person allows it) and
 `spend-or-time` (the verdict points to training: a GPU and labeling time). Running `try` and
 opening the demo carry no stop.
 

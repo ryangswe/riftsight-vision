@@ -29,6 +29,7 @@ WSL 2 on Windows (PowerShell is not covered).
    next step with its exact command, the playbook for it, and a `STOP:` line when the step needs
    the person. Do what it says. Run it again after every step: it checks the files, not your
    memory of what you did. `cardvision next "$GAME" --json` prints the same as JSON.
+   If the card images are not in the game folder, add `--images DIR`, as for `try`.
 4. **Load the playbook it names,** and follow its steps in order. Each step says what to run,
    what to expect and what to do if it fails. If a step uses `$WORK` and it is not set, do step
    S2 of [playbooks/setup.md](playbooks/setup.md) first.

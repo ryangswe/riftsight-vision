@@ -256,6 +256,12 @@ For your game:
   output does not depend on it.
 - The scenes assume cards of 63 x 88 mm. If your cards are another size, give it in
   millimeters, width first: for example `--card-size 59x86` for 59 x 86 mm cards.
+- `--closeups SHARE` draws that share of the scenes as close-ups: one large card, sometimes
+  two, tilted 15 to 45 degrees toward the camera, often with a glow around it. Use it when your
+  video shows cards that way, such as a digital client's summon or activation shot or a webcam
+  close over the table; `--closeups 0.1` makes one scene in ten a close-up. The default, 0,
+  draws none, and turning it on leaves the other scenes as they were. Close-ups go into train
+  and val scenes, never probe ones; a close-up card's `tableAngle` holds its in-plane roll.
 - The catalog's optional `kinds` block tells the generator which kinds are landscape, how
   often a kind is foil, and how a game board is laid out. `games/_template/README.md` and
   `cardvision/core/catalog.py` describe it.
@@ -421,6 +427,8 @@ For your game, copy `cardvision/train_recognizer/default.toml` and set the paths
   above then go away: real crops join the epoch and the "seen" validation set is filled.
 - `games/riftbound/train-recognizer.toml` is the released recipe, with comments on what each
   part does.
+- Close-up scenes (`make-composites --closeups`) give the recognizer no crops: their cards are
+  too steeply tilted for its upright crops, so the same folder can train both models.
 
 **Starting from another model.** `init`, or `--init` on the command line, can also name a
 recognizer checkpoint, for example one trained on another game: a `best.pt` or `last.pt` of

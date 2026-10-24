@@ -182,13 +182,15 @@ def export_detector(
     max_box_difference: float = MAX_BOX_DIFFERENCE,
     max_score_difference: float = MAX_SCORE_DIFFERENCE,
     max_score_difference_fp16: float = MAX_SCORE_DIFFERENCE_FP16,
+    fp16_weights_copy: bool = True,
     max_relative_box_difference: float = MAX_RELATIVE_BOX_DIFFERENCE,
     kept_score_floor: float = KEPT_SCORE_FLOOR,
 ) -> dict[str, Any]:
     """Export ``model`` (a ``torch.nn.Module`` with its weights loaded) into ``out_dir``.
 
     Writes ``<name>.onnx`` (float32), ``<name>-fp16w.onnx`` (the same graph with weights stored
-    in half precision), ``<name>.safetensors`` (the weights alone) and ``<name>.export.json``
+    in half precision; left out when ``fp16_weights_copy`` is false, and with it its parity check),
+    ``<name>.safetensors`` (the weights alone) and ``<name>.export.json``
     (the report, which is also returned).
 
     A YOLOX head decodes its outputs only when told to; this is switched on before the export,
@@ -205,7 +207,7 @@ def export_detector(
     fp16 = out_dir / f"{name}-fp16w.onnx"
     weights = out_dir / f"{name}.safetensors"
     report_path = out_dir / f"{name}.export.json"
-    claim_outputs([fp32, fp16, weights, report_path], overwrite)
+    claim_outputs([fp32, *([fp16] if fp16_weights_copy else []), weights, report_path], overwrite)
 
     model = model.to("cpu").eval()
     head = getattr(model, "head", None)
@@ -234,10 +236,12 @@ def export_detector(
             f"(allowed {max_relative_box_difference}); the largest score difference is {score_difference:.6g} "
             f"(allowed {max_score_difference})"
         )
-    converted = fp16_weights(fp32, fp16)
-    outputs_fp16 = run_onnx(fp16, inputs)
-    score_difference_fp16 = _largest([_scores(o) - _scores(r) for o, r in zip(outputs_fp16, references)])
-    if not score_difference_fp16 <= max_score_difference_fp16:
+    converted = fp16_weights(fp32, fp16) if fp16_weights_copy else None
+    score_difference_fp16 = None
+    if fp16_weights_copy:
+        outputs_fp16 = run_onnx(fp16, inputs)
+        score_difference_fp16 = _largest([_scores(o) - _scores(r) for o, r in zip(outputs_fp16, references)])
+    if fp16_weights_copy and not score_difference_fp16 <= max_score_difference_fp16:
         raise ParityError(
             f"{fp16.name}: against PyTorch the largest score difference is {score_difference_fp16:.6g} "
             f"(allowed {max_score_difference_fp16})"
@@ -254,7 +258,7 @@ def export_detector(
                                *[f"cls_{i}" for i in range(len(CLASS_NAMES), classes)]]},
         "opset": opset,
         "fp32": file_record(fp32),
-        "fp16Weights": {**file_record(fp16), **converted},
+        "fp16Weights": {**file_record(fp16), **converted} if fp16_weights_copy else None,
         "safetensors": {**file_record(weights), "tensors": tensors},
         "parity": {
             "inputs": f"{len(inputs)} generated frames, seed {PARITY_SEED}, through the letterbox",
@@ -269,8 +273,8 @@ def export_detector(
                      "boxRelativeDifferenceEveryAnchor": boxes.relative,
                      "allowedBoxRelativeDifferenceEveryAnchor": max_relative_box_difference,
                      "scoreDifference": score_difference, "allowedScoreDifference": max_score_difference},
-            "fp16Weights": {"scoreDifference": score_difference_fp16,
-                            "allowedScoreDifference": max_score_difference_fp16},
+            "fp16Weights": ({"scoreDifference": score_difference_fp16,
+                             "allowedScoreDifference": max_score_difference_fp16} if fp16_weights_copy else None),
         },
         "environment": environment(),
     }

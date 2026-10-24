@@ -75,6 +75,17 @@
     notPaired: "The selected box is not one of a card that moved (joined by an arrow). Select one of those, or Esc and then M.",
     busy: "Let go of the box first, then M.",
     noModel: "This set has no model's boxes: M moves a kept box onto the model's box for its card, so there is nothing to move.",
+    // a box with free corners (Shift+drag a corner in the Boxes pass)
+    quad: {
+      fold: "The corners would fold the box over or make a side shorter than 12 px: the box stops here.",
+      names: "This box has free corners: move or reshape it in the Boxes pass. Its top edge can still be turned here.",
+      arrows: "This box has free corners: drag a corner or an edge to reshape it, or press E to make it a rectangle again.",
+      rect: "A rectangle again. Shift+drag a corner frees the corners again.",
+      snapped: "Snapped to the card's edges.",
+      snapKept: "Snap left the corners as they are.",
+      noPicture: "Snap needs the frame's picture: nothing was changed.",
+      beside: "Box added beside. Drag its far corners to fit.",
+    },
   };
 
   // The keys of each pass, as the keys overlay lists them (README.md has the same tables). No
@@ -85,6 +96,7 @@
     ["Shift+click / Shift+drag", "add or remove a box / select every box whose center is inside the rectangle"],
     ["drag a box", "move it (all selected boxes when it is one of them)"],
     ["drag a corner / an edge", "resize the selected box, in its own turned frame"],
+    ["Shift+drag a corner", "free the selected box's corners, for a card seen at a slant: that corner moves on its own. From then on each corner and each edge moves on its own"],
     ["drag the knob above the top", "rotate the selected box about its center"],
     ["Option/Alt+click an edge", "of any box: that edge is the card's top. The box does not move"],
     ["double-click a box", "turn it a quarter, as W"],
@@ -101,12 +113,15 @@
     ["H", "too hidden to learn from: an ignored box, on or off. A card that is there but should count neither as found nor as missed (red cross)"],
     ["R / Shift+R", "tilt by −1° / +5°"],
     ["W / Shift+W", "turn a quarter clockwise / the other way. The white tick marks the card's top"],
-    [". / ,", "one layer forward / back"],
+    [". / ,", "one layer up / down among the boxes it overlaps (boxes elsewhere on the frame make no difference)"],
     ["> / <", "to the front / to the back"],
+    ["D then an arrow", "a box of the same size and angle against that side of the selected box, of the same kind; then drag its far edge to fit (Alt+arrows move only its own right / bottom edge, not the far edge of a box added left or above)"],
+    ["O", "stacking view on or off: each box shaded where no box above it covers it, with its layer in its stack (1 = the bottom). A visual aid only: nothing is saved"],
     ["X", "clear the boxes kept from the previous frame that you have not touched (never on a finished frame)"],
     ["Shift+X", "clear every box on the frame, after asking. Undo brings them back"],
     ["F", "snap on or off: with snap on, a click on a card places a box fitted to its edges (Shift+click: a card lying sideways)"],
-    ["S", "snap on: fit the selected box to the card again; snap off: the new-box size takes the selected box's size"],
+    ["S", "a box with free corners: snap its corners to the card's edges; else, snap on: fit the selected box to the card again; snap off: the new-box size takes the selected box's size"],
+    ["E", "a box with free corners: a rectangle again, with the same top edge"],
     ["Shift+S", "the selected box takes the new-box size (center and angle stay)"],
     ["G · + or = · - · L", "a row of cards: space it evenly · add a box after the last-clicked · take the last-clicked out · the layout of another finished frame with as many boxes"],
     ["V", "check top edges: every box of the set, one at a time and enlarged"],
@@ -115,7 +130,7 @@
     ["P", "card previews on or off"],
     ["Cmd/Ctrl+Z", "undo (this frame)"],
     ["Cmd/Ctrl+Shift+Z or Cmd/Ctrl+Y", "redo (this frame)"],
-    ["Cmd/Ctrl+C / V / D", "copy the selected box / paste it (12 px aside on its own frame, the same place on another) / duplicate it"],
+    ["Cmd/Ctrl+C / V / D", "copy the selected box or boxes / paste them (12 px aside on their own frame, the same place on another; a group keeps its spacing) / duplicate them"],
     ["?", "this list"],
     ["F6", "move the keyboard focus to the side panel's controls (Tab goes on, Esc comes back to the frame)"],
   ];
