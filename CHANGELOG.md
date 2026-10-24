@@ -9,6 +9,74 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-24
+
+The newcomer release: try the toolkit on your own game in one command, ask it for the next step,
+and label with a guide. It collects release candidates 0.2.0rc1 to 0.2.0rc4, listed below it.
+The released models are unchanged: the v0.1.0 files, release `201478a00d6ef6ba`.
+
+### Added
+
+- `cardvision try CARDS --images DIR --video FILE`: the steps of the your-game guide in one command
+  (import, image check, bank, release folder, `infer`), ending in a `report.html` with the outcome,
+  the contact sheet, the annotated frames and the line that opens the demo page (with `npm ci`
+  first when `browser/node_modules` is missing). A `No image:` line before the verdict, and a list
+  in the report, name the cards in your list that have no image.
+- `cardvision next [GAME]`: looks at the game folder, the weights folder and the last `try` run,
+  and says what is done and the one next step, with the exact command, the doc to read, the
+  playbook for a coding agent, and a `STOP:` line when the step needs the person. `--json` prints
+  the same as a stable object. It only reads.
+- `cardvision fetch-weights DIR`: download the released model files, check each one's size and
+  SHA-256 against the pins, resume, and finish with `verify-release`; `--list` makes no request.
+- `cardvision import-catalog`: write a catalog from a CSV, TSV or JSON card list, recognizing
+  common header names without `--map`; images are downloaded only with `--download`.
+- `cardvision check-catalog`: load a catalog and report its card count, cards without art,
+  identity rule and game.
+- `cardvision make-composites --card-size WxH`: the card size in millimeters (default `63x88`),
+  recorded in the manifest as `parameters.cardAspect`.
+- A per-card `extra` object in the catalog, kept as given and read by nothing.
+- The Riftbound catalog declares three facets, Domain, Energy and Set, so the labeling tool's
+  Names pass filters by them; the labeling tool says when a catalog declares none.
+- Newcomer documentation: a start-here page, a guide for your own game, the guide split into
+  train, measure and extension pages, and [How to label](docs/labeling.md) with pictures of real
+  labeled frames.
+- `CHANGELOG.md`, `RELEASING.md` and `docs/stability.md`; a monthly grouped Dependabot update.
+
+### Changed
+
+- `AGENTS.md` is a short router (start with `cardvision next`, one playbook per job, when to stop
+  and ask the person); the step-by-step tiers moved into `playbooks/`.
+- The quickstart and the setup playbook check `python3 --version` first and say what to do when it
+  is older than 3.11.
+- `cardvision` with no arguments, and the end of `--help`, list the commands in groups.
+- `composites`: a generated folder's manifest that is not a JSON object, or not valid JSON, is
+  reported as an error naming the file.
+- Runs of `make-composites` without `--card-size` lay out the same scenes as 0.1.0; Pillow 13.0.0
+  changes a few pixels of a few composites, which is harmless for training.
+- CI runs the Python tests on every core with pytest-xdist; the sign-off check skips commits
+  authored by Dependabot.
+
+### Security
+
+- Pillow 13.0.0, which fixes flaws in reading JPEG, TIFF, GIF, EPS and PDF files, is pinned in
+  both lock files for every supported Python.
+
+### Removed
+
+- **Breaking:** Python 3.10 is no longer supported; use 3.11 or 3.12. `requires-python` is now
+  `>=3.11`. To migrate, create a new virtual environment with Python 3.11 or 3.12 and reinstall.
+  On Windows, use Ubuntu 24.04 under WSL (22.04 has Python 3.10).
+
+### Fixed
+
+- `games/riftbound/catalog.json` holds the same cards as the released models' catalog: 20 cards
+  it lacked, most of them from Radiance, and the English names of RAD-053, RAD-078 and RAD-123.
+- `import-catalog` refuses an id that holds a space, and an import in which none of the listed
+  images is found, naming a path it looked for; nothing is written.
+- `build-bank` and `build-release` name `--overwrite` when they refuse to replace a different file.
+- The demo finds an image whose path has a folder (`HD/x.jpg`), and a video it cannot open gets
+  the `ffmpeg` command that converts it to H.264.
+
 ## [0.2.0rc4] - 2026-10-22
 
 Fourth release candidate for 0.2.0. The Riftbound catalog gets the released models' cards and
@@ -143,7 +211,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc4...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.1.0...v0.2.0
 [0.2.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc3...v0.2.0rc4
 [0.2.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc2...v0.2.0rc3
 [0.2.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc1...v0.2.0rc2

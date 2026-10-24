@@ -171,7 +171,7 @@ pip prints many lines while it installs (a notice that a newer pip exists is har
 should see something like this as the last line:
 
 ```
-cardvision 0.1.0
+cardvision 0.2.0
 ```
 
 Then follow [Your game](your-game.md) with your own files. [Train](train.md) and
