@@ -176,6 +176,13 @@ def test_claim_outputs(tmp_path):
 # ----------------------------------------------------------------------------- detector
 
 
+def test_export_detector_without_the_half_precision_copy(tmp_path):
+    report = detector_export.export_detector(build_toy_detector(), tmp_path, "toy", fp16_weights_copy=False)
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["toy.export.json", "toy.onnx", "toy.safetensors"]
+    assert report["fp16Weights"] is None and report["parity"]["fp16Weights"] is None
+    assert report["parity"]["fp32"]["scoreDifference"] <= report["parity"]["fp32"]["allowedScoreDifference"]
+
+
 def test_export_detector_writes_the_decoded_graph(tmp_path):
     model = build_toy_detector()
     assert model.head.decode_in_inference is False

@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from cardvision.composites import closeup as C
 from cardvision.composites import photometric as P
 from cardvision.composites import scene as S
 from cardvision.composites.board import DRAW_GROUPS
@@ -64,10 +65,12 @@ def _work(indices: list[int]) -> list[str]:
             for index in indices]
 
 
-def parameters(card_aspect: float = CARD_ASPECT) -> dict[str, Any]:
+def parameters(card_aspect: float = CARD_ASPECT, closeups: float = 0.0) -> dict[str, Any]:
     """The fixed numbers of the generator, as written into every manifest, with the run's
-    upright card aspect (``cardAspect``)."""
-    return {
+    upright card aspect (``cardAspect``) and, when the run draws close-ups, their share and
+    ranges (``closeups``; absent when it draws none, so such a manifest is the one written
+    before close-ups existed)."""
+    out = {
         "resolutions": [list(size) for size in S.RESOLUTIONS],
         "cardAspect": card_aspect,
         "cardWidthPx": [S.SIZE_MIN, S.SIZE_MAX],
@@ -86,6 +89,11 @@ def parameters(card_aspect: float = CARD_ASPECT) -> dict[str, Any]:
         "foilWithoutPhotometric": S.FOIL_PLAIN,
         "photometricBase": dict(P.BASE),
     }
+    if closeups:
+        out["closeups"] = {"share": closeups, "tiltDegrees": list(C.TILT), "cardHeightShare": list(C.HEIGHT_SHARE),
+                           "pairShare": C.PAIR_SHARE, "focalOverWidth": list(C.FOCAL), "insideMin": C.INSIDE_MIN,
+                           "glowShare": C.GLOW_SHARE}
+    return out
 
 
 class _Tally:
@@ -227,7 +235,7 @@ def generate(catalog: Catalog, art_dir: str | Path, out_dir: str | Path, n: int,
         "textures": None if textures_dir is None else {"scans": len(pool.textures),
                                                        "surfaceLike": len(pool.surfaces)},
         "settings": resolved,
-        "parameters": parameters(card_aspect),
+        "parameters": parameters(card_aspect, settings.closeups),
         "counts": tally.result(),
     }
     manifest_path.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")

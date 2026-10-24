@@ -124,7 +124,10 @@ held back because the labeler's own boxes already covered them).
 
 In a box set every target is a rectangle: its four corners are a parallelogram with equal
 diagonals within half a pixel, every side at least one pixel. An unrotated box is the plain
-case. A quad of a corner set may be any convex shape.
+case. The one exception is a box whose corners were freed in the Boxes pass (Shift+drag a
+corner, for a card seen at an angle): it has `cornerSource` `hand` and no `angle`, and may be
+any convex shape whose corners run clockwise, every side at least one pixel. A quad of a corner
+set may be any convex shape.
 
 `derived`: `aabb` (the upright box around the corners, `[x, y, w, h]`), `sides` (`top`, `right`,
 `bottom`, `left` lengths), `widthPx`, `heightPx`, `shortSidePx` (the card's short side on

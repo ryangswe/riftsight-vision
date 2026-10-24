@@ -35,6 +35,11 @@ How a scene is made (frame 1920 x 1080 or 1280 x 720, half each):
 ``probe`` scenes hold distractors, dice and hands but no cards: they measure what a detector
 finds where there is nothing to find.
 
+With ``Settings.closeups`` above 0, that share of training and validation scenes is drawn by
+``build_closeup`` instead: one large card, sometimes two, steeply tilted in front of the
+camera (``closeup``). Whether a scene is a close-up is drawn on a stream of its own, so the
+other scenes are the ones the same run makes without close-ups.
+
 The label of each object is described in ``cardvision.composites`` (the package docstring).
 """
 
@@ -51,6 +56,7 @@ from PIL import Image, ImageFilter
 
 from cardvision.composites import board as B
 from cardvision.composites import broadcast as G
+from cardvision.composites import closeup as C
 from cardvision.composites import photometric as P
 from cardvision.composites import textures as T
 from cardvision.composites.finish import Canvas, add_foil, add_sleeve, color_jitter_rgba, rounded_rgba
@@ -80,6 +86,8 @@ STREAM_CARD = 7004  # photometric effects on one card
 STREAM_BROADCAST = 7005  # broadcast graphics
 STREAM_BOARD = 7006  # how a frame-filling board is sized and placed
 STREAM_SURFACE = 7007  # the background under a frame-filling board
+STREAM_CLOSEUP = 7008  # whether a scene is a close-up (drawn only when close-ups are on)
+STREAM_CLOSEUP_SCENE = 7009  # everything else in a close-up scene
 
 RESOLUTIONS = [(1920, 1080), (1280, 720)]
 SIZE_MIN, SIZE_MAX = 24.0, 220.0  # card width in the image, px, for table and scatter layouts
@@ -116,6 +124,11 @@ class Settings:
         boards: game-board layouts and broadcast graphics.
         fill_frame: with ``boards``, a board fills the frame on a surface-like background.
         back_share: probability that a loose card of a table or scatter layout lies face down.
+        closeups: share of training and validation scenes drawn as a close-up (``closeup``): one
+            large card, sometimes two, steeply tilted in front of the camera. 0, the default,
+            draws none and leaves every scene as it was without the setting; above 0, the
+            other scenes stay the same too, and only the scenes chosen are replaced. It is
+            written to the manifest only when above 0.
     """
 
     background: str | None = None
@@ -123,16 +136,24 @@ class Settings:
     boards: bool = True
     fill_frame: bool = True
     back_share: float = 0.08
+    closeups: float = 0.0
 
     def __post_init__(self) -> None:
         if self.background is not None and self.background not in BACKGROUND_SHARE:
             raise ValueError(f"background must be one of {sorted(BACKGROUND_SHARE)} or None, not {self.background!r}")
         if not 0 <= self.back_share <= 1:
             raise ValueError("back_share must be from 0 to 1")
+        if isinstance(self.closeups, bool) or not isinstance(self.closeups, (int, float)) \
+                or not 0 <= self.closeups <= 1:
+            raise ValueError(f"the share of close-ups must be a number from 0 to 1, not {self.closeups!r}")
 
     def to_json(self) -> dict[str, Any]:
-        """The settings as plain JSON values."""
-        return asdict(self)
+        """The settings as plain JSON values. ``closeups`` is left out when it is 0, so that a
+        run without close-ups writes the manifest it wrote before the setting existed."""
+        out = asdict(self)
+        if not self.closeups:
+            del out["closeups"]
+        return out
 
 
 def stream(seed: int, split: str, index: int, *tags: int) -> np.random.Generator:
@@ -253,6 +274,256 @@ def background_mode(cfg, pool) -> str:
     return mode
 
 
+def _light(rng, img, W, H):
+    """A brightness gradient and glare blobs on the float image. Returns ``(image, light, glare)``."""
+    light = {"gain": 1.0}
+    if rng.random() < 0.6:
+        g = T.gradient(W // 8, H // 8, rng.uniform(0, 6.28), rng.uniform(0.3, 0.7))
+        fld = 0.75 + 0.5 * g * rng.uniform(0.2, 1.0)
+        fld = np.asarray(Image.fromarray(fld.astype(np.float32), "F").resize((W, H), Image.BILINEAR))
+        img *= fld[..., None]
+        light["gradient"] = True
+    glare = []
+    if rng.random() < 0.3:
+        small = np.zeros((H // 8, W // 8), np.float32)
+        yy, xx = np.mgrid[0:H // 8, 0:W // 8].astype(np.float32)
+        for _ in range(int(rng.integers(1, 4))):
+            cx, cy = rng.uniform(0, W // 8), rng.uniform(0, H // 8)
+            sx, sy = rng.uniform(0.02, 0.2) * W / 8, rng.uniform(0.02, 0.12) * W / 8
+            th = rng.uniform(0, math.pi)
+            u = (xx - cx) * math.cos(th) + (yy - cy) * math.sin(th)
+            v = -(xx - cx) * math.sin(th) + (yy - cy) * math.cos(th)
+            s = rng.uniform(0.15, 0.8)
+            small += s * np.exp(-(u / sx) ** 2 - (v / sy) ** 2)
+            glare.append(round(float(s), 3))
+        gl = np.asarray(Image.fromarray(small, "F").resize((W, H), Image.BILINEAR))
+        tint = np.array([1.0, rng.uniform(0.95, 1.0), rng.uniform(0.85, 1.0)], np.float32)
+        img += gl[..., None] * tint
+    return np.clip(img, 0, 1), light, glare
+
+
+def _degrade(rng, img, W, H):
+    """Color shift, rescaling, blur or motion blur, noise and JPEG. Returns ``(JPEG bytes, steps)``."""
+    deg = {}
+    gains = rng.uniform(0.9, 1.1, 3)
+    gamma = rng.uniform(0.8, 1.25)
+    sat = rng.uniform(0.6, 1.3)
+    contrast = rng.uniform(0.8, 1.2)
+    img = np.clip(img * gains, 0, 1) ** gamma
+    lum = img.mean(2, keepdims=True)
+    img = np.clip(lum + (img - lum) * sat, 0, 1)
+    img = np.clip(0.5 + (img - 0.5) * contrast + rng.uniform(-0.06, 0.06), 0, 1)
+    deg.update({"gains": gains.round(3).tolist(), "gamma": round(gamma, 3), "sat": round(sat, 3),
+                "contrast": round(contrast, 3)})
+    pil = Image.fromarray((img * 255 + 0.5).astype(np.uint8))
+    if rng.random() < 0.6:
+        f = rng.uniform(0.35, 0.9)
+        pil = pil.resize((max(8, int(W * f)), max(8, int(H * f))), Image.BILINEAR).resize((W, H), Image.BICUBIC)
+        deg["rescale"] = round(f, 3)
+    r = rng.random()
+    if r < 0.3:
+        b = rng.uniform(0.3, 1.8)
+        pil = pil.filter(ImageFilter.GaussianBlur(b))
+        deg["blur"] = round(b, 2)
+    elif r < 0.42:  # motion blur: the mean of shifted copies
+        L = int(rng.integers(3, 9))
+        th = rng.uniform(0, math.pi)
+        a = np.asarray(pil, np.float32)
+        acc = np.zeros_like(a)
+        for k in range(L):
+            dx, dy = int(round((k - L / 2) * math.cos(th))), int(round((k - L / 2) * math.sin(th)))
+            acc += np.roll(np.roll(a, dy, 0), dx, 1)
+        pil = Image.fromarray((acc / L).astype(np.uint8))
+        deg["motion"] = L
+    if rng.random() < 0.6:
+        sd = rng.uniform(1, 8)
+        a = (np.asarray(pil, np.float32) + rng.normal(0, sd, (H, W, 1)).astype(np.float32)
+             + rng.normal(0, sd * 0.4, (H, W, 3)).astype(np.float32))
+        pil = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+        deg["noise"] = round(sd, 2)
+    q = int(rng.integers(40, 91))
+    deg["jpeg"] = q
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=q)
+    return buf.getvalue(), deg
+
+
+def _background_record(family, bg_src):
+    """The ``background`` entry of a scene record: the family, and the scan's credit for a scan."""
+    if not bg_src:
+        return {"family": family, "license": "generated (procedural, no source image)"}
+    background = {"family": family, "source": bg_src["source"], "assetId": bg_src["assetId"]}
+    background.update({key: bg_src[key] for key in ("page", "license", "licenseUrl", "sha256") if key in bg_src})
+    return background
+
+
+def build_closeup(pool, split, index, seed=0, settings=None, card_aspect=CARD_ASPECT):
+    """Generate one close-up scene. Returns ``(record, JPEG bytes)``, as ``build_scene`` does.
+
+    One card face, or two on a quarter of the scenes, held in front of the camera
+    (``closeup``): tilted 15 to 45 degrees out of the image plane in any direction, turned in
+    its plane, its long side 25 to 80 % of the frame height. The background is one the
+    generator draws for any scene, often defocused or dimmed, and a glow (sometimes with rays
+    and sparks) lies around the cards on most scenes. The record's ``layout`` is
+    ``"closeup"``; each card's ``pose`` gives its ``tilt``, ``dir`` and ``roll`` in degrees,
+    and its ``tableAngle`` holds the roll. Close-ups are drawn for the train and val splits,
+    never for probe. The main card, drawn last, is placed up to twelve times until at least
+    three quarters of its area lies in the frame (the attempt with the most inside is kept
+    should none reach it), so almost always every close-up has a positive face.
+    """
+    aspect = check_aspect(card_aspect)
+    cfg = settings if settings is not None else Settings()
+    bg_mode = background_mode(cfg, pool)
+    photo = _photometric(cfg, pool)
+    rng = stream(seed, split, index, STREAM_CLOSEUP_SCENE)
+    W, H = RESOLUTIONS[int(rng.integers(0, 2))]
+    focal = float(W * rng.uniform(*C.FOCAL))
+    # --- background: flat, as the camera is close to the card and far from what lies behind
+    bg, family = T.make_background(rng, W, H, card_aspect=aspect)
+    bg_src = None
+    share = BACKGROUND_SHARE[bg_mode]
+    if share > 0:
+        brng = stream(seed, split, index, STREAM_BACKGROUND)
+        if brng.random() < share:
+            bg, bg_src = texture_background(brng, pool.textures, pool.textures_dir, W, H)
+            family = "texture"
+    look = {}
+    if rng.random() < 0.5:  # defocused
+        sd = rng.uniform(1.0, 6.0)
+        bg_u8 = Image.fromarray((np.clip(bg, 0, 1) * 255 + 0.5).astype(np.uint8))
+        bg = np.asarray(bg_u8.filter(ImageFilter.GaussianBlur(sd)), np.float32) / 255
+        look["defocus"] = round(sd, 2)
+    if rng.random() < 0.4:  # dimmed, as a client darkens the board behind a card it shows
+        dim = rng.uniform(0.3, 0.75)
+        bg = bg * dim
+        look["dim"] = round(dim, 3)
+    cv = Canvas(bg)
+    # --- poses: the main card, then sometimes a second beside it
+    n_cards = 2 if rng.random() < C.PAIR_SHARE else 1
+    cards = []
+    for k in range(n_cards):
+        src, cid, sub = pool.face(rng, H * C.HEIGHT_SHARE[1], None)
+        ar = src.width / src.height
+        tilt = float(rng.uniform(*C.TILT))
+        tdir = float(rng.uniform(0, 360))
+        roll = float(rng.normal(0, 8)) if rng.random() < 0.7 else float(rng.uniform(0, 360))
+        share_h = float(rng.uniform(*C.HEIGHT_SHARE)) * (1.0 if k == 0 else rng.uniform(0.6, 1.0))
+        cards.append({"src": src, "cid": cid, "sub": sub, "ar": ar, "tilt": tilt, "dir": tdir, "roll": roll,
+                      "share": share_h})
+    pair_dx = rng.uniform(0.18, 0.32) * W * rng.choice([-1, 1])
+    centers = []
+    for k, c in enumerate(cards):
+        long_side = 1.0  # camera units: the card's long side
+        w3, h3 = (c["ar"], 1.0) if c["ar"] <= 1 else (1.0, 1.0 / c["ar"])
+        R = C.pose_rotation(c["tilt"], c["dir"], c["roll"])
+        target = None
+        for _ in range(12):  # keep the main card mostly inside the frame
+            depth = focal * long_side / (c["share"] * H)
+            if k == 0:
+                px = (W / 2 + (-pair_dx / 2 if n_cards == 2 else 0.0) + rng.uniform(-0.12, 0.12) * W,
+                      rng.uniform(0.35, 0.65) * H)
+            else:
+                px = (centers[0][0] + pair_dx + rng.uniform(-0.05, 0.05) * W,
+                      centers[0][1] + rng.uniform(-0.1, 0.1) * H)
+            center3 = np.array([(px[0] - W / 2) * depth / focal, (px[1] - H / 2) * depth / focal, depth])
+            Hunit = C.card_homography(W, H, focal, center3, R, w3, h3)
+            corners = apply_h(Hunit, [(0, 0), (1, 0), (1, 1), (0, 1)])
+            inside = 1.0 if k > 0 else C.inside_share(corners, W, H)
+            if target is None or inside > target[0]:  # the attempt with the most inside the frame
+                target = (inside, px, Hunit, center3)
+            if inside >= C.INSIDE_MIN:
+                break
+            c["share"] *= 0.9  # too much of it outside the frame: a little smaller, somewhere else
+        centers.append(target[1])
+        c.update({"w3": w3, "h3": h3, "Hunit0": target[2], "center3": target[3], "R": R})
+    # --- glow under the cards
+    effects = dict(look)
+    if rng.random() < C.GLOW_SHARE:
+        effects["glow"] = C.glow(rng, cv.img, [apply_h(c["Hunit0"], [(0, 0), (1, 0), (1, 1), (0, 1)]) for c in cards],
+                                 W, H)
+    # --- the cards, the main one last so that it lies on top
+    objects = []
+    for obj_id, k in enumerate(reversed(range(n_cards)), start=1):
+        c = cards[k]
+        src = c["src"]
+        corners0 = apply_h(c["Hunit0"], [(0, 0), (1, 0), (1, 1), (0, 1)])
+        long_px = max(np.linalg.norm(corners0[(i + 1) % 4] - corners0[i]) for i in range(4))
+        tgt_long = max(8, int(round(long_px * 1.2)))
+        if tgt_long < max(src.size):
+            f = tgt_long / max(src.size)
+            src = src.resize((max(8, int(round(src.width * f))), max(8, int(round(src.height * f)))), Image.LANCZOS)
+        card = rounded_rgba(src, rng.uniform(0.035, 0.055))
+        card = color_jitter_rgba(rng, card, 0.06)
+        rec = {"id": obj_id, "kind": "face"}
+        plog, card_kind = {}, pool.kind_of(c["cid"])
+        if photo is not None:
+            prng = stream(seed, split, index, STREAM_CARD, obj_id)
+            card, plog = P.print_effects(prng, card, photo, dice=pool.carries_dice(card_kind), die_fn=T.die_patch)
+        sleeve, inner_w = 0, card.width
+        if rng.random() < 0.25:
+            border = card.width * rng.uniform(0.012, 0.03)
+            card, stype = add_sleeve(rng, card, border)
+            inner_w = card.width - 2 * max(1, int(round(border)))
+            sleeve = round(border * long_px / max(src.size), 2)
+            rec["sleeveType"] = stype
+        if photo is not None:
+            card, ns = P.streaks(prng, card, bool(sleeve), photo)
+            if ns:
+                plog["streaks"] = ns
+        foil = bool(rng.random() < FOIL_PLAIN)
+        foiled = add_foil(rng, card) if foil else None
+        if photo is None:
+            if foil:
+                card = foiled
+        else:
+            foil = bool(prng.random() < P.foil_probability(card_kind, photo))
+            if foil:
+                card = foiled if foiled is not None else add_foil(prng, card)
+        # A sleeve makes the object larger than the card: the sleeve's outline is the label.
+        grow = card.width / inner_w
+        # The sleeved card keeps its own aspect, as in ``build_scene``.
+        Hunit = C.card_homography(W, H, focal, c["center3"], c["R"], c["w3"] * grow,
+                                  c["w3"] * grow * card.height / card.width)
+        M = Hunit @ np.diag([1.0 / card.width, 1.0 / card.height, 1.0])
+        blur = rng.uniform(0.4, 1.4) if rng.random() < 0.15 else 0.0
+        if photo is not None:
+            sd = P.defocus_sigma(prng, photo)
+            if sd:
+                blur = math.sqrt(blur ** 2 + sd ** 2)
+                plog["defocus"] = round(sd, 3)
+            rec["photo"] = plog
+        corners = apply_h(Hunit, [(0, 0), (1, 0), (1, 1), (0, 1)])
+        cv.paste_warped(rng, card, M, obj_id, shadow=rng.random() < 0.5, blur=blur)
+        rec.update({"cardId": c["cid"], "source": c["sub"], "sleeve": sleeve, "foil": foil,
+                    "role": "closeup" if k == 0 else "closeup-pair",
+                    "pose": {"tilt": round(c["tilt"], 2), "dir": round(c["dir"] % 360, 2),
+                             "roll": round(c["roll"] % 360, 2)},
+                    "corners": corners.round(2).tolist(), "H": Hunit.round(6).tolist(),
+                    "angle": round(image_angle(corners), 2), "tableAngle": round(c["roll"] % 360, 2),
+                    "area": float(poly_area(corners))})
+        objects.append(rec)
+    # --- vignette, light, exposure, degradation
+    if rng.random() < 0.5:
+        v = rng.uniform(0.2, 0.6)
+        cv.img *= T.vignette(W, H, v)[..., None]
+        effects["vignette"] = round(v, 3)
+    img, light, glare = _light(rng, cv.img, W, H)
+    if photo is not None:
+        img, light["exposure"] = P.exposure(stream(seed, split, index, STREAM_EXPOSURE), img, photo)
+    jpeg, deg = _degrade(rng, img, W, H)
+    labels = label_objects(objects, cv.ids, W, H)
+    record = {
+        "split": split, "index": index, "seed": seed, "file": f"images/{index:05d}.jpg", "width": W, "height": H,
+        "background": _background_record(family, bg_src),
+        "camera": {"tilt": 0.0, "dir": 0.0, "focal": round(focal, 1),
+                   "H": scene_homography(W, H, 0.0, 0.0, focal).round(6).tolist()},
+        "layout": "closeup", "board": None, "broadcast": None, "closeup": effects,
+        "photometric": photo["name"] if photo else None,
+        "light": light, "glare": glare, "degrade": deg, "objects": labels,
+    }
+    return record, jpeg
+
+
 def build_scene(pool, split, index, seed=0, settings=None, card_aspect=CARD_ASPECT):
     """Generate one scene. Returns ``(record, JPEG bytes)``.
 
@@ -268,6 +539,10 @@ def build_scene(pool, split, index, seed=0, settings=None, card_aspect=CARD_ASPE
     cfg = settings if settings is not None else Settings()
     bg_mode = background_mode(cfg, pool)
     photo = _photometric(cfg, pool)
+    # A close-up is chosen on a stream of its own, and only when close-ups are on, so that every
+    # other scene draws exactly what it drew before the setting existed.
+    if cfg.closeups > 0 and split != "probe" and stream(seed, split, index, STREAM_CLOSEUP).random() < cfg.closeups:
+        return build_closeup(pool, split, index, seed, cfg, aspect)
     rng = stream(seed, split, index, STREAM_SCENE)
     W, H = RESOLUTIONS[int(rng.integers(0, 2))]
     probe = split == "probe"
@@ -558,31 +833,7 @@ def build_scene(pool, split, index, seed=0, settings=None, card_aspect=CARD_ASPE
                         "H": None, "angle": round(ang % 360, 2), "tableAngle": None,
                         "area": float(np.asarray(hp.getchannel("A")).astype(bool).sum())})
     # --- light and glare
-    img = cv.img
-    light = {"gain": 1.0}
-    if rng.random() < 0.6:
-        g = T.gradient(W // 8, H // 8, rng.uniform(0, 6.28), rng.uniform(0.3, 0.7))
-        fld = 0.75 + 0.5 * g * rng.uniform(0.2, 1.0)
-        fld = np.asarray(Image.fromarray(fld.astype(np.float32), "F").resize((W, H), Image.BILINEAR))
-        img *= fld[..., None]
-        light["gradient"] = True
-    glare = []
-    if rng.random() < 0.3:
-        small = np.zeros((H // 8, W // 8), np.float32)
-        yy, xx = np.mgrid[0:H // 8, 0:W // 8].astype(np.float32)
-        for _ in range(int(rng.integers(1, 4))):
-            cx, cy = rng.uniform(0, W // 8), rng.uniform(0, H // 8)
-            sx, sy = rng.uniform(0.02, 0.2) * W / 8, rng.uniform(0.02, 0.12) * W / 8
-            th = rng.uniform(0, math.pi)
-            u = (xx - cx) * math.cos(th) + (yy - cy) * math.sin(th)
-            v = -(xx - cx) * math.sin(th) + (yy - cy) * math.cos(th)
-            s = rng.uniform(0.15, 0.8)
-            small += s * np.exp(-(u / sx) ** 2 - (v / sy) ** 2)
-            glare.append(round(float(s), 3))
-        gl = np.asarray(Image.fromarray(small, "F").resize((W, H), Image.BILINEAR))
-        tint = np.array([1.0, rng.uniform(0.95, 1.0), rng.uniform(0.85, 1.0)], np.float32)
-        img += gl[..., None] * tint
-    img = np.clip(img, 0, 1)
+    img, light, glare = _light(rng, cv.img, W, H)
     if photo is not None:
         img, light["exposure"] = P.exposure(stream(seed, split, index, STREAM_EXPOSURE), img, photo)
     # --- broadcast graphics
@@ -599,53 +850,10 @@ def build_scene(pool, split, index, seed=0, settings=None, card_aspect=CARD_ASPE
             img, ids, objects, broadcast = G.compose(grng, img, ids, objects, W, H, inset_fn=pool.inset_art,
                                                      probe=probe, card_aspect=aspect)
     # --- degradation
-    deg = {}
-    gains = rng.uniform(0.9, 1.1, 3)
-    gamma = rng.uniform(0.8, 1.25)
-    sat = rng.uniform(0.6, 1.3)
-    contrast = rng.uniform(0.8, 1.2)
-    img = np.clip(img * gains, 0, 1) ** gamma
-    lum = img.mean(2, keepdims=True)
-    img = np.clip(lum + (img - lum) * sat, 0, 1)
-    img = np.clip(0.5 + (img - 0.5) * contrast + rng.uniform(-0.06, 0.06), 0, 1)
-    deg.update({"gains": gains.round(3).tolist(), "gamma": round(gamma, 3), "sat": round(sat, 3),
-                "contrast": round(contrast, 3)})
-    pil = Image.fromarray((img * 255 + 0.5).astype(np.uint8))
-    if rng.random() < 0.6:
-        f = rng.uniform(0.35, 0.9)
-        pil = pil.resize((max(8, int(W * f)), max(8, int(H * f))), Image.BILINEAR).resize((W, H), Image.BICUBIC)
-        deg["rescale"] = round(f, 3)
-    r = rng.random()
-    if r < 0.3:
-        b = rng.uniform(0.3, 1.8)
-        pil = pil.filter(ImageFilter.GaussianBlur(b))
-        deg["blur"] = round(b, 2)
-    elif r < 0.42:  # motion blur: the mean of shifted copies
-        L = int(rng.integers(3, 9))
-        th = rng.uniform(0, math.pi)
-        a = np.asarray(pil, np.float32)
-        acc = np.zeros_like(a)
-        for k in range(L):
-            dx, dy = int(round((k - L / 2) * math.cos(th))), int(round((k - L / 2) * math.sin(th)))
-            acc += np.roll(np.roll(a, dy, 0), dx, 1)
-        pil = Image.fromarray((acc / L).astype(np.uint8))
-        deg["motion"] = L
-    if rng.random() < 0.6:
-        sd = rng.uniform(1, 8)
-        a = (np.asarray(pil, np.float32) + rng.normal(0, sd, (H, W, 1)).astype(np.float32)
-             + rng.normal(0, sd * 0.4, (H, W, 3)).astype(np.float32))
-        pil = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
-        deg["noise"] = round(sd, 2)
-    q = int(rng.integers(40, 91))
-    deg["jpeg"] = q
-    buf = io.BytesIO()
-    pil.save(buf, format="JPEG", quality=q)
+    jpeg, deg = _degrade(rng, img, W, H)
     # --- labels
     labels = label_objects(objects, ids, W, H)
-    background = {"family": family, "license": "generated (procedural, no source image)"}
-    if bg_src:
-        background = {"family": family, "source": bg_src["source"], "assetId": bg_src["assetId"]}
-        background.update({key: bg_src[key] for key in ("page", "license", "licenseUrl", "sha256") if key in bg_src})
+    background = _background_record(family, bg_src)
     record = {
         "split": split, "index": index, "seed": seed, "file": f"images/{index:05d}.jpg", "width": W, "height": H,
         "background": background,
@@ -654,4 +862,4 @@ def build_scene(pool, split, index, seed=0, settings=None, card_aspect=CARD_ASPE
         "photometric": photo["name"] if photo else None,
         "light": light, "glare": glare, "degrade": deg, "objects": labels,
     }
-    return record, buf.getvalue()
+    return record, jpeg

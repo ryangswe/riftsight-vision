@@ -5,7 +5,10 @@ Two kinds of check:
 
 * Structure, for every object of every scene: the box lies inside the frame and is not empty,
   the normalized center and size agree with it, a face names a card of the catalog, a back
-  names none, and only faces are positives.
+  names none, and only faces are positives. A close-up scene must also hold a positive face,
+  and each of its faces a quad that a labeled manifest would accept: convex, clockwise on
+  screen, and no corner more than one frame's width or height outside the frame
+  (``cardvision.data.schema.QUAD_COORDINATE_RANGE``).
 * Geometry, for clearly visible faces (at least 97 % visible, short side at least 60 px, no
   sleeve, not a featured card): the face is cut out of the saved, degraded image through its
   recorded homography and compared with the card's clean image in all four orientations. If
@@ -29,6 +32,8 @@ from PIL import Image
 from cardvision.composites.dataset import MANIFEST_NAME, read_labels
 from cardvision.composites.geometry import CARD_ASPECT, check_aspect
 from cardvision.core.catalog import Catalog
+from cardvision.data.geometry import is_convex, signed_area
+from cardvision.data.schema import QUAD_COORDINATE_RANGE
 
 KINDS = ("face", "back", "distractor", "die", "hand", "overlay")
 _TOLERANCE = 2e-4  # the box is rounded to a tenth of a pixel, which is this much of a small frame
@@ -78,6 +83,34 @@ def structure_problems(record: dict[str, Any], catalog: Catalog | None = None) -
                 problems.append(f"{name}: a {o['kind']} must not name a card")
             if o["positive"] or o["ignore"] is not None:
                 problems.append(f"{name}: only faces are positives or ignored")
+    if record.get("layout") == "closeup":
+        problems.extend(closeup_problems(record))
+    return problems
+
+
+def closeup_problems(record: dict[str, Any]) -> list[str]:
+    """What is wrong with a close-up scene beyond its objects' structure: it must hold a
+    positive face, and each face's corners must form a convex, clockwise quad within
+    ``QUAD_COORDINATE_RANGE`` of the frame (as fractions of its width and height)."""
+    W, H = record["width"], record["height"]
+    where = f"scene {record['index']}"
+    problems = []
+    faces = [o for o in record["objects"] if o["kind"] == "face"]
+    if not any(o["positive"] for o in faces):
+        problems.append(f"{where}: a close-up holds no positive face")
+    lo, hi = QUAD_COORDINATE_RANGE
+    for o in faces:
+        c = np.asarray(o["corners"], float)
+        if c.shape != (4, 2):
+            continue  # structure_problems names it
+        name = f"{where} object {o.get('id')}"
+        fractions = c / np.array([W, H], float)
+        if fractions.min() < lo or fractions.max() > hi:
+            problems.append(f"{name}: a corner lies more than one frame outside the frame")
+        if not is_convex(c):
+            problems.append(f"{name}: the corners do not form a convex quad")
+        elif signed_area(c) <= 0:
+            problems.append(f"{name}: the corners do not run clockwise on screen")
     return problems
 
 

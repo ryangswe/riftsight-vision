@@ -150,6 +150,10 @@ class Flags(Base):
         self.assertEqual(serve.CFG.art, "https://cards.example/art/")
         st, cfg = self.get("/api/config")
         self.assertEqual((cfg["mode"], cfg["art"]), ("box", True))
+        # the page refuses an older server; both sides name the same number
+        page = (Path(serve.__file__).parent / "sources.js").read_text(encoding="utf-8")
+        self.assertEqual(cfg["pageApi"], serve.PAGE_API)
+        self.assertIn(f"const PAGE_API = {serve.PAGE_API};", page)
         for bad in (dict(art=str(self.tmp / "no-such-folder")), dict(art="ftp://cards.example/"),
                     dict(catalog=str(self.tmp / "no-such-catalog.json")),
                     dict(catalog=str(self.write_catalog([1, 2], "list.json")))):
@@ -642,6 +646,41 @@ class CocoExport(Base):
         self.assertEqual(export.manifest_box({"corners": lc.box_corners(-300, 10, -200, 98)}, "box", 960, 540)[1], "an outline wholly off the frame")
         half = export.manifest_box({"corners": lc.box_corners(10, 400, 73, 440), "conditions": {"visibleShare": "half"}}, "box", 960, 540)[0]
         self.assertEqual(half["attributes"], {"visible_share": "half"})
+
+    # the manifest of the fixture's box set (vidA), as the export wrote it before boxes could have
+    # free corners: sha256 of its bytes
+    BOX_SET_MANIFEST_SHA256 = "33a287c458c529d2bb649b76135e9e2ad97279b4a8204139c92e7aad13e372a9"
+
+    def test_a_box_set_exports_as_it_did_before_free_corners(self):
+        """A box set with no box whose corners were freed is written byte for byte as before."""
+        import hashlib
+        sets, _notes = export.read_sets(self.labels())
+        rows, _ = export.manifest_rows([s for s in sets if s[0] == "vidA"], export.read_sample(self.addressed_sample()), "Toy Labeler",
+                                       source_types={"*": "physical/webcam"})
+        text = "".join(json.dumps(row, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n" for row in rows)
+        self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), self.BOX_SET_MANIFEST_SHA256)
+
+    def test_a_box_with_free_corners_is_a_quad(self):
+        """In a box set, a box whose corners were freed (cornerSource hand) is written as a quad;
+        one whose freed corners still form a rectangle stays a rotated box; elsewhere as before."""
+        freed = {"corners": [[100, 100], [170, 106], [168, 190], [96, 186]], "cornerSource": "hand", "outcome": "card", "identity": "TOY-001"}
+        box, why = export.manifest_box(freed, "box", 960, 540)
+        self.assertIsNone(why)
+        self.assertEqual((box["shape"], box["oriented"]), ("quad", True))
+        self.assertEqual(box["quad"][0], [round(100 / 960, 6), round(100 / 540, 6)], "the card's own top-left stays first")
+        square = dict(freed, corners=lc.box_corners(100, 100, 163, 188))
+        self.assertEqual(export.manifest_box(square, "box", 960, 540)[0]["shape"], "rotated-box")
+        for cs in ("box", "carried", "propagated", "prefill", "prefill-edited", None):
+            with self.subTest(cs=cs):
+                self.assertEqual(export.manifest_box(dict(square, cornerSource=cs), "box", 960, 540)[0]["shape"], "rotated-box")
+        # a corner set: as before (a box drawn as a box is a rotated box, anything else a quad)
+        self.assertEqual(export.manifest_box(square, "corner", 960, 540)[0]["shape"], "quad")
+        self.assertEqual(export.manifest_box(dict(square, cornerSource="box"), "corner", 960, 540)[0]["shape"], "rotated-box")
+        # the export's own limits hold for it as for any outline
+        self.assertEqual(export.manifest_box(dict(freed, corners=[[100, 100], [170, 190], [170, 100], [100, 190]]), "box", 960, 540)[1],
+                         "an outline that is not convex")
+        self.assertEqual(export.manifest_box(dict(freed, corners=[[100, 100], [3000, 106], [168, 190], [96, 186]]), "box", 960, 540)[1],
+                         "a corner too far outside the frame")
 
     def test_manifest_rows_of_a_recording_of_your_own(self):
         """A sample that says "platform": "local" gives rows of that platform: the export writes
@@ -1180,6 +1219,50 @@ class ToyData(unittest.TestCase):
         self.assertEqual([len(cards_on) for cards_on in self.truth["frames"].values()], [6, 7, 8, 7, 8, 5, 6, 7, 7, 7])
 
 
+    def test_a_box_with_free_corners_saves_and_exports_as_a_quad(self):
+        """The Boxes pass on the toy project: a box whose corner was pulled on its own (Shift+drag:
+        cornerSource hand, no angle) saves, and the manifest holds it as a quad that
+        `cardvision validate-manifest` accepts."""
+        labels = self.tmp / "labels-quad"
+        serve.configure(args(sample=str(self.toy / "sample.json"), catalog=str(self.toy / "catalog.json"), art=str(self.toy / "art"),
+                             labels_dir=str(labels), mode="box", role="training"))
+
+        def box(tid, corners, **kw):
+            return dict({"id": tid, "corners": corners, "estimated": [False] * 4, "cornerSource": "box", "outcome": "card",
+                         "identity": "TOY-001", "identitySource": "current-frame", "eligible": "yes", "conditions": {}, "labelSource": "manual"}, **kw)
+
+        upright = lc.box_corners(100, 100, 163, 188)
+        pulled = [[300.0, 100.0], [363.0, 100.0], [371.5, 196.0], [300.0, 188.0]]  # its bottom-right corner pulled down and out
+        frame = {"name": "f00001.png", "t": 0.0, "frameW": 960, "frameH": 540, "done": True,
+                 "targets": [box("B001", upright), box("B002", pulled, cornerSource="hand")]}
+        status, res = serve.save_frame("table-a", frame)
+        self.assertEqual(status, 200, res)
+        self.assertEqual([t["cornerSource"] for t in res["frame"]["targets"]], ["box", "hand"])
+        folded = json.loads(json.dumps(frame))
+        folded["targets"][1]["corners"] = [[300, 100], [363, 100], [300, 188], [363, 188]]
+        status, res = serve.save_frame("table-a", folded)
+        self.assertEqual(status, 400, res)
+        self.assertIn("free corners", res["error"])
+        doc = json.loads((self.toy / "sample.json").read_text())
+        for asset in doc["assets"]:
+            asset.update(platform="local", videoId=asset["assetId"], framesDir=str(self.toy / asset["framesDir"]))
+        sample = self.tmp / "sample-quad.json"
+        sample.write_text(json.dumps(doc))
+        out = self.tmp / "quad-manifest" / "toy.manifest.jsonl"
+        self.assertEqual(quiet(export.main, ["manifest", "--labels-dir", str(labels), "--sample", str(sample), "--out", str(out),
+                                             "--credit", "Toy Labeler", "--source-type", "physical/webcam",
+                                             "--catalog", str(self.toy / "catalog.json")]), 0)
+        rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual([(b["id"], b["shape"], b["oriented"]) for b in rows[0]["boxes"]], [("B001", "rotated-box", True), ("B002", "quad", True)])
+        self.assertEqual(rows[0]["boxes"][1]["quad"][2], [round(371.5 / 960, 6), round(196.0 / 540, 6)])
+        repo = HERE.parent
+        if subprocess.run([sys.executable, "-c", "import cardvision.cli"], cwd=str(repo), capture_output=True).returncode:
+            self.skipTest("the cardvision package cannot be imported here")
+        done = subprocess.run([sys.executable, "-m", "cardvision", "validate-manifest", str(out)], cwd=str(repo), capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
 class Smoke(unittest.TestCase):
     """The real thing: start serve.py as a process on a free port and load the page."""
 
@@ -1208,7 +1291,9 @@ class Smoke(unittest.TestCase):
             page = body.decode("utf-8")
             self.assertIn("<title>Card labeler</title>", page)
             scripts = [part.split('"')[0] for part in page.split('<script src="')[1:]]
-            self.assertEqual(len(scripts), 15)
+            self.assertEqual(len(scripts), 16)
+            self.assertLess(scripts.index("/boxgeom.js"), scripts.index("/boxedit.js"), "boxedit.js reads boxgeom.js as it loads")
+            self.assertLess(scripts.index("/boxedit.js"), scripts.index("/sources.js"))
             self.assertLess(scripts.index("/picker.js"), scripts.index("/names.js"), "the list of names reads picker.js as it loads")
             self.assertLess(scripts.index("/names.js"), scripts.index("/sources.js"))
             sheets = [part.split('"')[0] for part in page.split('<link rel="stylesheet" href="')[1:]]

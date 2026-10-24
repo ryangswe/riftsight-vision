@@ -385,6 +385,7 @@ def real_crops(manifests: list[str], frames: str | Path, cache: Path, *, margin:
 NOT_VISIBLE_ENOUGH = "less visible than min_visible"
 TOO_SMALL = "short side under min_short_side"
 TOO_TILTED = "further from a quarter turn than max_tilt"
+IN_A_CLOSEUP = "in a close-up scene"
 
 
 def quarter_turn_tilt(angle: float) -> float:
@@ -432,6 +433,11 @@ def composite_crops(folder: str | Path, cache: Path, *, margin: float, log: Log,
     (``composite_face_exclusion``). They keep the faces a recognizer can be expected to name:
     nearly whole, not tiny, and nearly straight once turned upright by quarter turns.
 
+    Close-up scenes (``layout`` ``"closeup"``, from ``make-composites --closeups``) give no
+    crops: their cards are tilted 15 to 45 degrees out of the image plane, and an upright crop
+    of such a card is not what the recognizer is trained to name. Their faces are counted as
+    left out ``"in a close-up scene"``.
+
     **The crop.** The upright box around the object's four corners, widened by ``margin``
     times its width and height on each side, clipped to the image and cut to whole pixels,
     then turned by quarter turns so that the card's top edge (the first edge of ``corners``)
@@ -455,6 +461,10 @@ def composite_crops(folder: str | Path, cache: Path, *, margin: float, log: Log,
 
         def items():
             for scene in read_labels(folder):
+                if scene.get("layout") == "closeup":
+                    tally[IN_A_CLOSEUP] += sum(o["kind"] == "face" and bool(o.get("positive")) and bool(o.get("cardId"))
+                                               for o in scene["objects"])
+                    continue
                 faces = []
                 for o in scene["objects"]:
                     if o["kind"] != "face" or not o.get("positive") or not o.get("cardId"):

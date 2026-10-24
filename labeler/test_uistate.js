@@ -243,6 +243,14 @@ assert.ok(U.describe({ noSets: true }).text.includes("no frames"));
 }
 
 // ---- the keys overlay's tables: rows of [keys, what they do] ------------------------------------
+{
+  // a box with free corners: Shift+drag a corner frees them, S snaps them, E makes a rectangle again
+  const box = new Map(U.KEYS_BOX);
+  assert.ok(/free the selected box's corners/.test(box.get("Shift+drag a corner")));
+  assert.ok(/snap its corners/.test(box.get("S")) && /rectangle again/.test(box.get("E")));
+  assert.strictEqual(U.KEYS_BOX.length, box.size, "no key is listed twice in the Boxes pass");
+  for (const k of ["fold", "names", "arrows", "rect", "snapped", "snapKept", "noPicture", "beside"]) assert.ok(U.NOTES.quad[k], k);
+}
 for (const n of ["KEYS_BOX", "KEYS_REVIEW", "KEYS_IDENTIFY", "KEYS_ANSWER", "KEYS_POINT", "KEYS_CORNER", "KEYS_CENTER", "KEYS_VERIFY", "KEYS_PREFILL"]) {
   assert.ok(Array.isArray(U[n]) && U[n].length > 0, n);
   for (const row of U[n]) assert.ok(row.length === 2 && row.every((x) => typeof x === "string" && x), `${n}: ${row}`);

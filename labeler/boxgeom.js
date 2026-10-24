@@ -105,11 +105,75 @@
   }
 
   // Move by (dx, dy), limited so the box's bounding box stays inside the frame (when it fits).
-  function translateCorners(corners, dx, dy, W, H) {
+  // With keepOverhang (dragging or nudging a box), a box that already runs past an edge (a turned
+  // card cut by the frame) is not pulled back in; it just cannot move further out on that side.
+  function translateCorners(corners, dx, dy, W, H, keepOverhang) {
     const [x0, y0, x1, y1] = aabb(corners);
-    const mx = x1 - x0 <= W ? clamp(dx, -x0, W - x1) : dx;
-    const my = y1 - y0 <= H ? clamp(dy, -y0, H - y1) : dy;
+    const lo = (v) => (keepOverhang ? Math.min(0, v) : v), hi = (v) => (keepOverhang ? Math.max(0, v) : v);
+    const mx = x1 - x0 <= W ? clamp(dx, lo(-x0), hi(W - x1)) : dx;
+    const my = y1 - y0 <= H ? clamp(dy, lo(-y0), hi(H - y1)) : dy;
     return corners.map((p) => [r1(p[0] + mx) + 0, r1(p[1] + my) + 0]);
+  }
+
+  // Where a resize handle may be dragged. Upright boxes stop at the frame (setRect cuts them there
+  // anyway); a turned box may reach half a frame past each edge, so it can cover a card the frame
+  // cuts off. The export accepts corners up to a whole frame outside.
+  function resizePoint(p, angle, W, H) {
+    if (roundAngle(angle || 0) === 0) return { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H) };
+    return { x: clamp(p.x, -W / 2, W * 1.5), y: clamp(p.y, -H / 2, H * 1.5) };
+  }
+
+  // How far outside the frame a corner may lie, as a fraction of the frame: export.py's
+  // QUAD_RANGE (test_boxgeom.js reads it from there). The export leaves out a frame with a
+  // corner past it.
+  const QUAD_RANGE = [-1, 2];
+
+  function cornersInRange(corners, W, H) {
+    const [lo, hi] = QUAD_RANGE;
+    return corners.every((p) => p[0] >= lo * W && p[0] <= hi * W && p[1] >= lo * H && p[1] <= hi * H);
+  }
+
+  // How far the worst corner lies outside QUAD_RANGE, in the export's own unit: a fraction of the
+  // frame (the larger of the x overshoot over W and the y overshoot over H); 0 when every corner
+  // is within it. Fractions, not pixels, so a frame that is not square is judged as the export does.
+  function rangeExcess(corners, W, H) {
+    const [lo, hi] = QUAD_RANGE;
+    let worst = 0;
+    for (const p of corners) worst = Math.max(worst, lo - p[0] / W, p[0] / W - hi, lo - p[1] / H, p[1] / H - hi);
+    return worst;
+  }
+
+  // Whether `next` corners may replace `prev`: all within QUAD_RANGE, or, for a box already past
+  // it, no further out than before (rangeExcess). So a box past the range can be brought back, and
+  // cannot be pushed further out.
+  function rangeNoWorse(next, prev, W, H) {
+    return rangeExcess(next, W, H) <= rangeExcess(prev, W, H);
+  }
+
+  // The rect's corners at its stored angle, as setRect writes them.
+  const storedCorners = (r) => cornersFromRect(Object.assign({}, r, { angle: roundAngle(r.angle || 0) }));
+
+  // A resize of a box (resizeRect on the bounded handle, resizePoint), or null when it would put
+  // a turned box's corner past QUAD_RANGE: the handle alone is bounded, but a turned box's other
+  // corners swing further out. A box already past the range may still be resized when the result's
+  // worst corner is no further out (rangeNoWorse). Upright boxes are cut at the frame (setRect),
+  // never refused.
+  function resizeWithin(orig, handle, p, W, H, min) {
+    const r = resizeRect(orig, handle, resizePoint(p, orig.angle, W, H), min);
+    if (roundAngle(r.angle || 0) === 0) return r;
+    return rangeNoWorse(storedCorners(r), storedCorners(orig), W, H) ? r : null;
+  }
+
+  // `count` new target ids, none among `targets`' ids nor each other: `prefix` and a three-digit
+  // number, counting up from one past the number of targets, each id taken before the next.
+  function newTargetIds(targets, count, prefix) {
+    const used = new Set((targets || []).map((t) => t.id));
+    const out = [];
+    for (let n = (targets || []).length + 1; out.length < count; n++) {
+      const id = `${prefix}${String(n).padStart(3, "0")}`;
+      if (!used.has(id)) { used.add(id); out.push(id); }
+    }
+    return out;
   }
 
   // ---- handles (the hit-testing, in the box's own rotated frame) -------------------------
@@ -247,6 +311,68 @@
     return z;
   }
 
+  // Two convex quads overlap when they share more than an edge (separating-axis test; boxes that
+  // only touch do not overlap).
+  function quadsOverlap(a, b) {
+    for (const q of [a, b]) {
+      for (let i = 0; i < 4; i++) {
+        const p = q[i], r = q[(i + 1) % 4];
+        const nx = r[1] - p[1], ny = p[0] - r[0];
+        let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+        for (const v of a) { const d = v[0] * nx + v[1] * ny; a0 = Math.min(a0, d); a1 = Math.max(a1, d); }
+        for (const v of b) { const d = v[0] * nx + v[1] * ny; b0 = Math.min(b0, d); b1 = Math.max(b1, d); }
+        const eps = 1e-6 * Math.hypot(nx, ny);
+        if (a1 <= b0 + eps || b1 <= a0 + eps) return false;
+      }
+    }
+    return true;
+  }
+
+  const hasQuad = (t) => Array.isArray(t.corners) && t.corners.length === 4;
+
+  // `.` and `,`: one layer up / down among the boxes this one overlaps. The box moves just past
+  // the nearest overlapping box above (dir +1) or below (dir −1) it in the stacking order, so its
+  // order changes against that box only; where it now sits against boxes it does not touch makes
+  // no difference to anything drawn or computed. New zOrder ranks as reorder gives them, or null
+  // when no overlapping box is on that side.
+  function reorderAmongOverlaps(targets, idx, dir) {
+    const asc = orderAsc(targets);
+    const pos = asc.indexOf(idx);
+    if (pos < 0 || !hasQuad(targets[idx])) return null;
+    const touches = (j) => j !== idx && hasQuad(targets[j]) && quadsOverlap(targets[idx].corners, targets[j].corners);
+    let at = -1;
+    if (dir > 0) { for (let k = pos + 1; k < asc.length; k++) if (touches(asc[k])) { at = k; break; } }
+    else { for (let k = pos - 1; k >= 0; k--) if (touches(asc[k])) { at = k; break; } }
+    if (at < 0) return null;
+    const order = asc.filter((i) => i !== idx);
+    const j = order.indexOf(asc[at]);
+    order.splice(dir > 0 ? j + 1 : j, 0, idx);
+    const z = new Array(targets.length);
+    order.forEach((i, rank) => { z[i] = rank; });
+    return z;
+  }
+
+  // The stacks of a frame: groups of boxes joined by overlaps (a chain counts as one stack). Per
+  // box: its stack's number, the stack's size, and its layer within the stack (1 = the bottom).
+  function stackLayers(targets) {
+    const n = targets.length, parent = targets.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (hasQuad(targets[i]) && hasQuad(targets[j]) && quadsOverlap(targets[i].corners, targets[j].corners)) parent[find(i)] = find(j);
+    }
+    const out = targets.map(() => ({ stack: -1, size: 1, layer: 1 }));
+    const seen = new Map();
+    for (const i of orderAsc(targets)) {
+      const r = find(i);
+      if (!seen.has(r)) seen.set(r, { id: seen.size, count: 0 });
+      const g = seen.get(r);
+      g.count += 1;
+      out[i] = { stack: g.id, size: 0, layer: g.count };
+    }
+    for (let i = 0; i < n; i++) out[i].size = seen.get(find(i)).count;
+    return out;
+  }
+
   // ---- copy / paste / carry-over -------------------------------------------------------
 
   const KIND_FIELDS = ["outcome", "ignore"];
@@ -257,6 +383,7 @@
   function makeClip(t, frameName) {
     const c = { corners: t.corners.map((p) => [p[0], p[1]]), angle: typeof t.angle === "number" ? t.angle : null,
       sourceFrame: frameName, sourceTarget: t.id };
+    if (isQuad(t)) { c.quad = true; c.angle = null; }
     for (const k of KIND_FIELDS.concat(ID_FIELDS)) if (t[k] !== undefined && t[k] !== null) c[k] = t[k];
     return c;
   }
@@ -271,12 +398,35 @@
     const t = { id, corners, estimated: [false, false, false, false], cornerSource: "box", outcome: clip.outcome || "card",
       identity: clip.identity || null, printing: clip.printing || null, identitySource: clip.identitySource || null,
       eligible: null, conditions: {}, labelSource: "manual" };
-    if (clip.angle) t.angle = clip.angle;
+    if (clip.quad) t.cornerSource = "hand"; // a box with free corners stays one
+    else if (clip.angle) t.angle = clip.angle;
     if (clip.ignore) { t.ignore = true; t.eligible = "no"; }
     if (t.outcome === "card-back") { t.eligible = "no"; t.conditions = { faceUp: false }; t.identity = null; t.printing = null; t.identitySource = null; }
     if (typeof zOrder === "number") t.zOrder = zOrder;
     if (boxesOnly) { t.identity = null; t.printing = null; t.identitySource = null; } // names come in the identity pass
     return t;
+  }
+
+  // Several copied boxes (clips, bottom layer first) pasted as one group: the same offset as one
+  // box (+PASTE_OFFSET px in the frame they were copied from, none in another), then the whole
+  // group moved by one shift so that every box lies inside the frame; each box keeps its kind,
+  // angle and names exactly as pasteTarget gives them. A group larger than the frame is refused
+  // whole: {refused: why}; else {targets}, in the clips' order (ids and zOrders from the caller,
+  // zOrders null when the frame has none).
+  function pasteGroup(clips, frameName, W, H, ids, zOrders, boxesOnly) {
+    if (clips.length === 1) return { targets: [pasteTarget(clips[0], frameName, W, H, ids[0], zOrders[0], boxesOnly)] };
+    const same = clips[0].sourceFrame === frameName;
+    let dx = same ? PASTE_OFFSET : 0, dy = same ? PASTE_OFFSET : 0;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const c of clips) for (const p of c.corners) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
+    if (x1 - x0 > W || y1 - y0 > H) return { refused: "The copied boxes span more than this frame, so they were not pasted." };
+    if (x0 + dx < 0) dx = -x0; else if (x1 + dx > W) dx = W - x1;
+    if (y0 + dy < 0) dy = -y0; else if (y1 + dy > H) dy = H - y1;
+    const targets = clips.map((c, k) => {
+      const moved = Object.assign({}, c, { corners: c.corners.map((p) => [r1(p[0] + dx), r1(p[1] + dy)]), sourceFrame: null });
+      return pasteTarget(moved, frameName, W, H, ids[k], zOrders[k], boxesOnly);
+    });
+    return { targets };
   }
 
   // carry-over (label reuse across time, never model output): the previous confirmed frame's
@@ -285,10 +435,12 @@
   const CARRY_FIELDS = ["outcome", "identity", "printing", "identitySource", "eligible", "conditions", "ignore", "angle", "zOrder"];
   // boxesOnly: the box pass carries boxes, not names: identity fields stay behind
   const NAME_FIELDS = new Set(["identity", "printing", "identitySource", "eligible"]);
+  // A box with free corners keeps `cornerSource: hand` (its provenance is in labelSource and
+  // carriedFrom): "carried" corners are a rectangle's.
   function carryTargets(prevTargets, prevFrame, boxesOnly) {
     return prevTargets.map((p) => {
       const t = { id: p.id, corners: p.corners.map((q) => [q[0], q[1]]), estimated: (p.estimated || [false, false, false, false]).slice(),
-        cornerSource: "carried", labelSource: "carried", carriedFrom: { frame: prevFrame, target: p.id } };
+        cornerSource: isQuad(p) ? "hand" : "carried", labelSource: "carried", carriedFrom: { frame: prevFrame, target: p.id } };
       for (const k of CARRY_FIELDS) if (p[k] !== undefined && !(boxesOnly && NAME_FIELDS.has(k) && p.outcome !== "card-back" && !p.ignore)) t[k] = k === "conditions" ? Object.assign({}, p[k]) : p[k];
       return t;
     });
@@ -407,9 +559,11 @@
   // (labelcore.py edit_provenance holds the server to the same rule): with `boxSet`, a model box
   // is accepted or corrected against its proposal (prefillProvenance) and is no longer pending;
   // a kept or propagated box becomes `-corrected`; any other keeps its own. Mutates t; → t.
+  // A box with free corners keeps `cornerSource: hand`.
   function editProvenance(t, boxSet) {
     const pv = boxSet ? prefillProvenance(t) : null;
-    if (pv) { t.labelSource = pv.labelSource; t.cornerSource = pv.cornerSource; delete t.pending; delete t.suggestion; }
+    const quad = isQuad(t);
+    if (pv) { t.labelSource = pv.labelSource; t.cornerSource = quad ? "hand" : pv.cornerSource; delete t.pending; delete t.suggestion; }
     else if (t.labelSource === "propagated") t.labelSource = "propagated-corrected";
     else if (t.labelSource === "carried") t.labelSource = "carried-corrected";
     return t;
@@ -507,6 +661,7 @@
   // `m`: the kept box takes the suggestion's place, size and turn (its id, kind, name and
   // provenance stay: an edit of a kept box like any other). Mutates kept.
   function moveOnto(kept, sugg) {
+    if (isQuad(kept)) kept.cornerSource = rectSource(kept); // the model's box is a rectangle
     kept.corners = sugg.corners.map((q) => [q[0], q[1]]);
     if (sugg.angle) kept.angle = sugg.angle; else delete kept.angle;
     return kept;
@@ -731,10 +886,338 @@
   // (x, y), as nearestEdge's k (0 the current top, clockwise), or null.
   function viewEdgeAt(v, rect, x, y, tolPx) { return nearestEdge(rect, viewToFrame(v, x, y), tolPx / v.z); }
 
+  // ---- visible parts (the stacking view; nothing is saved) ----------------------------------
+  // The part of each box that no box above it covers, every box counting as a cover (ignore
+  // boxes too). Each box is laid on a grid in its own frame (its top edge along x, `grid` cells
+  // on its longer side); a cell is covered when a box above touches any part of it, so a visible
+  // part never reaches into a box above. Per box (index-aligned with `targets`): rank (1 = the
+  // bottom), share (uncovered cells / all cells), and corners (the largest uncovered rectangle,
+  // in the box's own frame and corner order; the box's own corners when nothing covers it; null
+  // when it is wholly covered).
+  const VISIBLE_GRID = 240;
+
+  function clipHalfPlane(poly, f) {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length], fa = f(a), fb = f(b);
+      if (fa >= 0) out.push(a);
+      if ((fa >= 0) !== (fb >= 0)) { const t = fa / (fa - fb); out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]); }
+    }
+    return out;
+  }
+
+  // The x extent of a convex polygon inside the band y0 <= y <= y1, or null.
+  function bandExtent(poly, y0, y1) {
+    let p = clipHalfPlane(poly, (q) => q[1] - y0);
+    if (p.length < 2) return null;
+    p = clipHalfPlane(p, (q) => y1 - q[1]);
+    if (!p.length) return null;
+    let lo = Infinity, hi = -Infinity;
+    for (const q of p) { lo = Math.min(lo, q[0]); hi = Math.max(hi, q[0]); }
+    return [lo, hi];
+  }
+
+  // The largest all-true rectangle of a row-major boolean grid: {area, x0, y0, x1, y1} (x1, y1
+  // exclusive); the first found wins a tie.
+  function largestRect(free, nx, ny) {
+    let best = { area: 0, x0: 0, y0: 0, x1: 0, y1: 0 };
+    const hts = new Array(nx).fill(0);
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) hts[x] = free[y * nx + x] ? hts[x] + 1 : 0;
+      const st = [];
+      for (let x = 0; x <= nx; x++) {
+        const h = x < nx ? hts[x] : 0;
+        let start = x;
+        while (st.length && st[st.length - 1][1] >= h) {
+          const [s, sh] = st.pop();
+          const area = sh * (x - s);
+          if (area > best.area) best = { area, x0: s, y0: y - sh + 1, x1: x, y1: y + 1 };
+          start = s;
+        }
+        st.push([start, h]);
+      }
+    }
+    return best;
+  }
+
+  // A box with free corners (not a rectangle) is laid on a grid in the frame of its top edge,
+  // over its own extent there; only the cells whose middle lies inside it count.
+  function visiblePart(corners, covers, grid) {
+    const [p0, p1, , p3] = corners;
+    const quad = !isRectangle(corners);
+    let W = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), H = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]);
+    if (!(W > 0 && H > 0)) return { share: 0, corners: null };
+    let ex = [(p1[0] - p0[0]) / W, (p1[1] - p0[1]) / W], ey = [(p3[0] - p0[0]) / H, (p3[1] - p0[1]) / H], u0 = 0, v0 = 0;
+    if (quad) {
+      ey = [-ex[1], ex[0]];
+      const us = corners.map((p) => (p[0] - p0[0]) * ex[0] + (p[1] - p0[1]) * ex[1]), vs = corners.map((p) => (p[0] - p0[0]) * ey[0] + (p[1] - p0[1]) * ey[1]);
+      u0 = Math.min(...us); v0 = Math.min(...vs); W = Math.max(...us) - u0; H = Math.max(...vs) - v0;
+      if (!(W > 0 && H > 0)) return { share: 0, corners: null };
+    }
+    const toBox = (p) => { const dx = p[0] - p0[0], dy = p[1] - p0[1]; return [dx * ex[0] + dy * ex[1] - u0, dx * ey[0] + dy * ey[1] - v0]; };
+    const fromBox = (u, v) => [r1(p0[0] + (u + u0) * ex[0] + (v + v0) * ey[0]), r1(p0[1] + (u + u0) * ex[1] + (v + v0) * ey[1])];
+    const polys = [];
+    for (const c of covers) {
+      const poly = c.map(toBox);
+      const xs = poly.map((q) => q[0]), ys = poly.map((q) => q[1]);
+      if (Math.max(...xs) <= 0 || Math.min(...xs) >= W || Math.max(...ys) <= 0 || Math.min(...ys) >= H) continue;
+      if (signedArea(poly) === 0) continue;
+      polys.push(poly);
+    }
+    if (!polys.length) return { share: 1, corners: corners.map((p) => [p[0], p[1]]) };
+    const step = Math.max(W, H) / (grid || VISIBLE_GRID);
+    const nx = Math.max(1, Math.round(W / step)), ny = Math.max(1, Math.round(H / step));
+    const sx = W / nx, sy = H / ny;
+    const free = new Uint8Array(nx * ny).fill(1);
+    let all = nx * ny;
+    if (quad) {
+      const own = corners.map(toBox);
+      all = 0;
+      for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
+        if (pointInQuad(own, { x: (x + 0.5) * sx, y: (y + 0.5) * sy })) all++; else free[y * nx + x] = 0;
+      }
+      if (!all) return { share: 0, corners: null };
+    }
+    for (let y = 0; y < ny; y++) {
+      const y0 = y * sy + 1e-9, y1 = (y + 1) * sy - 1e-9; // a box that only touches the row's edge does not cover it
+      for (const poly of polys) {
+        const e = bandExtent(poly, y0, y1);
+        if (!e) continue;
+        const i0 = Math.max(0, Math.floor(e[0] / sx + 1e-9)), i1 = Math.min(nx - 1, Math.ceil(e[1] / sx - 1e-9) - 1);
+        for (let i = i0; i <= i1; i++) free[y * nx + i] = 0;
+      }
+    }
+    let n = 0;
+    for (const v of free) n += v;
+    if (!n) return { share: 0, corners: null };
+    const b = largestRect(free, nx, ny);
+    if (!quad && b.area === nx * ny) return { share: 1, corners: corners.map((p) => [p[0], p[1]]) };
+    if (quad && n === all) return { share: 1, corners: corners.map((p) => [p[0], p[1]]) };
+    const u0b = b.x0 * sx, u1 = b.x1 * sx, v0b = b.y0 * sy, v1 = b.y1 * sy;
+    return { share: n / all, corners: [fromBox(u0b, v0b), fromBox(u1, v0b), fromBox(u1, v1), fromBox(u0b, v1)] };
+  }
+
+  function visibleParts(targets, grid) {
+    const order = orderAsc(targets);
+    return targets.map((t, i) => {
+      const pos = order.indexOf(i);
+      const covers = order.slice(pos + 1).map((j) => targets[j].corners).filter((c) => Array.isArray(c) && c.length === 4);
+      const v = Array.isArray(t.corners) && t.corners.length === 4 ? visiblePart(t.corners, covers, grid) : { share: 0, corners: null };
+      return { rank: pos + 1, share: v.share, corners: v.corners };
+    });
+  }
+
+  // ---- a box with free corners (a quad) ------------------------------------------------------
+  // In the Boxes pass, Shift+drag on a corner handle frees the box's corners: from then on each
+  // corner moves on its own, so a card seen in perspective gets its true outline. Such a box is
+  // stored with `cornerSource: "hand"` (the hand-placed corners of the format) and no `angle`;
+  // its corner order still starts at the card's own top-left. It stays convex and clockwise,
+  // every side at least MIN_BOX px, every corner within QUAD_RANGE. Pressing E (quadToRect) or
+  // any action that sets a box's size makes it a rectangle again.
+
+  const CONVEX_EPS = 1e-9;
+
+  function isQuad(t) { return !!t && t.cornerSource === "hand"; }
+
+  // The cornerSource a quad gets back when it becomes a rectangle again: kept from another frame
+  // or from a tracking script it is that again; a model's box is "prefill-edited" (editProvenance
+  // settles it when the box is committed); any other is a box.
+  function rectSource(t) {
+    if (t && t.carriedFrom) return "carried";
+    if (t && t.propagatedFrom) return "propagated";
+    if (t && t.prefill) return "prefill-edited";
+    return "box";
+  }
+
+  function quadCenter(q) {
+    return { x: (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, y: (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4 };
+  }
+
+  // Clockwise on screen, strictly convex (every turn the same way), every side at least `minSide`.
+  function isConvexQuad(q, minSide) {
+    if (!Array.isArray(q) || q.length !== 4) return false;
+    if (q.some((p) => !isFinite(p[0]) || !isFinite(p[1]))) return false;
+    const m = typeof minSide === "number" ? minSide : 1;
+    for (let i = 0; i < 4; i++) {
+      const a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+      if (dist(a, b) < m) return false;
+      // a turn under CONVEX_EPS (labelcore.is_convex's tolerance) is a straight corner: refused
+      if ((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) < CONVEX_EPS) return false;
+    }
+    return true;
+  }
+
+  // Why an edited quad cannot be kept, or null: "fold" (not convex, or a side under MIN_BOX) or
+  // "range" (a corner past QUAD_RANGE).
+  function quadProblem(q, W, H) {
+    if (!isConvexQuad(q, MIN_BOX)) return "fold";
+    if (W > 0 && H > 0 && !cornersInRange(q, W, H)) return "range";
+    return null;
+  }
+
+  // An edited quad, rounded as stored: {corners} or {refused: "fold" | "range"}.
+  function quadResult(raw, W, H) {
+    const q = raw.map((p) => [r1(p[0]) + 0, r1(p[1]) + 0]);
+    const why = quadProblem(q, W, H);
+    return why ? { refused: why } : { corners: q };
+  }
+
+  // Corner i (0 TL … 3 BL in the card's own order) dragged to p; the others stay.
+  function moveQuadCorner(q, i, p, W, H) {
+    return quadResult(q.map((c, k) => (k === i ? [p.x, p.y] : [c[0], c[1]])), W, H);
+  }
+
+  // Edge k (0 top, 1 right, 2 bottom, 3 left: corners k and k+1) moved by (dx, dy).
+  function moveQuadEdge(q, k, dx, dy, W, H) {
+    return quadResult(q.map((c, i) => (i === k || i === (k + 1) % 4 ? [c[0] + dx, c[1] + dy] : [c[0], c[1]])), W, H);
+  }
+
+  // The quad turned by `deg` (clockwise on screen) about its center.
+  function rotateQuad(q, deg, W, H) {
+    const c = quadCenter(q);
+    return quadResult(q.map((p) => { const r = rotatePoint(p[0] - c.x, p[1] - c.y, deg); return [c.x + r.x, c.y + r.y]; }), W, H);
+  }
+
+  // One step of a drag on a quad (the page's drag record d: mode "corner" | "edge" | "qrotate",
+  // the handle, the corners and center at its start, the start point and angle), p the pointer.
+  function quadDrag(d, p, W, H) {
+    if (d.mode === "corner") return moveQuadCorner(d.corners, HANDLES.indexOf(d.handle), p, W, H);
+    if (d.mode === "edge") return moveQuadEdge(d.corners, EDGE_NAMES.indexOf(d.handle), p.x - d.start.x, p.y - d.start.y, W, H);
+    return rotateQuad(d.corners, angleFromCenter(d.center, p) - d.startAngle, W, H);
+  }
+
+  // Corners kept as a quad's: `cornerSource: hand`, no angle. Mutates t.
+  function setQuadCorners(t, corners) {
+    t.corners = corners;
+    t.cornerSource = "hand";
+    delete t.angle;
+    return t;
+  }
+
+  // The rotate knob of any box, `offset` px out from its own top edge.
+  function knobOf(t, offset) {
+    return isQuad(t) ? quadKnobPos(t.corners, offset) : rotateHandlePos(rectFromCorners(t.corners, t.angle), offset);
+  }
+
+  // The handles of any box: where they are drawn (its corners), and which one is under p (knob,
+  // corner or edge, the box's own sides for a quad): {mode: "rotate"} | {mode: "resize", handle} | null.
+  function handlePoints(t) { return isQuad(t) ? t.corners : cornersFromRectRaw(rectFromCorners(t.corners, t.angle)); }
+  function handleAt(t, p, knobOff, tol, ew) {
+    const k = knobOf(t, knobOff);
+    if (Math.hypot(p.x - k.x, p.y - k.y) <= tol) return { mode: "rotate" };
+    const q = isQuad(t), r = rectFromCorners(t.corners, t.angle);
+    const c = q ? hitQuadCorner(t.corners, p, tol) : hitCorner(r, p, tol);
+    const e = c || (q ? hitQuadEdge(t.corners, p, ew) : hitEdge(r, p, ew));
+    return e ? { mode: "resize", handle: e } : null;
+  }
+
+  // The drag a grab of a box's handle starts: "corner", "edge" or "qrotate" on a quad (a corner
+  // grabbed with Shift frees a box's corners: "corner"), null for a box's own resize or rotate.
+  function quadDragMode(t, hit, shift) {
+    const corner = hit.mode === "resize" && HANDLES.includes(hit.handle);
+    if (!isQuad(t)) return corner && shift ? "corner" : null;
+    return hit.mode === "rotate" ? "qrotate" : corner ? "corner" : hit.mode === "resize" ? "edge" : null;
+  }
+
+  // E on a quad: the rectangle it goes back to (quadToRect), or null when a turned one would put a
+  // corner past QUAD_RANGE.
+  function quadBackToRect(q, W, H) {
+    const r = quadToRect(q), a = roundAngle(r.angle);
+    return a !== 0 && !cornersInRange(cornersFromRect(Object.assign({}, r, { angle: a })), W, H) ? null : r;
+  }
+
+  // The rectangle a quad goes back to: its center, the mean direction of its top and bottom
+  // edges, the mean length of each pair of opposite sides. A rectangle comes back exactly.
+  function quadToRect(q) {
+    const c = quadCenter(q);
+    const ux = (q[1][0] - q[0][0]) + (q[2][0] - q[3][0]), uy = (q[1][1] - q[0][1]) + (q[2][1] - q[3][1]);
+    const a = (Math.atan2(uy, ux) * 180) / Math.PI;
+    return { cx: c.x, cy: c.y, w: (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, h: (dist(q[1], q[2]) + dist(q[0], q[3])) / 2,
+      angle: normalizeAngle(Math.abs(a) < 1e-9 ? 0 : a) };
+  }
+
+  // The rotate knob of a quad: `offset` px out from the middle of its top edge, square to it.
+  function quadKnobPos(q, offset) {
+    const mx = (q[0][0] + q[1][0]) / 2, my = (q[0][1] + q[1][1]) / 2;
+    const ex = q[1][0] - q[0][0], ey = q[1][1] - q[0][1], len = Math.hypot(ex, ey) || 1;
+    return { x: mx + (ey / len) * offset, y: my - (ex / len) * offset }; // clockwise corners: the outside is to the left
+  }
+
+  function hitQuadCorner(q, p, tol) {
+    let best = null, bd = tol;
+    q.forEach((c, i) => { const d = Math.hypot(c[0] - p.x, c[1] - p.y); if (d <= bd) { bd = d; best = HANDLES[i]; } });
+    return best;
+  }
+
+  // Distance from p to segment a-b, and where along it (0..1) the nearest point is.
+  function segDist(a, b, p) {
+    const ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey || 1;
+    const u = clamp(((p.x - a[0]) * ex + (p.y - a[1]) * ey) / l2, 0, 1);
+    return { d: Math.hypot(a[0] + u * ex - p.x, a[1] + u * ey - p.y), u, len: Math.sqrt(l2) };
+  }
+
+  const EDGE_NAMES = ["t", "r", "b", "l"];
+
+  // The edge band `ew` px wide along a quad's side, its ends (the corners) excluded: "t" | … | null.
+  function hitQuadEdge(q, p, ew) {
+    let best = null, bd = ew;
+    for (let k = 0; k < 4; k++) {
+      const s = segDist(q[k], q[(k + 1) % 4], p);
+      const end = ew / s.len;
+      if (s.d <= bd && s.u > end && s.u < 1 - end) { bd = s.d; best = EDGE_NAMES[k]; }
+    }
+    return best;
+  }
+
+  // The edge of a quad nearest to p within `tol` px (corners included): k (0 its top, clockwise) or null.
+  function nearestQuadEdge(q, p, tol) {
+    let k = null, bd = tol;
+    for (let i = 0; i < 4; i++) { const d = segDist(q[i], q[(i + 1) % 4], p).d; if (d <= bd) { bd = d; k = i; } }
+    return k;
+  }
+
+  // nearestEdge for any box: a quad by its own sides, a rectangle as before.
+  function nearestEdgeOf(t, p, tol) {
+    return isQuad(t) ? nearestQuadEdge(t.corners, p, tol) : nearestEdge(rectFromCorners(t.corners, t.angle), p, tol);
+  }
+
+  // ---- a box beside another (D then an arrow) ------------------------------------------------
+  // The same size and angle, directly against the side of `rect` that faces the screen direction
+  // `dir` ("left" | "right" | "up" | "down"): of the box's own four sides, the one whose outward
+  // direction is closest to `dir`, so a tilted or turned box gets its neighbor in its own row or
+  // column. Frame px; nothing is clamped to the frame.
+  const SCREEN_DIRS = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+
+  function besideRect(rect, dir) {
+    const d = SCREEN_DIRS[dir];
+    if (!d) return null;
+    const a = ((rect.angle || 0) * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    const sides = [
+      { u: [c, s], ext: rect.w }, { u: [-c, -s], ext: rect.w }, // along the box's own top edge
+      { u: [-s, c], ext: rect.h }, { u: [s, -c], ext: rect.h }, // along its own left edge
+    ];
+    let best = sides[0], bd = -Infinity;
+    for (const sd of sides) { const v = sd.u[0] * d[0] + sd.u[1] * d[1]; if (v > bd + 1e-9) { bd = v; best = sd; } }
+    return { cx: rect.cx + best.u[0] * best.ext, cy: rect.cy + best.u[1] * best.ext, w: rect.w, h: rect.h, angle: rect.angle || 0 };
+  }
+
+  // D then an arrow on any box: {rect: besideRect of it, corners: null}; a quad's own outline is
+  // moved beside it instead (corners; rect is where its quadToRect lands).
+  function besideOf(t, dir) {
+    const q = isQuad(t), from = q ? quadToRect(t.corners) : rectFromCorners(t.corners, t.angle), r = besideRect(from, dir);
+    const dx = r.cx - from.cx, dy = r.cy - from.cy; // not clamped: the page refuses one past QUAD_RANGE
+    return { rect: r, corners: q ? t.corners.map((p) => [r1(p[0] + dx) + 0, r1(p[1] + dy) + 0]) : null };
+  }
+
   const api = {
+    besideOf,
+    isQuad, rectSource, quadCenter, isConvexQuad, quadProblem, quadResult, quadDrag, knobOf, handlePoints, handleAt, quadDragMode, quadBackToRect, setQuadCorners, moveQuadCorner, moveQuadEdge, rotateQuad, quadToRect, quadKnobPos,
+    hitQuadCorner, hitQuadEdge, nearestQuadEdge, nearestEdgeOf, EDGE_NAMES, HANDLES,
+    besideRect, quadsOverlap, reorderAmongOverlaps, stackLayers, pasteGroup,
+    VISIBLE_GRID, visibleParts,
     reviewOrder, reviewFrameIds, reviewWalk, reviewLocate, reviewStep, fitZoom, viewToFrame, frameToView, viewEdgeAt,
     MIN_BOX, PASTE_OFFSET, RECT_TOL, r1, clamp, normalizeAngle, roundAngle, rotatePoint, rectFromCorners, cornersFromRect,
-    cornersFromRectRaw, signedArea, isRectangle, aabb, boxCorners, pointInQuad, translateCorners, hitCorner, hitEdge,
+    cornersFromRectRaw, signedArea, isRectangle, aabb, boxCorners, pointInQuad, translateCorners, resizePoint, QUAD_RANGE, cornersInRange, rangeExcess, rangeNoWorse, resizeWithin, newTargetIds, hitCorner, hitEdge,
     rotateHandlePos, angleFromCenter, resizeRect, tapToggle, quarterTurn, setTopEdge, topEdgeCorners, nearestEdge, zOf, orderAsc, orderDesc, nextZ, reorder, makeClip,
     pasteTarget, carryTargets, isCarried, duplicates, layoutMatches,
     prefillTarget, prefillProvenance, editProvenance, sameCorners, maxIoU, quarterTurns, scaleProposal,

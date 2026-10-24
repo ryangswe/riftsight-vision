@@ -425,7 +425,10 @@ def manifest_box(t: dict, set_mode: str, frame_w: float, frame_h: float) -> tupl
     box = {}
     if isinstance(t.get("id"), str) and _LABEL_ID.fullmatch(t["id"]):
         box["id"] = t["id"]
-    rectangle = set_mode == "box" or t.get("cornerSource") == "box"
+    # a box set's boxes are rectangles, except one whose corners were freed (cornerSource hand) and
+    # no longer form one; elsewhere only a box drawn as a box is
+    freed = t.get("cornerSource") == lc.BOX_QUAD_SOURCE and not lc.is_rectangle_box(quad)
+    rectangle = (set_mode == "box" and not freed) or t.get("cornerSource") == "box"
     box.update(kind=kind, ignore=ignore, quad=fractions,
                # the corner order says which way up a card face lies; for anything else it says nothing
                oriented=kind == "face" and not ignore,

@@ -105,6 +105,9 @@ PREFILL_LABEL_SOURCES = ("prefill-accepted", "prefill-corrected")
 PREFILL_CORNER_SOURCES = ("prefill", "prefill-edited")
 # the corner sources a box-mode target may have (prefill ones only where prefill is allowed)
 BOX_CORNER_SOURCES = ("box", "propagated", "carried") + PREFILL_CORNER_SOURCES
+# a box-mode target whose corners were freed in the Boxes pass (a quad: boxgeom.js isQuad) has
+# hand-placed corners: any convex, clockwise outline, not only a rectangle
+BOX_QUAD_SOURCE = "hand"
 
 RECORDING_ENUMS = {
     "source": ("digital", "physical"),
@@ -415,6 +418,20 @@ def is_rectangle_box(corners, tol: float = RECT_TOL) -> bool:
     return abs(_dist(q[0], q[2]) - _dist(q[1], q[3])) <= tol
 
 
+def is_box_quad(corners) -> bool:
+    """Corners a box with free corners may have (`cornerSource: hand` in a box set): four finite
+    [x, y], clockwise on screen, strictly convex, every side at least 1 px (what the export keeps)."""
+    try:
+        q = [(float(p[0]), float(p[1])) for p in corners]
+    except (TypeError, ValueError, IndexError):
+        return False
+    if len(q) != 4 or not all(math.isfinite(v) for p in q for v in p):
+        return False
+    if signed_area(q) <= 0 or not is_convex(q):
+        return False
+    return min(_dist(q[i], q[(i + 1) % 4]) for i in range(4)) >= 1.0
+
+
 def corners_aabb(corners) -> list:
     """[x, y, w, h] of any four corners."""
     xs = [float(p[0]) for p in corners]
@@ -568,7 +585,10 @@ def validate_frame(fr: dict, mode: str, role: str | None = None) -> list:
                 errors.append(f"{where}: cornerSource {cs!r}")
             if not prefill_allowed(mode, role) and cs in PREFILL_CORNER_SOURCES:
                 errors.append(f"{where}: prefill corners outside training mode / a role=training box set")
-            if mode == "box":
+            if mode == "box" and cs == BOX_QUAD_SOURCE:
+                if not is_box_quad(c):
+                    errors.append(f"{where}: a box with free corners must be four corners TL, TR, BR, BL, clockwise, convex, every side at least 1 px")
+            elif mode == "box":
                 if cs not in BOX_CORNER_SOURCES:
                     errors.append(f"{where}: a box-mode target has cornerSource box (or propagated / carried / prefill / prefill-edited)")
                 if not is_rectangle_box(c):
@@ -1329,6 +1349,10 @@ def orientation_turn(old_t: dict, new_t: dict, set_mode: str | None) -> tuple:
     if k is None:
         return None, (f"target {tid}: corners changed: the identity pass may only turn which edge is the top "
                       "(the same four points, their order rotated), never move, resize or mirror a box")
+    if old_t.get("cornerSource") == BOX_QUAD_SOURCE:  # a box with free corners has no angle
+        if new_t.get("angle") is not None:
+            return None, f"target {tid}: a box with free corners has no angle (got {new_t.get('angle')!r})"
+        return k, None
     try:
         expected = round_angle(effective_angle(old_t) + 90.0 * k)
         got = new_t.get("angle")
@@ -1764,7 +1788,7 @@ def strip_answers(item: dict, mode: str) -> dict:
         return {"i": item["i"], "x": item["x"], "y": item["y"]}
     out = {"id": item["id"], "corners": item["corners"], "estimated": item.get("estimated") or [False] * 4}
     if mode == "box":
-        out["cornerSource"] = "box"
+        out["cornerSource"] = BOX_QUAD_SOURCE if item.get("cornerSource") == BOX_QUAD_SOURCE else "box"
         if item.get("angle"):
             out["angle"] = item["angle"]
     return out

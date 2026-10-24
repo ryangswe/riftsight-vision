@@ -9,6 +9,73 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.3.0rc1] - 2026-10-24
+
+First release candidate for 0.3.0. The labeling tool handles cards seen at an angle and stacked
+cards, `make-composites` can draw close-ups, and `cardvision next` checks the downloaded models.
+Nothing in the public surface breaks. The released models are unchanged: release
+`201478a00d6ef6ba`.
+
+### Added
+
+- The labeling tool's Boxes pass labels a card seen at an angle: Shift+drag a corner of a box and
+  its corners come free, so each one moves onto the card's own corner. `s` snaps them to the
+  card's edges, and `e` makes the box a rectangle again. The card's top stays where it was. The
+  manifest export writes such a box with the shape `quad`; every other box is written as
+  before. The labeling guide no longer says to mark a steeply angled card ignore.
+- `make-composites --closeups SHARE` draws that share of the scenes as close-ups: one large card,
+  sometimes two, tilted 15 to 45 degrees toward the camera and filling 25 to 80 % of the frame's
+  height, often with a glow around it, as in a digital client's summon or activation shot or a
+  webcam close over a table. Each card's corners and homography are exact, and its `pose` gives
+  the tilt. The manifest records the share and ranges under `parameters.closeups`, and `--check`
+  checks that each close-up holds a positive face with a convex, clockwise quad. The default, 0,
+  draws none: a run without the flag writes the same bytes as before, and with it the scenes
+  that are not close-ups stay the same.
+- `cardvision export detector --no-fp16-weights` writes and checks the float32 file only, with
+  no half-precision copy (`<name>-fp16w.onnx`) and no parity check for one.
+- `cardvision next --images DIR` takes the card images' folder from you, as `try --images` does,
+  for art kept outside the game folder before a first `try`. It wins over `images/`, `art/` and
+  the last `try`'s log, and the `try` line it prints carries the folder. `--json` gives
+  `source: "argument"` for it. An empty value, `/`, the home folder or a folder holding the game
+  folder is refused. When the folder is not the one the last `try` used, `next` says to run `try`
+  again with `--overwrite`.
+- The labeling tool's stacking view (`o`, or Options) shades the part of each box that no box
+  above it covers and numbers its layer within its stack, to check a stack's order at a glance.
+  Nothing it shows is saved.
+- In the Boxes pass, `d` then an arrow adds a box of the same size and angle against that side of
+  the selected box, for the next card of a stack or a row: only its far edge is left to fit.
+- Copy, paste and duplicate (Cmd/Ctrl+C, V, D) take several selected boxes; a group keeps its
+  spacing.
+
+### Changed
+
+- `cardvision next` checks the weights' size and SHA-256 against the table `fetch-weights` uses,
+  instead of taking the files' presence for done. A file of the wrong size or contents is named
+  in the check's `detail` and the step's `notes`. In a download of the release the next step is
+  `cardvision fetch-weights DIR --overwrite`; in a folder with no released `release.json` it is a
+  download into a new, empty folder, never `--overwrite`; a file that can't be read gets a step
+  to check its permissions. A folder whose `release.json` is another JSON document with a
+  `schemaVersion` is your own release folder and is not checked; a file missing from it is yours to
+  copy in, and `fetch-weights` is never suggested into it or into a folder holding other files with
+  the released names. Nothing is downloaded and about 7.7 MB are read, so it stays quick.
+- The labeling tool's layer keys `.` and `,` move a box one layer up or down among the boxes it
+  overlaps, rather than through every box in the frame. A turned box may run past the frame's
+  edge, as a card cut off by the picture's edge does, within the range the export accepts.
+- After you update the toolkit, a labeling page newer than the running `labeler/serve.py` says so
+  and waits for you to restart the tool, rather than half working.
+- [What we tried](docs/what-we-tried.md) has a section on finding a card's four corners with a
+  model, and why both attempts were set aside.
+
+### Fixed
+
+- `cardvision next` no longer calls a partial or corrupted weights download done: a file of the
+  wrong size or contents now reads `missing`, with the file named.
+- The labeling tool's Boxes pass no longer lets a turn or a fit push a turned box's corner more
+  than a whole frame outside the picture, where the export would have left the frame out: `r`,
+  `R`, `w`, `W`, `e` and the turning knob stop with a word why and leave the box as it was. A box
+  already past that limit can now be resized or turned back toward the picture; a change that
+  puts a corner further out is still refused.
+
 ## [0.2.0] - 2026-10-24
 
 The newcomer release: try the toolkit on your own game in one command, ask it for the next step,
@@ -211,7 +278,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0rc1...HEAD
+[0.3.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...v0.3.0rc1
 [0.2.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.1.0...v0.2.0
 [0.2.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc3...v0.2.0rc4
 [0.2.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0rc2...v0.2.0rc3

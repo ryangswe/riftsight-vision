@@ -39,6 +39,9 @@
   const C = root.LabelerCenterGeom; // center mode only (an older serve.py does not serve it)
   const V = root.LabelerVerifyCore; // verify mode only
   const U = root.LabelerUiState; // the instruction line, the primary button, progress, the finish card
+  const BE0 = root.LabelerBoxEdit; // the Boxes pass's geometry edits
+  // The server behavior this page needs (serve.py's PAGE_API); an older running serve.py lacks it.
+  const PAGE_API = 2;
   const KR = root.LabelerKeyRoute; // who handles a key press
   const SG = root.LabelerSaveGate; // may this frame be changed, may this change be saved, is this still the same run
   const BS = root.LabelerBoxSize; // the size of a new box, and what a click on the frame does
@@ -79,6 +82,8 @@
     picker: { query: "", scope: "decklist", hl: { g: 0, t: 0 }, list: null, grid: [] }, deckIds: [], decklists: [],
     filters: {},
     hoverArt: true, hoverKey: null,
+    stackView: false, // the stacking view (O): a visual aid, never saved
+    besideArmed: null, // D was pressed: the context it was armed in (KR.armedFor); the next arrow there adds a box beside the selected one
     // timing: the event queue (timinglog.js; each event keeps the set it was logged in), when the
     // picker was opened (box mode's `identified` carries the time to the pick)
     snaps: new Map(), timing: null, shownKey: null, pickerOpenedAt: null,
@@ -128,7 +133,6 @@
   const ALT_EDGE_PX = 10; // screen px: Alt+click this near an edge of the selected box makes it the top
   const REVIEW_EDGE_PX = 22; // view px: the same in the review walk's zoom view
   const REVIEW_FILL = 0.6; // the review zoom fits the box in this share of the view (room for the TOP arrow)
-  const NUDGE_COALESCE_MS = 500;
   const HISTORY_CAP = 100;
   const LS = { filters: "labeler-picker-filters", hover: "labeler-hover-art", carry: "labeler-carry-over", defaultBox: "labeler-default-box", boxesOnly: "labeler-boxes-only", verifyBacks: "labeler-verify-backs", searchFirst: "labeler-search-first" };
 
@@ -144,7 +148,7 @@
   }
 
   async function boot() {
-    if (!G || !Tools || !Filters || !Picker || !Names || !TL || !U || !KR || !SG || !BS) {
+    if (!G || !BE0 || !Tools || !Filters || !Picker || !Names || !TL || !U || !KR || !SG || !BS) {
       // a serve.py older than this page serves it but 404s some of its scripts
       const b = $("banner");
       b.hidden = false;
@@ -154,6 +158,13 @@
     readTheme();
     S.timing = TL.createQueue({ post: postTiming, beacon: beaconTiming, onChange: renderSaveBanner, extra: () => ({ run: S.config ? S.config.run : null }) });
     S.config = await getJSON("/api/config");
+    if ((S.config.pageApi || 1) < PAGE_API) {
+      // a serve.py started before an update: new page files from disk, old Python in memory
+      const b = $("banner");
+      b.hidden = false;
+      b.textContent = "This page is newer than the running serve.py. Restart serve.py (Ctrl+C, then the same command) and reload. Nothing is loaded or saved until then.";
+      return;
+    }
     if (S.config.mode === "center" && !C) {
       const b = $("banner");
       b.hidden = false;
@@ -412,6 +423,7 @@
   async function gotoFrame(idx, pointPos) {
     if (!S.frames.length) return;
     idx = Math.max(0, Math.min(S.frames.length - 1, idx));
+    S.besideArmed = null; // D's arrow belongs to the frame it was pressed on
     if (mode() === "box") { confirmBox(); S.bdrag = null; S.newBoxMode = false; S.extraSel = new Set(); setStatus(""); }
     if (mode() === "center") { S.csel = null; S.cdrag = null; S.chover = null; }
     hideHoverPreview();
@@ -442,8 +454,9 @@
       else { const k = row.points.findIndex((p) => !complete(p)); S.pIdx = k < 0 ? 0 : k; }
     } else if (mode() === "training" && S.prefill && !row.done && !row.prefillOffered && !items(row).length && editable()) {
       const props = prefillFor(f.name) || [];
+      const ids = G.newTargetIds(row.targets, props.length, "Q");
       row.targets = props.map((p, n) => ({
-        id: newTargetId(row, n), corners: p.corners.map((c) => [c[0], c[1]]), estimated: [false, false, false, false],
+        id: ids[n], corners: p.corners.map((c) => [c[0], c[1]]), estimated: [false, false, false, false],
         outcome: p.cardId ? "card" : null, identity: p.cardId || null, identitySource: p.cardId ? "other" : null,
         eligible: null, conditions: {}, labelSource: null, pending: true, cornerSource: "prefill",
         prefill: { cardId: p.cardId || null, corners: p.corners, sim: p.sim, margin: p.margin, flag: p.flag, top5: p.top5 },
@@ -793,13 +806,9 @@
 
   // ---- corner mode --------------------------------------------------------------------------
 
-  function newTargetId(row, extra, prefix) {
-    const used = new Set((row.targets || []).map((t) => t.id));
-    for (let n = (row.targets || []).length + 1 + (extra || 0); ; n++) {
-      const id = `${prefix || "Q"}${String(n).padStart(3, "0")}`;
-      if (!used.has(id)) return id;
-    }
-  }
+  // One new target id; boxes added together take theirs from G.newTargetIds in one call, so no
+  // two of them get the same id.
+  function newTargetId(row, prefix) { return G.newTargetIds(row.targets, 1, prefix || "Q")[0]; }
 
   // Undo/redo (per frame, in memory only): a snapshot of the frame's targets before every
   // edit; a new edit clears the redo stack.
@@ -1125,18 +1134,11 @@
   function frameSize() { return [S.img && S.img.naturalWidth || 1920, S.img && S.img.naturalHeight || 1080]; }
   function rectOf(t) { return G.rectFromCorners(t.corners, t.angle); }
 
-  // Write a rect onto a target: corners in its own order, `angle` stored only when not 0.
-  function setRect(t, rect) {
-    const a = G.roundAngle(rect.angle || 0);
-    if (a === 0) {
-      const [W, H] = frameSize();
-      t.corners = G.boxCorners(rect.cx - rect.w / 2, rect.cy - rect.h / 2, rect.cx + rect.w / 2, rect.cy + rect.h / 2, W, H);
-      delete t.angle;
-    } else {
-      t.corners = G.cornersFromRect(Object.assign({}, rect, { angle: a }));
-      t.angle = a;
-    }
-  }
+  // The Boxes pass's geometry edits (boxedit.js), on this page's state.
+  const BE = BE0 && BE0.create({ frameSize, framePixels, setStatus, editGeometry, selected, primaryIds, selectedIds, isMulti, editable, noTargetMessage,
+    row: () => rowFor(currentFrame()), pushUndo, state: S,
+    turnedRect: (t, a) => turnedRect(t, a), fitStateOf: (t) => fitStateOf(t), remember: (...a) => remember(...a), notes: U.NOTES, QS });
+  const { setRect, turnTo, turnAllowed, resizeTo, nudgeBox, rotateSel, tapSel, setTopEdgeSel, fitSel, snapQuadSel } = BE || {}; // BE is absent only before the restart banner
 
   // A new box from a rect (drag, default size, snap, row insert). opts.origin: the timing log's
   // origin of a box the labeler did not draw ("insert"), or of one placed differently ("snap",
@@ -1145,9 +1147,9 @@
     if (!editable()) return null;
     const o = opts || {};
     const row = rowFor(currentFrame());
-    const t = { id: newTargetId(row, 0, "B"), corners: null, estimated: [false, false, false, false], cornerSource: "box",
+    const t = { id: newTargetId(row, "B"), corners: null, estimated: [false, false, false, false], cornerSource: "box",
       outcome: "card", identity: null, identitySource: null, eligible: null, conditions: {}, labelSource: "manual" };
-    setRect(t, rect);
+    if (o.corners) G.setQuadCorners(t, o.corners); else setRect(t, rect);
     const r = rectOf(t);
     if (r.w < G.MIN_BOX || r.h < G.MIN_BOX) { setStatus(`That box was too small (under ${G.MIN_BOX} px), so it was not drawn.`); render(); return null; }
     if (!o.keepProv) confirmBox();
@@ -1162,6 +1164,21 @@
     setStatus(o.status || "Box drawn.");
     afterChange(row, t);
     return t;
+  }
+
+  // D then an arrow: a box beside the selected one (boxedit.js besidePlace), of the same kind
+  // (card, back or ignored); an upright one is refused when too small (createBoxRect).
+  function besideSel(dir) {
+    const row = rowFor(currentFrame()), src = selected();
+    if (!editable() || !src || !isBoxTarget(src)) { setStatus("Select a box first, then press D and an arrow."); return; }
+    const b = BE.besidePlace(src, dir);
+    if (b.refused) { setStatus(b.refused); render(); return; }
+    const t = createBoxRect(b.rect, b);
+    if (!t) return;
+    if (src.outcome === "card-back") t.outcome = "card-back";
+    if (src.ignore) t.ignore = true;
+    if (t.outcome !== "card" || t.ignore) afterChange(row, t);
+    render();
   }
 
   // Confirm the boxes being adjusted: logs each commit (or a correction, if it was reopened and
@@ -1203,9 +1220,9 @@
     const ts = ids.map((id) => targetById(row, id)).filter(Boolean);
     if (!ts.length) { setStatus(noTargetMessage()); return false; }
     const before = JSON.stringify(row.targets);
-    const sig = JSON.stringify(ts.map((t) => [t.corners, t.angle]));
+    const sig = BE0.geometrySig(ts);
     ts.forEach((t, k) => fn(t, k));
-    if (JSON.stringify(ts.map((t) => [t.corners, t.angle])) === sig) { render(); return false; }
+    if (BE0.geometrySig(ts) === sig) { render(); return false; }
     if (!(opts && opts.noUndo)) pushUndo(row, before);
     reopen(ts.map((t) => t.id));
     afterChange(row, ts[0]);
@@ -1214,61 +1231,12 @@
 
   function primaryIds() { const t = selected(); return t ? [t.id] : []; }
 
-  // Arrow keys: move the selection by (dx, dy); Alt: move the primary box's own right/bottom edge.
-  // A burst of arrow presses on the same boxes within 500 ms is one undo step.
-  function nudgeBox(dx, dy, resize) {
-    const ids = resize ? primaryIds() : selectedIds();
-    if (!editable() || !ids.length) { setStatus(resize ? noTargetMessage() : "Select a box first: click it, or press Tab."); return; }
-    const row = rowFor(currentFrame());
-    const now = Date.now();
-    const k = `${row.name}|${ids.join(",")}|${resize ? "r" : "m"}`;
-    const coalesce = now - S.nudge.at < NUDGE_COALESCE_MS && S.nudge.key === k;
-    const before = JSON.stringify(row.targets);
-    const [W, H] = frameSize();
-    const changed = editGeometry(ids, (t) => {
-      if (!resize) { t.corners = G.translateCorners(t.corners, dx, dy, W, H); return; }
-      const r = rectOf(t);
-      const nw = Math.max(G.MIN_BOX, r.w + dx), nh = Math.max(G.MIN_BOX, r.h + dy);
-      const off = G.rotatePoint((nw - r.w) / 2, (nh - r.h) / 2, r.angle);
-      setRect(t, { cx: r.cx + off.x, cy: r.cy + off.y, w: nw, h: nh, angle: r.angle });
-    }, { noUndo: true });
-    if (changed && !coalesce) pushUndo(row, before);
-    S.nudge = { at: now, key: k };
-  }
-
   // `e`, "Fit to the tilted card" (boxgeom.fitState / fitRect): one undo step. Turning never
   // changes a box's size; this is the one action that fits a turned model's box to the card.
   const fitRecord = (t) => S.fitted.get(key(currentFrame().name, t));
   const fitStateOf = (t) => G.fitAction(t, fitRecord(t), ...frameSize());
   function remember(t, base, rect) { S.fitted.set(key(currentFrame().name, t), G.fitRecord(fitRecord(t), base, rect || rectOf(t))); }
   const turnedRect = (t, angle) => G.turnRect(t, angle, fitRecord(t), ...frameSize()); // from its exact reference: no drift
-
-  function fitSel() {
-    if (!editable()) return;
-    const t = isMulti() ? null : selected(), st = fitStateOf(t);
-    if (!st.base) { setStatus(U.NOTES.fitWhy[st.reason]); return; }
-    const f = G.fitRect(t, st.base);
-    remember(t, st.base, f); // before the redraw
-    setStatus(editGeometry([t.id], (x) => setRect(x, f)) ? U.NOTES.fitted : U.NOTES.fitsAlready);
-  }
-
-  function rotateSel(delta) {
-    editGeometry(primaryIds(), (t) => setRect(t, turnedRect(t, G.normalizeAngle(rectOf(t).angle + delta))));
-  }
-
-  // Alt+click an edge of the selected box: that edge becomes the card's own top. The four points
-  // stay exactly; the corner order starts at that edge (q[0]→q[1]) and the angle turns by 90·k.
-  function setTopEdgeSel(k) {
-    if (isMulti()) { setStatus(noTargetMessage()); return; }
-    if (!k) { setStatus("That edge is already the top."); return; }
-    const names = ["top", "right", "bottom", "left"];
-    const done = editGeometry(primaryIds(), (t) => {
-      const a = G.roundAngle(rectOf(t).angle + 90 * k);
-      t.corners = G.topEdgeCorners(t.corners, k);
-      if (a === 0) delete t.angle; else t.angle = a;
-    });
-    if (done) setStatus(`The card's top is now the ${names[k]} edge.`);
-  }
 
   // The box edge near p, for Alt: the selected box's first, else the topmost box with an edge
   // there (Alt+click must work on a box that is not selected, e.g. right after Enter).
@@ -1280,7 +1248,7 @@
     const ts = row.targets || [];
     const order = (sel ? [sel] : []).concat(G.orderDesc(ts).map((i) => ts[i]).filter((t) => t !== sel));
     for (const t of order) {
-      const k = G.nearestEdge(rectOf(t), p, tol);
+      const k = G.nearestEdgeOf(t, p, tol);
       if (k !== null) return { id: t.id, k };
     }
     return null;
@@ -1289,10 +1257,6 @@
   function setAltEdge(e) {
     const same = (a, b) => (a && b ? a.id === b.id && a.k === b.k : a === b);
     if (!same(e, S.altEdge)) { S.altEdge = e; render(); }
-  }
-
-  function tapSel(dir) {
-    editGeometry(primaryIds(), (t) => { const r = rectOf(t); r.angle = G.quarterTurn(r.angle, dir); setRect(t, r); });
   }
 
   // `b` / `h`: card back / ignore on or off. With several boxes selected, every one is set to the
@@ -1367,11 +1331,15 @@
 
   function clipFrameKey() { return `${S.set.setId}/${currentFrame().name}`; }
 
+  // Copies the selected box, or every selected box (bottom layer first). A copy that cannot be
+  // made empties the clipboard, so a later paste never brings back an older copy.
   function copyBox() {
-    const t = selected();
-    if (!t) { setStatus(noTargetMessage()); return false; }
-    S.clip = G.makeClip(t, clipFrameKey());
-    setStatus("Box copied.");
+    const row = rowFor(currentFrame());
+    const ids = new Set(selectedIds());
+    const ts = G.orderAsc(row.targets || []).map((i) => row.targets[i]).filter((t) => ids.has(t.id) && Array.isArray(t.corners));
+    if (!ts.length) { S.clip = null; setStatus(noTargetMessage()); return false; }
+    S.clip = ts.map((t) => G.makeClip(t, clipFrameKey()));
+    setStatus(ts.length === 1 ? "Box copied." : `${ts.length} boxes copied.`);
     return true;
   }
 
@@ -1379,23 +1347,33 @@
     if (!editable() || !S.clip) { if (!S.clip) setStatus(`Nothing copied yet: select a box and press ${CMD}+C.`); return; }
     const row = rowFor(currentFrame());
     const [W, H] = frameSize();
+    const clips = S.clip;
+    const ids = G.newTargetIds(row.targets, clips.length, "B");
+    const z0 = G.nextZ(row.targets);
+    const res = G.pasteGroup(clips, clipFrameKey(), W, H, ids, clips.map((_, k) => (z0 === null ? null : z0 + k)), mode() === "box" && S.boxesOnly);
+    if (res.refused) { setStatus(res.refused); return; }
     confirmBox();
-    pushUndo(row);
-    const t = G.pasteTarget(S.clip, clipFrameKey(), W, H, newTargetId(row, 0, "B"), G.nextZ(row.targets), mode() === "box" && S.boxesOnly);
-    row.targets.push(t);
-    selectOnly(t.id);
-    S.prov.add(t.id);
+    pushUndo(row); // one undo takes back the whole paste
+    for (const t of res.targets) row.targets.push(t);
+    const pasted = res.targets;
+    selectOnly(pasted[pasted.length - 1].id);
+    S.extraSel = new Set(pasted.slice(0, -1).map((t) => t.id));
     S.lastCreateAt = Date.now();
-    S.origin.set(key(row.name, t), origin || "paste");
-    logEvent({ ev: origin === "duplicate" ? "duplicated" : "pasted", target: t.id,
-      source: { frame: S.clip.sourceFrame, target: S.clip.sourceTarget } });
+    pasted.forEach((t, k) => {
+      S.prov.add(t.id);
+      S.origin.set(key(row.name, t), origin || "paste");
+      logEvent({ ev: origin === "duplicate" ? "duplicated" : "pasted", target: t.id,
+        source: { frame: clips[k].sourceFrame, target: clips[k].sourceTarget } });
+    });
+    const t = pasted[pasted.length - 1];
     let note = "";
     if (row.done) { // a pasted box is unchecked: the frame needs confirming again
       row.done = false;
       logEvent({ ev: "frame-unconfirmed", n: row.targets.length, via: "paste" });
       note = " The frame was done: it is open again until you finish it.";
     }
-    setStatus(`Box ${origin === "duplicate" ? "duplicated" : "pasted"}: move it into place.${note}`);
+    setStatus(pasted.length === 1 ? `Box ${origin === "duplicate" ? "duplicated" : "pasted"}: move it into place.${note}`
+      : `${pasted.length} boxes ${origin === "duplicate" ? "duplicated" : "pasted"}: drag one to move them together.${note}`);
     afterChange(row, t);
   }
 
@@ -1407,11 +1385,17 @@
     const t = selected();
     if (!editable() || !t) { setStatus(noTargetMessage()); return; }
     const row = rowFor(currentFrame());
-    const z = G.reorder(row.targets, row.targets.indexOf(t), how);
-    if (!z) { setStatus(how === "front" || how === 1 ? "This box is already on top." : "This box is already at the back."); return; }
+    const step = how === 1 || how === -1;
+    const z = step ? G.reorderAmongOverlaps(row.targets, row.targets.indexOf(t), how) : G.reorder(row.targets, row.targets.indexOf(t), how);
+    if (!z) {
+      setStatus(step ? (how === 1 ? "No box it overlaps is above it." : "No box it overlaps is below it.")
+        : how === "front" ? "This box is already on top." : "This box is already at the back.");
+      return;
+    }
     pushUndo(row);
     row.targets.forEach((x, i) => { x.zOrder = z[i]; });
-    setStatus(`This box is now layer ${z[row.targets.indexOf(t)] + 1} of ${row.targets.length}.`);
+    const L = G.stackLayers(row.targets)[row.targets.indexOf(t)];
+    setStatus(L.size > 1 ? `This box is now layer ${L.layer} of ${L.size} in its stack.` : "This box overlaps no other box: its layer makes no difference.");
     scheduleSave(); render();
   }
 
@@ -1518,7 +1502,22 @@
   }
 
   function resnapSel() {
-    editGeometry(primaryIds(), (t) => { const r = snapSeed(rectOf(t)); if (r) setRect(t, r); });
+    editGeometry(primaryIds(), (t) => { const r = snapSeed(rectOf(t)); if (r) turnTo(t, r); });
+  }
+
+  function besideContext() { return { set: S.set && S.set.setId, frame: S.frameIdx, mode: mode(), sel: selectedIds() }; }
+
+  function armBeside() {
+    const t = selected();
+    if (!editable() || !t || !isBoxTarget(t)) { setStatus("Select a box first, then press D and an arrow."); return; }
+    S.besideArmed = KR.armedFor(besideContext());
+    setStatus("A box beside this one: press an arrow for the side (Esc cancels).");
+  }
+
+  function setStackView(on) {
+    S.stackView = !!on;
+    setStatus(S.stackView ? "Stacking view on: each box is shaded where no box above it covers it; the number is its layer in its stack (1 = the bottom). Nothing is saved." : "Stacking view off.");
+    renderToolbar(); render();
   }
 
   function setBoxSnap(on) {
@@ -1587,6 +1586,7 @@
     const pairs = Tools.applyLayout(cur.map(rectOf), src.targets.map(rectOf));
     if (!pairs) return;
     const byIdx = new Map(pairs.map((p) => [p.targetIndex, p.rect]));
+    if (!cur.every((t, k) => turnAllowed(t, byIdx.get(k)))) { setStatus(BE0.TOO_FAR); return; } // all or none
     if (editGeometry(cur.map((t) => t.id), (t, k) => setRect(t, byIdx.get(k)))) {
       S.selId = cur[0].id; S.extraSel = new Set(cur.map((t) => t.id));
       setStatus(`Layout taken from frame ${src.index + 1}.`);
@@ -1702,7 +1702,7 @@
     props.forEach((p, i) => {
       const t = cands[i];
       if (!t) return;
-      t.id = newTargetId(row, 0, "P");
+      t.id = newTargetId(row, "P");
       if (existing.length) {
         if (held[i] >= 0) { suppressed.push(i); return; }
         t.suggestion = true; sugg++;
@@ -1729,7 +1729,7 @@
     let n = 0;
     const all = frameProps(row).map(asCard);
     for (const i of row.prefillSuppressed) {
-      const t = G.prefillTarget(props[i], i, W, H, newTargetId(row, 0, "P"));
+      const t = G.prefillTarget(props[i], i, W, H, newTargetId(row, "P"));
       if (!t) continue;
       if (G.heldBack(all, row.targets.map(asCard), sameCardId)[i] >= 0) { rest.push(i); continue; }
       if (others.length) t.suggestion = true;
@@ -2047,7 +2047,7 @@
   function reviewEdgeAt(p) {
     const t = selected(), v = S.review.view;
     if (!p || !t || !v) return null;
-    return G.viewEdgeAt(v, rectOf(t), p.x, p.y, REVIEW_EDGE_PX);
+    return G.nearestEdgeOf(t, G.viewToFrame(v, p.x, p.y), REVIEW_EDGE_PX / v.z);
   }
 
   function setReviewAlt(k) {
@@ -2147,7 +2147,7 @@
     pushUndo(row);
     const a = G.roundAngle(rectOf(t).angle + 90 * kk);
     t.corners = G.topEdgeCorners(t.corners, kk);
-    if (a === 0) delete t.angle; else t.angle = a;
+    if (a === 0 || G.isQuad(t)) delete t.angle; else t.angle = a; // a box with free corners has no angle
     t.orientationFixedIn = "identify"; // the server sets it too (and keeps it)
     // a box flagged "fix top" in box mode is cleared once its angle changes (afterChange's rule)
     if (t.boxFix && typeof t.boxFix === "object" && t.boxFix.reason === "top" && (t.angle || 0) !== t.boxFix.angle) delete t.boxFix;
@@ -2238,7 +2238,7 @@
   function idEdgeAt(p) {
     const t = selected(), v = S.idView;
     if (!p || !t || !v || !identifyTurnsShown()) return null;
-    return G.viewEdgeAt(v, rectOf(t), p.x, p.y, REVIEW_EDGE_PX);
+    return G.nearestEdgeOf(t, G.viewToFrame(v, p.x, p.y), REVIEW_EDGE_PX / v.z);
   }
 
   function setIdAlt(k) {
@@ -2266,6 +2266,7 @@
   function namesEditBlocked() {
     if (!identifyTurnsShown()) return "";
     if (role() === "test") return TEST_LOCKED;
+    if (G.isQuad(selected())) return U.NOTES.quad.names;
     if (!editable()) return SG.mayEdit(gateState()).text;
     if (!(S.config && S.config.identifyEdits)) return "The running server is older than this page and cannot save a changed box. Restart it (Ctrl+C, then the same command) and reload.";
     return null;
@@ -2291,9 +2292,9 @@
     if (!d.moved && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) <= DRAG_PX) return;
     d.moved = true;
     const { p } = namesHit(ev), [W, H] = frameSize();
-    if (d.mode === "move") t.corners = G.translateCorners(d.corners, p.x - d.start.x, p.y - d.start.y, W, H);
-    else if (d.mode === "resize") setRect(t, G.resizeRect(d.orig, d.handle, { x: G.clamp(p.x, 0, W), y: G.clamp(p.y, 0, H) }, G.MIN_BOX));
-    else setRect(t, Object.assign({}, d.orig, { angle: G.normalizeAngle(d.orig.angle + (G.angleFromCenter({ x: d.orig.cx, y: d.orig.cy }, p) - d.startAngle)) }));
+    if (d.mode === "move") t.corners = G.translateCorners(d.corners, p.x - d.start.x, p.y - d.start.y, W, H, true);
+    else if (d.mode === "resize") resizeTo(t, G.resizeWithin(d.orig, d.handle, p, W, H, G.MIN_BOX));
+    else turnTo(t, Object.assign({}, d.orig, { angle: G.normalizeAngle(d.orig.angle + (G.angleFromCenter({ x: d.orig.cx, y: d.orig.cy }, p) - d.startAngle)) }));
     render();
   }
   function namesEditEnd() {
@@ -2710,6 +2711,7 @@
     $("boxesOnlyToggle").checked = S.boxesOnly;
     document.body.classList.toggle("boxes-only", mode() === "box" && S.boxesOnly);
     $("snapToggle").checked = S.boxSnap;
+    $("stackViewToggle").checked = S.stackView;
     // the list of names changes a frame too: out of reach while the frame takes no change
     // (its picture did not load, or this page saves nothing more); a read-only set keeps it to look things up
     const gate = SG.mayEdit(gateState());
@@ -2864,7 +2866,7 @@
       if (identifyTurnsShown()) drawTopMarker(ctx, q, S.idAltK, d.w, d.h);
       // a box that may be changed here: its handles (corners, and the knob above its top)
       if (identifyTurnsShown() && !namesEditBlocked()) {
-        const k = G.frameToView(v, ((p) => [p.x, p.y])(G.rotateHandlePos(rectOf(t), KNOB_PX / v.z)));
+        const k = G.frameToView(v, ((p) => [p.x, p.y])(G.knobOf(t, KNOB_PX / v.z)));
         ctx.strokeStyle = T.target; ctx.fillStyle = T.void; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo((q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2); ctx.lineTo(k[0], k[1]); ctx.stroke();
         ctx.beginPath(); ctx.arc(k[0], k[1], 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -3050,9 +3052,62 @@
   function fitCorner() {
     const c = $("frameCanvas"), box = $("center");
     const W = S.img.naturalWidth || 1920, H = S.img.naturalHeight || 1080;
-    const s = Math.min((box.clientWidth - 16) / W, (box.clientHeight - 16) / H);
+    const leg = $("legend"), below = leg.hidden ? 0 : leg.offsetHeight + 12; // the legend sits under the frame, never on it
+    $("cornerStage").style.bottom = `${below}px`;
+    const s = Math.min((box.clientWidth - 16) / W, (box.clientHeight - below - 16) / H);
     S.view.s = s;
     return sizeCanvas(c, Math.floor(W * s), Math.floor(H * s));
+  }
+
+  // ---- the stacking view (O): a visual aid, nothing is saved ----------------------------------
+  const STACK_HUES = [205, 35, 140, 290, 0, 95, 250, 170, 320, 60];
+
+  // Every box painted opaque from the bottom layer up on a layer of its own, so each pixel keeps
+  // the color of the topmost box over it; the layer is then laid over the frame, see-through.
+  function drawStackShade(ctx, ts, s) {
+    const c = ctx.canvas;
+    const off = document.createElement("canvas");
+    off.width = c.width; off.height = c.height;
+    const o = off.getContext("2d");
+    o.setTransform(ctx.getTransform());
+    G.orderAsc(ts).forEach((i, rank) => {
+      const t = ts[i];
+      if (!Array.isArray(t.corners) || t.corners.length !== 4) return;
+      tracePoly(o, t.corners, s);
+      o.fillStyle = t.ignore ? "hsl(0, 0%, 45%)" : `hsl(${STACK_HUES[rank % STACK_HUES.length]}, 85%, 55%)`;
+      o.fill();
+    });
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 0.4;
+    ctx.drawImage(off, 0, 0);
+    ctx.restore();
+  }
+
+  // Each box's layer in its stack (boxes joined by overlaps), at the middle of its largest visible rectangle (dashed where it is smaller
+  // than the box); a box with under a fifth of it showing is marked: its layer is likely wrong.
+  function drawStackLabels(ctx, ts, parts, s) {
+    const layers = G.stackLayers(ts);
+    ctx.save();
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "bold 15px system-ui, sans-serif";
+    ts.forEach((t, i) => {
+      const v = parts[i];
+      if (!v) return;
+      const q = v.corners || t.corners;
+      if (!Array.isArray(q)) return;
+      if (v.corners && v.share < 1) {
+        ctx.setLineDash([4, 3]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+        tracePoly(ctx, v.corners, s); ctx.stroke(); ctx.setLineDash([]);
+      }
+      const cx = (q.reduce((a, p) => a + p[0], 0) / 4) * s, cy = (q.reduce((a, p) => a + p[1], 0) / 4) * s;
+      const low = !v.corners || v.share < 0.2;
+      if (layers[i].size < 2 && !low) return; // a box that overlaps nothing has no layer worth showing
+      const label = String(layers[i].layer) + (low ? (v.corners ? " ?" : " hidden") : "");
+      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0, 0, 0, 0.85)"; ctx.strokeText(label, cx, cy);
+      ctx.fillStyle = low ? "#ff6b6b" : "#fff"; ctx.fillText(label, cx, cy);
+    });
+    ctx.restore();
   }
 
   function tracePoly(ctx, q, s) {
@@ -3169,11 +3224,10 @@
       ctx.fillText(k ? "click: top" : "top", ((a[0] + b2[0]) / 2) * s + 6, ((a[1] + b2[1]) / 2) * s - 6);
     }
     if (isSel && !isMulti()) {
-      const r = rectOf(t);
       ctx.fillStyle = T.ink;
-      for (const p of G.cornersFromRectRaw(r)) ctx.fillRect(p[0] * s - 3, p[1] * s - 3, 6, 6);
+      for (const p of G.handlePoints(t)) ctx.fillRect(p[0] * s - 3, p[1] * s - 3, 6, 6);
       if (editable() && mode() === "box") {
-        const top = G.rotateHandlePos(r, 0), knob = G.rotateHandlePos(r, KNOB_PX / s);
+        const top = G.knobOf(t, 0), knob = G.knobOf(t, KNOB_PX / s);
         ctx.beginPath(); ctx.moveTo(top.x * s, top.y * s); ctx.lineTo(knob.x * s, knob.y * s);
         ctx.strokeStyle = T.ink; ctx.lineWidth = 1; ctx.stroke();
         ctx.beginPath(); ctx.arc(knob.x * s, knob.y * s, 5, 0, Math.PI * 2); ctx.fillStyle = T.selected; ctx.fill();
@@ -3212,7 +3266,10 @@
     if (mode() === "box") {
       const ts = row.targets || [];
       const sel = new Set(selectedIds());
+      const parts = S.stackView ? G.visibleParts(ts) : null;
+      if (parts) drawStackShade(ctx, ts, s);
       for (const i of G.orderAsc(ts)) drawBox(ctx, ts[i], s, ts[i].id === S.selId, sel.size > 1 && sel.has(ts[i].id));
+      if (parts) drawStackLabels(ctx, ts, parts, s);
       if (!reviewOn()) for (const q of movedPairsOf(row)) drawMovedPair(ctx, targetById(row, q.kept), targetById(row, q.suggestion), s);
       const d = S.bdrag;
       if (d && (d.mode === "draw" || d.mode === "marquee") && d.moved) {
@@ -3351,7 +3408,7 @@
       const ts = row.targets || [];
       const layer = G.orderAsc(ts).indexOf(ts.indexOf(t)) + 1;
       const pf = t.propagatedFrom && !G.isCarried(t) ? ` · from ${t.propagatedFrom.frame} (score ${t.propagatedFrom.score})` : "";
-      add("Size and place", text(`${Math.round(r.w)} × ${Math.round(r.h)} px, centered at (${Math.round(r.cx)}, ${Math.round(r.cy)})${t.angle ? ` · turned ${t.angle}°` : ""} · layer ${layer} of ${ts.length}${pf}`));
+      add("Size and place", text(`${Math.round(r.w)} × ${Math.round(r.h)} px, centered at (${Math.round(r.cx)}, ${Math.round(r.cy)})${t.angle ? ` · turned ${t.angle}°` : ""}${G.isQuad(t) ? " · free corners (E: a rectangle again)" : ""} · layer ${layer} of ${ts.length}${pf}`));
     } else if (t.corners) {
       const d = t.derived;
       add("Measured", text(d ? `short side ${d.shortSidePx} px${d.shortSideSourcePx ? " (" + d.shortSideSourcePx + " in the recording)" : ""} · turned ${d.rotationDeg}° · seen flat ${d.foreshortening}${d.clockwise ? "" : " · CORNERS RUN THE WRONG WAY"}` : "(saving…)"));
@@ -4215,7 +4272,8 @@
       const moved = movedPairsOf(row);
       st.box = { total: ts.length, model: pend.length - sugg, suggestions: sugg, kept: kept.length, keptFrom: from || null,
         moved: moved.length, movedSel: !!sel && moved.some((q) => q.kept === sel.id || q.suggestion === sel.id),
-        fit: sel && !isMulti() ? fitStateOf(sel).reason || "ok" : "none", fitHint: !!sel && !isMulti() && G.needsFit(sel, fitRecord(sel), ...frameSize()),
+        fit: sel && !isMulti() ? fitStateOf(sel).reason || "ok" : "none", fitHint: !!sel && !isMulti() && !G.isQuad(sel) && G.needsFit(sel, fitRecord(sel), ...frameSize()),
+        quad: !!sel && !isMulti() && G.isQuad(sel),
         held: row.done ? 0 : (row.prefillSuppressed || []).length, backs: ts.filter((t) => t.outcome === "card-back").length,
         multi: selectedIds().length, placing: !!S.newBoxMode, flagged: ts.some((t) => t.boxFix), prefill: prefillActive(),
         selected: !sel ? null : sel.pending && sel.prefill ? (sel.suggestion ? "suggestion" : "model") : S.prov.has(sel.id) ? "adjusting" : "box",
@@ -4287,7 +4345,7 @@
       if (b.prefill || b.flagged) frame.push(A("Next box to check", "j"));
       if (b.moved) frame.push(A("Move the kept box to its card", "m", { cap: "M" }));
       return [["Selected box", [A("Accept, then next", "a", { off: !model }), A("Card back", "b", { off: !any }), A("Too hidden: ignore", "h", { off: !any, title: IGNORE_HELP }),
-        A("Turn a quarter", "w", { off: !one })].concat(b.prefill ? [A("Fit to the tilted card", "e", { off: b.fit !== "ok", title: b.fit === "ok" ? U.NOTES.fitHelp : U.NOTES.fitWhy[b.fit] })] : [], [A("Tilt +5°", "R", { off: !one, cap: "Shift+R" }), A("Tilt −1°", "r", { off: !one }),
+        A("Turn a quarter", "w", { off: !one })].concat(b.quad ? [A("Snap the corners", "s"), A("A rectangle again", "e")] : [], b.prefill && !b.quad ? [A("Fit to the tilted card", "e", { off: b.fit !== "ok", title: b.fit === "ok" ? U.NOTES.fitHelp : U.NOTES.fitWhy[b.fit] })] : [], [A("Tilt +5°", "R", { off: !one, cap: "Shift+R" }), A("Tilt −1°", "r", { off: !one }),
         A("Remove", "Delete", { off: !any })])], ["This frame", frame.concat(undoRedo(b.undo, b.redo))]];
     }
     const other = [A("Card back", "b"), A("Not a card", "x"), A("Cannot be read", "u")];
@@ -4831,6 +4889,7 @@
       if (S.carryOn && mode() === "box") { tryCarryOver(S.frameIdx); render(); }
     });
     $("snapToggle").addEventListener("change", (ev) => setBoxSnap(ev.target.checked));
+    $("stackViewToggle").addEventListener("change", (ev) => setStackView(ev.target.checked));
     $("hoverToggle").addEventListener("change", (ev) => setHoverArt(ev.target.checked));
     $("boxesOnlyToggle").addEventListener("change", (ev) => setBoxesOnly(ev.target.checked));
     $("verifyBacksToggle").addEventListener("change", (ev) => setVerifyBacks(ev.target.checked));
@@ -4984,13 +5043,8 @@
     const s = scale || S.view.s;
     const t = selected();
     if (t && editable() && !ev.altKey) {
-      const r = rectOf(t);
-      const k = G.rotateHandlePos(r, KNOB_PX / s);
-      if (Math.hypot(p.x - k.x, p.y - k.y) <= HANDLE_PX / s) return { mode: "rotate", t };
-      const c = G.hitCorner(r, p, HANDLE_PX / s);
-      if (c) return { mode: "resize", t, handle: c };
-      const e = G.hitEdge(r, p, EDGE_PX / s);
-      if (e) return { mode: "resize", t, handle: e };
+      const h = G.handleAt(t, p, KNOB_PX / s, HANDLE_PX / s, EDGE_PX / s);
+      if (h) return Object.assign(h, { t });
     }
     if (!ev.altKey) {
       const hit = only ? (t && G.pointInQuad(t.corners, p) ? t : null) : topBoxAt(p);
@@ -5002,8 +5056,11 @@
   const CURSORS = { rotate: "grab", move: "move", empty: "crosshair", t: "ns-resize", b: "ns-resize", l: "ew-resize", r: "ew-resize",
     tl: "nwse-resize", br: "nwse-resize", tr: "nesw-resize", bl: "nesw-resize" };
 
+  const QUAD_DRAGS = ["move", "resize", "rotate", "corner", "edge", "qrotate"];
+
   function boxMouseDown(p, ev) {
     if (!S.img || !S.img.naturalWidth || S.busy) return;
+    S.besideArmed = null; // a click after D cancels it: the next arrow moves the box as usual
     hideHoverPreview();
     const row = rowFor(currentFrame());
     const hit = boxHit(p, ev);
@@ -5011,6 +5068,8 @@
     const edge = ev.altKey && !ev.shiftKey ? altEdgeAt(p) : null;
     if (edge) { // Alt+click an edge: set the top on release; a drag instead draws (Alt+drag)
       S.bdrag = Object.assign(base, { mode: "topEdge", k: edge.k, id: edge.id });
+    } else if (BE.quadDragStart(hit, p, ev.shiftKey)) { // a box with free corners, or Shift+drag a corner
+      S.bdrag = Object.assign(base, BE.quadDragStart(hit, p, ev.shiftKey));
     } else if (hit.mode === "rotate" || hit.mode === "resize") {
       const r = hit.mode === "rotate" ? turnedRect(hit.t, rectOf(hit.t).angle) : rectOf(hit.t);
       S.bdrag = Object.assign(base, { mode: hit.mode, id: hit.t.id, handle: hit.handle, orig: r, startAngle: G.angleFromCenter({ x: r.cx, y: r.cy }, p) });
@@ -5047,24 +5106,23 @@
       d.moved = true;
       if (d.mode === "topEdge") { d.mode = "draw"; setAltEdge(null); }
       if (d.mode === "draw") logEvent({ ev: "started" });
-      if (d.mode === "move" || d.mode === "resize" || d.mode === "rotate") reopen(d.group || [d.id]);
+      if (QUAD_DRAGS.includes(d.mode)) reopen(d.group || [d.id]);
     }
     const row = rowFor(currentFrame());
     const [W, H] = frameSize();
     if (d.mode === "move") {
       d.group.forEach((id, k) => {
         const t = targetById(row, id);
-        if (t) t.corners = G.translateCorners(d.origs[k], p.x - d.start.x, p.y - d.start.y, W, H);
+        if (t) t.corners = G.translateCorners(d.origs[k], p.x - d.start.x, p.y - d.start.y, W, H, true);
       });
     } else if (d.mode === "resize") {
       const t = targetById(row, d.id);
-      const q = { x: G.clamp(p.x, 0, W), y: G.clamp(p.y, 0, H) };
-      if (t) setRect(t, G.resizeRect(d.orig, d.handle, q, G.MIN_BOX));
+      if (t) resizeTo(t, G.resizeWithin(d.orig, d.handle, p, W, H, G.MIN_BOX));
     } else if (d.mode === "rotate") {
       const t = targetById(row, d.id);
       const a = G.angleFromCenter({ x: d.orig.cx, y: d.orig.cy }, p);
-      if (t) setRect(t, Object.assign({}, d.orig, { angle: G.normalizeAngle(d.orig.angle + (a - d.startAngle)) }));
-    }
+      if (t) turnTo(t, Object.assign({}, d.orig, { angle: G.normalizeAngle(d.orig.angle + (a - d.startAngle)) }));
+    } else if (d.center) BE.quadDragMove(d, targetById(row, d.id), p);
     render();
   }
 
@@ -5077,7 +5135,7 @@
       if (isMulti() || d.id !== S.selId) { confirmBox(); selectOnly(d.id); }
       setTopEdgeSel(d.k); render(); return;
     }
-    if (d.mode === "move" || d.mode === "resize" || d.mode === "rotate") {
+    if (QUAD_DRAGS.includes(d.mode)) {
       if (d.moved && JSON.stringify(row.targets) !== d.before) {
         pushUndo(row, d.before);
         afterChange(row, targetById(row, d.id) || row.targets[0]);
@@ -5113,6 +5171,14 @@
   function onBoxKey(ev) {
     const k = ev.key;
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    if (S.besideArmed && !KR.stillArmed(S.besideArmed, besideContext())) S.besideArmed = null; // armed elsewhere: gone
+    if (S.besideArmed) {
+      S.besideArmed = null;
+      const side = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[k];
+      if (side) { besideSel(side); return true; }
+      if (k === "Escape") { setStatus("Canceled."); return true; }
+      setStatus(""); // any other key does what it always does
+    }
     if (arrows[k]) {
       const step = ev.shiftKey ? 10 : 1;
       if (selectedIds().length) nudgeBox(arrows[k][0] * step, arrows[k][1] * step, ev.altKey);
@@ -5154,10 +5220,12 @@
       N: () => map.n(), G: () => distributeSel(), L: () => sameLayout(), P: () => setHoverArt(!S.hoverArt),
       n: () => { S.newBoxMode = true; setStatus(""); render(); },
       f: () => setBoxSnap(!S.boxSnap), F: () => setBoxSnap(!S.boxSnap),
-      s: () => (ev.shiftKey ? defaultToSelected() : S.boxSnap && selected() ? resnapSel() : defaultFromSelected()),
+      s: () => (ev.shiftKey ? defaultToSelected() : G.isQuad(selected()) && !isMulti() ? snapQuadSel() : S.boxSnap && selected() ? resnapSel() : defaultFromSelected()),
       S: defaultToSelected,
       g: distributeSel, "+": insertIntoRow, "=": insertIntoRow, "-": removeFromRow, l: sameLayout,
       p: () => setHoverArt(!S.hoverArt),
+      o: () => setStackView(!S.stackView), O: () => setStackView(!S.stackView),
+      d: () => armBeside(), D: () => armBeside(),
       v: () => setReview(true), V: () => setReview(true),
       Backspace: deleteTarget, Delete: deleteTarget,
       Tab: () => cycleTarget(ev.shiftKey ? -1 : 1),

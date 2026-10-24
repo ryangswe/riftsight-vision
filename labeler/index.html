@@ -107,6 +107,7 @@
           <label class="boxOnly" id="carryLabel"><input type="checkbox" id="carryToggle"> Keep boxes from the previous frame</label>
           <label class="boxOnly" title="A click on a card places a box of the new-box size, fitted to the card's edges."><input type="checkbox" id="snapToggle"> Snap to card edges <kbd>F</kbd></label>
           <label class="boxOnly" title="Shows every box of the set one at a time, enlarged, to check which edge is the card's top."><input type="checkbox" id="reviewToggle"> Check top edges <kbd>V</kbd></label>
+          <label class="boxOnly" title="Shades the part of each box that no box above it covers and shows its layer (1 = the bottom), to check the stacking order at a glance. A visual aid only: nothing is saved."><input type="checkbox" id="stackViewToggle"> Stacking view <kbd>O</kbd></label>
           <label class="boxOnly" title="The check of top edges also shows card backs and ignored boxes, last on each frame."><input type="checkbox" id="reviewIgnoreToggle"> Include backs and ignored boxes</label>
           <label class="boxOnly" title="The Boxes pass draws boxes only: the list of names is hidden, and names come in the Names pass."><input type="checkbox" id="boxesOnlyToggle"> Hide names (box pass)</label>
           <label class="verifyOnly" title="Card backs are shown too, after the faces of each frame, to check that they are backs."><input type="checkbox" id="verifyBacksToggle"> Include card backs</label>
@@ -153,6 +154,7 @@
   <script src="/filters.js"></script>
   <script src="/labeltools.js"></script>
   <script src="/boxgeom.js"></script>
+  <script src="/boxedit.js"></script>
   <script src="/boxsize.js"></script>
   <script src="/picker.js"></script>
   <script src="/names.js"></script>

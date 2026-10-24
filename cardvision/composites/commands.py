@@ -42,6 +42,11 @@ def _make_arguments(parser: argparse.ArgumentParser) -> None:
                         help="the size of an upright card in millimeters, width then height; it sets the "
                              "shape of the layouts, the generated backs and the card-shaped distractors "
                              "(default: 63x88)")
+    parser.add_argument("--closeups", type=float, default=0.0, metavar="SHARE",
+                        help="the share of scenes, from 0 to 1, drawn as close-ups: one large card, sometimes two, "
+                             "tilted 15 to 45 degrees toward the camera, as in a digital client's summon or "
+                             "activation shot or a webcam close over the table. The other scenes stay the same "
+                             "(default: 0, none)")
     parser.add_argument("--workers", type=int, default=1,
                         help="processes to spread the work over; the output does not depend on it (default: 1)")
     parser.add_argument("--check", action="store_true",
@@ -53,6 +58,7 @@ def _make(args: argparse.Namespace) -> int:
     from cardvision.composites.cards import load_kinds
     from cardvision.composites.dataset import generate, positive_cards
     from cardvision.composites.geometry import card_aspect, parse_card_size
+    from cardvision.composites.scene import Settings
     from cardvision.composites.validate import validate_labels
     from cardvision.core.catalog import CatalogError, load_catalog
 
@@ -65,9 +71,10 @@ def _make(args: argparse.Namespace) -> int:
         if not args.art.is_dir():
             raise FileNotFoundError(f"{args.art}: no such folder of card images")
         catalog = load_catalog(args.catalog)
+        settings = Settings(closeups=args.closeups)
         kinds = load_kinds(args.kinds) if args.kinds else None
         manifest = generate(catalog, args.art, args.out, args.n, seed=args.seed, split=args.split,
-                            textures_dir=args.textures, kinds=kinds, workers=args.workers,
+                            textures_dir=args.textures, settings=settings, kinds=kinds, workers=args.workers,
                             overwrite=args.overwrite, progress=progress, card_aspect=aspect)
     except (CatalogError, OSError, ValueError) as error:
         return _fail("make-composites", str(error))

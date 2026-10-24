@@ -23,6 +23,15 @@ assert.strictEqual(K.focusKind({ tag: "BUTTON", type: "button" }), "button");
 assert.strictEqual(K.focusKind({ tag: "SUMMARY" }), "summary");
 assert.strictEqual(K.focusKind({ tag: "A" }), "link");
 
+// the Boxes pass's keys for a box with free corners (S snaps them, E makes it a rectangle again)
+// reach the editor from the frame and from a focused button alike; a text field keeps them
+for (const key of ["s", "e", "E"]) {
+  assert.strictEqual(K.route({ key, focus: "none" }), "editor", key);
+  assert.strictEqual(K.route({ key, focus: "button" }), "editor", key);
+  assert.strictEqual(K.route({ key, focus: "checkbox" }), "editor", key);
+  assert.strictEqual(K.route({ key, focus: "text" }), "field", key);
+}
+
 // after a set was chosen in the menu: where the next Tab starts
 assert.strictEqual(K.tabFrom({ focus: "none", onFrame: false }), "menu", "nothing holds the focus: the place stays at the menu");
 assert.strictEqual(K.tabFrom({ focus: "none", onFrame: true }), "as-is", "the frame has the focus");
@@ -81,5 +90,26 @@ assert.strictEqual(r("Enter", "button", { finishOpen: true }), "control");
 assert.strictEqual(r("Escape", "button", { finishOpen: true }), "finish");
 assert.strictEqual(r("Escape", "none", { finishOpen: true }), "finish");
 assert.strictEqual(r("ArrowLeft", "button", { finishOpen: true }), "editor");
+
+// the stacking view's key (O) and a box beside (D): letters like the others, so a text field or a
+// menu keeps them
+for (const k of ["o", "O", "d", "D"]) {
+  assert.strictEqual(r(k, "text"), "field", `${k} types in a text field`);
+  assert.strictEqual(r(k, "select"), "field", `${k} stays in a menu`);
+  for (const f of ["none", "button", "checkbox", "summary", "link"]) assert.strictEqual(r(k, f), "editor", `${k} from ${f}`);
+}
+
+// D's "box beside" stays armed only where it was armed
+{
+  const ctx = { set: "s1", frame: 4, mode: "box", sel: ["B002", "B001"] };
+  const armed = K.armedFor(ctx);
+  assert.ok(K.stillArmed(armed, { set: "s1", frame: 4, mode: "box", sel: ["B001", "B002"] }), "same context, any order");
+  assert.ok(!K.stillArmed(armed, Object.assign({}, ctx, { sel: ["B003"] })), "another box selected");
+  assert.ok(!K.stillArmed(armed, Object.assign({}, ctx, { sel: [] })), "nothing selected");
+  assert.ok(!K.stillArmed(armed, Object.assign({}, ctx, { frame: 5 })), "another frame");
+  assert.ok(!K.stillArmed(armed, Object.assign({}, ctx, { mode: "identify" })), "another pass");
+  assert.ok(!K.stillArmed(armed, Object.assign({}, ctx, { set: "s2" })), "another set");
+  assert.ok(!K.stillArmed(null, ctx), "not armed");
+}
 
 console.log("test_keyroute.js: all assertions passed");

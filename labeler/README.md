@@ -48,7 +48,9 @@ python3 labeler/serve.py
 ```
 
 It prints an address (`http://127.0.0.1:8090/` unless you pass `--port`) and runs until you stop
-it with Ctrl+C. Open the address. The start screen lists the samples it finds in the folder you
+it with Ctrl+C. After you update the toolkit, stop a running tool and start it again before you
+reload its page: it keeps the code it started with, and a newer page says so and waits for the
+restart rather than half working. Open the address. The start screen lists the samples it finds in the folder you
 started it in, and offers a toy example: a made-up game of thirteen silly cards and ten frames of
 two "videos" of it being played, drawn by the tool itself. Press **Make the toy game and open
 it**. The page names the folder before it writes it: `toy/` in the folder you started the tool in
@@ -501,6 +503,22 @@ primary button then reads "Finish frame with no cards".
   turned (not moved or resized), and on a kept box just moved with `m`; the button says why
   when it does not (a box drawn or changed by hand, a model's box cut by the frame's edge).
   Option/Alt+click an edge of any box to make that edge the top without moving the box.
+- **A card seen at an angle** (a steep camera, a close-up shown in perspective) is a trapezoid
+  on screen, and no rectangle fits it. Shift+drag a corner of the selected box onto the card's
+  corner: the box's corners come free, and from then on each corner and each edge moves on its
+  own. Its top stays. Moving, copying, `d` then an arrow, turning (`r`, `R`, `w`, the knob),
+  the layers and the stacking view work as on any box. `s` snaps its corners to the card's
+  edges, and `e` makes it a rectangle again, with the same top edge (so does `S`, or a row
+  tool, which set a box's size). `s` only corrects corners that are already close: it looks
+  10 % of the box's short side either way (3 to 16 px), so drag each corner near the card's
+  first. A drag that would fold the box over, make a side shorter than 12 px or put a corner
+  more than a whole frame outside the picture stops with a word why. Alt+arrows do not reshape it.
+  The Names pass shows it as it is and can turn its top; it is moved or reshaped only here. The
+  manifest export writes it with the shape `quad`. A turned box is held to the same limit: a resize,
+  turn (`r`, `R`, `w`, `W`, the knob), re-snap or fit (`e`) that would put a corner that far out
+  stops with a word why and leaves the box as it was, and so does copying a layout when any box
+  would go further out. A turned box already past the limit can still be resized or turned if no
+  corner ends further out.
 - **Kept boxes (carry-over).** Entering an empty frame after a finished one copies that frame's
   boxes, so you adjust what moved. They are drawn with long dashes and marked `kept`, and a bar
   on the frame says how many there are and which frame they came from. `x` clears the ones you
@@ -509,7 +527,10 @@ primary button then reads "Finish frame with no cards".
   as is usual, the next frame is often from another video, and an empty start is easier.
 - **Editing.** Undo and redo per frame, copy / paste / duplicate (also across frames), multi-
   select, stacking order, a default box size (`n` then click places one), and row tools that
-  space a fan of cards evenly.
+  space a fan of cards evenly. The stacking view (`o`, or Options) shades the part of each box
+  that no box above it covers and numbers its layer within its stack, to check a stack's order at a glance.
+  `d` then an arrow adds a box of the same size against that side of the selected one, for the
+  next card of a stack or a row: only its far edge is left to fit.
 - **Snap** (`f`, off at start): a click on a card places a box snapped to its edges. It helps
   rough clicks and is a little worse than careful ones.
 - **Hide names** (Options, on at start): the list of names is hidden and names are left to the
@@ -633,8 +654,9 @@ corner set only the answers change. The server refuses anything else.
 
 ### `corner`: four exact corners
 
-For footage where a rotated rectangle does not fit the card (a steep camera angle). Click the
-four corners in a fixed order: the card's own top-left, top-right, bottom-right, bottom-left. A
+Four exact corners, clicked one by one. (In the Boxes pass, Shift+drag on a corner frees a
+box's corners for a card seen at an angle too.) Click the four corners in a fixed order: the
+card's own top-left, top-right, bottom-right, bottom-left. A
 corner hidden under something is placed where it must be with Shift+click and stored as
 estimated. The server measures each quad on every save: its bounding box, side lengths, size on
 screen, rotation and how strongly it is foreshortened.
@@ -747,6 +769,7 @@ Box mode:
 | click | select the topmost box under the pointer; where there is no box, a box of the new-box size there (with a box selected: let go of it) |
 | Shift+click / Shift+drag | add or remove a box / select every box whose center is inside |
 | drag a box, a corner, an edge | move it / resize it in its own rotated frame |
+| Shift+drag a corner | free the box's corners: that corner moves on its own (a card seen at an angle); from then on each corner and edge moves on its own |
 | drag the knob above the top | rotate about the center |
 | Option/Alt+click an edge | that edge is the card's top (the box does not move) |
 | double-click a box | as `w` |
@@ -761,19 +784,21 @@ Box mode:
 | Delete / Backspace | remove the selected box(es) |
 | `b` · `h` | card back on / off · too hidden to learn from (ignore) on / off |
 | `r` / `R` · `w` / `W` | rotate −1° / +5° · turn a quarter clockwise / counter-clockwise (the size stays) |
-| `e` | fit a turned model's box to the tilted card, inside the model's upright box |
-| `.` `,` · `>` `<` | one layer forward / back · to the front / back |
+| `e` | fit a turned model's box to the tilted card, inside the model's upright box; a box with free corners: a rectangle again |
+| `.` `,` · `>` `<` | one layer up / down among the boxes it overlaps · to the front / back |
+| `d` then an arrow | a box of the same size and angle against that side of the selected box, of the same kind (then drag its far edge to fit; Alt+arrows move only its own right / bottom edge, so for a box added left or above they move the edge against the selected box) |
+| `o` | stacking view on / off: each box shaded where no box above it covers it, with its layer in its stack (1 = the bottom); a visual aid, nothing is saved |
 | `x` · Shift+X | clear the kept (carried-over) boxes you have not touched · clear the whole frame (asks first) |
 | `m` | a card that moved: the kept box joined by an arrow goes onto the model's `?` box for the same card, which goes away |
 | `f` | snap on / off |
-| `s` · `S` | snap on: re-snap the box; snap off: new-box size = this box · resize the box to the new-box size |
+| `s` · `S` | a box with free corners: snap its corners to the card; else snap on: re-snap the box, snap off: new-box size = this box · resize the box to the new-box size |
 | `g` · `+` · `-` · `l` | row tools: distribute · insert · remove · same layout as another frame |
 | `i` or `/` · `u` · `a` | search for the name · Unknown · printing (with Hide names unticked) |
 | `t` / `0` | show one kind of card only / all kinds |
 | `p` | card previews on / off |
 | `v` | checking top edges on / off |
 | Cmd/Ctrl+Z · Shift+Z or Y | undo · redo (this frame) |
-| Cmd/Ctrl+C / V / D | copy / paste / duplicate |
+| Cmd/Ctrl+C / V / D | copy / paste / duplicate (the selected box or boxes; a group keeps its spacing) |
 
 With pre-fill: `a` accept the selected model box and go to the next · Enter on a selected one
 accepts it · Enter with nothing selected **accepts every untouched model box** and confirms the
@@ -1151,12 +1176,14 @@ A box:
 | `ignore` | optional, `true`: a card that is there and should count neither as found nor as missed |
 | `conditions` | optional: `{"visibleShare": "full"}`, or `most`, `half`, `little` |
 | `labelSource` | optional: how the box was made, in the tool's own words ([FORMAT.md](FORMAT.md)). It becomes the box's `origin`. Leave it out for a box that a script wrote. |
-| `cornerSource` | optional: in a `corner` or `training` set, `"box"` says that the four corners are a rectangle |
+| `cornerSource` | optional: in a `corner` or `training` set, `"box"` says that the four corners are a rectangle; in a `box` set, `"hand"` says that they are a box's freed corners |
 
 What the mode changes:
 
 - **`box`**: every box is a rectangle, upright or turned. It is written with the shape
-  `rotated-box`.
+  `rotated-box`. The exception is a box with `"cornerSource": "hand"` (its corners freed for a
+  card seen at an angle): it may be any convex outline, and is written with the shape `quad`
+  unless its corners still form a rectangle.
 - **`corner`** and **`training`**: a box may be any four-cornered outline that is convex, as
   a card looks under a camera at an angle. It is written with the shape `quad`, or
   `rotated-box` when it has `"cornerSource": "box"`.
@@ -1230,7 +1257,7 @@ boxes and identities for each active hour from your own timing log.
 | `index.html`, `sources.js`, `sources.css` | the labeling page |
 | `hub.html`, `hub.js`, `hub.css` | the start screen and the project's screen |
 | `theme.css` | the page's look: colors, spacing and corner radii, in one place |
-| `boxgeom.js`, `boxsize.js`, `labeltools.js`, `snap.js`, `quadsnap.js`, `picker.js`, `names.js`, `filters.js`, `centergeom.js`, `verifycore.js`, `timinglog.js`, `uistate.js`, `hubstate.js`, `keyroute.js`, `savegate.js` | the pages' helpers, each tested under Node |
+| `boxgeom.js`, `boxedit.js`, `boxsize.js`, `labeltools.js`, `snap.js`, `quadsnap.js`, `picker.js`, `names.js`, `filters.js`, `centergeom.js`, `verifycore.js`, `timinglog.js`, `uistate.js`, `hubstate.js`, `keyroute.js`, `savegate.js` | the pages' helpers, each tested under Node |
 | `make_sample.py`, `decklist_from_text.py` | prepare a sample and deck lists |
 | `export.py` | the COCO export and the manifest export |
 | `make_repeat_set.py`, `compare_repeat.py`, `report_throughput.py` | checks on the labeling |
