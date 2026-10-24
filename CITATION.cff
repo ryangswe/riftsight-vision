@@ -9,7 +9,7 @@ authors:
 license:
   - Apache-2.0
   - CC-BY-4.0
-version: "0.1.0"
+version: "0.2.0"
 abstract: >-
   A card detector, a card recognizer, the embedding bank and accept rule they run with, labels
   on public gameplay video as a manifest, and the tools that train, label and evaluate. Built
@@ -24,4 +24,4 @@ keywords:
   - image retrieval
   - trading card games
 repository-code: "https://github.com/ryangswe/riftsight-vision"
-date-released: "2026-10-19"
+date-released: "2026-10-24"
