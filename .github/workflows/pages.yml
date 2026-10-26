@@ -33,8 +33,8 @@ jobs:
     name: Test and build the hosted demo
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -45,7 +45,7 @@ jobs:
       - name: Type-check and run the browser runtime's tests
         working-directory: browser
         run: npm test
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install the Python package, for the toy game
@@ -57,7 +57,7 @@ jobs:
       - name: Build the hosted demo
         working-directory: browser
         run: npm run build:pages -- --games toy,one-piece,local --toy "${RUNNER_TEMP}/toy"
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: browser/dist/pages
 
@@ -95,4 +95,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
