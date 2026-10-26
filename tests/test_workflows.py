@@ -233,6 +233,33 @@ def test_the_binary_check_passes_on_the_tracked_files_and_refuses_a_picture(chec
     assert run_step(step, checkout, {**tools, "BASE": base, "HEAD": head}).returncode != 0
 
 
+def test_the_binary_check_lets_only_a_plain_vector_banner_through(checkout, tools):
+    step = steps_of("no-binaries.yml")[BINARY_STEP]["run"]
+    plain = '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/></svg>\n'
+    (checkout / ".github").mkdir(exist_ok=True)
+    (checkout / ".github" / "banner.svg").write_text(plain, encoding="utf-8")
+    git(checkout, "add", "-A")
+    done = run_step(step, checkout, tools)
+    assert done.returncode == 0, done.stdout + done.stderr
+
+    # The same picture under any other name is refused.
+    (checkout / "docs").mkdir(exist_ok=True)
+    (checkout / "docs" / "banner.svg").write_text(plain, encoding="utf-8")
+    git(checkout, "add", "-A")
+    done = run_step(step, checkout, tools)
+    assert done.returncode != 0 and "docs/banner.svg: its name is that of an image" in done.stdout
+    (checkout / "docs" / "banner.svg").unlink()
+
+    # The banner may not carry an embedded picture, a link or an outside reference.
+    for inside, refused in (('<image href="card.png"/>', "<image"), ('<a href="https://example.org"><rect/></a>', "href"),
+                            ('<rect fill="url(https://example.org/x.svg#p)"/>', "an outside url(...)"),
+                            ('<script>alert(1)</script>', "<script")):
+        (checkout / ".github" / "banner.svg").write_text(plain.replace("</svg>", inside + "</svg>"), encoding="utf-8")
+        git(checkout, "add", "-A")
+        done = run_step(step, checkout, tools)
+        assert done.returncode != 0 and f".github/banner.svg: the banner may hold vector shapes only, not {refused}" in done.stdout
+
+
 # ------------------------------------------------------------------------------------ dco.yml
 def test_the_sign_off_check_tells_a_signed_commit_from_one_that_is_not(checkout, tools):
     step = steps_of("dco.yml")["Check Signed-off-by on every commit"]["run"]

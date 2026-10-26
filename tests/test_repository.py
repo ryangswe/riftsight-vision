@@ -23,7 +23,9 @@ LICENSE_LINE = {
     ".md": f"<!-- {IDENTIFIER} -->",
     ".html": f"<!-- {IDENTIFIER} -->",
 }
-LICENSE_LINE_BY_NAME = {".gitignore": HEADER}
+# The banner holds the RiftSight logo, which TRADEMARK.md keeps out of the license.
+LICENSE_LINE_BY_NAME = {".gitignore": HEADER,
+                        "banner.svg": "<!-- The RiftSight name and logo are not licensed by this repository: see TRADEMARK.md. -->"}
 WITHOUT_COMMENTS = {".json", ".jsonl", ".csv"}
 # Never scanned: caches, the packages npm installs under browser/, the build it writes there, and
 # the OpenCV.js that browser/scripts/build-opencv.mjs writes to browser/vendor/.

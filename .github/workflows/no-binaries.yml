@@ -6,6 +6,9 @@
 # In a pull request the files it adds or changes are checked. On main the whole tree is. A
 # file is refused when its name has the suffix of an image, a video, a model or an archive,
 # when it is a symbolic link, or when it holds a zero byte (every file here is plain text).
+#
+# One picture is let through: the project banner, .github/banner.svg, drawn by hand as plain
+# vector shapes. It may hold no embedded picture, no link, no script and no outside reference.
 name: No images, videos or weights
 
 on:
@@ -31,6 +34,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
+          import re
           import subprocess
           import sys
 
@@ -42,6 +46,19 @@ jobs:
           ARCHIVES = {"zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar"}
           KINDS = [("an image", IMAGES), ("a video", VIDEOS), ("a model or weights file", MODELS),
                    ("an archive", ARCHIVES)]
+          BANNER = ".github/banner.svg"
+          BANNER_REFUSED = ["<image", "<script", "<foreignobject", "<iframe", "<use", "href", "data:", "@import"]
+
+
+          def banner_problems(name):
+              with open(name, "rb") as handle:
+                  raw = handle.read()
+              if b"\0" in raw:
+                  return [f"{name}: not a text file (it holds a zero byte)"]
+              text = raw.decode("utf-8", "replace").lower()
+              found = [token for token in BANNER_REFUSED if token in text]
+              found += ["an outside url(...)"] if re.search(r"url\(\s*(?!#)", text) else []
+              return [f"{name}: the banner may hold vector shapes only, not {token}" for token in found]
 
 
           def git(*arguments):
@@ -61,6 +78,9 @@ jobs:
           for name in names:
               if not os.path.lexists(name):
                   continue  # deleted later in the same pull request
+              if name == BANNER and not os.path.islink(name):
+                  problems.extend(banner_problems(name))
+                  continue
               suffix = name.rsplit(".", 1)[-1].lower() if "." in os.path.basename(name) else ""
               kind = next((label for label, suffixes in KINDS if suffix in suffixes), None)
               if kind:
