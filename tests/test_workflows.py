@@ -330,9 +330,9 @@ def test_the_pages_workflow_tests_first_and_deploys_with_the_least_permissions()
     # A push to main and a run by hand; never a pull request.
     assert "on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n\n" in text and "pull_request" not in text
     assert [line.strip() for line in text.splitlines() if line.strip().startswith("uses: ") or line.startswith("      - uses: ")] == [
-        "- uses: actions/checkout@v4", "- uses: actions/setup-node@v4", "- uses: actions/setup-python@v5",
-        "- uses: actions/upload-pages-artifact@v3",
-        "uses: actions/deploy-pages@v4"]
+        "- uses: actions/checkout@v7", "- uses: actions/setup-node@v7", "- uses: actions/setup-python@v7",
+        "- uses: actions/upload-pages-artifact@v5",
+        "uses: actions/deploy-pages@v5"]
     # Read-only at the top; Pages read for the check; Pages write and the OIDC token for the deploy job only.
     lines = text.splitlines()
     granted = []
@@ -430,8 +430,8 @@ def test_the_quickstart_workflow_runs_the_documents_beginner_path_on_linux_and_i
     assert "          distribution: Ubuntu-24.04\n          wsl-version: 2\n" in text
     assert "    defaults:\n      run:\n        shell: wsl-bash {0}\n" in text
     used = [line.strip() for line in text.splitlines() if "uses: " in line]
-    assert used == ["- uses: actions/checkout@v4", "- uses: actions/setup-node@v4",
-                    "- uses: actions/checkout@v4", f"uses: {SETUP_WSL} # v7.2.0", f"uses: {SETUP_WSL} # v7.2.0"]
+    assert used == ["- uses: actions/checkout@v7", "- uses: actions/setup-node@v7",
+                    "- uses: actions/checkout@v7", f"uses: {SETUP_WSL} # v7.2.0", f"uses: {SETUP_WSL} # v7.2.0"]
     # An action that is not GitHub's own is pinned to a full commit, never to a tag or a branch.
     for line in used:
         action = line.split("uses: ", 1)[1].split(" ", 1)[0]
