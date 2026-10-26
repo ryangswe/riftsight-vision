@@ -1,5 +1,19 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
+<p align="center">
+  <img src=".github/banner.svg" width="100%" alt="RiftSight vision: open card recognition for gameplay video">
+</p>
+
+<p align="center">
+  <a href="https://github.com/ryangswe/riftsight-vision/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ryangswe/riftsight-vision?label=release&color=7c3aed&labelColor=2b2540"></a>
+  <a href="https://github.com/ryangswe/riftsight-vision/actions/workflows/tests.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/ryangswe/riftsight-vision/tests.yml?branch=main&label=tests&labelColor=2b2540"></a>
+  <a href="https://github.com/ryangswe/riftsight-vision/actions/workflows/browser.yml"><img alt="Browser runtime tests" src="https://img.shields.io/github/actions/workflow/status/ryangswe/riftsight-vision/browser.yml?branch=main&label=browser%20runtime&labelColor=2b2540"></a>
+  <a href="LICENSE"><img alt="Code and weights: Apache-2.0" src="https://img.shields.io/badge/code-Apache--2.0-3b82f6?labelColor=2b2540"></a>
+  <a href="LICENSE-DATA"><img alt="Labels: CC BY 4.0" src="https://img.shields.io/badge/labels-CC%20BY%204.0-0ea5e9?labelColor=2b2540"></a>
+  <a href="pyproject.toml"><img alt="Python 3.11 or later" src="https://img.shields.io/badge/python-3.11%2B-a78bfa?logo=python&logoColor=white&labelColor=2b2540"></a>
+  <a href="https://ryangswe.github.io/riftsight-vision/"><img alt="Demo: try it in your browser" src="https://img.shields.io/badge/demo-try%20it%20in%20your%20browser-c026d3?labelColor=2b2540"></a>
+</p>
+
 # riftsight-vision
 
 Open weights, labels and tools for recognizing trading cards in gameplay video: built for

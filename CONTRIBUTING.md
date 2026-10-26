@@ -30,7 +30,8 @@ One person maintains this repository. [SUPPORT.md](SUPPORT.md) says what to expe
   overlays) are outside it.
 - **Images of any kind.** No card art, no video frames, no crops, no screenshots that show a
   card or a frame of someone's video. This holds for issues and pull requests too. A check
-  refuses image, video and weights files.
+  refuses image, video and weights files. The one exception is the project banner,
+  `.github/banner.svg`, which is drawn as plain vector shapes.
 - **Weights.** Released weights are release assets. They are not committed.
 
 "How do I adapt this to my game?" is a question for Discussions, not for an issue.
