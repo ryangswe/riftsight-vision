@@ -307,3 +307,65 @@ describe("loadPackedIndex", () => {
     expect(log).toEqual(["manifest.json", "shard-0.bin", "shard-1.bin"]);
   });
 });
+
+describe("an index with cards added (pack-features --base)", () => {
+  const added = contract.geometricAppend;
+  const FOLDER = "https://cdn.example.test/vision/geo/series/";
+  const BASE_URL = `${FOLDER}base.json`;
+  const NEXT_URL = `${FOLDER}next.json`;
+  const text = (doc: unknown): string => `${JSON.stringify(doc, null, 1)}\n`;
+  const shardOf = (path: string): ArrayBuffer => toBuffer(unhex(added.shards[path]));
+  const shardsOf = (doc: { shards: { path: string }[] }): ArrayBuffer[] => doc.shards.map((entry) => shardOf(entry.path));
+  const files: Record<string, string> = { "base.json": text(added.baseManifest), "next.json": text(added.manifest) };
+  const host = () => {
+    const log: string[] = [];
+    const fetchFn = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      log.push(url.slice(FOLDER.length));
+      const name = url.slice(FOLDER.length);
+      if (files[name] !== undefined) return new Response(files[name]);
+      return added.shards[name] !== undefined ? new Response(shardOf(name)) : new Response("", { status: 404 });
+    }) as typeof fetch;
+    return { fetchFn, log };
+  };
+  const nextIds: string[] = added.manifest.cards.map((card: { cardId: string }) => card.cardId);
+  const baseIds: string[] = added.baseManifest.cards.map((card: { cardId: string }) => card.cardId);
+
+  it("is the bytes the contract names", async () => {
+    expect(await sha256Hex(toBuffer(new TextEncoder().encode(files["base.json"]!)))).toBe(added.baseManifestSha256);
+    expect(await sha256Hex(toBuffer(new TextEncoder().encode(files["next.json"]!)))).toBe(added.manifestSha256);
+  });
+
+  it("assembles exactly the rows of the same index packed in one step, in the same order", () => {
+    const appended = parsePackedIndex(JSON.parse(files["next.json"]!), shardsOf(added.manifest));
+    const whole = parsePackedIndex(manifest(), shards());
+    expect(appended.rows).toBe(whole.rows);
+    expect(appended.cards.map((card) => [card.cardId, card.start, card.n])).toEqual(whole.cards.map((card) => [card.cardId, card.start, card.n]));
+    expect(hex(appended.desc)).toBe(hex(whole.desc));
+    expect(hex(new Uint8Array(appended.xy.buffer))).toBe(hex(new Uint8Array(whole.xy.buffer)));
+    expect(Array.from(appended.rowCard)).toEqual(Array.from(whole.rowCard));
+  });
+
+  it("is bound to the new bank, and the base to the old one", () => {
+    const next = { bankSha256: added.manifest.bank.sha256, cards: added.manifest.cards };
+    expect(next.bankSha256).toBe(added.bankSha256);
+    expect(() => checkBankBinding(next, added.bankSha256, nextIds)).not.toThrow();
+    expect(errorCode(() => checkBankBinding(next, added.baseBankSha256, nextIds))).toBe("bank-sha");
+    const base = { bankSha256: added.baseManifest.bank.sha256, cards: added.baseManifest.cards };
+    expect(errorCode(() => checkBankBinding(base, added.bankSha256, nextIds))).toBe("bank-sha");
+  });
+
+  it("downloads only the new shards after the base was loaded, and keeps both in the cache", async () => {
+    const { storage, entries } = memoryCaches();
+    const first = host();
+    const base = await loadPackedIndex(BASE_URL, { bankSha256: added.baseBankSha256, bankIds: baseIds, fetch: first.fetchFn, cache: storage, manifestSha256: added.baseManifestSha256 });
+    expect(base.cards.map((card) => card.cardId)).toEqual(baseIds);
+    expect(first.log).toEqual(["base.json", ...added.baseManifest.shards.map((entry: { path: string }) => entry.path)]);
+    const second = host();
+    const next = await loadPackedIndex(NEXT_URL, { bankSha256: added.bankSha256, bankIds: nextIds, fetch: second.fetchFn, cache: storage, manifestSha256: added.manifestSha256 });
+    expect(second.log).toEqual(["next.json", ...added.newShards]);
+    expect(added.newShards.length).toBeGreaterThan(0);
+    expect(hex(next.desc)).toBe(hex(parsePackedIndex(manifest(), shards()).desc));
+    expect([...entries.keys()].sort()).toEqual(added.manifest.shards.map((entry: { path: string }) => `${FOLDER}${entry.path}`).sort());
+  });
+});

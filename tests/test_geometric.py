@@ -894,3 +894,195 @@ def test_evaluate_hover_evidence_changes_no_figure(tmp_path, toy, built):
     assert faces and all(face["geometric"] and face["geometric"]["debug"]["grey"]["sha256"] for face in faces)
     assert all(len(face["geometric"]["debug"]["rows"]) == face["geometric"]["debug"]["keypoints"] for face in faces)
     assert all(len(row["frame"]["pixelSha256"]) == 64 for row in rows)
+
+
+# ------------------------------------------------------------------------ adding cards to an index
+def _bank_file(path: Path, catalog_path: Path, art_dir: Path, ids: list[str], unrecorded: set[str] = frozenset()) -> Path:
+    """A bank of ``ids`` in that order whose rows record their images, but for the ``unrecorded``
+    ones (the vectors do not matter here)."""
+    from cardvision.core.bank import art_version, encode_bank
+
+    catalog = load_catalog(catalog_path)
+    rows = np.random.default_rng(0).normal(size=(len(ids), 8))
+    versions = [None if card_id in unrecorded else art_version((art_dir / catalog.card(card_id).art).read_bytes())
+                for card_id in ids]
+    path.write_text(json.dumps(encode_bank(ids, rows / np.linalg.norm(rows, axis=1, keepdims=True), {"dim": 8},
+                                           versions)), encoding="utf-8")
+    return path
+
+
+def _sub_catalog(path: Path, catalog_path: Path, leave_out: set[str], extra: list[dict] = ()) -> Path:
+    raw = json.loads(catalog_path.read_text(encoding="utf-8"))
+    raw["cards"] = [card for card in raw["cards"] if card["id"] not in leave_out] + list(extra)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    return path
+
+
+def _build(settings: Path, catalog: Path, art_dir: Path, out: Path, *extra: str) -> subprocess.CompletedProcess:
+    return _run_cli(["build-features", "--config", str(settings), "--catalog", str(catalog), "--art", str(art_dir),
+                     "--out", str(out), *extra])
+
+
+def test_an_index_extended_over_an_extended_bank_is_the_full_build_and_packs_onto_the_old_shards(tmp_path, toy):
+    """The case of a product with a bank: the bank is extended (old rows first, build-bank --base),
+    the index with --base, and the pack with --base. The extended index is byte for byte the index
+    a full build gives, so the stage's results are the same, and the old shards are unchanged."""
+    from cardvision.evaluate.config import file_sha256
+    from cardvision.geometric.pack import read_packed
+
+    catalog_path, art_dir = toy
+    ids = load_catalog(catalog_path).ids()
+    old_bank = _bank_file(tmp_path / "old-bank.json", catalog_path, art_dir, ids[:-4])
+    new_bank = _bank_file(tmp_path / "new-bank.json", catalog_path, art_dir, ids)
+    settings = tmp_path / "geometric.json"
+    settings.write_text("{}", encoding="utf-8")
+    old, extended, full = (tmp_path / f"{name}.features.json" for name in ("old", "extended", "full"))
+    for result in (_build(settings, catalog_path, art_dir, old, "--bank", str(old_bank)),
+                   _build(settings, catalog_path, art_dir, extended, "--bank", str(new_bank), "--base", str(old)),
+                   _build(settings, catalog_path, art_dir, full, "--bank", str(new_bank))):
+        assert result.returncode == 0, result.stderr
+    assert extended.read_bytes() == full.read_bytes()
+    assert "kept from the base index: 16 cards, unchanged; added: 4" in _build(
+        settings, catalog_path, art_dir, tmp_path / "again.features.json", "--bank", str(new_bank), "--base",
+        str(old)).stdout
+    for args in (["--index", str(old), "--out", str(tmp_path / "v1"), "--content-names"],
+                 ["--index", str(extended), "--out", str(tmp_path / "v2"), "--base", str(tmp_path / "v1" / "manifest.json")]):
+        result = _run_cli(["pack-features", *args])
+        assert result.returncode == 0, result.stderr
+    base, base_blobs = read_packed(tmp_path / "v1" / "manifest.json")
+    manifest, blobs = read_packed(tmp_path / "v2" / "manifest.json")
+    assert manifest["shards"][:len(base["shards"])] == base["shards"] and blobs[:len(base_blobs)] == base_blobs
+    assert len(manifest["shards"]) > len(base["shards"])
+    assert manifest["bank"]["sha256"] == file_sha256(new_bank) and base["bank"]["sha256"] == file_sha256(old_bank)
+    assert manifest["source"]["sha256"] == file_sha256(full)
+
+
+def test_build_features_base_refuses_an_index_it_cannot_extend(tmp_path, toy):
+    catalog_path, art_dir = toy
+    ids = load_catalog(catalog_path).ids()
+    settings = tmp_path / "geometric.json"
+    settings.write_text("{}", encoding="utf-8")
+    old_bank = _bank_file(tmp_path / "old-bank.json", catalog_path, art_dir, ids[:-2])
+    old = tmp_path / "old.features.json"
+    assert _build(settings, catalog_path, art_dir, old, "--bank", str(old_bank)).returncode == 0
+    new_bank = _bank_file(tmp_path / "new-bank.json", catalog_path, art_dir, ids)
+
+    def refused(base: Path, fragment: str, config: Path = settings, bank: Path = new_bank, art: Path = art_dir,
+                *extra: str) -> None:
+        out = tmp_path / "refused.features.json"
+        result = _build(config, catalog_path, art, out, "--base", str(base), *(["--bank", str(bank)] if bank else []),
+                        *extra)
+        assert result.returncode == 1 and fragment in result.stderr, result.stderr
+        assert not out.exists()
+
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"features": {"maxFeatures": 200}}), encoding="utf-8")
+    refused(old, "maxFeatures", other)
+    doc = json.loads(old.read_text())
+    doc["opencv"] = "4.10.0"
+    tampered = tmp_path / "opencv.features.json"
+    tampered.write_bytes(canonical_bytes(doc))
+    refused(tampered, "OpenCV '4.10.0'")
+    # An old card whose image changed: the bank's row records the new image ...
+    import shutil
+
+    moved = tmp_path / "art"
+    shutil.copytree(art_dir, moved)
+    shutil.copy(moved / "TOY-002.png", moved / "TOY-001.png")
+    refused(old, "have another image in the bank", bank=_bank_file(tmp_path / "moved-bank.json", catalog_path, moved, ids),
+            art=moved)
+    # ... the bank's row records no image, so the image at the art location is compared ...
+    unrecorded = _bank_file(tmp_path / "unrecorded-bank.json", catalog_path, moved, ids, unrecorded={"TOY-001"})
+    refused(old, "have another image now", bank=unrecorded, art=moved)
+    # ... and without a bank, the same.
+    refused(old, "have another image now", bank=None, art=moved)
+    # An old card the bank no longer lists is refused: its entry could not be checked.
+    refused(old, "not in the bank", bank=_bank_file(tmp_path / "fewer-bank.json", catalog_path, art_dir, ids[1:]))
+    # A row that records no image but whose image is unchanged is accepted.
+    accepted = _build(settings, catalog_path, art_dir, tmp_path / "ok.features.json", "--base", str(old), "--bank",
+                      str(_bank_file(tmp_path / "ok-bank.json", catalog_path, art_dir, ids, unrecorded={"TOY-001"})))
+    assert accepted.returncode == 0, accepted.stderr
+
+
+def _scaled(art_dir: Path, card_id: str, scale: float) -> np.ndarray:
+    image = load_rgb(art_dir / f"{card_id}.png")
+    if scale == 1:
+        return image
+    size = (int(image.shape[1] * scale), int(image.shape[0] * scale))
+    return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+
+
+def _competing(stage: GeometricStage, crop: np.ndarray, new: set[str]) -> bool:
+    """Whether a new card's row is the nearest or second nearest row of any crop keypoint."""
+    index = stage.index
+    row_card = [card_id for card_id in index.ids for _ in range(len(index.cards[card_id]))]
+    stacked = np.concatenate([index.cards[card_id].descriptors for card_id in index.ids])
+    pairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(stage.crop_features(crop).descriptors, stacked, k=2)
+    return any(row_card[match.trainIdx] in new for pair in pairs for match in pair)
+
+
+def test_old_cards_are_found_as_before_when_the_added_cards_do_not_compete(tmp_path):
+    """Base plus append against the base alone, on crops of the old cards: wherever no added
+    card's row is among a crop keypoint's two nearest, the stage's result is the same (old rows
+    keep their order, so every tie goes as before)."""
+    import toy_game
+    from PIL import Image
+
+    from cardvision.geometric.index import build_index
+
+    catalog_path, art_dir = toy_game.write_toy_game(tmp_path / "toy")
+    rng = np.random.default_rng(5)
+    added = []
+    first = json.loads(catalog_path.read_text())["cards"][0]
+    for i in range(3):
+        Image.fromarray(rng.integers(0, 256, size=(320, 229, 3), dtype=np.uint8)).save(art_dir / f"NEW-{i}.png")
+        added.append(dict(first, id=f"NEW-{i}", name=f"Noise {i}", art=f"NEW-{i}.png", printingOf=None))
+    old_catalog = load_catalog(catalog_path)
+    new_catalog = load_catalog(_sub_catalog(tmp_path / "new.json", catalog_path, set(), added))
+    features = parse_geometric({}).features
+    base, _ = build_index(old_catalog, art_dir, features)
+    extended, _ = build_index(new_catalog, art_dir, features, base=base)
+    assert extended["cards"][:len(base["cards"])] == base["cards"]
+    config = parse_geometric({"candidates": {"embeddingTopK": 3, "voteTopN": 3}})
+    before, after = GeometricStage(config, parse_index(base)), GeometricStage(config, parse_index(extended))
+    old = old_catalog.ids()
+    ranked = [(card_id, 0.9 - 0.01 * i) for i, card_id in enumerate(old)]
+    quiet = 0
+    for scale in (1.0, 0.6):
+        for card_id in old:
+            crop = _scaled(art_dir, card_id, scale)
+            if _competing(after, crop, {card["id"] for card in added}):
+                continue
+            quiet += 1
+            mine, theirs = after.verify(crop, ranked, known=set(old)), before.verify(crop, ranked, known=set(old))
+            assert (mine.candidates, mine.crop_keypoints) == (theirs.candidates, theirs.crop_keypoints), card_id
+    assert quiet >= 10
+
+
+def test_an_index_extended_in_catalog_order_differs_from_a_full_build_only_in_row_order(tmp_path, toy):
+    """Without a bank, cards are in catalog order, and a card the catalog lists among the old ones
+    is appended at the end, where a full build puts it in place. The entries are the same; only
+    their order differs, and with it which of two equally near rows a crop keypoint is given in
+    the vote. Matches and inliers of a card do not depend on the order."""
+    from cardvision.geometric.index import build_index
+
+    catalog_path, art_dir = toy
+    catalog = load_catalog(catalog_path)
+    middle = {"TOY-006", "TOY-007", "TOY-008"}
+    features = parse_geometric({}).features
+    base, _ = build_index(load_catalog(_sub_catalog(tmp_path / "sub.json", catalog_path, middle)), art_dir, features)
+    extended, _ = build_index(catalog, art_dir, features, base=base)
+    full, _ = build_index(catalog, art_dir, features)
+    assert [card["cardId"] for card in extended["cards"]] == [card["cardId"] for card in base["cards"]] + \
+        [card_id for card_id in catalog.ids() if card_id in middle]
+    assert [card["cardId"] for card in full["cards"]] == catalog.ids()
+    assert sorted(extended["cards"], key=lambda card: card["cardId"]) == sorted(full["cards"], key=lambda card: card["cardId"])
+    config = parse_geometric({"candidates": {"embeddingTopK": 3, "voteTopN": 3}})
+    one, other = GeometricStage(config, parse_index(extended)), GeometricStage(config, parse_index(full))
+    ranked = [(card_id, 0.9 - 0.01 * i) for i, card_id in enumerate(catalog.ids())]
+    for card_id in ("TOY-001", "TOY-007", "TOY-P01"):
+        crop = _crop(art_dir, card_id)
+        mine = {found.card_id: (found.matches, found.inliers) for found in one.verify(crop, ranked).candidates}
+        theirs = {found.card_id: (found.matches, found.inliers) for found in other.verify(crop, ranked).candidates}
+        assert mine.keys() & theirs.keys()
+        assert all(mine[card] == theirs[card] for card in mine.keys() & theirs.keys())

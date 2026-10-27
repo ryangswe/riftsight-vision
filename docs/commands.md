@@ -37,8 +37,8 @@ the same list; each command has its own `--help`.
 | `cardvision evaluate` | Score a configuration on labeled frames: `hover`, `crops`, `detector`, or `compare` two configurations. `hover --browser-events FILE` scores outcomes that the browser runtime's scoring page recorded on video files. `--scenes DIR` scores scenes that `make-composites` generated, by their exact labels: a first look, not a measurement on real video. |
 | `cardvision calibrate` | Choose the accept rule's `tau` and `delta` on labeled frames: score a grid of pairs from one analysis of each frame, and recommend one under a limit on wrong names that you set. |
 | `cardvision check-refresh` | Check that a new bank only adds to an old one, and changes a row only where its image changed. |
-| `cardvision build-features` | Build the geometric stage's descriptor index from card images. Optional; see [how-it-works.md](how-it-works.md). |
-| `cardvision pack-features` | Repack a pinned descriptor index into a manifest and shards for the browser runtime. Optional. |
+| `cardvision build-features` | Build the geometric stage's descriptor index from card images. Optional; see [how-it-works.md](how-it-works.md). `--base OLD` adds new cards to an older index and keeps its cards unchanged. |
+| `cardvision pack-features` | Repack a pinned descriptor index into a manifest and shards for the browser runtime. Optional. `--base MANIFEST` keeps an older pack's shards unchanged and puts only new cards in new shards named by content; `--content-names` starts such a series, `--manifest-name` names the manifest. |
 
 ### Data
 

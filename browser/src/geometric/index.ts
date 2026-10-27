@@ -3,7 +3,10 @@
 // package's `cardvision pack-features` lays them out (cardvision/geometric/pack.py, which holds
 // the full description of the format).
 //
-// A manifest names eight shards. A shard holds the rows of whole cards: descriptors first
+// A manifest names its shards: eight from a plain pack in one step, fewer with
+// `--content-names` (which leaves out empty shards), and more when `pack-features --base` added
+// cards (the old shards unchanged, new ones named by content after them). Any number loads the
+// same way. A shard holds the rows of whole cards: descriptors first
 // (rows x 32 bytes), then positions (rows x 2 little-endian float32). The shards in order hold
 // the rows in order, so a card's global row is the rows of the shards before its own plus its
 // offset. Positions are the index's own float32 values, the ones the Python stage reads.

@@ -93,7 +93,7 @@ BLOCKS = {block.name: block for block in (*PATH, *WINDOWS, *ACQUIRE)}
 # Each is checked in its document as well (tests/test_beginner_path.py), so neither can change
 # alone.
 MARKERS = (
-    (QUICKSTART, "cardvision 0.3.0"),
+    (QUICKSTART, "cardvision 0.4.0rc1"),
     (QUICKSTART, "1 frame, 6 faces, 3 named"),
     (QUICKSTART, "(20 rows of 128 values; 20 embedded, 0 kept from the base bank)"),
     (QUICKSTART, "cardvision infer: 1 frame(s), 6 face(s), 1 back(s), 5 named"),

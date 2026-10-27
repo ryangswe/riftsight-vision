@@ -1128,9 +1128,16 @@ the index the manifest repacks, and its `features` block must be the index's (as
 another block is refused). The load message's `geometricManifestSha256`, when given, pins the
 manifest file itself, and through its shard hashes every shard: a manifest with other bytes is
 refused and the stage is off. The index is hosted apart from the code and the release, at
-an address that never changes content (one folder per source SHA-256), so a browser can keep
-it. `src/geometric/index.ts` fetches the manifest, refuses an index built for another bank or
-lacking one of the bank's cards, then fetches the eight shards two at a time, keeps them in
+addresses that never change content, so a browser can keep it. A series of packs shares one
+folder (for example `vision/geo/<series>/`): each manifest under its own name
+(`manifest-<16 hex digits of its source SHA-256>.json`, written with `--manifest-name`) and
+every shard beside them, named by content. Nothing there is ever overwritten; the folder only
+grows. An index extended with `pack-features --base` keeps its older shards and adds new ones,
+so a browser downloads only those. When `--base` refuses (another OpenCV, changed images), pack
+again in one step, with `--content-names`, into a new series folder. `src/geometric/index.ts` fetches the manifest,
+refuses an index built for another bank or lacking one of the bank's cards, then fetches the
+shards the manifest names (eight from a pack in one step without `--content-names`, which leaves
+out empty ones; more after `--base`) two at a time, keeps them in
 the Cache API (`cardvision-geometric-index`), and checks every shard's SHA-256 each time it
 starts. When one shard fails, the other download is aborted. After a load that succeeds,
 cached entries outside the manifest's folder (an index no longer in use) are deleted. The
