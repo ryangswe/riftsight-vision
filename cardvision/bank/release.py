@@ -52,7 +52,9 @@ Shape
     ``preprocessing`` is the contract a crop goes through before the model
     (``cardvision.core.preprocess``); it has to be the one the bank was built with.
 ``bank`` and ``identity``
-    The bank file and its identity groups (``cardvision.bank.build``). A release does not
+    The bank file and its identity groups (``cardvision.bank.build``). The bank file is JSON or
+    its binary form (``bank.bin``, ``cardvision.core.bank_binary``); a reader tells them apart
+    by the binary form's first bytes. A release does not
     require the bank's rows to record their source image (``artV``); ``bank_image_records``
     counts the rows that do. ``identity.level`` is the identity rule of the release's
     catalog (``cardvision.core.catalog``, "Identity"): ``name``, where printings that share
@@ -107,6 +109,7 @@ from cardvision.bank.build import (
 )
 from cardvision.bank.documents import canonical_bytes, read_json, sha256_hex, write_document
 from cardvision.core.bank import ART_VERSION_KEY, IdentityGroups, decode_bank, is_art_version
+from cardvision.core.bank_binary import is_binary_bank, read_bank_bytes, read_bank_file
 from cardvision.core.catalog import IDENTITY_NAME, IDENTITY_RULES, CatalogError, parse_catalog
 from cardvision.core.constants import DETECTOR_FACE_CLASS, DETECTOR_MIN_CROP_PX, DETECTOR_PARITY_SCORE_FLOOR
 from cardvision.core.preprocess import FULL128
@@ -470,6 +473,18 @@ def _parse(body: bytes | None, label: str, errors: list[str]) -> Any:
     return doc
 
 
+def _parse_bank(body: bytes | None, errors: list[str]) -> Any:
+    """The bank document in a bank file's bytes, JSON or binary (``cardvision.core.bank_binary``)."""
+    if body is None or not is_binary_bank(body):
+        return _parse(body, "bank", errors)
+    try:
+        doc = read_bank_bytes(body)
+    except ValueError as error:
+        errors.append(f"bank: {error}")
+        return None
+    return doc
+
+
 def release_errors(doc: Any, root: str | Path) -> list[str]:
     """Every reason a release document cannot be used; an empty list means it can.
 
@@ -551,7 +566,7 @@ def release_errors(doc: Any, root: str | Path) -> list[str]:
         errors.append("runtime.analysisWidth must give whole numbers min <= max above 0")
 
     # -- the bank, against the recognizer and the accept rule
-    bank_doc = _parse(bank_body, "bank", errors)
+    bank_doc = _parse_bank(bank_body, errors)
     bank_ids: list[str] | None = None
     if bank_doc is not None:
         try:
@@ -742,7 +757,7 @@ def compose_release(
     except ValueError as error:
         raise ReleaseError(f"recognizer: {error}") from None
     problems: list[str] = []
-    bank_doc = _parse(bank_body, "bank", problems) or {}
+    bank_doc = _parse_bank(bank_body, problems) or {}
     groups_doc = _parse(groups_body, "identity groups", problems) or {}
     cat_doc = _parse(cat_body, "catalog", problems) or {}
     if problems:
@@ -839,5 +854,5 @@ def bank_image_records(doc: Mapping[str, Any], root: str | Path) -> tuple[int, i
     is a count for the reader, not a check: a release does not require the field, and a bank
     without it is as valid as before.
     """
-    entries = read_json(Path(root) / doc["bank"]["path"]).get("entries", [])
+    entries = read_bank_file(Path(root) / doc["bank"]["path"]).get("entries", [])
     return sum(1 for entry in entries if is_art_version(entry.get(ART_VERSION_KEY))), len(entries)

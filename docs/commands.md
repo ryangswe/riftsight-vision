@@ -18,6 +18,7 @@ the same list; each command has its own `--help`.
 | `cardvision infer` | Detect and name the cards in images or video, with the models from a release document (`--release`) or from separate files. Can also write annotated frames, crops, a contact sheet, and a pre-fill file for the labeling tool. |
 | `cardvision build-release` | Pin models, bank, identity groups, catalog and settings in one release document. |
 | `cardvision verify-release` | Check a release document and every file it pins. |
+| `cardvision convert-release` | Write a release with smaller files and the same values: the bank as `bank.bin`, its binary form, and the catalog as compact JSON. The new release has a new id and scores exactly as the original. [Below](#cardvision-convert-release). |
 | `cardvision fetch-weights` | Download this repository's released weights (the eight files of v0.1.0) into a folder, check each against its pinned SHA-256, then run `verify-release`. `--list` shows the files and addresses without a request; `--overwrite` replaces a file that differs. An empty DIR, or one inside the repository, is refused. See [release-files.md](release-files.md). |
 
 ### Train
@@ -247,6 +248,37 @@ in UTF-8 with or without a byte-order mark. One card a row.
 **Download only images you are allowed to.** Some publishers' sites forbid automated
 downloading in their terms. Prefer the source's own bulk download, or a folder of images you
 already have (`--images`), and leave out `--download` when in doubt.
+
+## `cardvision convert-release`
+
+```
+cardvision convert-release "$WEIGHTS/release.json" --out converted
+```
+
+Writes a release with smaller files and the same values into the folder `--out`, which must
+not exist or must be empty:
+- the bank becomes `bank.bin`, its binary form, which holds the same fp16 bytes as the JSON
+  bank's base64 text ([release-files.md](release-files.md#the-binary-bank-bankbin) has the
+  layout);
+- the catalog is written as compact JSON, with the same keys in the same order and the same
+  values;
+- the identity groups are copied with one change: they record the new bank's SHA-256, which
+  ties them to it;
+- the detector and the recognizer are copied byte for byte;
+- the new release document, under the source document's file name, pins the new files by
+  their SHA-256 and size. Everything else in it is unchanged. It has a new id, by the usual id
+  rule.
+
+The command prints the old id and the new one. Only the files the release pins are written,
+so copy any other file you keep beside it, such as `accept.json`, yourself. It checks the
+release first, as `verify-release` does, and the converted release after it is written; when
+either check fails, it writes nothing and exits 1. A release whose bank is already `bank.bin`
+keeps it as it is.
+
+The converted release scores exactly as the original: the same boxes, names and scores.
+**A geometric index must be built against it:** an index records the SHA-256 of the bank it
+serves, so one built against the JSON bank does not serve the converted release. Build it again
+with `build-features --bank` naming the converted `bank.bin`, and pack it again.
 
 **Tests:** paste this into the terminal, from the repository's root:
 

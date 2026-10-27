@@ -12,19 +12,21 @@ These are the public surface: changed only as [versioning](#versioning) and
 - **The `cardvision` commands, their flags and their exit codes** (`next`, `try` and
   `fetch-weights` from v0.2.0): `next`, `try`, `fetch-weights`, `import-catalog`,
   `check-catalog`, `check-bank-art`, `build-bank`, `infer`, `build-release`, `verify-release`,
-  `make-composites`, `fetch-textures`, `train-recognizer`, `train-detector`, `export`,
-  `evaluate`, `calibrate`, `check-refresh`, `build-features`, `pack-features`,
+  `convert-release`, `make-composites`, `fetch-textures`, `train-recognizer`, `train-detector`,
+  `export`, `evaluate`, `calibrate`, `check-refresh`, `build-features`, `pack-features`,
   `validate-manifest`, `fetch`, `record-reachable` and `assign-roles`. Report text meant for
   people may be reworded; the object `next --json` prints keeps its fields and ids, and changes
   its `schemaVersion` when its shape changes.
 - **The files a release is made of:**
   - the release document (`release.json`);
-  - the bank;
+  - the bank, as JSON or in its binary form (`bank.bin`, format version 1, in
+    [release-files.md](release-files.md#the-binary-bank-bankbin));
   - the identity groups;
   - the geometric index;
   - the catalog.
   Each one that carries a `schemaVersion` changes it when its format changes, and the release
   document's readers (Python and browser) refuse a version they do not know rather than guess.
+  `bank.bin` carries its format version in its eighth byte, under the same rule.
 - **The label manifest format,** `data/manifest.schema.json`.
 - **The browser runtime's exports from `browser/src/index.ts`:** `loadRelease`, `createSession`,
   `analyzeFrame`, `hoverAt` and the types they use.

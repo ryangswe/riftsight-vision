@@ -67,9 +67,10 @@ def _base_rule(base: Path) -> object:
 
 def _build_bank(args: argparse.Namespace) -> int:
     from cardvision.bank.build import BankBuildError, build_bank, write_bank
-    from cardvision.bank.documents import DocumentExistsError, read_json
+    from cardvision.bank.documents import DocumentExistsError
     from cardvision.bank.refresh import check_refresh
     from cardvision.bank.suspect import Suspects, bank_suspects, suspect_lines
+    from cardvision.core.bank_binary import read_bank_file
     from cardvision.core.catalog import CatalogError, load_catalog
     from cardvision.core.onnx import create_session
 
@@ -81,7 +82,7 @@ def _build_bank(args: argparse.Namespace) -> int:
         return _fail("build-bank", "--reembed-unrecorded needs --base: it is about the rows of a base bank")
     try:
         catalog = load_catalog(args.catalog)
-        base = read_json(args.base) if args.base else None
+        base = read_bank_file(args.base) if args.base else None
         model = args.model or (None if base is not None else args.recognizer.stem)
         session = create_session(args.recognizer)
         build = build_bank(catalog, args.art, session, model=model, version=args.version, base=base,
@@ -158,9 +159,10 @@ def _check_refresh(args: argparse.Namespace) -> int:
     from cardvision.bank.build import groups_path_for
     from cardvision.bank.documents import read_json
     from cardvision.bank.refresh import check_refresh
+    from cardvision.core.bank_binary import read_bank_file
 
     try:
-        old_bank, new_bank = read_json(args.old_bank), read_json(args.new_bank)
+        old_bank, new_bank = read_bank_file(args.old_bank), read_bank_file(args.new_bank)
         old_groups = new_groups = None
         if not args.bank_only:
             old_path = args.old_groups or groups_path_for(args.old_bank)
@@ -242,7 +244,7 @@ def report_card_images(catalog: str | Path, art: str) -> int:
 
 def _check_bank_art(args: argparse.Namespace) -> int:
     from cardvision.bank.art import check_bank_art
-    from cardvision.bank.documents import read_json
+    from cardvision.core.bank_binary import read_bank_file
     from cardvision.bank.suspect import suspect_lines
     from cardvision.core.catalog import CatalogError, load_catalog
     from cardvision.core.tls import CertificatesMissing
@@ -250,7 +252,7 @@ def _check_bank_art(args: argparse.Namespace) -> int:
     if args.bank is None:
         return _check_art(args)
     try:
-        report = check_bank_art(read_json(args.bank), load_catalog(args.catalog), args.art)
+        report = check_bank_art(read_bank_file(args.bank), load_catalog(args.catalog), args.art)
     except (CatalogError, CertificatesMissing, OSError, ValueError) as error:
         return _fail("check-bank-art", str(error))
     print(f"bank: {args.bank} ({report.rows} rows; {report.recorded} record their source image)")
@@ -348,6 +350,44 @@ def _verify_release(args: argparse.Namespace) -> int:
     return 0
 
 
+# -------------------------------------------------------------------------- convert-release
+_CONVERT_DESCRIPTION = """\
+The bank becomes bank.bin, its binary form, which holds the same fp16 bytes as the JSON bank,
+and the catalog is written as compact JSON. Every other pinned file is copied
+byte for byte, except that the identity groups record the new bank's SHA-256. The new release
+document pins the new files, so it has a new id; it scores exactly as the original.
+
+A geometric index (build-features) records the SHA-256 of the bank it serves. Converting changes
+it, so an index built against the JSON bank does not serve the converted release: build the
+index again with --bank naming the converted bank.bin, and pack it again."""
+
+
+def _convert_release_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.epilog = _CONVERT_DESCRIPTION
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
+    parser.add_argument("release", type=Path, metavar="RELEASE", help="the release document to convert")
+    parser.add_argument("--out", required=True, type=Path,
+                        help="the folder to write the converted release to; it must not exist or must be empty")
+
+
+def _convert_release(args: argparse.Namespace) -> int:
+    from cardvision.bank.convert import convert_release
+    from cardvision.bank.release import ReleaseError
+
+    try:
+        done = convert_release(args.release, args.out)
+    except ReleaseError as error:
+        return _fail("convert-release", error.errors)
+    except (OSError, ValueError) as error:
+        return _fail("convert-release", str(error))
+    print(f"release {done.old['id']} -> release {done.new['id']}: {args.out / args.release.name}")
+    for path, (before, after) in done.sizes.items():
+        print(f"  {path}: {before} -> {after} bytes")
+    print("a geometric index built against the original bank does not serve this release: "
+          "build it again with --bank naming the converted bank")
+    return 0
+
+
 # name -> (one-line help, function that adds the arguments, function that runs the command)
 COMMANDS: dict[str, tuple[str, Callable[[argparse.ArgumentParser], None], Callable[[argparse.Namespace], int]]] = {
     "build-bank": ("Build an embedding bank and its identity groups from card images.",
@@ -360,4 +400,6 @@ COMMANDS: dict[str, tuple[str, Callable[[argparse.ArgumentParser], None], Callab
                       _build_release_arguments, _build_release),
     "verify-release": ("Check a release document and every file it pins.",
                        _verify_release_arguments, _verify_release),
+    "convert-release": ("Write a release with the bank as bank.bin and a compact catalog, every value unchanged.",
+                        _convert_release_arguments, _convert_release),
 }

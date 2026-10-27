@@ -258,6 +258,11 @@ the images come from a URL). A row looks like
 `artV`. It is there so that a row made from an earlier image of a card can be found. A bank
 written before the field existed has none, and loads as before.
 
+The same bank can also be written as `bank.bin`, a binary file that holds the same half-precision
+bytes without the base64 text (`cardvision convert-release`; module
+`cardvision/core/bank_binary.py`). Every reader takes either form, and both give the same rows,
+bit for bit. [release-files.md](release-files.md#the-binary-bank-bankbin) has its layout.
+
 A row is not the vector of the clean image alone. A clean image is larger, sharper and more
 exactly cropped than a card in video. So each row is the mean over **16 views** of the image:
 the image itself and 15 copies put through the kind of damage video does (edges moved by up to

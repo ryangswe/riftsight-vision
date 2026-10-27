@@ -375,13 +375,17 @@ def load_index(path: str | Path) -> DescriptorIndex:
 def bank_mismatch(index: DescriptorIndex, bank_path: str | Path) -> str | None:
     """Why ``index`` must not be used with the bank file at ``bank_path``, or ``None`` when it
     may (see the module docstring)."""
-    from cardvision.bank.documents import read_json, sha256_hex
+    from cardvision.bank.documents import sha256_hex
     from cardvision.core.bank import stored_art_versions
+    from cardvision.core.bank_binary import read_bank_bytes
 
     bank_path = Path(bank_path)
     recorded = index.doc.get("bank")
     body = bank_path.read_bytes()
-    bank = read_json(bank_path)
+    try:
+        bank = read_bank_bytes(body)
+    except ValueError as error:
+        raise ValueError(f"{bank_path.name}: {error}") from None
     ids, _ = stored_vectors(bank)
     versions = stored_art_versions(bank)
     # Checked whatever the hashes say: an index must hold every bank card, from the image the

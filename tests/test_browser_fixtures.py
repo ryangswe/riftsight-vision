@@ -49,6 +49,7 @@ left out and the command says so.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -63,7 +64,9 @@ import numpy as np
 import pytest
 
 from cardvision.bank import release as R
+from cardvision.bank.build import PREPROCESSING
 from cardvision.bank.documents import canonical_bytes, read_json, sha256_hex
+from cardvision.core import bank_binary
 from cardvision.core.bank import IdentityGroups, decode_bank, encode_bank, groups_by_name
 from cardvision.core.catalog import IDENTITY_NAME
 from cardvision.core.preprocess import POOL_V1, POOL_V2, box_average, full128, rot4
@@ -273,9 +276,19 @@ def section_bank() -> dict:
     looks = [score_look(row, columns) for row in similarities(queries, bank_transposed(rows))]
     groups = groups_by_name(ids, names)
     identity = IdentityGroups(groups, ids)
+    # The same rows as a whole bank document in its binary form, with some rows recording an
+    # image (artV), and the toy release's bank in its binary form: the browser reads both.
+    full = {"schemaVersion": 1, "kind": "embedding-bank", "version": 3, "model": "some-recognizer", "dim": 128,
+            "preprocessing": PREPROCESSING["full128"], "centerMask": False, "entryCount": len(ids),
+            "entries": [{**entry, **({"artV": f"{position:016x}"} if position % 2 == 0 else {})}
+                        for position, entry in enumerate(doc["entries"])]}
     return {
         "note": "a generated bank as encode_bank stores it, the float32 matrix decode_bank reads from it, and the "
-                "look (best row, score, margin against another name) of generated unit queries.",
+                "look (best row, score, margin against another name) of generated unit queries. binary: the same "
+                "rows as a whole bank document in its binary form (cardvision.core.bank_binary), base64; "
+                "toyReleaseBinary: the toy release's bank.json in its binary form, base64.",
+        "binary": base64.b64encode(bank_binary.encode(full)).decode("ascii"),
+        "toyReleaseBinary": base64.b64encode(bank_binary.encode(read_json(TOY_RELEASE / "bank.json"))).decode("ascii"),
         "dim": 128, "ids": ids, "names": names, "entries": doc["entries"], "matrixSha256": sha(rows.astype("<f4")),
         "groups": groups, "representative": identity.representative_map(), "identityIds": identity.identity_ids,
         "queries": hexed(queries.astype("<f4")),

@@ -33,7 +33,7 @@ from cardvision.try_game import cli as try_cli
 #          function that runs it and returns the process exit code)
 Subcommand = tuple[str, Callable[[argparse.ArgumentParser], None], Callable[[argparse.Namespace], int]]
 SUBCOMMANDS: dict[str, Subcommand] = {
-    **BANK_COMMANDS,  # build-bank, check-refresh, check-bank-art, build-release, verify-release
+    **BANK_COMMANDS,  # build-bank, check-refresh, check-bank-art, build-release, verify-release, convert-release
     **COMPOSITE_COMMANDS,  # make-composites, fetch-textures
     **DATA_COMMANDS,  # validate-manifest, assign-roles, fetch, record-reachable
     **GEOMETRIC_COMMANDS,  # build-features, pack-features (the optional geometric stage)
@@ -55,7 +55,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
 # (tests/test_cli.py pins it); a command registered but not listed here is shown under "Other".
 GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Start here", ("next", "try", "import-catalog", "check-catalog", "check-bank-art", "build-bank", "infer", "build-release",
-                    "verify-release", "fetch-weights")),
+                    "verify-release", "convert-release", "fetch-weights")),
     ("Train", ("make-composites", "fetch-textures", "train-recognizer", "train-detector", "export")),
     ("Measure", ("evaluate", "calibrate", "check-refresh", "build-features", "pack-features")),
     ("Data", ("validate-manifest", "fetch", "record-reachable", "assign-roles")),
