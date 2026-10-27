@@ -523,7 +523,8 @@ cardvision build-features --config geometric.json --catalog catalog.json --art F
 It is one JSON document in the same canonical form as the bank, so the same images and
 settings give the same bytes. `--pin` writes the index's path and SHA-256 into the settings
 file; the stage refuses an index whose bytes do not have that hash, or that was built with
-other `features` settings.
+other `features` settings. `--base OLD` extends an older index with new cards instead of
+building it again (below, "Adding cards without changing the old shards").
 
 **An index serves one bank.** Every card of the bank must be in the index, and where the bank's
 row records its image (`artV`) the index's entry must record the same one. Then the bank is
@@ -567,6 +568,53 @@ positions are the stage's own values, bit for bit. The manifest is canonical JSO
 | `opencv`, `features` | As in the index |
 | `cards` | In the index's order: `cardId`, `artV`, `width`, `height`, `n`, and where the rows are: `shard`, and `offset`, the card's first row inside that shard |
 | `shards` | `path`, `sha256` and `rows` of each shard; a page checks every shard's hash each time it starts |
+
+**Adding cards without changing the old shards.** A new card set would change every one of the
+eight shards, so a page that keeps the index would download all of it again. Instead, extend
+the index and its pack, as `build-bank --base` extends a bank:
+
+```
+cardvision build-features --config geometric.json --catalog catalog.json --art FOLDER \
+    --bank new-bank.json --base old.features.json --out new.features.json
+cardvision pack-features --index new.features.json --base SERIES/manifest-OLD.json \
+    --out SERIES --manifest-name manifest-NEW.json
+```
+
+`build-features --base` copies every card of the old index unchanged and in its order, and takes
+keypoints only for the new cards, after them, in the bank's order (or the catalog's, without
+`--bank`). It refuses an old index built with other `features` settings, another OpenCV version,
+or for another game or locale; an old card the bank (or, without a bank, the catalog) no longer
+lists; and an old card whose image changed. It knows the image from the bank row's `artV`; where
+the row records none, or without a bank, it reads the image at the art location and hashes it.
+Build such an index again without `--base`. When the bank was extended with `build-bank --base`,
+its new rows also come after the old ones, so on the same OpenCV build the extended index is byte
+for byte the file a full build gives, and the stage's results are the same. The OpenCV version
+string alone does not promise that: two builds of one version (an arm64 Mac and x86-64 Linux,
+or other SIMD) can take different keypoints from the same image, so extend an index on the
+machine and build it was made with. Without a bank, a new card listed among the old ones in the
+catalog goes to the end instead of its place: the cards are the same and only the order
+differs, which changes which of two equally near rows the vote gives a crop keypoint, so a vote
+count can differ by a few.
+
+`pack-features --base` keeps the old manifest's shards, byte for byte and at the same paths, and
+deals only the new cards to new shards after them, each at most as large as the old manifest's
+largest. Shards are named by their content, `shard-<16 hex digits of SHA-256>.bin`; the base's
+must be too, so a series starts with a pack made with `--content-names` (which also leaves out
+empty shards), and a pack with shards named by position cannot be extended. It refuses an index
+that does not begin with the old manifest's cards unchanged, or that was taken with other
+settings or another OpenCV version. The old shards are copied into `--out` when it is another
+folder; `--manifest-name` names the new manifest, which may not replace the base's. The rows
+keep their order, so a page assembles the same rows as from a pack in one step. The new manifest
+names the new index and its bank; for the same cards with another bank (a retrained recognizer)
+it names no new shard at all.
+
+To let a page reuse the old shards, host a series in one folder that never moves, for example
+`vision/geo/<series>/`, holding `manifest-<16 hex digits of the source SHA-256>.json` for each
+pack and every shard beside them. Nothing there is ever overwritten; the folder only grows. The
+page keeps shards by address, so it downloads only the new ones, and its cache keeps that
+folder. When `--base` refuses, pack in one step with `--content-names` into a new series folder.
+The manifest format is unchanged (`schemaVersion` 1): a page that loads a manifest today loads
+an extended one.
 
 **What it costs.** With the default ORB settings an index takes about 15 KB per card (300
 keypoints of 32 bytes and two `float32` coordinates, in base64), so about 15 MB per thousand

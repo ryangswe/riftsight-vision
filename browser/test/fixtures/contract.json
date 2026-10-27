@@ -10471,6 +10471,201 @@
    ]
   }
  },
+ "geometricAppend": {
+  "about": "The toy index of 'geometricIndex' packed in two steps, as cardvision pack-features --base does it: 'baseManifest' packs its first cards (for an older bank, shards named by content); 'manifest' adds the other cards in new shards and keeps the base's shards unchanged. 'shards' maps every shard path of both manifests to the hex of its bytes. The rows, in order, are the ones of 'geometricIndex', so the nearest rows and votes are the same.",
+  "baseManifest": {
+   "schemaVersion": 1,
+   "kind": "geometric-index-packed",
+   "source": {
+    "sha256": "c09123fd46e1565156c1b844fdf3539021b86e0fc1931195b5f680d6f4b12e8c"
+   },
+   "bank": {
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "opencv": "5.0.0",
+   "features": {
+    "type": "orb",
+    "maxFeatures": 300,
+    "artLongSide": 320,
+    "mask": [],
+    "params": {
+     "scaleFactor": 1.2,
+     "nLevels": 8,
+     "edgeThreshold": 15,
+     "patchSize": 15,
+     "fastThreshold": 10
+    }
+   },
+   "cards": [
+    {
+     "cardId": "TOY-A",
+     "artV": "0000000000000000",
+     "width": 229,
+     "height": 320,
+     "shard": 0,
+     "offset": 0,
+     "n": 12
+    },
+    {
+     "cardId": "TOY-B",
+     "artV": "1111111111111110",
+     "width": 229,
+     "height": 320,
+     "shard": 1,
+     "offset": 0,
+     "n": 9
+    },
+    {
+     "cardId": "TOY-C",
+     "artV": "2222222222222222",
+     "width": 229,
+     "height": 320,
+     "shard": 2,
+     "offset": 0,
+     "n": 0
+    },
+    {
+     "cardId": "TOY-D",
+     "artV": "3333333333333333",
+     "width": 229,
+     "height": 320,
+     "shard": 2,
+     "offset": 0,
+     "n": 14
+    }
+   ],
+   "shards": [
+    {
+     "path": "shard-2ef2ea61b7cf8720.bin",
+     "sha256": "2ef2ea61b7cf872078ac5b08c83518238bc06dd4ca59881a180222bc220223a2",
+     "rows": 12
+    },
+    {
+     "path": "shard-dc1cef78a497ed19.bin",
+     "sha256": "dc1cef78a497ed19fdc449b68647105a33376148996e7ef19bbd8c9d3bd30fce",
+     "rows": 9
+    },
+    {
+     "path": "shard-01a4f4720c53bb4a.bin",
+     "sha256": "01a4f4720c53bb4a89774b430acd41ca69f6fc2845f926f523d2fdd3aca18e74",
+     "rows": 14
+    }
+   ]
+  },
+  "manifest": {
+   "schemaVersion": 1,
+   "kind": "geometric-index-packed",
+   "source": {
+    "sha256": "83c2423931eab929820089dd8147aecc4631715796e6265ff5586d72c86a7145"
+   },
+   "bank": {
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   },
+   "opencv": "5.0.0",
+   "features": {
+    "type": "orb",
+    "maxFeatures": 300,
+    "artLongSide": 320,
+    "mask": [],
+    "params": {
+     "scaleFactor": 1.2,
+     "nLevels": 8,
+     "edgeThreshold": 15,
+     "patchSize": 15,
+     "fastThreshold": 10
+    }
+   },
+   "cards": [
+    {
+     "cardId": "TOY-A",
+     "artV": "0000000000000000",
+     "width": 229,
+     "height": 320,
+     "shard": 0,
+     "offset": 0,
+     "n": 12
+    },
+    {
+     "cardId": "TOY-B",
+     "artV": "1111111111111110",
+     "width": 229,
+     "height": 320,
+     "shard": 1,
+     "offset": 0,
+     "n": 9
+    },
+    {
+     "cardId": "TOY-C",
+     "artV": "2222222222222222",
+     "width": 229,
+     "height": 320,
+     "shard": 2,
+     "offset": 0,
+     "n": 0
+    },
+    {
+     "cardId": "TOY-D",
+     "artV": "3333333333333333",
+     "width": 229,
+     "height": 320,
+     "shard": 2,
+     "offset": 0,
+     "n": 14
+    },
+    {
+     "cardId": "TOY-E",
+     "artV": "4444444444444444",
+     "width": 229,
+     "height": 320,
+     "shard": 3,
+     "offset": 0,
+     "n": 7
+    },
+    {
+     "cardId": "TOY-F",
+     "artV": "0000000000000000",
+     "width": 229,
+     "height": 320,
+     "shard": 3,
+     "offset": 7,
+     "n": 6
+    }
+   ],
+   "shards": [
+    {
+     "path": "shard-2ef2ea61b7cf8720.bin",
+     "sha256": "2ef2ea61b7cf872078ac5b08c83518238bc06dd4ca59881a180222bc220223a2",
+     "rows": 12
+    },
+    {
+     "path": "shard-dc1cef78a497ed19.bin",
+     "sha256": "dc1cef78a497ed19fdc449b68647105a33376148996e7ef19bbd8c9d3bd30fce",
+     "rows": 9
+    },
+    {
+     "path": "shard-01a4f4720c53bb4a.bin",
+     "sha256": "01a4f4720c53bb4a89774b430acd41ca69f6fc2845f926f523d2fdd3aca18e74",
+     "rows": 14
+    },
+    {
+     "path": "shard-4875b5ea44756ea6.bin",
+     "sha256": "4875b5ea44756ea672177e2ae3fdf6f206c1e1bad2f939b13f973172f82340c7",
+     "rows": 13
+    }
+   ]
+  },
+  "shards": {
+   "shard-2ef2ea61b7cf8720.bin": "6ebe589773b1624c924f55b29bb6d2f7ef0fa6b19fce2bc44e0ca75564514e2f2fd2971ae4f52b246b1d48f2cc16e3fce7db44e9681a9964a078d314893939bd02e3547b289312c0a12fbedc09ca2ca0f555036762863a3b267db7f4caaa76cf66720bc8e48b7c9187c45a9ec80f0defd5a08fac99dc464f08a1e10c16507d0efaa387afee6c15832935b3280c52e28948456902e6d5d817b0a5b5ba52c1a17bacd275f66b2daedc784f1f7edab1061af85bdf1e79093d75f403d1dc655d0582bb7ff62bb25c913e5b3b6d8a1f9ea9140d6459ebbbeb8dc67cdd977662ffc7d22a5abe55f2524ce97c77d4bdd63700d259ca73c9c48716b9bbac6d1791bfc6262a5abe55f2524ce97c77d4bdd63700d259ca73c9c48716b9bbac6d1791bfc62631f09846914f635b65cf7c6eacf151c0386b40453ad64781e6ac252c8a6624698e81afc243a621cad0e9c69917b80d9397814993604bed9fb18df867ecca5d06a8953a1ce277b20c1af9e4d82611c9078a49956c5e3641c135658e7e8102b9d7cfb51c41a6a80a42f91ad041b11da641f8119142e2332242da148e4200043a3f8e1b0a423e1f0f415a2b0b4210751f4248eee84141d6c6416cb7b941b14619429a4c0442a66a01426c0d05429dc39f41ee8e77421bb8d74155738b428beec841",
+   "shard-dc1cef78a497ed19.bin": "f520bfc2080a9ac10c55c13cccc7aa1f9fc19042a7f870ce549c62e3e5d1e897c35d72bf526d91bdf01d7c2c1560338ba35a15f775a33d88f52212e38b92e237acd275f66b2daedc784f1f7edab1061af85bdf1e79093d75f403d1dc655d0582455e52b28f0a25f40f07f927225e35d03bb712461c2e3bd0312731efd24607d053e569daaf8efd9e0b693e8ae716b82487bae276578c50879cf63d18364f4a05aef9af9c221d2daa74a28b34fba970779b8a152c5aba9fc4e71fb8248432cfc7757269062034e15de0065e88f5dcf79f1ade7fe4d173a5931f04e4757f7b5bb61d68b5df67b730b86ea427938bba18ab8488e774d1807a87854cfdffccd4818370609cb6dd500d7b5571fb112809ef1c77abc0a6d03c0d98a859dc6dccb9a00a13114d411be4c93fe64b6e403fbc12429b6ccf40ad87b741e905794228f6f94064dc24423a2d0642f6210842aa5e2742aaa9834275c5dc4140ab034239c096411dab5442d5dff141",
+   "shard-01a4f4720c53bb4a.bin": "de0cdb5511600db819f969eea4a084dc7ac946390e896551cb2e05c6bb061d9543e615ffffe98513309a3c7483b9bc35a33291ef3252ac194e43d469ae021194f9edfadeee90fae959693d336e569fe47e32112173043fd8fe34b303ab5db69b64db6d949cf0a52b614a704a041f1f2f1696258b316c59a176b60943a3b71b15de13e8ba092ef83ef8d274967306110f9178867c1f1f3ea5fd0bba05766145d868038883f31d68b7a9eee0a2c249045adf5aa7124a57cc1e438861f13396e05b42b5dbdea19ba8d2989b090778c25c6baaab7c1f5a49418c43aa745089d520fe9d9e847764d5e9f6701b8737611cd800439bb5f8a9d9aa42344367d074a85aa3113b7b8ff4937a6ef3e9be15c1429235fbe5870f0f98c56280bcd297ccb7e08adfffbc75835d023fa167f05f6625e7100015267e05120b5a291f55c8453d42fc17646f287bac92edf885b6d43f7f081b5ef3347f847f976ed7b390e925e669bd505d93801b863e1cf3c00dc7321182397d50386b767877abe8192c877d030a531822332001dfca58315d4aebb9a75b88a59b01636b6012d1b0f45edb7a579976ae667c2669bee0936e84d1dd2d2c286d47a1203d1f25bcbdb526a5823be2f446c9bf9142414447413eadb3407d1f9c41f08eef401261604179f3a64071a3ce403c02ac40e6934f41fb33df41580a7241ab76c541434d1042bf7f1d4159198641023cfe40f2421342ee6ba0419720cd40d5bc8d418e064641373902426c3bac417950fc41f394194261c65142fc620241",
+   "shard-4875b5ea44756ea6.bin": "de0cdb5511600db819f969eea4a084dc7ac946390e896551cb2e05c6bb061d9501aa37512de35b466ef11cf34eba9a88c2efc8f6926246809ea6975eedb920289832476129871c06e612127b365c784890dc779af3a8b6918752bb8f64828c3fccfe7015d0a44951e5651724de6a94ee285d34ab93e17b5f0fba0835e61fbdf92ae8399e42b5dce77696a9cfafd63d8515559e9c4dc7f22ae8c95274225ba6de054c0ed6013d513450b67448bad16cc7fe43c43c2235dc788646efc5eafc7a69e50624680d8ca9f2a10db6606dcae650bc3cd6c906ae5653ddcfbfd868d0edf17c4f0192d76d1a616e37adf28dcb5a695f6eb38fb55112032a738ff0929679db02e3547b289312c0a12fbedc09ca2ca0f555036762863a3b267db7f4caaa76cfe53756be7de3a8b9ac49a04d349e25e2f7efde94fbf101b2a669f31b30d736ff6c7a82ed846be137b3583981fb7d0da9ac5ca1bfe6b1452b5aa33a0a4854445f647dc6d0f81306930349dec18d018ca5d18d469252d67fd62cb5a06cf6fd8e18df6be7de150e2949d919f5490eb396b4c43717ff98aabfa1b14db7a5c18bc06972fcd441e4bb314298a59742dfe4cf418745083f72a4c93f25316f42c92531425543993aad11e04095272d41dd400442b82607417643dd41fc0e8a41eecd80407b17ad414ff68641021e004267e85f418a49784252900542393db64106b21142fd97e541f5e75a41"
+  },
+  "baseBankSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "bankSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "baseManifestSha256": "d193af964c0af224b7341b0150cab8723164f8ab7688870a61474b8278030ee6",
+  "manifestSha256": "e9648e18331cacf8516064dcf9dd4f275dafdc7ca414ef321e5a0ea3ce40d1f9",
+  "newShards": ["shard-4875b5ea44756ea6.bin"]
+ },
  "paths": {
   "note": "paths a release document may pin, and whether verify-release accepts each: a plain relative path that stays inside the document's folder as the URL parser reads it (no scheme prefix, backslash, control character, space at an end, absolute path, or segment that is or percent-encodes . or ..).",
   "paths": [

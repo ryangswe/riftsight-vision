@@ -994,6 +994,7 @@ def build_contract() -> dict:
         "dhash": section_dhash(),
         "events": section_events(),
         "geometricIndex": section_geometric_index(),
+        "geometricAppend": section_geometric_append(),
         "paths": section_paths(),
     }
 
@@ -1122,6 +1123,56 @@ def section_geometric_index() -> dict:
                                            for c in cosines for e in evidences]},
     }
 
+
+GEO_BASE_CARDS = 4
+GEO_BASE_BANK_SHA = "a" * 64
+
+
+def _geo_base_doc(toy: dict) -> dict:
+    """The toy index as it was before its last cards were added: its first ``GEO_BASE_CARDS``
+    cards, for an older bank."""
+    cards = toy["doc"]["cards"][:GEO_BASE_CARDS]
+    return dict(toy["doc"], cards=cards, cardCount=len(cards), featureCount=sum(card["n"] for card in cards),
+                bank={"version": 1, "sha256": GEO_BASE_BANK_SHA})
+
+
+def _geo_append(toy: dict) -> tuple[dict, list[bytes], dict, list[bytes]]:
+    """The base packed with content names, and the whole toy index packed onto it with ``--base``:
+    ``(base manifest, base shards, manifest, every shard)``."""
+    from cardvision.geometric.index import parse_index
+    from cardvision.geometric.pack import append_index, pack_index
+
+    base_doc = _geo_base_doc(toy)
+    base, base_blobs = pack_index(parse_index(base_doc), sha256_hex(canonical_bytes(base_doc)), content_names=True)
+    base_cards = {}
+    for card, entry in zip(base["cards"], base_doc["cards"]):
+        found = parse_index(base_doc).cards[card["cardId"]]
+        base_cards[entry["cardId"]] = (found.descriptors, found.xy)
+    manifest, blobs = append_index(parse_index(toy["doc"]), sha256_hex(canonical_bytes(toy["doc"])), base,
+                                   base_blobs, base_cards)
+    return base, base_blobs, manifest, blobs
+
+
+def section_geometric_append() -> dict:
+    """The toy index packed in two steps: its first cards, then the rest added with --base."""
+    toy = _geo_toy()
+    base, base_blobs, manifest, blobs = _geo_append(toy)
+    return {
+        "about": "The toy index of 'geometricIndex' packed in two steps, as cardvision pack-features --base does it: "
+                 "'baseManifest' packs its first cards (for an older bank, shards named by content); 'manifest' "
+                 "adds the other cards in new shards and keeps the base's shards unchanged. 'shards' maps every "
+                 "shard path of both manifests to the hex of its bytes. The rows, in order, are the ones of "
+                 "'geometricIndex', so the nearest rows and votes are the same.",
+        "baseManifest": base,
+        "manifest": manifest,
+        "shards": {entry["path"]: blob.hex() for entry, blob in [*zip(base["shards"], base_blobs),
+                                                                  *zip(manifest["shards"], blobs)]},
+        "baseBankSha256": GEO_BASE_BANK_SHA,
+        "bankSha256": GEO_BANK_SHA,
+        "baseManifestSha256": sha256_hex(canonical_bytes(base)),
+        "manifestSha256": sha256_hex(canonical_bytes(manifest)),
+        "newShards": [entry["path"] for entry in manifest["shards"][len(base["shards"]):]],
+    }
 
 
 # ------------------------------------------------------------------------------ the toy release
@@ -1505,8 +1556,8 @@ def test_pack_features_refuses_a_source_the_settings_file_does_not_pin(tmp_path)
         pack_file(index, tmp_path / "out", config=settings)
     settings.write_text(json.dumps({"index": {"path": str(index), "sha256": sha256_hex(index.read_bytes())}}),
                         encoding="utf-8")
-    manifest, body = pack_file(index, tmp_path / "out", config=settings)
-    again, same = pack_file(index, tmp_path / "again", config=settings)
+    manifest, body, _ = pack_file(index, tmp_path / "out", config=settings)
+    again, same, _ = pack_file(index, tmp_path / "again", config=settings)
     assert body == same and [p.read_bytes() for p in sorted((tmp_path / "out").iterdir())] == \
         [p.read_bytes() for p in sorted((tmp_path / "again").iterdir())]
     assert manifest["kind"] == "geometric-index-packed" and len(manifest["shards"]) == 8
@@ -1532,6 +1583,153 @@ def test_a_packed_index_with_no_bank_is_refused():
     doc = dict(_geo_toy()["doc"], bank=None)
     with pytest.raises(PackError, match="bank"):
         pack_index(parse_index(doc), "0" * 64)
+
+
+# ------------------------------------------------------------------- adding cards to a packed index
+def _write_index(path: Path, doc: dict) -> Path:
+    path.write_bytes(canonical_bytes(doc))
+    return path
+
+
+def _global_rows(manifest: dict, blobs: list[bytes]) -> tuple[bytes, bytes, list[tuple[str, int, int]]]:
+    """Every row's descriptor and position bytes in global row order, as the browser assembles
+    them (shard after shard), and each card's (id, first global row, rows)."""
+    desc, xy, starts, first = [], [], [], 0
+    for entry, blob in zip(manifest["shards"], blobs):
+        starts.append(first)
+        desc.append(blob[:entry["rows"] * 32])
+        xy.append(blob[entry["rows"] * 32:])
+        first += entry["rows"]
+    cards = [(card["cardId"], starts[card["shard"]] + card["offset"], card["n"]) for card in manifest["cards"]]
+    return b"".join(desc), b"".join(xy), cards
+
+
+def test_an_append_keeps_the_base_shards_and_holds_a_full_pack_s_rows_in_its_order():
+    from cardvision.geometric.index import parse_index
+    from cardvision.geometric.pack import pack_index
+
+    toy = _geo_toy()
+    base, base_blobs, manifest, blobs = _geo_append(toy)
+    kept = len(base["shards"])
+    assert manifest["shards"][:kept] == base["shards"] and blobs[:kept] == base_blobs
+    assert manifest["cards"][:len(base["cards"])] == base["cards"]
+    assert manifest["bank"]["sha256"] == GEO_BANK_SHA != base["bank"]["sha256"]
+    assert manifest["source"]["sha256"] == sha256_hex(canonical_bytes(toy["doc"]))
+    assert all(entry["path"] == f"shard-{entry['sha256'][:16]}.bin" for entry in manifest["shards"])
+    full, full_blobs = pack_index(parse_index(toy["doc"]), "0" * 64)
+    assert _global_rows(manifest, blobs) == _global_rows(full, full_blobs)
+
+
+def test_pack_features_base_writes_the_old_shards_unchanged_and_refuses_what_does_not_extend(tmp_path, capsys):
+    from cardvision import cli
+    from cardvision.geometric.pack import read_packed, verify_round_trip
+    from cardvision.geometric.index import parse_index
+
+    toy = _geo_toy()
+    base_index = _write_index(tmp_path / "base.features.json", _geo_base_doc(toy))
+    index = _write_index(tmp_path / "toy.features.json", toy["doc"])
+    assert cli.main(["pack-features", "--index", str(base_index), "--out", str(tmp_path / "v1"), "--content-names"]) == 0
+    base_manifest = tmp_path / "v1" / "manifest.json"
+    before = {path.name: path.read_bytes() for path in (tmp_path / "v1").iterdir()}
+    capsys.readouterr()
+    assert cli.main(["pack-features", "--index", str(index), "--out", str(tmp_path / "v2"),
+                     "--base", str(base_manifest)]) == 0
+    said = capsys.readouterr().out
+    assert "kept from the base: 3 shards, unchanged; new: 1 shards" in said
+    assert {path.name: path.read_bytes() for path in (tmp_path / "v1").iterdir()} == before  # the base is untouched
+    for name, data in before.items():
+        if name != "manifest.json":
+            assert (tmp_path / "v2" / name).read_bytes() == data
+    manifest, _ = read_packed(tmp_path / "v2" / "manifest.json")
+    assert manifest["bank"]["sha256"] == GEO_BANK_SHA
+    verify_round_trip(parse_index(toy["doc"]), tmp_path / "v2")
+    assert canonical_bytes(manifest) == canonical_bytes(_geo_append(toy)[2] | {"source": manifest["source"]})
+    # The same cards for another bank (a retrained recognizer): no new shard, only a new manifest.
+    rebound = _write_index(tmp_path / "rebound.features.json", dict(toy["doc"], bank={"version": 2, "sha256": "c" * 64}))
+    assert cli.main(["pack-features", "--index", str(rebound), "--out", str(tmp_path / "v3"),
+                     "--base", str(tmp_path / "v2" / "manifest.json")]) == 0
+    assert read_packed(tmp_path / "v3" / "manifest.json")[0]["shards"] == manifest["shards"]
+    capsys.readouterr()
+
+    def refused(doc: dict, fragment: str) -> None:
+        path = _write_index(tmp_path / "other.features.json", doc)
+        assert cli.main(["pack-features", "--index", str(path), "--out", str(tmp_path / "refused"),
+                         "--base", str(base_manifest)]) == 1
+        assert fragment in capsys.readouterr().err
+        assert not (tmp_path / "refused").exists()
+
+    refused(dict(toy["doc"], opencv="4.10.0"), "OpenCV")
+    refused(dict(toy["doc"], features=dict(toy["doc"]["features"], maxFeatures=500)), "maxFeatures")
+    reordered = dict(toy["doc"], cards=[toy["doc"]["cards"][1], toy["doc"]["cards"][0], *toy["doc"]["cards"][2:]])
+    refused(reordered, "does not begin with the base's cards")
+    changed = [dict(card) for card in toy["doc"]["cards"]]
+    changed[0]["artV"] = "9" * 16
+    refused(dict(toy["doc"], cards=changed), "differ in the index")
+    assert cli.main(["pack-features", "--index", str(index), "--out", str(tmp_path / "x"), "--base", str(base_manifest),
+                     "--content-names"]) == 1
+    capsys.readouterr()
+    # Into the base's own folder: under another manifest name, never over the base's manifest.
+    assert cli.main(["pack-features", "--index", str(index), "--out", str(tmp_path / "v1"), "--base",
+                     str(base_manifest)]) == 1
+    assert "would replace the base's" in capsys.readouterr().err
+    assert base_manifest.read_bytes() == before["manifest.json"]
+    assert cli.main(["pack-features", "--index", str(index), "--out", str(tmp_path / "v1"), "--base",
+                     str(base_manifest), "--manifest-name", "manifest-next.json"]) == 0
+    assert "kept from the base: 3 shards, unchanged; new: 1 shards" in capsys.readouterr().out
+    assert {name: (tmp_path / "v1" / name).read_bytes() for name in before} == before
+    assert (tmp_path / "v1" / "manifest-next.json").read_bytes() == (tmp_path / "v2" / "manifest.json").read_bytes()
+    assert cli.main(["pack-features", "--index", str(index), "--out", str(tmp_path / "y"),
+                     "--manifest-name", "../escape.json"]) == 1
+
+
+def test_a_base_with_shards_named_by_position_is_refused(tmp_path, capsys):
+    from cardvision import cli
+
+    toy = _geo_toy()
+    base_index = _write_index(tmp_path / "base.features.json", _geo_base_doc(toy))
+    index = _write_index(tmp_path / "toy.features.json", toy["doc"])
+    assert cli.main(["pack-features", "--index", str(base_index), "--out", str(tmp_path / "plain")]) == 0
+    capsys.readouterr()
+    assert cli.main(["pack-features", "--index", str(index), "--out", str(tmp_path / "next"),
+                     "--base", str(tmp_path / "plain" / "manifest.json")]) == 1
+    assert "start a series with pack-features --content-names" in capsys.readouterr().err
+    assert not (tmp_path / "next").exists()
+
+
+def test_new_cards_fill_new_shards_no_larger_than_the_base_s_largest():
+    from cardvision.geometric.index import parse_index
+    from cardvision.geometric.pack import append_index, pack_index
+
+    toy = _geo_toy()
+    one = dict(_geo_base_doc(toy), cards=toy["doc"]["cards"][:1], cardCount=1, featureCount=12)
+    base, base_blobs = pack_index(parse_index(one), "0" * 64, content_names=True)
+    found = parse_index(one).cards["TOY-A"]
+    manifest, blobs = append_index(parse_index(toy["doc"]), "1" * 64, base, base_blobs,
+                                   {"TOY-A": (found.descriptors, found.xy)})
+    rows = [entry["rows"] for entry in manifest["shards"]]
+    held = [sum(1 for card in manifest["cards"] if card["shard"] == shard and card["n"]) for shard in range(len(rows))]
+    # Cards stay whole: a shard is larger than the cap only when one card alone is (TOY-D's 14 rows).
+    assert rows == [12, 9, 14, 7, 6] and held == [1, 1, 1, 1, 1]
+    # TOY-C has no keypoint: it adds no row to the shard it is put in.
+    card_c = next(card for card in manifest["cards"] if card["cardId"] == "TOY-C")
+    assert card_c["n"] == 0 and card_c["offset"] == rows[card_c["shard"]]
+    full, full_blobs = pack_index(parse_index(toy["doc"]), "0" * 64)
+    assert _global_rows(manifest, blobs) == _global_rows(full, full_blobs)
+
+
+def test_content_names_leave_out_empty_shards_and_keep_every_row():
+    from cardvision.geometric.index import parse_index
+    from cardvision.geometric.pack import pack_index
+
+    toy = _geo_toy()
+    plain, plain_blobs = pack_index(parse_index(toy["doc"]), "0" * 64)
+    named, named_blobs = pack_index(parse_index(toy["doc"]), "0" * 64, content_names=True)
+    assert len(named["shards"]) == sum(1 for entry in plain["shards"] if entry["rows"]) < len(plain["shards"])
+    assert all(entry["rows"] for entry in named["shards"])
+    assert _global_rows(named, named_blobs) == _global_rows(plain, plain_blobs)
+    empty = dict(toy["doc"], cards=[toy["doc"]["cards"][2]], cardCount=1, featureCount=0)
+    alone, _ = pack_index(parse_index(empty), "0" * 64, content_names=True)
+    assert [entry["rows"] for entry in alone["shards"]] == [0]
 
 
 if __name__ == "__main__":

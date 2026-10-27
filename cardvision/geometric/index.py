@@ -31,6 +31,19 @@ keypoints' positions in that image as little-endian ``float32`` pairs and ``desc
 descriptors, both base64. A card with no keypoint has ``n`` 0 and empty strings. Cards are in
 the catalog's order, or the bank's when a bank is given.
 
+**Adding cards to an index** (``build_index(..., base=old)``, ``build-features --base``). An
+index is extended, not rebuilt, when cards are added, as a bank is (``cardvision.bank.build``):
+every card entry of the old index is copied byte for byte, in its old order, and only the cards
+it lacks get their keypoints taken, after the old ones, in the order a full build would give
+them (the bank's, or the catalog's). The old index must have been built with the same settings
+block, the same descriptor and the same OpenCV version (another version may take other
+keypoints), for the same game and locale, else it is refused. An old card whose image changed
+is refused too: copying its keypoints would verify it against its old picture, so such an index
+is built again without a base. When the bank too was extended from the old index's bank
+(``build-bank --base``), its new rows come after the old ones, so the extended index holds the
+same cards in the same order as a full build, and is byte for byte the same file. The packed
+form keeps the old shards as they are (``cardvision.geometric.pack``).
+
 **Which bank an index serves** (``bank_mismatch``). Always: every card of the bank must be in
 the index, and where the bank's row records its image (``artV``) the index's entry must record
 the same. Then the bank is served when it is the one the index records (same SHA-256), or,
@@ -128,11 +141,18 @@ def build_index(
     bank_sha256: str | None = None,
     skip_missing_art: bool = False,
     progress: Callable[[int, int], None] | None = None,
+    base: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """The index document for the catalog's cards (the bank's, in its order, when ``bank`` is
     given), and the ids left out for a missing image (only with ``skip_missing_art``).
 
     ``features`` is a full settings block (``GeometricConfig.features``).
+
+    ``base`` is an older index document to extend (see "Adding cards to an index" above): its
+    card entries are copied unchanged and first, and only the other cards are read. Refused
+    (``DescriptorIndexError``) when it was built with other settings, another OpenCV version,
+    for another game or locale, or when one of its cards has another image now: the bank row's
+    ``artV`` with a bank, else the image at the art location.
 
     With ``bank``, every bank card must have its image, and the image must be the one the bank
     row records (its ``artV``, where the row records one): an index of another picture than
@@ -158,7 +178,27 @@ def build_index(
     kind = features["type"]
     entries, skipped, stale = [], [], []
     width = None
+    kept: dict[str, dict[str, Any]] = {}
+    if base is not None:
+        kept = _base_entries(base, catalog, features, recorded if bank is not None else None)
+        listed = set(ids)
+        orphans = [card_id for card_id in kept if card_id not in listed]
+        if orphans:
+            raise DescriptorIndexError(
+                f"{len(orphans)} card(s) of the base index are not in the {'bank' if bank is not None else 'catalog'} "
+                f"(e.g. {orphans[:5]}): their entries could not be checked; build the index again without --base")
+        entries = list(kept.values())
+        if entries:
+            width = DESCRIPTOR_WIDTH[kind]
     for done, card_id in enumerate(ids, 1):
+        if card_id in kept:
+            # With a bank, a row that records its image was compared above; one that records none
+            # is checked against the image at the art location, as without a bank.
+            if bank is None or recorded.get(card_id) is None:
+                _check_base_image(card_id, kept[card_id], catalog, art, skip_missing_art, stale)
+            if progress is not None:
+                progress(done, len(ids))
+            continue
         try:
             data = _read_card_art(card_id, catalog.art_location(card_id, art))
         except BankBuildError as error:
@@ -178,6 +218,11 @@ def build_index(
         entries.append(card_document(card_id, data, found))
         if progress is not None:
             progress(done, len(ids))
+    if stale and base is not None:
+        raise DescriptorIndexError(
+            f"{len(stale)} card(s) of the base index have another image now: {', '.join(stale[:10])}"
+            + (" and more" if len(stale) > 10 else "") + "; an index cannot be extended over a changed image: "
+            "build it again without --base")
     if stale:
         raise DescriptorIndexError(
             f"{len(stale)} card(s) have another image now than the bank records (artV): {', '.join(stale[:10])}"
@@ -200,6 +245,58 @@ def build_index(
         "cards": entries,
     }
     return doc, skipped
+
+
+def _base_entries(base: Mapping[str, Any], catalog: Catalog, features: Mapping[str, Any],
+                  recorded: Mapping[str, str | None] | None) -> dict[str, dict[str, Any]]:
+    """The card entries of the base index ``base``, by card id in its order, after checking that
+    it may be extended by a build with ``features`` on this OpenCV, for ``catalog``; with a bank
+    (``recorded``: card id to the ``artV`` its row records), that no kept card's row records
+    another image than the base entry."""
+    parsed = parse_index(base, source="the base index")
+    problems = []
+    differ = same_features(parsed.features, features)
+    if differ:
+        problems.append(f"it was built with other features settings (differing: {', '.join(differ)})")
+    running = cv2_module().__version__
+    if base.get("opencv") != running:
+        problems.append(f"it was built with OpenCV {base.get('opencv')!r}, this build runs {running!r}, "
+                        "which may take other keypoints")
+    for key, value in (("game", catalog.game), ("locale", catalog.locale)):
+        if base.get(key) != value:
+            problems.append(f"its {key} is {base.get(key)!r}, the catalog's is {value!r}")
+    if problems:
+        raise DescriptorIndexError("the base index cannot be extended: " + "; ".join(problems)
+                                   + "; build the index again without --base")
+    entries = {entry["cardId"]: dict(entry) for entry in base["cards"]}
+    if recorded is not None:
+        changed = [card_id for card_id, entry in entries.items()
+                   if recorded.get(card_id) is not None and recorded[card_id] != entry["artV"]]
+        if changed:
+            raise DescriptorIndexError(
+                f"{len(changed)} card(s) of the base index have another image in the bank (artV): "
+                f"{', '.join(changed[:10])}" + (" and more" if len(changed) > 10 else "")
+                + "; an index cannot be extended over a changed image: build it again without --base")
+    return entries
+
+
+def _check_base_image(card_id: str, entry: Mapping[str, Any], catalog: Catalog, art: str | Path,
+                      skip_missing_art: bool, stale: list[str]) -> None:
+    """Without a bank, or when the bank's row records no image: note ``card_id`` in ``stale`` when
+    the image at its art location is not the one its base entry was taken from. A missing image keeps the entry under ``skip_missing_art``."""
+    from cardvision.bank.build import BankBuildError, _read_card_art
+
+    try:
+        data = _read_card_art(card_id, catalog.art_location(card_id, art))
+    except BankBuildError as error:
+        raise DescriptorIndexError(str(error)) from None
+    if data is None:
+        if not skip_missing_art:
+            raise DescriptorIndexError(f"no image for card {card_id!r} at {catalog.art_location(card_id, art)} "
+                                       "(pass --skip-missing-art to keep its entry from the base index)")
+        return
+    if art_version(data) != entry["artV"]:
+        stale.append(card_id)
 
 
 def _whole(value: Any, low: int = 0) -> bool:

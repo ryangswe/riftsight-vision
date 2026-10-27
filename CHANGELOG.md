@@ -9,11 +9,39 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.4.0rc1] - 2026-10-27
+
+First release candidate for 0.4.0. The geometric stage's index can take new cards without
+changing what was there, so a page that keeps the index downloads only the new cards' shards.
+Nothing in the public surface breaks, and the browser runtime behaves exactly as in 0.3.0. The
+released models are unchanged: release `201478a00d6ef6ba`.
+
+### Added
+
+- `cardvision build-features --base OLD` and `pack-features --base MANIFEST` add new cards to the
+  geometric stage's index without changing what was there. `build-features --base` copies the
+  old index's cards unchanged and in order and takes keypoints only for the new cards, after
+  them; over a bank extended with `build-bank --base` it writes the same bytes as a full build.
+  `pack-features --base` keeps the old pack's shards byte for byte and puts the new cards in new
+  shards named by content (`shard-<16 hex>.bin`), so a page that keeps the index downloads only
+  the new shards. Both refuse an old index or pack built with other `features` settings or
+  another OpenCV version. `build-features --base` also refuses an old card whose image changed or
+  that the bank (or, without one, the catalog) no longer lists; `pack-features --base` also
+  refuses a base pack whose shards are named by position. `pack-features --content-names` starts
+  such a series, and `--manifest-name` lets successive manifests share one folder. The manifest
+  format is unchanged (`schemaVersion` 1), and so is a pack made without the new flags.
+
 ### Changed
 
 - NOTICE says that its statements describe this repository and its own Riftbound release. A
   product built on this code for another game carries its own notice for that game's data; the
   Riot Games statements do not apply to it.
+
+### Security
+
+- The training lock (`requirements-lock-train.txt`) pins filelock 4.2.4. The 4.1.0 it pinned
+  before has six published advisories, all fixed in 4.2.1. Only the training environment
+  installs filelock.
 
 ## [0.3.0] - 2026-10-26
 
@@ -351,7 +379,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0rc1...HEAD
+[0.4.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0...v0.4.0rc1
 [0.3.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...v0.3.0
 [0.3.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...v0.3.0rc1
 [0.2.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.1.0...v0.2.0
