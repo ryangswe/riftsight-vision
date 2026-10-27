@@ -9,6 +9,12 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Changed
+
+- NOTICE says that its statements describe this repository and its own Riftbound release. A
+  product built on this code for another game carries its own notice for that game's data; the
+  Riot Games statements do not apply to it.
+
 ## [0.3.0] - 2026-10-26
 
 The labeling tool handles cards seen at an angle and stacked cards, `make-composites` can draw
