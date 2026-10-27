@@ -2,6 +2,15 @@
 #
 # Dependency updates: one grouped pull request a month per ecosystem. Each one goes through the
 # same checks as any other pull request, and a person reads it before merging.
+#
+# A few updates are held because they change what the tools produce, and each needs its own
+# change with a re-measurement, not a routine bump:
+#   - numpy 2.3 and later: the training composites come out with different pixels, so the
+#     pinned composite digests would have to be recorded again.
+#   - onnxruntime (Python) 1.24 and later, onnxruntime-web 1.30 and later: every release records
+#     the browser runtime it was measured on, and a runtime on a new minor line refuses it.
+#   - mpmath 1.4 and later: sympy 1.14, pinned beside it, requires an earlier mpmath.
+#   - @types/node 25 and later: the types stay on the Node versions CI runs (22 and 24).
 version: 2
 updates:
   - package-ecosystem: pip
@@ -11,6 +20,13 @@ updates:
     groups:
       python-dependencies:
         patterns: ["*"]
+    ignore:
+      - dependency-name: numpy
+        versions: [">=2.3"]
+      - dependency-name: onnxruntime
+        versions: [">=1.24"]
+      - dependency-name: mpmath
+        versions: [">=1.4"]
   - package-ecosystem: npm
     directory: /browser
     schedule:
@@ -18,6 +34,11 @@ updates:
     groups:
       npm-dependencies:
         patterns: ["*"]
+    ignore:
+      - dependency-name: onnxruntime-web
+        versions: [">=1.30"]
+      - dependency-name: "@types/node"
+        versions: [">=25"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
