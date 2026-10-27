@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
-import { decodeFp16Base64, type EmbeddingBank, parseBank } from "../src/bank.js";
+import { binaryBankVersion, decodeFp16Base64, type EmbeddingBank, isBinaryBank, parseBank, parseBankBinary } from "../src/bank.js";
 import { groupsByName, IdentityMap, parseIdentityGroups } from "../src/identity.js";
 import { DEFAULT_ACCEPT, EmbeddingRecognizer, NO_OTHER_IDENTITY } from "../src/recognizer.js";
 import { axis, blend, contract, float32FromHex, sha } from "./support.js";
@@ -78,6 +78,79 @@ describe("the bank file", () => {
     for (const change of bad) expect(parseBank(bankDoc(change)), JSON.stringify(change).slice(0, 80)).toBeNull();
     expect(parseBank(null)).toBeNull();
     expect(parseBank(bankDoc())).not.toBeNull();
+  });
+});
+
+/** A binary bank's parts: its header object and the fp16 bytes after it. */
+function splitBinary(bytes: Uint8Array): { header: Record<string, unknown>; values: Uint8Array } {
+  const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(8, true);
+  return { header: JSON.parse(new TextDecoder().decode(bytes.subarray(12, 12 + length))), values: bytes.subarray(12 + length) };
+}
+
+/** A binary bank put together from a header object and fp16 bytes, with the given magic. */
+function joinBinary(header: unknown, values: Uint8Array, magic: number[] = [0x43, 0x56, 0x42, 0x41, 0x4e, 0x4b, 0x00, 0x01]): Uint8Array {
+  const text = new TextEncoder().encode(JSON.stringify(header));
+  const out = new Uint8Array(12 + text.length + values.length);
+  out.set(magic, 0);
+  new DataView(out.buffer).setUint32(8, text.length, true);
+  out.set(text, 12);
+  out.set(values, 12 + text.length);
+  return out;
+}
+
+describe("the bank's binary form (bank.bin)", () => {
+  const python = new Uint8Array(Buffer.from(fixture.binary as string, "base64"));
+
+  it("reads the Python package's binary bank to the same ids and float32 matrix as its JSON form, bit for bit", () => {
+    expect(isBinaryBank(python)).toBe(true);
+    const fromJson = parseBank(bankDoc())!;
+    const fromBinary = parseBankBinary(python)!;
+    expect(fromBinary.ids).toEqual(fromJson.ids);
+    expect(sha(fromBinary.matrix)).toBe(sha(fromJson.matrix));
+    expect(sha(fromBinary.matrix)).toBe(fixture.matrixSha256);
+    expect(fromBinary).toEqual(fromJson);
+    expect(parseBankBinary(python.buffer.slice(python.byteOffset, python.byteOffset + python.byteLength) as ArrayBuffer)).toEqual(fromJson);
+  });
+
+  it("holds the bytes the JSON form's base64 text decodes to, after a header with the card ids", () => {
+    const { header, values } = splitBinary(python);
+    expect(header.cardIds).toEqual(fixture.ids);
+    expect("entries" in header).toBe(false);
+    const entries = fixture.entries as Array<{ vec: string }>;
+    expect(Buffer.from(values).equals(Buffer.concat(entries.map((e) => Buffer.from(e.vec, "base64"))))).toBe(true);
+  });
+
+  it("refuses the whole file on anything it cannot read", () => {
+    const { header, values } = splitBinary(python);
+    expect(parseBankBinary(joinBinary(header, values))).not.toBeNull();
+    const versionTwo = python.slice();
+    versionTwo[7] = 2;
+    expect(binaryBankVersion(versionTwo)).toBe(2);
+    expect(parseBankBinary(versionTwo)).toBeNull();
+    expect(parseBankBinary(joinBinary(header, values, [0x43, 0x56, 0x42, 0x41, 0x4e, 0x4c, 0x00, 0x01]))).toBeNull();
+    expect(parseBankBinary(python.subarray(0, python.length - 1))).toBeNull();
+    expect(parseBankBinary(python.subarray(0, python.length - 256))).toBeNull();
+    expect(parseBankBinary(joinBinary(header, new Uint8Array([...values, 0, 0])))).toBeNull();
+    expect(parseBankBinary(python.subarray(0, 20))).toBeNull();
+    expect(parseBankBinary(python.subarray(0, 10))).toBeNull();
+    const bad: Array<Record<string, unknown>> = [
+      { entryCount: (header.entryCount as number) - 1 },
+      { kind: "something-else" },
+      { version: "3" },
+      { dim: 64 },
+      { dim: 0 },
+      { dtype: "fp32" },
+      { preprocessing: "another-contract" },
+      { preprocessing: undefined },
+      { cardIds: [...(header.cardIds as string[]).slice(1), 5] },
+      { artVs: [null] },
+      { entries: [] },
+    ];
+    for (const change of bad) expect(parseBankBinary(joinBinary({ ...header, ...change }, values)), JSON.stringify(change)).toBeNull();
+    const zero = values.slice();
+    zero.fill(0, 0, (header.dim as number) * 2);
+    expect(parseBankBinary(joinBinary(header, zero))).toBeNull();
+    expect(parseBankBinary(new TextEncoder().encode(JSON.stringify(bankDoc())))).toBeNull();
   });
 });
 

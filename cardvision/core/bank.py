@@ -31,7 +31,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -212,8 +211,11 @@ def decode_bank(doc: Mapping[str, Any]) -> tuple[list[str], np.ndarray]:
 
 
 def load_bank(path: str | Path) -> tuple[list[str], np.ndarray, dict[str, Any]]:
-    """Read a bank file: card ids, decoded float32 unit rows, and the whole document."""
-    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    """Read a bank file, JSON or binary (``cardvision.core.bank_binary``): card ids, decoded
+    float32 unit rows, and the whole document (in its JSON form)."""
+    from cardvision.core.bank_binary import read_bank_file
+
+    doc = read_bank_file(path)
     ids, rows = decode_bank(doc)
     return ids, rows, doc
 

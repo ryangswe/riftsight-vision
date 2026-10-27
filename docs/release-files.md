@@ -71,3 +71,50 @@ Reading video needs OpenCV, which `requirements-lock.txt` installs. The weights 
 published as ONNX only: no PyTorch checkpoint and no pickle.
 
 Nothing needs card art to run the released models: the bank and the card names are enough.
+
+## The binary bank (`bank.bin`)
+
+A bank is a JSON file whose vectors are base64 text. The same bank can also be one binary file,
+`bank.bin`, that holds the same half-precision (fp16) bytes without the base64. It is smaller
+(this repository's released bank goes from 628,787 to 425,823 bytes), and it is not a text file, which matters where a large text file is refused: a
+browser add-on store's linter, for one, refuses any text file over 5 MiB.
+`cardvision convert-release` writes it ([commands.md](commands.md#cardvision-convert-release)).
+Every reader of a release, in Python and in the browser, takes either form: a file that starts
+with the magic below is binary, and any other is JSON. Both forms give the same card ids and
+the same vectors, bit for bit, so a release scores the same with either.
+
+Format version 1, byte by byte:
+
+| Bytes | What they hold |
+| --- | --- |
+| 0 to 5 | `CVBANK` in ASCII |
+| 6 | `0x00` |
+| 7 | The format version, `0x01` |
+| 8 to 11 | H, the length of the header in bytes: an unsigned 32-bit integer, little-endian |
+| 12 to 12 + H − 1 | The header: one JSON object, in UTF-8 |
+| the rest | entryCount × dim values, each an IEEE 754 half-precision float, little-endian, row by row |
+
+The header is the bank's JSON document with its `entries` list taken out. In the place of
+`entries`, among the other keys, it has `cardIds`: the card id of each row, in row order. When
+any row records the image it was made from (`artV`), `artVs` follows `cardIds`: one value per
+row, the row's `artV` or `null`. Every other key of the document is kept, in order. The values
+of row *i* are exactly the bytes that row *i*'s base64 `vec` decodes to.
+
+A reader refuses the whole file, with no fallback, when:
+- the magic is wrong, or the format version is not one it knows (it never guesses at a newer
+  one);
+- the header is not a bank's: `kind` is not `embedding-bank`, `version` or `dim` is not a whole
+  number above 0, there is no `preprocessing`, `entryCount` is not the number of `cardIds`;
+- the header's `dtype` is not `fp16`, or the header holds an `entries` list;
+- `artVs` is present but is not a list with one value per card id, each a string or `null`;
+- the file does not end exactly after entryCount × dim values: a short file and a file with
+  bytes after the last row are both refused.
+
+A converted release needs cardvision 0.4.0rc2 or later and the browser runtime of the same
+version. Older readers refuse it (they report that the bank is not JSON) rather than guess.
+
+**A geometric index must be built against the converted release.** A geometric index
+(`build-features`) and its packed form record the SHA-256 of the bank they serve, and
+converting changes the bank's SHA-256. An index built against the JSON bank therefore does not
+serve the converted release (the browser refuses it): build the index again with `--bank`
+naming the converted `bank.bin`, and pack it again.

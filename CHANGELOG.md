@@ -9,6 +9,28 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.4.0rc2] - 2026-10-27
+
+Second release candidate for 0.4.0. It adds a binary form of the bank, so a browser add-on can
+ship a release whose files each stay under a store's 5 MiB limit on text files. Everything
+0.4.0rc1 added is unchanged.
+
+### Added
+
+- `bank.bin`, a binary form of the bank, and `cardvision convert-release RELEASE --out DIR`,
+  which writes a release with smaller files and the same values. The bank becomes `bank.bin`:
+  the same fp16 bytes as the JSON bank's base64 text, after a JSON header that holds the bank's
+  other fields and its card ids. The catalog is written as compact JSON. Both files get smaller,
+  and the bank is no longer a text file, which a browser add-on store's 5 MiB limit on text
+  files needs. The converted release has a new id and scores exactly as the original.
+  Every reader of a release, `verify-release`, `infer --release`, `evaluate`, the other bank
+  commands and the browser runtime, takes either form of the bank, and refuses a `bank.bin` of a
+  format version it does not know. The JSON bank is unchanged and stays the default. A geometric
+  index records the SHA-256 of the bank it serves, so build it again against the converted
+  release. A converted release needs this version or later, in Python and in the browser;
+  older readers refuse it. [docs/release-files.md](docs/release-files.md#the-binary-bank-bankbin)
+  has the format.
+
 ## [0.4.0rc1] - 2026-10-27
 
 First release candidate for 0.4.0. The geometric stage's index can take new cards without
@@ -379,7 +401,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0rc2...HEAD
+[0.4.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0rc1...v0.4.0rc2
 [0.4.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0...v0.4.0rc1
 [0.3.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...v0.3.0
 [0.3.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...v0.3.0rc1

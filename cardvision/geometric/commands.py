@@ -57,6 +57,7 @@ def _fail(message: str) -> int:
 
 def run(args: argparse.Namespace) -> int:
     from cardvision.bank.documents import DocumentExistsError, canonical_bytes, read_json, sha256_hex, write_document
+    from cardvision.core.bank_binary import read_bank_file
     from cardvision.core.catalog import CatalogError, load_catalog
     from cardvision.evaluate.config import file_sha256
     from cardvision.geometric.config import load_geometric
@@ -72,7 +73,7 @@ def run(args: argparse.Namespace) -> int:
         if out is None:
             return _fail("give --out, an index.path in the settings file, or --bank")
         catalog = load_catalog(args.catalog)
-        bank = read_json(args.bank) if args.bank else None
+        bank = read_bank_file(args.bank) if args.bank else None
         base = read_json(args.base) if args.base else None
         doc, skipped = build_index(catalog, args.art, config.features, bank=bank,
                                    bank_sha256=file_sha256(args.bank) if args.bank else None,

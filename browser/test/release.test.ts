@@ -26,7 +26,7 @@ import {
   sha256HexWebCrypto,
 } from "../src/release.js";
 import { RELEASE_FILES_BASE } from "../src/messages.js";
-import { contract, FIXTURES } from "./support.js";
+import { contract, FIXTURES, sha } from "./support.js";
 
 const FOLDER = `${FIXTURES}toy-release/`;
 const BASE = "https://example.test/releases/toy/";
@@ -398,6 +398,45 @@ describe("loading a release, all-or-nothing", () => {
       files.set("catalog.json", text(catalog));
     }, ["catalog"]);
     expect(await reasonOf(renamed)).toContain("not the ones the catalog's names give");
+  });
+});
+
+describe("a release converted as cardvision convert-release writes it: bank.bin and a compact catalog", () => {
+  /** The Python package's binary form of the toy release's bank (fixtures/contract.json). */
+  const binaryBank = (): Uint8Array => new Uint8Array(Buffer.from(contract.bank.toyReleaseBinary as string, "base64"));
+
+  /** The toy release converted: the bank as `bank` (the binary form unless given), the groups
+   *  naming its SHA-256, the catalog compact, every seal and the id written again. */
+  const converted = (bank: Uint8Array = binaryBank()) => toyRelease(async (doc, files) => {
+    files.delete("bank.json");
+    files.set("bank.bin", bank);
+    doc.bank.path = "bank.bin";
+    await pin(doc.bank, files);
+    const groups = jsonOf(files, "bank.identity-groups.json");
+    groups.bank.sha256 = doc.bank.sha256;
+    files.set("bank.identity-groups.json", text(groups));
+    files.set("catalog.json", text(`${JSON.stringify(jsonOf(files, "catalog.json"))}\n`));
+  }, ["identity.groups", "catalog"]);
+
+  it("loads, with the same bank, catalog and groups as the JSON release, bit for bit", async () => {
+    const before = await load(await toyRelease());
+    const after = await load(await converted());
+    if (!before.ok || !after.ok) throw new Error(before.ok ? (after as { reason: string }).reason : before.reason);
+    expect(after.data.release.bank.path).toBe("bank.bin");
+    expect(after.data.bank.ids).toEqual(before.data.bank.ids);
+    expect(sha(after.data.bank.matrix)).toBe(sha(before.data.bank.matrix));
+    expect(after.data.bank).toEqual(before.data.bank);
+    expect(after.data.cards).toEqual(before.data.cards);
+    expect(after.data.identityGroups).toEqual(before.data.identityGroups);
+  });
+
+  it("refuses a binary bank of another format version, cut short, or with bytes after its rows", async () => {
+    const versionTwo = binaryBank();
+    versionTwo[7] = 2;
+    expect(await reasonOf(await converted(versionTwo))).toBe("bank: the binary bank is of format version 2, and this runtime reads version 1 only");
+    const body = binaryBank();
+    expect(await reasonOf(await converted(body.subarray(0, body.length - 2)))).toBe("bank: the file is not a bank this runtime can read");
+    expect(await reasonOf(await converted(new Uint8Array([...body, 0, 0])))).toBe("bank: the file is not a bank this runtime can read");
   });
 });
 
