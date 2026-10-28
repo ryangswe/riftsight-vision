@@ -9,6 +9,62 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-28
+
+The geometric stage's index can take new cards without changing what was there, and a release
+can be converted to a binary bank whose files each stay under a browser add-on store's 5 MiB
+limit on text files. It is release candidate 0.4.0rc2, listed below it, with one fix to the
+quickstart's steps for Windows; that candidate added the binary bank to 0.4.0rc1. Nothing in
+the public surface breaks. The released models are unchanged: release `201478a00d6ef6ba`.
+
+### Added
+
+- `cardvision build-features --base OLD` and `pack-features --base MANIFEST` add new cards to the
+  geometric stage's index without changing what was there. `build-features --base` copies the
+  old index's cards unchanged and in order and takes keypoints only for the new cards, after
+  them; over a bank extended with `build-bank --base` it writes the same bytes as a full build.
+  `pack-features --base` keeps the old pack's shards byte for byte and puts the new cards in new
+  shards named by content (`shard-<16 hex>.bin`), so a page that keeps the index downloads only
+  the new shards. Both refuse an old index or pack built with other `features` settings or
+  another OpenCV version. `build-features --base` also refuses an old card whose image changed or
+  that the bank (or, without one, the catalog) no longer lists; `pack-features --base` also
+  refuses a base pack whose shards are named by position. `pack-features --content-names` starts
+  such a series, and `--manifest-name` lets successive manifests share one folder. The manifest
+  format is unchanged (`schemaVersion` 1), and so is a pack made without the new flags.
+- `bank.bin`, a binary form of the bank, and `cardvision convert-release RELEASE --out DIR`,
+  which writes a release with smaller files and the same values. The bank becomes `bank.bin`:
+  the same fp16 bytes as the JSON bank's base64 text, after a JSON header that holds the bank's
+  other fields and its card ids. The catalog is written as compact JSON. The converted release
+  has a new id and scores exactly as the original. Every reader of a release, `verify-release`,
+  `infer --release`, `evaluate`, the other bank commands and the browser runtime, takes either
+  form of the bank, and refuses a `bank.bin` of a format version it does not know. The JSON bank
+  is unchanged and stays the default. A geometric index records the SHA-256 of the bank it
+  serves, so build it again against the converted release. A converted release needs
+  cardvision 0.4.0rc2 or later, in Python and in the browser; older readers refuse it.
+  [docs/release-files.md](docs/release-files.md#the-binary-bank-bankbin) has the format.
+
+### Changed
+
+- NOTICE says that its statements describe this repository and its own Riftbound release. A
+  product built on this code for another game carries its own notice for that game's data; the
+  Riot Games statements do not apply to it.
+- `browser/` is type-checked with TypeScript 7.0.2 and tested with vitest 5.0.5. The runtime's
+  JavaScript is built as before and does not change. A product that vendors the runtime and
+  emits its declaration files with TypeScript 7 sets `rootDir` to `"src"` in that `tsc` run;
+  without it, TypeScript 7 stops with error TS5011.
+
+### Fixed
+
+- The quickstart's steps for Windows install Node 24 (`nvm install 24`), the version the checks
+  run on. `nvm install --lts` now installs Node 26, which does not start in a fresh Ubuntu 24.04
+  under WSL: it needs `libatomic.so.1`, which that Ubuntu does not have.
+
+### Security
+
+- The training lock (`requirements-lock-train.txt`) pins filelock 4.2.4. The 4.1.0 it pinned
+  before has six published advisories, all fixed in 4.2.1. Only the training environment
+  installs filelock.
+
 ## [0.4.0rc2] - 2026-10-27
 
 Second release candidate for 0.4.0. It adds a binary form of the bank, so a browser add-on can
@@ -401,7 +457,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0rc2...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0...v0.4.0
 [0.4.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0rc1...v0.4.0rc2
 [0.4.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0...v0.4.0rc1
 [0.3.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.2.0...v0.3.0

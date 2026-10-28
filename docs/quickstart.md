@@ -42,10 +42,11 @@ sudo apt install --yes python3-venv git curl
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash
 ```
 
-Then close Ubuntu, open it again, and paste this into the terminal to install Node:
+Then close Ubuntu, open it again, and paste this into the terminal to install Node 24, the
+version the checks run on:
 
 ```
-nvm install --lts
+nvm install 24
 ```
 
 Put the repository in your Linux home folder (`cd ~`, then step 0 below), not under `/mnt/c`:
@@ -90,7 +91,7 @@ pip prints many lines while it installs (a notice that a newer pip exists is har
 should see something like this as the last line:
 
 ```
-cardvision 0.4.0rc2
+cardvision 0.4.0
 ```
 
 **2. Run the toy quickstart.** One script draws the toy game (20 card images and a
