@@ -448,7 +448,7 @@ def test_the_quickstart_workflow_s_windows_blocks_are_the_quickstart_s(tools):
     """The step that prepares Ubuntu prints the quickstart's blocks for Windows with the script; on
     this computer the printing is run, not the blocks."""
     for name, expected in (("windows-packages", "sudo apt install --yes python3-venv git curl\n"),
-                           ("windows-node", "nvm install --lts\n")):
+                           ("windows-node", "nvm install 24\n")):
         done = run_step(f"python3 tests/beginner_path.py --print {name}\n", ROOT, tools)
         assert done.returncode == 0, done.stderr
         assert expected in done.stdout

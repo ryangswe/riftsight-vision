@@ -13,9 +13,9 @@ break the public surface; this file names each break and how to migrate.
 
 The geometric stage's index can take new cards without changing what was there, and a release
 can be converted to a binary bank whose files each stay under a browser add-on store's 5 MiB
-limit on text files. It is release candidate 0.4.0rc2, listed below it, unchanged; that
-candidate added the binary bank to 0.4.0rc1. Nothing in the public surface breaks. The
-released models are unchanged: release `201478a00d6ef6ba`.
+limit on text files. It is release candidate 0.4.0rc2, listed below it, with one fix to the
+quickstart's steps for Windows; that candidate added the binary bank to 0.4.0rc1. Nothing in
+the public surface breaks. The released models are unchanged: release `201478a00d6ef6ba`.
 
 ### Added
 
@@ -52,6 +52,12 @@ released models are unchanged: release `201478a00d6ef6ba`.
   JavaScript is built as before and does not change. A product that vendors the runtime and
   emits its declaration files with TypeScript 7 sets `rootDir` to `"src"` in that `tsc` run;
   without it, TypeScript 7 stops with error TS5011.
+
+### Fixed
+
+- The quickstart's steps for Windows install Node 24 (`nvm install 24`), the version the checks
+  run on. `nvm install --lts` now installs Node 26, which does not start in a fresh Ubuntu 24.04
+  under WSL: it needs `libatomic.so.1`, which that Ubuntu does not have.
 
 ### Security
 

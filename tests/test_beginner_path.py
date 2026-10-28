@@ -28,7 +28,7 @@ def test_every_block_is_found_where_the_pages_have_it():
     assert commands["browser-build"] == "npm ci\nnpm test\nnpm run build\n"
     assert BLOCKS["browser-build"].document == "browser/README.md" and BLOCKS["browser-build"].folder == "browser"
     assert commands["demo-server"].splitlines()[-1].startswith('npm run demo -- --release "$WORK/demo/release"')
-    assert commands["windows-node"] == "nvm install --lts\n"
+    assert commands["windows-node"] == "nvm install 24\n"
 
 
 def test_the_quickstart_says_how_to_get_the_code_and_the_path_does_not_run_it():

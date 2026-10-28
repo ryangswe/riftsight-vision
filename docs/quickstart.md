@@ -42,10 +42,11 @@ sudo apt install --yes python3-venv git curl
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash
 ```
 
-Then close Ubuntu, open it again, and paste this into the terminal to install Node:
+Then close Ubuntu, open it again, and paste this into the terminal to install Node 24, the
+version the checks run on:
 
 ```
-nvm install --lts
+nvm install 24
 ```
 
 Put the repository in your Linux home folder (`cd ~`, then step 0 below), not under `/mnt/c`:
