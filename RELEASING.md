@@ -14,10 +14,13 @@ for the soak below before a version goes out. `docs/stability.md` says what a ve
 4. Wait for no regression for 7 days or one product release, whichever comes first. A fix
    restarts at step 2 with the next `rcN`.
 5. Tag `vX.Y.0` and publish the GitHub release with the changelog section as its notes.
+6. Upload it to the Python package index: Actions, Publish, Run workflow from the tag `vX.Y.0`
+   with the target `pypi`, then approve the upload. The workflow checks that the tag matches the
+   version in `pyproject.toml`. A version uploaded there can never be replaced.
 
 ## Patch and docs-only releases
 
-They skip the release candidate: steps 1 and 5 only. A patch never breaks the public surface.
+They skip the release candidate: steps 1, 5 and 6 only. A patch never breaks the public surface.
 
 ## A release with new weights
 

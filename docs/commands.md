@@ -2,7 +2,7 @@
 
 # The commands
 
-`cardvision` with no arguments lists them in these four groups, and `cardvision --help` ends with
+`cardvision` with no arguments lists them in these five groups, and `cardvision --help` ends with
 the same list; each command has its own `--help`.
 
 ### Start here
@@ -52,9 +52,20 @@ the same list; each command has its own `--help`.
 | `python3 labeler/serve.py` | The labeling tool. Started with no arguments, its page asks what to label. [labeler/README.md](../labeler/README.md) |
 | `python3 labeler/export.py` | Export labels as COCO, or as a label manifest. |
 
+### Maintain a product
+
+For a browser extension built on this runtime that serves new cards from a host of its own.
+Both are [experimental](stability.md#experimental): they may change in a minor release.
+
+| Command | What it does |
+| --- | --- |
+| `cardvision refresh` | Judge a card update before it goes out, in four steps: `check` that the candidate release only adds bank rows and catalog entries to the live one, `diff` two `evaluate hover` runs event by event, `subset` the catalog to the new cards for generated scenes, and `verdict`, which applies a rule written and frozen before the update's data was seen. `verdict` exits 0 PASS, 1 FAIL and 3 INVALID. [refresh-rule-template.md](refresh-rule-template.md), [playbooks/refresh-set.md](../playbooks/refresh-set.md). |
+| `cardvision cdn` | Publish a product's card pictures, data files, pages, settings file, geometric index and releases to its own Cloudflare bucket, and check what is served: `plan`, `publish`, `verify`, `publish-geo`, `verify-geo`, `publish-release` and `verify-release-live`, driven by the product's `cdn/cdn.config.json`. A refusal exits 3 and writes nothing; a failure exits 1. Publishing needs the `cdn` extra. [cdn.md](cdn.md). |
+
 Nothing reaches the network unless you ask for it by flag: `fetch --download`,
 `fetch-weights`, `try --download`, `fetch-textures`, `import-catalog --download`, `train-detector --download-pretrained`, and
-`train-recognizer` when it starts from torchvision's pretrained weights.
+`train-recognizer` when it starts from torchvision's pretrained weights. `cardvision cdn`
+reaches the product's own host by design, in every action but `plan --offline`.
 
 ## `cardvision next`
 

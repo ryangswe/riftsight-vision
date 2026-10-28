@@ -20,7 +20,7 @@ python -m pip install --no-deps -e .
 cardvision --version
 ```
 
-- **Expect:** `cardvision 0.4.0`.
+- **Expect:** `cardvision 0.5.0rc1`.
 - **If it fails:** check `python3 --version` is 3.11 or later. If a pinned version has no
   build for this machine, use `python -m pip install -e ".[dev]"` in place of the two install
   lines and tell the person the lock file was not used. (This fallback was not run when this

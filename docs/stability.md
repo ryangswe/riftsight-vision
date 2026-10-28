@@ -14,7 +14,8 @@ These are the public surface: changed only as [versioning](#versioning) and
   `check-catalog`, `check-bank-art`, `build-bank`, `infer`, `build-release`, `verify-release`,
   `convert-release`, `make-composites`, `fetch-textures`, `train-recognizer`, `train-detector`,
   `export`, `evaluate`, `calibrate`, `check-refresh`, `build-features`, `pack-features`,
-  `validate-manifest`, `fetch`, `record-reachable` and `assign-roles`. Report text meant for
+  `validate-manifest`, `fetch`, `record-reachable` and `assign-roles`. `cdn` and `refresh` are
+  [experimental](#experimental) and not part of this promise. Report text meant for
   people may be reworded; the object `next --json` prints keeps its fields and ids, and changes
   its `schemaVersion` when its shape changes.
 - **The files a release is made of:**
@@ -33,6 +34,29 @@ These are the public surface: changed only as [versioning](#versioning) and
 - **The released models of a given release id.** A model release (for example `201478a00d6ef6ba`)
   never changes once published: new weights get a new release id, checked by `verify-release`.
 
+## Experimental
+
+These are the tools a product uses to keep its own browser extension current: they publish a
+release, its settings file and card pictures to a host of its own, and judge a card-data
+refresh. They are new, and **may change in a minor release** (0.X.0), not only at 1.0. The
+changelog names each change.
+- **The remote-release module:** the exports of `browser/src/remote/`, built to
+  `dist/remote-release.js` (not part of `browser/src/index.ts`), and the settings contract it
+  implements, [remote-releases.md](remote-releases.md).
+- **The Node tools** `dist/node/verify-release.mjs` and `dist/node/package-zip.mjs`: their
+  arguments, their output and their exit codes.
+- **`cardvision cdn`**, its subcommands and flags, and the format of `cdn.config.json`
+  ([cdn.md](cdn.md)).
+- **`cardvision refresh`**, its steps and flags, and the rule schema `refresh-rule/1`
+  ([refresh-rule-template.md](refresh-rule-template.md)).
+
+A product vendors the remote-release module and the Node tools with the runtime
+([extension.md](extension.md#the-maintenance-kit)), so a version it has vendored keeps working
+until the product updates it. `cardvision cdn` and `cardvision refresh` come with the installed
+`cardvision` package: pin its version to keep their behavior.
+
+## What may change
+
 Everything else may change in any release:
 - Python module internals;
 - names inside a work folder;
@@ -46,8 +70,8 @@ Everything else may change in any release:
 - **A patch version (0.x.Y) never breaks it.**
 - **Each minor version is first tagged as a release candidate** (for example `v0.2.0rc1`).
   [RELEASING.md](../RELEASING.md) has the steps.
-- **Pin a version** (`pip install` from a tag, or a release's files by its release id) if you
-  build on this, and read the changelog before you move.
+- **Pin a version** (`pip install cardvision==X.Y.Z`, `pip install` from a tag, or a release's
+  files by its release id) if you build on this, and read the changelog before you move.
 
 ## Deprecation
 

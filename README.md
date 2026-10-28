@@ -44,6 +44,12 @@ On a small public evaluation set used during development, which flatters them so
 released models named 92.5 % of readable card faces right, and 1.6 % of the names shown were
 wrong. The [model card](docs/model-card.md#evaluation) has the figures by source and the limits.
 
+## Install
+
+The command-line tools are on PyPI as `cardvision`: `python -m pip install cardvision`, in a
+virtual environment with Python 3.11 or later. The toy walkthrough, the examples and `browser/`
+are not in the package, so the Quickstart below uses a checkout of this repository.
+
 ## Quickstart
 
 This runs the whole pipeline on a toy game drawn from colored shapes: no card art, no video,

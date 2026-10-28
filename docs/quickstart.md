@@ -58,7 +58,9 @@ the demo at `http://127.0.0.1:8765/`, opens in your Windows browser with `localh
 **Ran the README's Quickstart block?** It is steps 0 to 2 below: skip to step 3.
 
 **0. Get the code.** The toy walkthrough uses files in the source tree (`examples/` and
-`tests/`), so it needs the whole repository, not just the Python package. With `git`, paste
+`tests/`), so it needs the whole repository, not just the Python package. (The command-line
+tools alone are on PyPI: `python -m pip install cardvision` installs them without a checkout.)
+With `git`, paste
 this into the terminal, in the folder that is to hold the repository (on Windows, in Ubuntu,
 after `cd ~`):
 
@@ -91,7 +93,7 @@ pip prints many lines while it installs (a notice that a newer pip exists is har
 should see something like this as the last line:
 
 ```
-cardvision 0.4.0
+cardvision 0.5.0rc1
 ```
 
 **2. Run the toy quickstart.** One script draws the toy game (20 card images and a

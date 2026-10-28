@@ -25,7 +25,9 @@ One person maintains this repository. [SUPPORT.md](SUPPORT.md) says what to expe
   README. A game's card names and art belong to its publisher, and what may be published for
   that game is a question for whoever publishes it.
 - **Features outside the scope.** The scope is the detector, the recognizer, the bank and the
-  accept rule, the label manifests, and the tools that train, label and evaluate. Features of
+  accept rule, the label manifests, the tools that train, label and evaluate, and the tools that
+  publish a release, its settings file and card pictures you have the right to serve to a host
+  of your own ([docs/cdn.md](docs/cdn.md)). Features of
   the RiftSight product that are not card recognition (deck tracking, match history, stream
   overlays) are outside it.
 - **Images of any kind.** No card art, no video frames, no crops, no screenshots that show a

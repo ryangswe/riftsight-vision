@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 from cardvision import __version__
 from cardvision.bank.commands import COMMANDS as BANK_COMMANDS
 from cardvision.calibrate import cli as calibrate_cli
+from cardvision.cdn.commands import COMMANDS as CDN_COMMANDS
 from cardvision.check_catalog import SUMMARY as CHECK_CATALOG_SUMMARY
 from cardvision.check_catalog import add_arguments as check_catalog_arguments
 from cardvision.check_catalog import run as check_catalog_run
@@ -25,6 +26,7 @@ from cardvision.geometric.commands import COMMANDS as GEOMETRIC_COMMANDS
 from cardvision.import_catalog import cli as import_catalog_cli
 from cardvision.infer import cli as infer_cli
 from cardvision import next_step as next_cli
+from cardvision.refresh import commands as refresh_cli
 from cardvision.train_detector import cli as train_detector_cli
 from cardvision.train_recognizer import cli as train_recognizer_cli
 from cardvision.try_game import cli as try_cli
@@ -37,6 +39,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     **COMPOSITE_COMMANDS,  # make-composites, fetch-textures
     **DATA_COMMANDS,  # validate-manifest, assign-roles, fetch, record-reachable
     **GEOMETRIC_COMMANDS,  # build-features, pack-features (the optional geometric stage)
+    **CDN_COMMANDS,  # cdn (publishing a release, its settings and card images to a host of your own)
     "check-catalog": (CHECK_CATALOG_SUMMARY, check_catalog_arguments, check_catalog_run),
     "calibrate": (calibrate_cli.SUMMARY, calibrate_cli.add_arguments, calibrate_cli.run),
     "evaluate": (evaluate_cli.SUMMARY, evaluate_cli.add_arguments, evaluate_cli.run),
@@ -45,6 +48,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "fetch-weights": (fetch_weights_cli.SUMMARY, fetch_weights_cli.add_arguments, fetch_weights_cli.run),
     "infer": (infer_cli.SUMMARY, infer_cli.add_arguments, infer_cli.run),
     "next": (next_cli.SUMMARY, next_cli.add_arguments, next_cli.run),
+    "refresh": (refresh_cli.SUMMARY, refresh_cli.add_arguments, refresh_cli.run),
     "train-detector": (train_detector_cli.SUMMARY, train_detector_cli.add_arguments, train_detector_cli.run),
     "train-recognizer": (train_recognizer_cli.SUMMARY, train_recognizer_cli.add_arguments, train_recognizer_cli.run),
     "try": (try_cli.SUMMARY, try_cli.add_arguments, try_cli.run),
@@ -59,6 +63,7 @@ GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Train", ("make-composites", "fetch-textures", "train-recognizer", "train-detector", "export")),
     ("Measure", ("evaluate", "calibrate", "check-refresh", "build-features", "pack-features")),
     ("Data", ("validate-manifest", "fetch", "record-reachable", "assign-roles")),
+    ("Maintain a product", ("refresh", "cdn")),
 )
 
 

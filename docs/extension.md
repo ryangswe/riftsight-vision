@@ -67,6 +67,30 @@ publisher: serve or bundle only pictures you have the right to distribute. **Nev
 publisher's card art in a public repository**, your copy of the extension included. This
 repository contains no card art for any game.
 
+## The maintenance kit
+
+An extension does not import the runtime from a package registry: it vendors a copy, built
+from one tagged commit of this repository, into a folder of its own such as
+`vendor/cardvision-browser/`. `npm ci && npm run build` in `browser/` writes `browser/dist/`:
+`cardvision.js` and `worker.js` (the runtime), `remote-release.js` (the
+[remote releases](remote-releases.md) the settings file can point to), ONNX Runtime's
+WebAssembly files (`ort-wasm-*`), OpenCV.js for the geometric stage (`opencv.mjs`,
+`opencv_js.wasm`, when `scripts/build-opencv.mjs` has built it), `node/verify-release.mjs` and
+`node/package-zip.mjs` (the Node tools its release and package scripts call), the license
+notices (`*.LEGAL.txt`, `THIRD-PARTY-NOTICES.txt`), and the demo page (`demo/`), which an
+extension does not need. The build
+writes no TypeScript declarations. The product's own vendoring script copies the files it uses
+and adds a `VENDOR.json` beside `cardvision.js` recording what it vendored: its
+`onnxruntimeWeb` key is the ONNX Runtime version, which `verify-release.mjs` checks a release
+against. When `VENDOR.json` is there without that key, the script exits 2 unless `--ort-web
+VERSION` is given; without `VENDOR.json` it takes `--ort-web`, else the `onnxruntime-web`
+package Node finds. Other keys, such as the commit, are the product's own. On the publishing side it uses
+[`cardvision cdn`](cdn.md) and, for each card update, [`cardvision refresh`](refresh-rule-template.md)
+([playbooks/refresh-set.md](../playbooks/refresh-set.md)). To update, vendor a newer tagged
+commit, run the extension's tests and ship it as a store release: code never arrives through
+the settings file. The remote-release module, the Node tools and both commands are
+[experimental](stability.md#experimental).
+
 ## With a coding agent
 
 [playbooks/make-extension.md](../playbooks/make-extension.md) has the same steps as numbered commands
