@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "refresh-rule/1",
+  "title": "The PARAMETERS line of a frozen refresh rule",
+  "description": "Every number cardvision refresh verdict reads from a rule. See docs/refresh-rule-template.md. Beyond this schema, verdict also requires validity and regressions (and cumulative.regressions when present) to name exactly the datasets listed, and realFacesBySource.sources[*].runs to be run folders of the replay folder.",
+  "type": "object",
+  "required": ["schema", "datasets", "validity", "regressions", "newcard"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "refresh-rule/1"},
+    "datasets": {
+      "description": "The replay's development sets, in the order they are judged; diff-<dataset>.json in the replay folder.",
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/name"}
+    },
+    "arms": {
+      "description": "Configurations scored on every dataset (for example without and with an optional stage). Absent or empty: one arm, and file and folder names carry no arm suffix; else diff-<dataset>-<arm>.json, cand-<arm>/, old-<arm>/.",
+      "type": "array", "uniqueItems": true,
+      "items": {"$ref": "#/$defs/name"}
+    },
+    "rehearsalEnv": {
+      "description": "The environment variable that, set to 1, lets a rehearsal exclude events (default REFRESH_REHEARSAL). verdict --rehearsal does the same.",
+      "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "tolerancePt": {
+      "description": "Slack, in percentage points, on the rate limits of gate R, for floating-point rounding (default 1e-9; 0 compares exactly).",
+      "type": "number", "minimum": 0, "maximum": 0.001
+    },
+    "canary": {
+      "description": "Gate R needs a canary file in the replay folder with \"ok\": true (the frozen baseline release re-run in this session and equal to its pinned events), else INVALID.",
+      "type": "object", "required": ["file"], "additionalProperties": false,
+      "properties": {"file": {"$ref": "#/$defs/relativeFile"}}
+    },
+    "validity": {
+      "description": "Per dataset: below these, the replay is INVALID.",
+      "type": "object", "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/name"},
+      "additionalProperties": {
+        "type": "object", "required": ["minCompared", "minFaces"], "additionalProperties": false,
+        "properties": {
+          "minCompared": {"type": "integer", "minimum": 0},
+          "minFaces": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "regressions": {
+      "description": "Per dataset: the step limits, base to candidate.",
+      "type": "object", "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/name"},
+      "additionalProperties": {"$ref": "#/$defs/limits"}
+    },
+    "cumulative": {
+      "description": "A second set of limits: the candidate against a fixed baseline release, applied unless the live release is that baseline. Needs diff-cum-<dataset>[-<arm>].json in the replay folder.",
+      "type": "object", "required": ["baselineRelease", "baseRun", "regressions"], "additionalProperties": false,
+      "properties": {
+        "baselineRelease": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "baseRun": {
+          "description": "The run folder, inside the replay folder, whose evaluate-hover.json names the base release.",
+          "$ref": "#/$defs/relativeFile"
+        },
+        "regressions": {
+          "type": "object", "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/name"},
+          "additionalProperties": {"$ref": "#/$defs/limits"}
+        }
+      }
+    },
+    "realFacesBySource": {
+      "description": "Validity on real footage: each named source must hold at least minFaces readable faces in the base runs, counted from bySourceType of their evaluate-hover.json: every source type equal to one of its types or starting with one of its prefixes.",
+      "type": "object", "required": ["minFaces", "sources"], "additionalProperties": false,
+      "properties": {
+        "minFaces": {"type": "integer", "minimum": 1},
+        "sources": {
+          "type": "object", "minProperties": 1,
+          "additionalProperties": {
+            "description": "runs, and types (exact source types) or prefixes or both",
+            "type": "object", "required": ["runs"], "additionalProperties": false,
+            "anyOf": [{"required": ["types"]}, {"required": ["prefixes"]}],
+            "properties": {
+              "runs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/relativeFile"}},
+              "types": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "prefixes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+            }
+          }
+        }
+      }
+    },
+    "newcard": {
+      "description": "Gate N: the new cards on generated scenes, against a frozen reference of never-trained cards and against the live bank.",
+      "type": "object",
+      "required": ["seed", "scenes", "maxEventCountDiffShare", "maxNamedRightBelowRefPt", "maxWrongOfShownAboveRefPt",
+                   "minDrawnShare", "referenceDir", "n3"],
+      "additionalProperties": false,
+      "properties": {
+        "seed": {"type": "integer"},
+        "scenes": {"type": "integer", "minimum": 1},
+        "maxEventCountDiffShare": {"type": "number", "minimum": 0, "maximum": 1},
+        "maxNamedRightBelowRefPt": {"type": "number", "minimum": 0, "maximum": 100},
+        "maxWrongOfShownAboveRefPt": {"type": "number", "minimum": 0, "maximum": 100},
+        "minDrawnShare": {"type": "number", "minimum": 0, "maximum": 1},
+        "minNewCards": {
+          "description": "The fewest new cards with art the check accepts (default 1; 0 lets an empty set through to the other checks).",
+          "type": "integer", "minimum": 0
+        },
+        "referenceDir": {
+          "description": "The frozen reference run, relative to the rule file's folder; {arm} is replaced by the arm's name.",
+          "$ref": "#/$defs/relativeFile"
+        },
+        "n3": {
+          "description": "fewerWrong: the candidate gets strictly fewer faces wrong than the old bank. notWorseOneBetter: no fewer faces right, no more wrong, and an improvement in at least one (for games whose updates bring new artwork of cards the old bank can already name).",
+          "enum": ["fewerWrong", "notWorseOneBetter"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "description": "A dataset or arm name; canary, drawn and runs are refused, being names of rows of the verdict's detail.",
+      "type": "string", "pattern": "^[a-z0-9][a-z0-9_]*$", "not": {"enum": ["canary", "drawn", "runs"]}
+    },
+    "relativeFile": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\]"},
+    "limits": {
+      "type": "object", "required": ["maxEvents", "maxNamedRightDropPt", "maxWrongOfShownRisePt"],
+      "additionalProperties": false,
+      "properties": {
+        "maxEvents": {"type": "integer", "minimum": 0},
+        "maxNamedRightDropPt": {"type": "number", "minimum": 0},
+        "maxWrongOfShownRisePt": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

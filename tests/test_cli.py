@@ -74,13 +74,13 @@ def test_every_registered_command_is_in_exactly_one_group():
     grouped = [name for _title, names in cli.GROUPS for name in names]
     assert len(grouped) == len(set(grouped)), "a command is in two groups"
     assert sorted(grouped) == sorted(cli.SUBCOMMANDS)
-    assert [title for title, _names in cli.GROUPS] == ["Start here", "Train", "Measure", "Data"]
+    assert [title for title, _names in cli.GROUPS] == ["Start here", "Train", "Measure", "Data", "Maintain a product"]
 
 
 def test_the_listing_and_the_help_epilog_show_the_groups_in_order(capsys):
     assert cli.main([]) == 0
     out = capsys.readouterr().out
-    positions = [out.index(f"{title}:") for title in ("Start here", "Train", "Measure", "Data")]
+    positions = [out.index(f"{title}:") for title in ("Start here", "Train", "Measure", "Data", "Maintain a product")]
     assert positions == sorted(positions) and "Other:" not in out
     assert cli.build_parser().epilog == cli.available_subcommands()
 

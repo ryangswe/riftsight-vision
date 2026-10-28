@@ -9,6 +9,46 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.5.0rc1] - 2026-10-28
+
+First release candidate for 0.5.0. It adds a maintenance kit for browser extensions built on
+this runtime: the code that loads a newer release from a product's own host, the tools that
+publish and check one, and the gate for a card update. Every new part is experimental. Nothing
+in the public surface breaks, and the browser runtime behaves exactly as in 0.4.0. The released
+models are unchanged: release `201478a00d6ef6ba`.
+
+### Added
+
+- A maintenance kit for a browser extension built on this runtime, which serves new cards from
+  a host of its own. Every part is [experimental](docs/stability.md#experimental): it may change
+  in a minor release.
+- `browser/src/remote/`, built to `dist/remote-release.js`: which release a page loads when the
+  extension's settings file points to a newer one, the fetch and check of that release, the
+  geometric stage under it, and the card table built from its catalog. Anything wrong loads the
+  bundled release. [docs/remote-releases.md](docs/remote-releases.md) is the contract it follows.
+- `dist/node/verify-release.mjs` checks a release folder or address with the runtime's own
+  loader, and with `--sessions` starts both models in Node. `dist/node/package-zip.mjs` writes an
+  extension's store or release-page zip in the layout each one needs.
+- `cardvision cdn` publishes a product's card pictures, data files, pages, settings file,
+  geometric index and releases to its own Cloudflare bucket, and checks what is served. One file,
+  `cdn/cdn.config.json`, describes the product; a key that turns a check on is required. A pointer
+  only moves to a release that verifies live, and a release folder or a geometric index folder is
+  never overwritten; a publish replaces only changed images, `art/index.json`, the page,
+  `config.json` and the record of published releases. Publishing needs the new `cdn` extra
+  (`boto3`). [docs/cdn.md](docs/cdn.md).
+- `cardvision refresh` judges a card update before it goes out: `check` for the preconditions,
+  `diff` of two `evaluate hover` runs, `subset` for the new cards' scenes, and `verdict` by a
+  rule frozen before the update's data was seen, in the schema `refresh-rule/1`.
+  [docs/refresh-rule-template.md](docs/refresh-rule-template.md) is the template, and
+  [playbooks/refresh-set.md](playbooks/refresh-set.md) the procedure for each update.
+
+### Changed
+
+- The package is on PyPI as `cardvision` from 0.4.0: `python -m pip install cardvision`
+  installs the command-line tools.
+- None of the public surface breaks. The runtime's API (`browser/src/index.ts`), the existing
+  commands and the release files are unchanged.
+
 ## [0.4.0] - 2026-10-28
 
 The geometric stage's index can take new cards without changing what was there, and a release
@@ -457,7 +497,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.0rc1...HEAD
+[0.5.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0...v0.5.0rc1
 [0.4.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0...v0.4.0
 [0.4.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0rc1...v0.4.0rc2
 [0.4.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.3.0...v0.4.0rc1

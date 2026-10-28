@@ -122,7 +122,7 @@ def test_the_package_s_data_files_are_declared_for_the_wheel():
     named = {(package, name) for package, names in declared.items() for name in names}
     found = {(".".join(path.parent.relative_to(ROOT).parts), path.name) for path in (ROOT / "cardvision").rglob("*")
              if is_source(path) and path.suffix != ".py"}
-    assert named == found and len(found) == 3
+    assert named == found and len(found) == 4
     from importlib import resources
 
     for package, name in sorted(named):
@@ -168,10 +168,14 @@ def test_the_docs_give_each_manifest_s_current_sha256():
         assert given == actual, doc
 
 
-# An install command that names this package as if a package index held it: "pip install",
-# any options, then the name with or without a quote and extras. The pattern is written so that
+# An install command that names this package by name, as the package index holds it: "pip
+# install", any options, then the name with or without a quote. The pattern is written so that
 # this file does not contain what it looks for.
 INSTALL_BY_NAME = re.compile(r"pip3?\s+install\s+(?:-\S+\s+)*[\"']?" + "cardvision", re.IGNORECASE)
+# What such a command must name: exactly this package, its extras if any, a version if any.
+REQUIREMENT = re.compile(r"pip3?\s+install\s+(?:-\S+\s+)*(?P<quote>[\"']?)" + "cardvision"
+                         + r"(?:\[(?P<extras>[^\]]*)\])?(?:(?:===?|[<>!~]=|[<>])[0-9A-Za-z][0-9A-Za-z.*+!]*(?:,(?:===?|[<>!~]=|[<>])[0-9A-Za-z][0-9A-Za-z.*+!]*)*)?"
+                         + r"(?P=quote)(?=\s|$|[`),.;])", re.IGNORECASE)
 NOT_SCANNED = {"__pycache__", "build", "dist", "venv", "node_modules"}
 TEXT_SUFFIXES = {".py", ".md", ".toml", ".txt", ".yml", ".yaml", ".json", ".jsonl", ".js", ".css", ".html", ".cff", ".cfg", ".csv", ""}
 
@@ -190,26 +194,57 @@ def text_files() -> list[Path]:
     return sorted(found)
 
 
-def test_no_instruction_installs_the_package_by_name():
-    """The package is installed from a checkout of this repository. Its name is not registered
-    on the package index, so an instruction to install it by name would fail, or would install
-    somebody else's package if the name were ever taken. No message, comment or page gives one."""
-    for wrong in ('pip install "' + "cardvision[video]\"", "pip install " + "cardvision",
-                  "pip3 install -U '" + "cardvision[train]'", "python -m pip install --upgrade " + "cardvision"):
-        assert INSTALL_BY_NAME.search(wrong), wrong
-    for right in ('python -m pip install -e ".[video]"', "python -m pip install --no-deps -e .",
-                  "python -m pip install -r requirements-lock.txt"):
-        assert not INSTALL_BY_NAME.search(right), right
+def install_by_name_problem(line: str, extras: set[str]) -> str | None:
+    """Why an install-by-name command in ``line`` would not install this package as written."""
+    match = REQUIREMENT.search(line)
+    if match is None:
+        return "it does not name exactly this package (with its extras and a version, if any)"
+    named = {extra.strip() for extra in (match["extras"] or "").split(",") if extra.strip()}
+    if match["extras"] is not None and not named:
+        return "its extras are empty"
+    unknown = sorted(named - extras)
+    return f"no such extra: {', '.join(unknown)}" if unknown else None
+
+
+def test_every_install_by_name_names_the_package_and_its_real_extras():
+    """The package is on the package index as this name from 0.4.0, so a page may say to install
+    it by name. An instruction that does must name exactly this package, and only extras that
+    pyproject.toml declares: a misspelled extra installs the package without what it was asked
+    for, with only a warning, and another name could install somebody else's package."""
+    try:
+        import tomllib
+    except ImportError:
+        import pytest
+
+        tomllib = pytest.importorskip("tomli")
+
+    extras = set(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["optional-dependencies"])
+    assert {"cdn", "video", "download", "train"} <= extras
+    name = "cardvision"
+    for right in (f"python -m pip install {name}", f'python -m pip install "{name}[cdn]"', f"pip install {name}==1.2.3",
+                  f'python -m pip install "{name}[cdn]>=0.5.0rc1"', f"pip install '{name}>=0.4,<1'",
+                  f"pip3 install -U '{name}[video,download]'", f"`python -m pip install {name}` installs them"):
+        assert INSTALL_BY_NAME.search(right) and install_by_name_problem(right, extras) is None, right
+    for wrong in (f'pip install "{name}[videos]"', f"pip install {name}-tools", f"pip install '{name}[cdn,trian]'",
+                  f'pip install "{name}[]"', f"pip install {name}x"):
+        assert INSTALL_BY_NAME.search(wrong) and install_by_name_problem(wrong, extras), wrong
+    for checkout in ('python -m pip install -e ".[video]"', "python -m pip install --no-deps -e .",
+                     "python -m pip install -r requirements-lock.txt"):
+        assert not INSTALL_BY_NAME.search(checkout), checkout
     files = text_files()
     names = {str(path.relative_to(ROOT)) for path in files}
     assert {"README.md", "AGENTS.md", "data/README.md", "docs/adapt-your-game.md", "cardvision/infer/frames.py",
             ".github/workflows/tests.yml", "tests/test_repository.py"} <= names
-    found = []
+    found, problems = [], []
     for path in files:
         for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
             if INSTALL_BY_NAME.search(line):
-                found.append(f"{path.relative_to(ROOT)}:{number}")
-    assert found == []
+                found.append(str(path.relative_to(ROOT)))
+                problem = install_by_name_problem(line, extras)
+                if problem:
+                    problems.append(f"{path.relative_to(ROOT)}:{number}: {problem}")
+    assert problems == []
+    assert {"README.md", "docs/cdn.md"} <= set(found), "the pages that say to install by name were not scanned"
 
 
 def test_core_imports_nothing_from_the_rest_of_the_package():

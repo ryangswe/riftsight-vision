@@ -455,9 +455,10 @@ def test_the_quickstart_workflow_s_windows_blocks_are_the_quickstart_s(tools):
 
 
 def test_publish_runs_only_by_hand():
-    """Publishing to the package index is not set up: a published GitHub release must upload
-    nothing. The workflow runs only by hand, the test site is the default target, and the real
-    index is reached only when that target is chosen, on a tag."""
+    """Publishing to the package index is set up (trusted publishing, the environment `pypi` with
+    a required reviewer and `v*` tags), and it stays a step taken by hand: a published GitHub
+    release must upload nothing. The workflow runs only by hand, the test site is the default
+    target, and the real index is reached only when that target is chosen, on a tag."""
     text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
     trigger = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert trigger.startswith("  workflow_dispatch:\n") and "release" not in trigger

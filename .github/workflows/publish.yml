@@ -5,7 +5,9 @@
 # publishing"), and each upload job runs in a named environment the maintainer can protect.
 #
 # It runs only by hand (Actions, Publish, Run workflow): publishing a release on GitHub uploads
-# nothing. Publishing to the index is not set up yet, and the package is not on it.
+# nothing. Publishing to the index is set up: the index trusts this workflow, the environment
+# `pypi` needs a required reviewer's approval and takes only `v*` tags, and the package is on
+# the index as `cardvision` from 0.4.0.
 #
 # - Target `testpypi` (the default) uploads to the index's test site, from the environment
 #   `testpypi`, as a rehearsal. Nothing reaches the real index that way.

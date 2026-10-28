@@ -46,6 +46,7 @@ it names the playbook (extension, training or measuring), and the playbook's ste
 | give viewers a browser extension that shows the cards | [playbooks/make-extension.md](playbooks/make-extension.md) |
 | name more of their cards, or fix wrong names (labeling and training) | [playbooks/train.md](playbooks/train.md) |
 | know how accurate it is, add new cards, or score new recordings | [playbooks/measure.md](playbooks/measure.md) |
+| publish new cards for their extension through its own host, gated by a frozen rule | [playbooks/refresh-set.md](playbooks/refresh-set.md) |
 
 ## Stop and ask the person
 
@@ -55,13 +56,15 @@ Every time, even in the middle of a playbook:
   many hours.
 - **Before any download.** Say what and from where. These reach the network:
   `cardvision fetch --download`, `fetch-weights`, `try --download`, `fetch-textures`,
-  `import-catalog --download` and `train-detector --download-pretrained`. Downloading video is
+  `import-catalog --download`, `train-detector --download-pretrained` and `cardvision cdn`
+  (every action but `plan --offline`). Downloading video is
   the person's own act under the platform's terms. The released weights pinned in
   [docs/release-files.md](docs/release-files.md) may be fetched with `cardvision fetch-weights`
   once you have told the person. Installing the toolkit's own packages as the steps say
   (`pip install` from the lock file, `npm ci` in `browser/`) needs no extra question.
 - **Before asking for their time,** such as labeling frames. Say how many and roughly how long.
-- **Before publishing anything:** a release, a store upload, a push to a public repository.
+- **Before publishing anything:** a release, a card update, a store upload, a push to a public
+  repository. Publish only what the person has told you, in this session, to publish.
 - **When a step fails twice:** show the person the command and its full output. Don't edit the
   package to get past a step.
 - **When something must come from them:** their card list, card images they are entitled to

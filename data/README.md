@@ -53,9 +53,9 @@ cardvision fetch MANIFEST --out /path/to/frames --video-file EXAMPLE0001=/path/t
 `--video-file` may be repeated, once per video. Each file must be the whole video from its
 beginning. This is also how to get the frames of a recording of your own (a row whose
 `platform` is `local`; `SCHEMA.md`, "Recordings of your own"): give `ID` as the name the
-manifest uses for it. Reading video needs the optional `video` extra. The package is installed
-from this repository, not from a package index, so run this in the repository folder:
-`python -m pip install -e ".[video]"`.
+manifest uses for it. Reading video needs the optional `video` extra:
+`python -m pip install "cardvision[video]"`, or `python -m pip install -e ".[video]"` in the
+repository folder of a checkout.
 
 **By downloading** (the first line is run in the repository folder):
 
