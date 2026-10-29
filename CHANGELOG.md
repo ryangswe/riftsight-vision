@@ -9,6 +9,22 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-29
+
+A patch: `createSession` recovers from an analysis worker that stops after the release has
+loaded. Nothing in the public surface breaks. The released models are unchanged: release
+`201478a00d6ef6ba`.
+
+### Fixed
+
+- A session whose analysis worker stopped with an error after the release had loaded kept
+  reporting "ready" and analyzed nothing more: every look timed out and was retried about every
+  2 s. The session now restarts the worker once on the same release, without the geometric
+  stage, and clears what it was showing; `status().state` is "loading" until the restarted worker
+  has loaded, and `status().geometric` reports the stage off with the reason `worker-restarted`.
+  If the restarted worker stops too, the state becomes "failed" with the error "the recognition
+  worker stopped". A worker that stops before the release has loaded fails the session as before.
+
 ## [0.5.0] - 2026-10-29
 
 A maintenance kit for browser extensions built on this runtime: the code that loads a newer
@@ -580,7 +596,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0...v0.5.0
 [0.5.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.0rc1...v0.5.0rc2
 [0.5.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0...v0.5.0rc1

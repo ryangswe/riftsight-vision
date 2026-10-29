@@ -95,10 +95,12 @@ export interface Shown {
 }
 
 export interface SessionStatus {
-  /** "loading" until the release has loaded; "failed" when it did not (see `error`). */
+  /** "loading" until the release has loaded; "failed" when it did not, or when the worker
+   *  stopped twice after loading (see `error`). A worker that stops after loading is restarted
+   *  once, without the geometric stage, and the state is "loading" again meanwhile. */
   state: "loading" | "ready" | "failed" | "stopped";
   error: string | null;
-  /** The release in effect, once loaded. */
+  /** The release in effect, once loaded (kept while a restarted worker loads it again). */
   release: ReleaseStatus["release"];
   /** The execution provider the recognizer runs on. */
   backend: ExecutionProvider | null;
@@ -112,7 +114,8 @@ export interface SessionStatus {
   lastRoundTripMs: number | null;
   /** Why the newest frame was not analyzed, when it was not. */
   lastFrameError: string | null;
-  /** The geometric stage's state as the worker last reported it; null when none was asked for. */
+  /** The geometric stage's state as the worker last reported it, or off with the reason
+   *  `worker-restarted` after a restart; null when none was asked for. */
   geometric?: { state: GeometricStatus["state"]; reason: string | null; bytes: number | null } | null;
   /** While the release loads: downloading its files (`bytes`, their sum once known) or preparing
    *  the models. Null once it has loaded or failed, and before the worker has said. */
@@ -164,6 +167,16 @@ interface ShownResult {
   videoTimeSec: number;
 }
 
+/** How many times a worker that stops after the release has loaded is started again. */
+export const WORKER_RESTARTS = 1;
+
+/** The same load request without the geometric stage: what a restarted worker loads. */
+export function withoutGeometric(request: WorkerRequest): WorkerRequest {
+  if (request.kind !== "load") return request;
+  const { geometricUrl: _url, geometricManifestSha256: _sha, geometricWatchdog: _watchdog, ...plain } = request;
+  return plain;
+}
+
 /** What `status().loading` becomes on a release-progress reply: the reply's phase while the
  *  release loads; `undefined` (no change) once it has loaded or failed, or the session has
  *  stopped, so a reply that arrives late changes nothing. */
@@ -181,7 +194,9 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   const isVideo = source instanceof HTMLVideoElement;
-  const worker = new Worker(options.workerUrl ?? new URL("./worker.js", import.meta.url), { type: "module" });
+  const workerUrl = options.workerUrl ?? new URL("./worker.js", import.meta.url);
+  let worker: Worker;
+  let restarts = 0;
   const notify = (): void => options.onUpdate?.();
 
   const status: SessionStatus = {
@@ -341,8 +356,7 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     notify();
   };
 
-  worker.onmessage = (event: MessageEvent<WorkerReply>) => {
-    const reply = event.data;
+  const onWorkerMessage = (reply: WorkerReply): void => {
     if (reply.kind === "frame-result") {
       onFrameResult(reply);
     } else if (reply.kind === "release-progress") {
@@ -351,7 +365,7 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
       status.loading = loading;
       notify();
     } else if (reply.kind === "release-status") {
-      if (status.state === "stopped") return;
+      if (status.state !== "loading") return;
       status.loading = null;
       status.state = reply.ok ? "ready" : "failed";
       status.error = reply.error;
@@ -371,14 +385,48 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
       notify();
     }
   };
-  worker.onerror = (event) => {
-    if (status.state === "loading") {
+
+  /** The worker stopped with an error. Before the release has loaded the session fails, as a
+   *  release that does not load would. After it has loaded, the worker is restarted once on the
+   *  same release without the geometric stage; a second stop ends recognition ("failed"). */
+  const onWorkerError = (message: string): void => {
+    if (status.state === "stopped" || status.state === "failed") return;
+    worker.terminate();
+    if (inFlight) sampler?.release(inFlight.ticket);
+    inFlight = null;
+    if (watchdog) clearTimeout(watchdog);
+    watchdog = null;
+    clearResult();
+    status.loading = null;
+    if (status.state === "loading" && restarts === 0) {
       status.state = "failed";
-      status.loading = null;
-      status.error = `the worker did not start (${event.message || "see the console"})`;
-      notify();
+      status.error = `the worker did not start (${message})`;
+    } else if (restarts < WORKER_RESTARTS) {
+      restarts += 1;
+      status.state = "loading";
+      status.error = null;
+      if (status.geometric) status.geometric = { state: "off", reason: "worker-restarted", bytes: null };
+      startWorker(plainLoad);
+    } else {
+      status.state = "failed";
+      status.error = `the recognition worker stopped (${message})`;
     }
+    notify();
   };
+
+  const startWorker = (request: WorkerRequest): void => {
+    const started = new Worker(workerUrl, { type: "module" });
+    worker = started;
+    // A worker that was replaced may still deliver a message or an error: it is ignored.
+    started.onmessage = (event: MessageEvent<WorkerReply>) => {
+      if (started === worker) onWorkerMessage(event.data);
+    };
+    started.onerror = (event) => {
+      if (started === worker) onWorkerError(event.message || "see the console");
+    };
+    started.postMessage(request);
+  };
+
   const load: WorkerRequest = {
     kind: "load",
     releaseUrl: options.releaseFiles ? String(options.releaseUrl) : new URL(options.releaseUrl, location.href).href,
@@ -389,7 +437,8 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     ...(options.geometricManifestSha256 !== undefined ? { geometricManifestSha256: options.geometricManifestSha256 } : {}),
     ...(options.geometricWatchdog === false ? { geometricWatchdog: false } : {}),
   };
-  worker.postMessage(load);
+  const plainLoad = withoutGeometric(load);
+  startWorker(load);
 
   // ------------------------------------------------------------------------- the element
   /** A live signature sample, compared with the reference over the box of the shown card. */
