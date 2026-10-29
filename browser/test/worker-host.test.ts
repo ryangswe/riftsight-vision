@@ -11,7 +11,7 @@ import { rectOf } from "../src/boxes.js";
 import type { FrameDetector } from "../src/detector/detector.js";
 import { GeometricWatchdog, type GeometricStage } from "../src/geometric/stage.js";
 import type { LoadedRelease } from "../src/load.js";
-import type { FrameResult, GeometricStatus, WorkerReply } from "../src/messages.js";
+import { BUSY_ERROR, type FrameResult, type GeometricStatus, type WorkerReply } from "../src/messages.js";
 import { Pipeline } from "../src/pipeline.js";
 import { createWorkerHost, type VoteDevice } from "../src/worker-host.js";
 import { solidFrame } from "./support.js";
@@ -242,6 +242,26 @@ describe("the worker and the geometric stage", () => {
     expect(w.pipeline.geometricStage).toBe(stage);
     const r2 = await w.frame(0.5);
     expect(r2.analysis!.boxes[0]!.face!.topId).toBe("B");
+  });
+});
+
+describe("a frame that arrives while another is analyzed", () => {
+  it("is answered at once with the busy error, and the first is still answered with its analysis", async () => {
+    let release!: () => void;
+    let held = false;
+    const gate = () => (held ? new Promise<void>((resolve) => (release = resolve)) : Promise.resolve());
+    const w = host({ gate, device: null });
+    await w.load();
+    held = true;
+    const first = w.frame(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    held = false;
+    const second = await w.frame(0);
+    expect([second.error, second.analysis]).toEqual([BUSY_ERROR, null]);
+    release();
+    const r1 = await first;
+    expect([r1.error, r1.analysis !== null]).toEqual([undefined, true]);
+    expect((await w.frame(0)).error).toBeUndefined();
   });
 });
 

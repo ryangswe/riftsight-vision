@@ -120,6 +120,9 @@ export type WorkerRequest =
       envelope: FrameEnvelope;
     };
 
+/** A frame result's `error` when the frame arrived while another was still being analyzed. */
+export const BUSY_ERROR = "busy";
+
 /** The worker's answer to one frame. Every frame gets one. */
 export interface FrameResult {
   kind: "frame-result";
