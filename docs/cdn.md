@@ -21,7 +21,7 @@ Publishing needs `boto3`, the `cdn` extra, and cardvision 0.5.0 or later (earlie
 no `cdn` command):
 
 ```
-python -m pip install "cardvision[cdn]>=0.5.0rc1"
+python -m pip install "cardvision[cdn]>=0.5.0"
 ```
 
 In a checkout of the toolkit, `python -m pip install -e ".[cdn]"` does the same.
