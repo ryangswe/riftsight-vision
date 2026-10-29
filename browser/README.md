@@ -978,7 +978,7 @@ permission for cross-origin use).
 | --- | --- |
 | `session.at(clientX, clientY)` | `{ name, cardId, box, frameBox }` for the card that would be shown at these viewport coordinates, or `null`. `box` is in CSS pixels of the viewport, `frameBox` in pixels of the analyzed frame. |
 | `session.atPointer()` | The same for the pointer's current position over the element. |
-| `session.status()` | `state` (`loading`, `ready`, `failed`, `stopped`), `error`, the release in effect, `backend`, what the scheduler is doing, frames analyzed, the last frame's times, and `loading`: while the release loads, `{ phase, bytes }` as `loadRelease`'s `onProgress` says it, otherwise `null`. |
+| `session.status()` | `state` (`loading`, `ready`, `failed`, `stopped`; a worker that stops after the release has loaded is restarted once without the geometric stage, `loading` meanwhile, and a second stop is `failed`), `error`, the release in effect, `backend`, what the scheduler is doing, frames analyzed, the last frame's times, and `loading`: while the release loads, `{ phase, bytes }` as `loadRelease`'s `onProgress` says it, otherwise `null`. |
 | `session.analysis()` | The newest `FrameAnalysis` that still describes the picture on screen, or `null`. |
 | `session.cards()` | The catalog's cards: id, name, art path (`null` for a card without art: a bank built from the catalog has no row for it, so it is never named by its own row, though a printing of it that has art still names its identity; a bank extended from one that had a row keeps it), `printingOf` (the card an entry is a printing of, or `null`), and `extra` when the catalog gives the card one (the game's own data, which the runtime never reads). |
 | `session.stop()` | Stops analyzing, ends the worker, removes every listener. |
@@ -1117,7 +1117,8 @@ the embedding's alone: it never votes on the CPU in a page. It is also off when 
 to load (`load-failed: ...`), and for the rest of the session when it fails during a frame
 (`runtime: ...`; that frame is answered exactly as without the stage), when its GPU device is
 lost (`device-lost: ...`), and once it has taken more than 1.5 s of two frames in a row
-(`watchdog: ...`). A face it verified carries `geometric` (the answer before the stage and
+(`watchdog: ...`). A session whose worker is restarted (see `session.status()`) reports it off
+(`worker-restarted`). A face it verified carries `geometric` (the answer before the stage and
 every candidate's evidence) and the frame's timings carry `geometricMs`. The stage changes the
 answer a face shows, not what the tracker is given: the tracks are built from the cosine looks,
 as without the stage.
