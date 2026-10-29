@@ -10,7 +10,8 @@
 //   - A still picture (nothing newer presented since it was analyzed: a paused seek, an image)
 //     is analyzed a few more times at `REPEAT_INTERVAL_MS`, because the tracker and the
 //     temporal gate count analyzed frames and a still picture never produces another. Then
-//     nothing runs until the next presented frame.
+//     nothing runs until the next presented frame, or the retry of a look that came back with
+//     the picture not analyzed (below).
 //
 // In "pointer" mode none of that runs unless the pointer says so:
 //   - "fast": within `POINTER_GRACE_MS` of the last pointer activity over the picture: a move,
@@ -31,7 +32,11 @@
 // most once per `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight.
 //
 // Replies. Every frame request carries an envelope (messages.ts) and `replyRejection` decides
-// whether its reply may still be shown. When the picture under a showing tooltip changes
+// whether its reply may still be shown. A look that comes back with the picture not analyzed
+// (the worker was still busy with an earlier picture, or no reply came in time) has still used
+// up the presented frame or a repeat, and a paused video presents no other: `lookUnanswered`
+// makes the same picture due again after a back-off (`LOOK_RETRY_MS`), until a look comes back
+// analyzed (`lookAnswered`). When the picture under a showing tooltip changes
 // without a seek (a cut), `requestLook` asks for a look at once, whatever the cadence.
 //
 // This file holds no timers and touches no element: the policy is a pure function of the
@@ -61,6 +66,9 @@ export const HOVER_MAX_AGE_MS = 2_000;
 export const HOVER_TRIGGER_MIN_GAP_MS = 250;
 /** An analysis with no reply after this long is given up on, so that the next frame can go. */
 export const ANALYSIS_WATCHDOG_MS = 5_000;
+/** After a look comes back with the picture not analyzed, the same picture is due again after
+ *  these delays, one per unanswered look in a row, then the last one each time. */
+export const LOOK_RETRY_MS: readonly number[] = [250, 500, 1_000, 2_000];
 
 /** Why an analysis ran: the cadence (a newly presented frame), a repeat of a still picture, the
  *  staleness rule, or a cut under a showing tooltip. */
@@ -135,6 +143,10 @@ export class FrameScheduler {
   private lastTriggerKind: AnalysisTrigger | null = null;
   /** A look was asked for at once: `due` ignores the cadence until the next start. */
   private lookRequested = false;
+  /** Looks in a row that came back with the picture not analyzed. */
+  private unanswered = 0;
+  /** When the picture counts as newly presented again after an unanswered look; null if not. */
+  private retryAt: number | null = null;
 
   /**
    * @param intervalMs The cadence of the mode: the fast cadence in pointer mode, the slow one
@@ -182,6 +194,11 @@ export class FrameScheduler {
   /** A seek or a new source: the newest analyzed frame no longer describes the picture. */
   discontinuity(): void {
     this.discontinuitySinceLast = true;
+    // A new picture: the back-off of unanswered looks starts over, and a retry waiting for the
+    // old picture is dropped. The pointer leaving resets neither, so that a pointer coming back
+    // finds the retry still due, and a still busy worker is still backed off from.
+    this.unanswered = 0;
+    this.retryAt = null;
   }
 
   /** The picture under a showing tooltip changed without a seek: look at the current picture as
@@ -191,6 +208,32 @@ export class FrameScheduler {
     this.pending = true;
     this.repeatsLeft = 0;
     this.lookRequested = true;
+  }
+
+  /**
+   * A look came back with the picture not analyzed: the picture could not be captured, the
+   * worker was still busy with an earlier picture, or no reply came within
+   * `ANALYSIS_WATCHDOG_MS`. The still picture's other repeats are dropped, and the same picture
+   * counts as newly presented again after a back-off, so that a paused video is looked at again
+   * (with its repeats). This is not `requestLook`, which would also make the picture stale and
+   * let every pointer move look again at once, past the back-off.
+   */
+  lookUnanswered(now: number): void {
+    this.repeatsLeft = 0;
+    this.retryAt = now + LOOK_RETRY_MS[Math.min(this.unanswered, LOOK_RETRY_MS.length - 1)]!;
+    this.unanswered += 1;
+  }
+
+  /** A look came back analyzed: no retry is waiting, and the back-off starts over (as after
+   *  `discontinuity`). */
+  lookAnswered(): void {
+    this.unanswered = 0;
+    this.retryAt = null;
+  }
+
+  /** Has the back-off of an unanswered look run out? */
+  private retryReady(now: number): boolean {
+    return this.retryAt !== null && now >= this.retryAt;
   }
 
   /** Is a look asked for by `requestLook` still waiting to start? */
@@ -245,7 +288,7 @@ export class FrameScheduler {
     if (!this.analysisActive(now)) return false;
     if (this.lookRequested) return true;
     const since = now - this.lastStartedAt;
-    if (this.pending) return since >= this.intervalInEffectMs(now);
+    if (this.pending || this.retryReady(now)) return since >= this.intervalInEffectMs(now);
     return this.repeatsLeft > 0 && since >= REPEAT_INTERVAL_MS;
   }
 
@@ -276,6 +319,12 @@ export class FrameScheduler {
 
   /** An analysis of the current picture was started. */
   started(now: number, info: StartedInfo = {}): void {
+    if (this.retryReady(now)) {
+      // The retry's back-off ran out: this start uses it up as it would a presented frame.
+      this.retryAt = null;
+      this.pending = true;
+      this.repeatsLeft = 0;
+    }
     this.lastStartedAt = now;
     const hover = info.trigger === "hover";
     const cut = info.trigger === "cut" || this.lookRequested;
@@ -304,8 +353,9 @@ export class FrameScheduler {
     return this.lastStartedAt === -Infinity ? null : now - this.lastStartedAt;
   }
 
-  /** Is there nothing left to do until a new frame is presented? */
+  /** Is there nothing left to do until a new frame is presented? False while the retry of an
+   *  unanswered look is waiting. */
   get idle(): boolean {
-    return !this.pending && this.repeatsLeft === 0;
+    return !this.pending && this.repeatsLeft === 0 && this.retryAt === null;
   }
 }

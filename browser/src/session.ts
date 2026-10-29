@@ -39,7 +39,7 @@ import {
   replyRejection,
 } from "./frame-scheduler.js";
 import type { NormalizedBounds } from "./hover-geometry.js";
-import type { FrameResult, GeometricStatus, ReleaseProgress, ReleaseStatus, WorkerReply, WorkerRequest } from "./messages.js";
+import { BUSY_ERROR, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FrameAnalysis, hoverAt } from "./pipeline.js";
 import type { ExecutionProvider } from "./providers.js";
 import { CONFIRM_FRAMES } from "./temporal-gate.js";
@@ -283,6 +283,7 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
       // The picture cannot be read (a file from another origin without permission).
       sampler?.release(inFlight?.ticket ?? null);
       inFlight = null;
+      scheduler.lookUnanswered(performance.now());
       status.lastFrameError = `capture-failed: ${String(error)}`;
       notify();
       return;
@@ -294,6 +295,7 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
       // recognized by its request number and dropped.
       sampler?.release(inFlight.ticket);
       inFlight = null;
+      scheduler.lookUnanswered(performance.now());
       status.lastFrameError = "no reply";
       notify();
     }, ANALYSIS_WATCHDOG_MS);
@@ -322,7 +324,9 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     if (!reply.analysis) {
       sampler?.release(sent.ticket);
       clearResult();
+      if (reply.error === BUSY_ERROR) scheduler.lookUnanswered(performance.now());
     } else {
+      scheduler.lookAnswered();
       status.frames += 1;
       result = { analysis: reply.analysis, videoTimeSec: reply.videoTimeSec };
       // The analyzed frame's own signature becomes the reference a cut is measured from.

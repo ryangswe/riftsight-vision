@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import { activeAnalyzeIntervalMs, analyzeIntervalMs, cadenceMs, isSlowDevice } from "../src/cadence.js";
 import {
+  ANALYSIS_WATCHDOG_MS,
   type AnalysisState,
   DRIVER_TICK_MS,
   FrameScheduler,
   HOVER_MAX_AGE_MS,
   HOVER_TRIGGER_MIN_GAP_MS,
   type LiveTemporalState,
+  LOOK_RETRY_MS,
   POINTER_GRACE_MS,
   READING_LINGER_MS,
   rejectionAnswersInFlight,
@@ -316,6 +318,193 @@ describe("a look asked for after a cut", () => {
     const s = pointerScheduler();
     s.requestLook();
     expect(s.due(0)).toBe(false);
+  });
+});
+
+/**
+ * A paused video under the pointer, driven as session.ts drives it: a tick every
+ * DRIVER_TICK_MS, one look in flight at a time, a look given up on after ANALYSIS_WATCHDOG_MS
+ * (its late reply dropped), and a worker that answers "busy" while it is still analyzing an
+ * earlier picture. The first picture takes `firstMs`; later ones 100 ms.
+ */
+function pausedWithSlowFirstLook(opts: {
+  firstMs: number;
+  endMs: number;
+  pointerAt: (t: number) => boolean;
+  retry?: boolean;
+  /** Captures fail before this time (the look is used up and nothing reaches the worker). */
+  captureFailsUntil?: number;
+}): { sent: number[]; analyzed: number[] } {
+  const s = pointerScheduler("wasm");
+  const retry = opts.retry ?? true;
+  const sent: number[] = [];
+  const analyzed: number[] = [];
+  let workerFreeAt = -Infinity;
+  type Look = { sentAt: number; replyAt: number; analyzed: boolean };
+  // Set inside `send`, so the declared type keeps TypeScript from narrowing it to null.
+  let inFlight = null as Look | null;
+  const send = (t: number, trigger?: "hover"): void => {
+    s.started(t, { videoTimeSec: 3, ...(trigger ? { trigger } : {}) });
+    sent.push(t);
+    if (t < (opts.captureFailsUntil ?? -Infinity)) {
+      if (retry) s.lookUnanswered(t);
+    } else if (t < workerFreeAt) {
+      inFlight = { sentAt: t, replyAt: t, analyzed: false };
+    } else {
+      workerFreeAt = t + (sent.length === 1 ? opts.firstMs : 100);
+      inFlight = { sentAt: t, replyAt: workerFreeAt, analyzed: true };
+    }
+  };
+  s.framePresented();
+  for (let t = 0; t <= opts.endMs; t += DRIVER_TICK_MS) {
+    if (inFlight && inFlight.replyAt <= t) {
+      const reply = inFlight;
+      inFlight = null;
+      if (reply.analyzed) {
+        s.lookAnswered();
+        analyzed.push(t);
+      } else if (retry) s.lookUnanswered(t);
+    }
+    if (inFlight && t - inFlight.sentAt >= ANALYSIS_WATCHDOG_MS) {
+      inFlight = null;
+      if (retry) s.lookUnanswered(t);
+    }
+    if (opts.pointerAt(t)) {
+      s.pointerMoved(t);
+      if (s.hoverTriggerDue(t, 3, inFlight !== null)) send(t, "hover");
+    }
+    if (!inFlight && s.due(t)) send(t);
+  }
+  return { sent, analyzed };
+}
+
+describe("a paused picture whose first look is slow", () => {
+  const moving = (): boolean => true;
+
+  it("without a retry, nothing is analyzed again until the video moves", () => {
+    const { analyzed } = pausedWithSlowFirstLook({ firstMs: 9_000, endMs: 60_000, pointerAt: moving, retry: false });
+    expect(analyzed).toEqual([]);
+  });
+
+  it("is looked at again after the busy answers and the given-up look, and gets analyzed", () => {
+    const { analyzed } = pausedWithSlowFirstLook({ firstMs: 9_000, endMs: 60_000, pointerAt: moving });
+    expect(analyzed.length).toBeGreaterThan(0);
+    // The worker is free at 9 s; the back-off is at most 2 s, plus the cadence.
+    expect(analyzed[0]).toBeGreaterThanOrEqual(9_000);
+    expect(analyzed[0]).toBeLessThanOrEqual(9_000 + 2_000 + 1_000);
+  });
+
+  it("backs off while the worker stays busy: one look every 2 s or so, never one every tick", () => {
+    const { sent, analyzed } = pausedWithSlowFirstLook({ firstMs: Infinity, endMs: 60_000, pointerAt: moving });
+    expect(analyzed).toEqual([]);
+    const lastTen = sent.filter((t) => t > 50_000);
+    expect(lastTen.length).toBeGreaterThanOrEqual(4);
+    expect(lastTen.length).toBeLessThanOrEqual(5);
+    const gaps = sent.slice(1).map((t, i) => t - sent[i]!);
+    expect(Math.min(...gaps.slice(-5))).toBeGreaterThanOrEqual(LOOK_RETRY_MS.at(-1)!);
+  });
+
+  it("looks again after failed captures when the pointer leaves and comes back", () => {
+    const run = (retry: boolean) =>
+      pausedWithSlowFirstLook({
+        firstMs: 100,
+        endMs: 30_000,
+        // Captures fail through the grace period of the last move, so the retry waits for the pointer.
+        captureFailsUntil: 1_000 + POINTER_GRACE_MS + 1_000,
+        pointerAt: (t) => t <= 1_000 || (t >= 15_000 && t <= 18_000),
+        retry,
+      });
+    expect(run(false).analyzed).toEqual([]);
+    const { analyzed } = run(true);
+    expect(analyzed.length).toBeGreaterThan(0);
+    expect(analyzed[0]).toBeGreaterThanOrEqual(15_000);
+    expect(analyzed[0]).toBeLessThanOrEqual(15_000 + 1_000 + DRIVER_TICK_MS);
+  });
+
+  it("stops once the pointer rests past the grace period, and looks again when it moves", () => {
+    const { sent } = pausedWithSlowFirstLook({
+      firstMs: Infinity,
+      endMs: 40_000,
+      pointerAt: (t) => t <= 1_000 || t === 30_000,
+    });
+    expect(sent.filter((t) => t > 1_000 + POINTER_GRACE_MS && t < 30_000)).toEqual([]);
+    expect(sent.some((t) => t >= 30_000 && t <= 30_000 + LOOK_RETRY_MS.at(-1)! + 1_000)).toBe(true);
+  });
+
+  it("the back-off grows with each unanswered look and starts over after an analyzed one", () => {
+    const s = new FrameScheduler(0);
+    s.framePresented();
+    s.started(0);
+    s.started(1);
+    s.started(2);
+    expect(s.due(10_000)).toBe(false);
+    const delays: number[] = [];
+    let t = 10_000;
+    for (let i = 0; i < 6; i += 1) {
+      s.lookUnanswered(t);
+      let wait = 0;
+      while (wait <= 10_000 && !s.due(t + wait)) wait += 1;
+      delays.push(wait);
+      t += wait;
+      s.started(t);
+      s.started(t);
+      s.started(t);
+    }
+    expect(delays).toEqual([250, 500, 1_000, 2_000, 2_000, 2_000]);
+    s.lookAnswered();
+    expect(s.due(t + 5_000)).toBe(false);
+    s.lookUnanswered(t);
+    expect([s.due(t + 249), s.due(t + 250)]).toEqual([false, true]);
+    // A seek or a new source starts it over too; the pointer leaving does not.
+    s.lookUnanswered(t);
+    s.lookUnanswered(t);
+    s.discontinuity();
+    s.lookUnanswered(t);
+    expect([s.due(t + 249), s.due(t + 250)]).toEqual([false, true]);
+    const p = pointerScheduler("wasm");
+    p.pointerMoved(0);
+    p.framePresented();
+    p.started(0, { videoTimeSec: 3 });
+    p.started(0, { videoTimeSec: 3 });
+    p.started(0, { videoTimeSec: 3 });
+    p.lookUnanswered(0);
+    p.lookUnanswered(0);
+    p.pointerLeft(100);
+    p.pointerMoved(200);
+    p.lookUnanswered(1_000);
+    expect([p.due(1_999), p.due(2_000)]).toEqual([false, true]);
+  });
+
+  it("a waiting retry keeps the scheduler from idle; a seek drops it", () => {
+    const s = new FrameScheduler(0);
+    s.framePresented();
+    s.started(0);
+    s.started(1);
+    s.started(2);
+    expect(s.idle).toBe(true);
+    s.lookUnanswered(10);
+    expect(s.idle).toBe(false);
+    s.discontinuity();
+    expect([s.idle, s.due(10_000)]).toEqual([true, false]);
+  });
+
+  it("an unanswered look drops the still picture's other repeats until the retry", () => {
+    const s = new FrameScheduler(0);
+    s.framePresented();
+    s.started(0);
+    expect(s.due(REPEAT_INTERVAL_MS)).toBe(true);
+    // Unanswered 100 ms after the start: the repeat would be due at 250 ms, the retry is at 350.
+    s.lookUnanswered(100);
+    expect([s.due(REPEAT_INTERVAL_MS), s.due(100 + LOOK_RETRY_MS[0]! - 1), s.due(100 + LOOK_RETRY_MS[0]!)]).toEqual([false, false, true]);
+  });
+
+  it("a pointer move does not skip the back-off: the paused picture is not stale", () => {
+    const s = pointerScheduler("wasm");
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0, { videoTimeSec: 3 });
+    s.lookUnanswered(100);
+    expect(s.hoverTriggerDue(200, 3, false)).toBe(false);
   });
 });
 

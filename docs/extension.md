@@ -89,7 +89,8 @@ package Node finds. Other keys, such as the commit, are the product's own. On th
 ([playbooks/refresh-set.md](../playbooks/refresh-set.md)). To update, vendor a newer tagged
 commit, run the extension's tests and ship it as a store release: code never arrives through
 the settings file. The remote-release module, the Node tools and both commands are
-[experimental](stability.md#experimental).
+[experimental](stability.md#experimental). To show cards in the viewer's language, see
+[languages.md](languages.md).
 
 ## With a coding agent
 
