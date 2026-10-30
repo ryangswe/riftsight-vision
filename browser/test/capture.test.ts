@@ -15,7 +15,8 @@ import {
   signatureDistance,
   signatureSize,
 } from "../src/capture.js";
-import { pictureBox, withinMaxAge } from "../src/session.js";
+import { withinMaxAge } from "../src/frame-scheduler.js";
+import { pictureBox } from "../src/session.js";
 import { contract } from "./support.js";
 
 const flat = (value: number, width = 8, height = 4): FrameSignature => ({ width, height, luma: new Uint8Array(width * height).fill(value) });

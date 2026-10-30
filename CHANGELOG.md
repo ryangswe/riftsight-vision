@@ -9,6 +9,109 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.6.0rc1] - 2026-10-29
+
+A session's policy, apart from the page, so that a browser extension can run it across two
+frames: a content script in the video page and a frame of the extension's own. `createSession`
+is now built on the same parts. Every new module and entry is experimental. Nothing in the
+public surface breaks. The released models are unchanged: release `201478a00d6ef6ba`.
+
+### Added
+
+- `browser/src/session-core.ts`: `SessionCore`, a session's policy without a page: when a
+  picture is captured and analyzed, which reply may be shown, and what is shown at the pointer.
+  Its host reports what happens and calls `tick()`; it holds no timers. An optional hold
+  (`SHOWN_HOLD`) keeps a shown card through short gaps; `neighborBoxes` gives the other cards'
+  boxes.
+- `browser/src/worker-session.ts`: `createWorkerSession`, a `SessionCore` with the analysis
+  workers that serve it: the one restart of a worker that stops after loading, and, with
+  `chooseRelease`, rules 10 to 12 of [docs/remote-releases.md](docs/remote-releases.md).
+- `browser/src/compute-frame.ts`: `startComputeFrame`, the extension frame's side of the
+  two-frame contract: the origin and source rule, the messages, and the pictures it closes.
+- `browser/src/compute-messages.ts`: `computeProtocol(tag)`, the contract's messages under an
+  extension's own tag, with their parsers and limits (`MAX_FRAME_SIDE`, `MAX_OTHER_BOXES`,
+  `MAX_REASON_LENGTH`, `MAX_TEXT_LENGTH`). A `status`'s `error` and `backend` are cut to 200
+  characters, by `startComputeFrame` before posting and by the parser; a `capture`'s
+  `analysisWidth` must be whole numbers from 1 to `MAX_FRAME_SIDE` (4096); `startComputeFrame`
+  asks for at most that width, whatever the release allows.
+- The content script's side: `grabFrame` (`browser/src/page-capture.ts`) takes the picture the
+  frame asked for, `watchVideo` (`video-events.ts`) turns a video's events into messages,
+  `captureAllowed` (`capture-gate.ts`) is the capture gate (never more than `MAX_REST_MS`, 60 s,
+  after the last trusted pointer event, a card showing or not; `GateLimits.restMs`), and
+  `fractionIn` (`capture.ts`) gives a point in fractions of the picture.
+- `GrabDeps.requireConnected` and `GrabDeps.maxSide`, options of `grabFrame`: a same-document
+  host analyzes a video out of the page, and a frame of any size.
+- Two entries, `dist/compute-session.js` and `dist/page-capture.js`, built from them with no ONNX
+  Runtime, WebAssembly or OpenCV inside (`browser/test/bundle-purity.test.ts` checks it). They
+  are [experimental](docs/stability.md#experimental) and not part of `browser/src/index.ts`.
+- `createCaptureControl` (`browser/src/capture-control.ts`), the content script's half in one
+  place: pictures only on the authority of trusted pointer events (hover, or a tap for a bounded
+  time that a card showing never extends; at most 60 s after the last trusted pointer event),
+  the last trusted point checked against the picture before every capture, full resets when the
+  viewer is gone, one capture at a time, stale pictures closed, and the handshake with the
+  compute frame.
+- `fromExtensionFrame` and `acceptComputeOut` (`browser/src/capture-control.ts`): a `message`
+  event is taken from one of the extension's frames only when it is trusted and comes from that
+  frame and the extension's origin; a made-up event that a page dispatches is refused.
+  `postWithTransfer` closes a bitmap that could not be posted.
+- `PROTOCOL_VERSION` (`browser/src/compute-messages.ts`), the contract's version (1): a `hello
+  {version}` message, and `ready` carries `version` and `instance` (16 lowercase hexadecimal
+  characters, one per compute frame). `startComputeFrame` answers each `hello` with `ready`, the
+  current status and the current shown card, and makes nothing again.
+- `startComputeFrame` closes every picture of a message it does not take, even when the session
+  or a product hook throws while the message is handled. `SessionCore.frame` closes a picture
+  the worker cannot take (posting it throws) and looks again after the back-off.
+- [docs/extension-session.md](docs/extension-session.md): the two-frame contract, its messages
+  and limits, the handshake, the content script's capture rule, retries, the worker's
+  lifecycle, and a sketch of each side.
+- `FrameScheduler.lookUnanswered(now, { prompt: true })`, `FrameScheduler.pictureReceived()` and
+  `FrameScheduler.lookRefused()`: a capture that failed for want of a picture is retried as soon
+  as its back-off runs out; a picture received after failed captures starts the back-off over; a
+  refused capture is asked again on the next pointer move.
+
+### Changed
+
+- `createSession` (`browser/src/session.ts`) is built on `SessionCore` and
+  `createWorkerSession`, and captures a video with `grabFrame` and `watchVideo`. Its options,
+  its methods and `SessionStatus` are unchanged. The lines below are what a caller may notice.
+- `createSession`, a video the page may not read: `status().lastFrameError` is
+  `capture-failed: the video may not be read` and no picture goes to the worker (0.5: the
+  worker's `analysis-failed: SecurityError`). It is asked again on the next pointer move.
+- `createSession`, a video not ready to draw (`readyState` below 2): reported `capture-failed:
+  no picture` and looked at again after a back-off, where 0.5 analyzed an empty frame. A paused
+  one is drawn anyway, dated at the time it showed while it last played; if it draws nothing it
+  is reported `capture-failed: no picture (the paused video draws nothing)` and looked at again
+  after 250 ms.
+- `createSession` counts a video's `canplay` and `playing` events as presented frames, so a
+  video that becomes ready is looked at.
+- `createSession`, a video with no picture size yet (`videoWidth` 0): reported `capture-failed:
+  no picture` and retried with the back-off, where 0.5 skipped the look.
+- `createSession`, an `<img>` that cannot be captured: no longer retried after a back-off. Once
+  the still picture's repeats are used up, it is asked again on the next pointer move in pointer
+  mode, and after the image's next `load` in always-on mode.
+- `createSession` closes a picture captured for a look asked before a seek; it is never
+  analyzed.
+- `createSession` checks the 5 s watchdog on its driver tick (every 250 ms), counted from the
+  capture request.
+- `createSession`'s `onUpdate` is called at most once for each event the session handles; a
+  pointer move, the pointer leaving and a seek still call it every time. A presented frame or the
+  driver tick now calls it when it changes what is shown at the pointer, for example when a result
+  passes the release's `hover.maxAgeMs`.
+- `createSession`'s `status().schedule` is computed when `status()` is read.
+- `FrameScheduler.pointerMoved` makes the picture due again, at the cadence, when a retry was
+  used up without an answer or a capture was refused, and never shortens a back-off still
+  waiting. A paused picture whose look was refused while the pointer was outside is looked at
+  when the pointer comes back and moves.
+- `analysisSize` gives a frame at least one row high: a very wide, very short picture no longer
+  gives a height of 0.
+
+### Fixed
+
+- `createSession`: a restarted worker that cannot be made now fails the session
+  (`status().state` "failed", error "the recognition worker could not start"); 0.5.1 threw from
+  the worker's error handler and stayed "loading". A first worker that cannot be made still makes
+  `createSession` throw, as before.
+
 ## [0.5.1] - 2026-10-29
 
 A patch: `createSession` recovers from an analysis worker that stops after the release has
@@ -596,7 +699,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0rc1...HEAD
+[0.6.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...v0.6.0rc1
 [0.5.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0...v0.5.0
 [0.5.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.0rc1...v0.5.0rc2

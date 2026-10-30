@@ -5,6 +5,9 @@
 //   dist/worker.js       the analysis worker a session starts (src/worker.ts)
 //   dist/remote-release.js  remote releases for an extension (src/remote/index.ts, experimental;
 //                        not part of the public API): no ONNX Runtime, no browser globals
+//   dist/compute-session.js, dist/page-capture.js  experimental entries an extension vendors
+//                        (src/compute-session.ts, src/page-capture-entry.ts): no ONNX Runtime,
+//                        no WebAssembly, no OpenCV; test/bundle-purity.test.ts checks it
 //   dist/node/verify-release.mjs, dist/node/package-zip.mjs  Node tools for an extension's release
 //                        scripts (node/): check a release folder or URL with the runtime above,
 //                        and write the store or release-page zip; platform node, ONNX Runtime external
@@ -38,6 +41,11 @@ mkdirSync(join(dist, "demo"), { recursive: true });
 const shared = { bundle: true, format: "esm", platform: "browser", target: "es2022", minify: true, sourcemap: false, logLevel: "warning", legalComments: "linked" };
 await build({ ...shared, entryPoints: { cardvision: join(root, "src/index.ts"), worker: join(root, "src/worker.ts") }, outdir: dist });
 await build({ ...shared, entryPoints: { "remote-release": join(root, "src/remote/index.ts") }, outdir: dist });
+await build({
+  ...shared,
+  entryPoints: { "compute-session": join(root, "src/compute-session.ts"), "page-capture": join(root, "src/page-capture-entry.ts") },
+  outdir: dist,
+});
 // Node tools for a product's release scripts. ONNX Runtime Web is left out of the bundles, as in
 // scripts/agreement.mjs; verify-release imports the built cardvision.js beside it at run time.
 await build({

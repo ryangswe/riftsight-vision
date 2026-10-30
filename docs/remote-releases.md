@@ -146,9 +146,11 @@ browser's cache.
 
 ## Rules 10 to 12: the worker's answer
 
-The product's compute frame owns its worker, so these rules are the product's to apply. The
-module gives it `refusalRecorded` (rule 10's skip-list question), `recordSkip`,
-`fallbackRequest` and `chosenBeforeFetch`.
+The compute frame's worker answers the release, so these rules apply there.
+`createWorkerSession`, which `startComputeFrame` runs ([extension-session.md](extension-session.md#the-worker)),
+applies them; a product that owns its worker may still apply them itself. For that, the module
+gives it `refusalRecorded` (rule 10's skip-list question), `recordSkip`, `fallbackRequest` and
+`chosenBeforeFetch`.
 
 | # | Condition | Outcome | Log reason |
 | --- | --- | --- | --- |

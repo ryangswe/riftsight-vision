@@ -334,6 +334,10 @@ function pausedWithSlowFirstLook(opts: {
   retry?: boolean;
   /** Captures fail before this time (the look is used up and nothing reaches the worker). */
   captureFailsUntil?: number;
+  /** A failed capture reports a prompt retry (`lookUnanswered(t, { prompt: true })`). */
+  prompt?: boolean;
+  /** A picture that reaches the worker is reported (`pictureReceived`), as a session core does. */
+  pictureReceived?: boolean;
 }): { sent: number[]; analyzed: number[] } {
   const s = pointerScheduler("wasm");
   const retry = opts.retry ?? true;
@@ -347,8 +351,11 @@ function pausedWithSlowFirstLook(opts: {
     s.started(t, { videoTimeSec: 3, ...(trigger ? { trigger } : {}) });
     sent.push(t);
     if (t < (opts.captureFailsUntil ?? -Infinity)) {
-      if (retry) s.lookUnanswered(t);
-    } else if (t < workerFreeAt) {
+      if (retry) s.lookUnanswered(t, opts.prompt ? { prompt: true } : {});
+      return;
+    }
+    if (opts.pictureReceived) s.pictureReceived();
+    if (t < workerFreeAt) {
       inFlight = { sentAt: t, replyAt: t, analyzed: false };
     } else {
       workerFreeAt = t + (sent.length === 1 ? opts.firstMs : 100);
@@ -377,6 +384,15 @@ function pausedWithSlowFirstLook(opts: {
   }
   return { sent, analyzed };
 }
+
+/** `pausedWithSlowFirstLook` with pictures received, first look 6 s and 12 s, to 20 s. */
+const PINNED_SLOW_FIRST_LOOK: Record<number, { sent: number[]; analyzed: number[] }> = {
+  6_000: { sent: [0, 5_250, 6_250, 6_500, 6_750], analyzed: [6_500, 6_750, 7_000] },
+  12_000: {
+    sent: [0, 5_250, 6_250, 7_500, 9_750, 12_000, 12_250, 12_500],
+    analyzed: [12_250, 12_500, 12_750],
+  },
+};
 
 describe("a paused picture whose first look is slow", () => {
   const moving = (): boolean => true;
@@ -505,6 +521,325 @@ describe("a paused picture whose first look is slow", () => {
     s.started(0, { videoTimeSec: 3 });
     s.lookUnanswered(100);
     expect(s.hoverTriggerDue(200, 3, false)).toBe(false);
+  });
+});
+
+describe("a prompt retry (a capture that failed for want of a picture)", () => {
+  /** A still picture whose three looks were all started; nothing is due until something happens. */
+  const usedUp = (s: FrameScheduler, t = 0): void => {
+    s.framePresented();
+    s.started(t);
+    s.started(t);
+    s.started(t);
+  };
+
+  it("is due once the back-off runs out, whatever the cadence", () => {
+    const s = new FrameScheduler(1_000);
+    usedUp(s);
+    s.lookUnanswered(100, { prompt: true });
+    expect([s.due(100 + LOOK_RETRY_MS[0]! - 1), s.due(100 + LOOK_RETRY_MS[0]!)]).toEqual([false, true]);
+  });
+
+  it("without prompt the retry also waits for the cadence (rc2)", () => {
+    const s = new FrameScheduler(1_000);
+    usedUp(s);
+    s.lookUnanswered(100);
+    expect([s.due(350), s.due(999), s.due(1_000)]).toEqual([false, false, true]);
+  });
+
+  it("is used up by the start, which is reported as a cadence look, not a cut", () => {
+    const s = new FrameScheduler(1_000);
+    usedUp(s);
+    s.lookUnanswered(100, { prompt: true });
+    s.started(350);
+    expect(s.lastTrigger).toBe("cadence");
+    // The started look gets the still picture's repeats, at the repeat spacing, not at once.
+    expect([s.due(351), s.due(350 + REPEAT_INTERVAL_MS)]).toEqual([false, true]);
+    s.started(600);
+    s.started(850);
+    expect([s.due(10_000), s.idle]).toEqual([false, true]);
+  });
+
+  it("a pointer move still cannot skip the back-off: nothing is marked stale", () => {
+    const s = pointerScheduler("wasm");
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0, { videoTimeSec: 3 });
+    s.lookUnanswered(100, { prompt: true });
+    s.pointerMoved(200);
+    expect(s.hoverTriggerDue(200, 3, false)).toBe(false);
+    expect([s.lookPending, s.due(200), s.due(349), s.due(350)]).toEqual([false, false, false, true]);
+  });
+
+  it("grows the back-off with each failure in a row, as other unanswered looks do", () => {
+    const s = new FrameScheduler(60_000);
+    usedUp(s);
+    const delays: number[] = [];
+    let t = 10_000;
+    for (let i = 0; i < 6; i += 1) {
+      s.lookUnanswered(t, { prompt: true });
+      let wait = 0;
+      while (wait <= 10_000 && !s.due(t + wait)) wait += 1;
+      delays.push(wait);
+      t += wait;
+      s.started(t);
+    }
+    expect(delays).toEqual([250, 500, 1_000, 2_000, 2_000, 2_000]);
+  });
+
+  it("runs only while analysis may run", () => {
+    const s = pointerScheduler("wasm");
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0, { videoTimeSec: 3 });
+    s.lookUnanswered(100, { prompt: true });
+    expect(s.due(POINTER_GRACE_MS + 1)).toBe(false);
+    s.pointerMoved(POINTER_GRACE_MS + 2);
+    expect(s.due(POINTER_GRACE_MS + 2)).toBe(true);
+  });
+});
+
+describe("a picture received for the look in flight", () => {
+  it("starts the back-off over: a busy answer then retries after the first delay", () => {
+    const s = new FrameScheduler(0);
+    s.framePresented();
+    s.started(0);
+    s.started(0);
+    s.started(0);
+    // Three captures failed in a row: the next retry would be 1 s away.
+    s.lookUnanswered(0, { prompt: true });
+    s.lookUnanswered(0, { prompt: true });
+    s.lookUnanswered(0, { prompt: true });
+    s.started(1_000);
+    s.pictureReceived();
+    expect(s.idle).toBe(false); // the repeats of the started look are still to come
+    s.lookUnanswered(1_100); // answered busy
+    expect([s.due(1_100 + LOOK_RETRY_MS[0]! - 1), s.due(1_100 + LOOK_RETRY_MS[0]!)]).toEqual([false, true]);
+  });
+
+  it("after a failed capture, drops a retry still waiting", () => {
+    const s = new FrameScheduler(0);
+    s.framePresented();
+    s.started(0);
+    s.started(0);
+    s.started(0);
+    s.lookUnanswered(0, { prompt: true });
+    expect(s.idle).toBe(false);
+    s.pictureReceived();
+    expect([s.idle, s.due(10_000)]).toEqual([true, false]);
+  });
+
+  it("after a busy answer or a given-up look, changes nothing", () => {
+    const s = new FrameScheduler(0);
+    s.framePresented();
+    s.started(0);
+    s.started(0);
+    s.started(0);
+    s.lookUnanswered(0);
+    s.pictureReceived();
+    expect([s.idle, s.due(249), s.due(250)]).toEqual([false, false, true]);
+    // A failed capture, then a busy answer: the newest is the busy one, so a picture keeps it.
+    s.started(250);
+    s.lookUnanswered(300, { prompt: true });
+    s.lookUnanswered(400);
+    s.pictureReceived();
+    expect([s.due(400 + LOOK_RETRY_MS[2]! - 1), s.due(400 + LOOK_RETRY_MS[2]!)]).toEqual([false, true]);
+  });
+
+  it("a worker that stays busy is backed off from up to 2 s, though every picture reaches it", () => {
+    const s = new FrameScheduler(0);
+    s.framePresented();
+    s.started(0);
+    s.started(0);
+    s.started(0);
+    const delays: number[] = [];
+    let t = 10_000;
+    for (let i = 0; i < 6; i += 1) {
+      s.lookUnanswered(t); // answered busy
+      let wait = 0;
+      while (wait <= 10_000 && !s.due(t + wait)) wait += 1;
+      delays.push(wait);
+      t += wait;
+      s.started(t);
+      s.pictureReceived();
+    }
+    expect(delays).toEqual([250, 500, 1_000, 2_000, 2_000, 2_000]);
+  });
+
+  it("a reset by an analyzed look or a seek also forgets the failed capture", () => {
+    for (const reset of ["lookAnswered", "discontinuity"] as const) {
+      const s = new FrameScheduler(0);
+      s.framePresented();
+      s.started(0);
+      s.started(0);
+      s.started(0);
+      s.lookUnanswered(0, { prompt: true });
+      s[reset]();
+      s.lookUnanswered(1_000);
+      s.started(1_250);
+      s.pictureReceived();
+      s.lookUnanswered(1_300);
+      // Second busy answer in a row: 500 ms, not reset to 250 by the picture.
+      expect([s.due(1_300 + 499), s.due(1_300 + 500)]).toEqual([false, true]);
+    }
+  });
+
+  it("leaves the reset by an analyzed look or a seek as it was, and idle as it was", () => {
+    for (const reset of ["lookAnswered", "discontinuity"] as const) {
+      const s = new FrameScheduler(0);
+      s.framePresented();
+      s.started(0);
+      s.started(0);
+      s.started(0);
+      s.lookUnanswered(0, { prompt: true });
+      s.lookUnanswered(0, { prompt: true });
+      s[reset]();
+      expect([s.idle, s.due(10_000)]).toEqual([true, false]);
+      s.lookUnanswered(10_000, { prompt: true });
+      expect([s.idle, s.due(10_000 + 249), s.due(10_000 + 250)]).toEqual([false, false, true]);
+    }
+  });
+});
+
+describe("a retry used up without an answer (a refused capture)", () => {
+  /** A paused picture whose capture failed while the pointer was over it; the pointer leaves,
+   *  the retry starts a look while the pointer is outside, and that look is refused (reported
+   *  to nobody: a refusal calls nothing). */
+  const refusedWhileOutside = (): FrameScheduler => {
+    const s = pointerScheduler("wasm");
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0, { videoTimeSec: 3 });
+    s.lookUnanswered(100, { prompt: true });
+    s.pointerLeft(200);
+    // Still fast (the grace period of the leave): the retry and its repeats start, all refused.
+    for (const t of [350, 350 + REPEAT_INTERVAL_MS, 350 + 2 * REPEAT_INTERVAL_MS]) {
+      expect(s.due(t)).toBe(true);
+      s.started(t, { videoTimeSec: 3 });
+    }
+    return s;
+  };
+
+  it("is due again when the pointer comes back and moves", () => {
+    const s = refusedWhileOutside();
+    expect([s.idle, s.due(5_000)]).toEqual([true, false]);
+    s.pointerMoved(5_000);
+    expect(s.due(5_000)).toBe(true);
+  });
+
+  it("without a move nothing is due: the pointer is the trigger", () => {
+    const s = refusedWhileOutside();
+    expect(s.due(30_000)).toBe(false);
+  });
+
+  it("a pointer move never shortens a retry still waiting", () => {
+    const s = pointerScheduler("wasm");
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0, { videoTimeSec: 3 });
+    s.lookUnanswered(100);
+    s.lookUnanswered(100);
+    s.pointerMoved(200);
+    // Second unanswered look: 500 ms back-off, then the 1 s cadence of the last start at 0.
+    expect([s.due(599), s.due(1_000)]).toEqual([false, true]);
+  });
+
+  it("nothing is due after an analyzed look, however the pointer moves", () => {
+    const s = pointerScheduler("wasm");
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0, { videoTimeSec: 3 });
+    s.started(250, { videoTimeSec: 3 });
+    s.started(500, { videoTimeSec: 3 });
+    s.lookAnswered();
+    s.pointerMoved(5_000);
+    expect([s.idle, s.due(5_000)]).toEqual([true, false]);
+  });
+});
+
+describe("a refused look (lookRefused)", () => {
+  /** Pointer mode on WebAssembly (1 s cadence): a paused picture whose look and repeats were all
+   *  started at 0, 250 and 500 and refused; the pointer left at 0. */
+  const allRefused = (): FrameScheduler => {
+    const s = pointerScheduler("wasm");
+    s.pointerMoved(0);
+    s.pointerLeft(0);
+    s.framePresented();
+    for (const t of [0, 250, 500]) {
+      expect(s.due(t)).toBe(true);
+      s.started(t, { videoTimeSec: 3 });
+      s.lookRefused();
+    }
+    return s;
+  };
+
+  it("leaves nothing due until the pointer moves; a move makes it due at the cadence", () => {
+    const s = allRefused();
+    expect([s.idle, s.due(5_000), s.due(30_000)]).toEqual([true, false, false]);
+    const r = allRefused();
+    r.pointerMoved(600);
+    expect([r.due(600), r.due(1_499), r.due(1_500)]).toEqual([false, false, true]);
+  });
+
+  it("is not forgotten by a new look: refused again, the next move asks again", () => {
+    const s = allRefused();
+    s.pointerMoved(5_000);
+    expect(s.due(5_000)).toBe(true);
+    // The look and its repeats, all refused again.
+    for (const t of [5_000, 5_250, 5_500]) {
+      expect(s.due(t)).toBe(true);
+      s.started(t, { videoTimeSec: 3 });
+      s.lookRefused();
+    }
+    expect(s.due(8_000)).toBe(false);
+    s.pointerMoved(8_000);
+    expect(s.due(8_000)).toBe(true);
+  });
+
+  it("is forgotten by an analyzed look, a picture received or a new picture", () => {
+    for (const forget of ["lookAnswered", "pictureReceived", "discontinuity"] as const) {
+      const s = allRefused();
+      s[forget]();
+      s.pointerMoved(5_000);
+      expect(s.due(5_000)).toBe(false);
+      // After a seek the picture is stale: the staleness rule asks, not the refusal.
+      expect(s.hoverTriggerDue(5_000, 3, false)).toBe(forget === "discontinuity");
+    }
+  });
+
+  it("grows no back-off, and a move never shortens a back-off still waiting", () => {
+    const s = allRefused();
+    s.lookUnanswered(600);
+    expect([s.due(849), s.due(1_499), s.due(1_500)]).toEqual([false, false, true]);
+    const w = pointerScheduler("wasm");
+    w.pointerMoved(0);
+    w.framePresented();
+    w.started(0, { videoTimeSec: 3 });
+    w.lookUnanswered(100);
+    w.lookUnanswered(100);
+    w.lookRefused();
+    w.pointerMoved(200);
+    expect([w.due(599), w.due(1_000)]).toEqual([false, true]);
+  });
+});
+
+describe("the session loop with prompt retries and pictures received", () => {
+  const moving = (): boolean => true;
+
+  it("a failed capture is looked at again after the back-off, not after the cadence", () => {
+    const { sent } = pausedWithSlowFirstLook({ firstMs: 100, endMs: 3_000, pointerAt: moving, captureFailsUntil: 1, prompt: true });
+    // Sent at 0 (the pointer), failed; the retry 250 ms later, not at the 1 s cadence.
+    expect(sent.slice(0, 2)).toEqual([0, 250]);
+    const plain = pausedWithSlowFirstLook({ firstMs: 100, endMs: 3_000, pointerAt: moving, captureFailsUntil: 1 });
+    expect(plain.sent.slice(0, 2)).toEqual([0, 1_000]);
+  });
+
+  // Pinned: the session core (session-core.test.ts) must give the same times.
+  it("a slow first look, pictures received: the times a session core must reproduce", () => {
+    const six = pausedWithSlowFirstLook({ firstMs: 6_000, endMs: 20_000, pointerAt: moving, pictureReceived: true });
+    expect(six).toEqual(PINNED_SLOW_FIRST_LOOK[6_000]);
+    const twelve = pausedWithSlowFirstLook({ firstMs: 12_000, endMs: 20_000, pointerAt: moving, pictureReceived: true });
+    expect(twelve).toEqual(PINNED_SLOW_FIRST_LOOK[12_000]);
   });
 });
 
