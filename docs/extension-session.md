@@ -116,7 +116,11 @@ ignores a hello; its own `ready` follows once the session exists. It answers aft
 failed, with the `failed` status.
 
 The controller below says `hello` from `connect()` until a `ready` comes (`helloRetries`, 10 by
-default, about 16 s), and compares versions:
+default, about 16 s), and compares versions. It sends nothing while the iframe still holds its
+first `about:blank` page, which has the video page's origin: a message for the extension's origin
+would only be dropped there, with an error in the page's console. Those waits (up to a minute)
+do not count as tries, so `connect()` may be called as soon as the iframe is appended. An iframe
+still on `about:blank` after that minute (nothing loaded in it) is reported as `no-answer`.
 - **Another version:** nothing is captured, and `onProblem` hears
   `{ kind: "version", expected, received }`. Reloading the page or the extension usually mends it.
 - **A frame from before contract version 1** neither parses `hello` nor sends a `ready` that
@@ -161,7 +165,11 @@ authority of trusted pointer events (`event.isTrusted`), and checks again at eac
   starts it again. `GateLimits.restMs` (the controller's `limits`) changes it.
 - **Tap** (touch): `POINTER_GRACE_MS` from the tap, and no longer. A card showing never extends
   it. The finger lifting does not end it (the picture the tap asked for is taken after the
-  finger is up); a canceled touch does, and another pointer inherits nothing.
+  finger is up); a canceled touch does, and another pointer inherits nothing. A tap needs the
+  picture to receive pointer events: on a `<video controls>` element, Firefox's native controls
+  take the touch and the page sees only `pointerleave`. And the window is not stretched for a
+  cold start: on a slow machine, a tap made while the models still load may show nothing, and
+  the next tap works.
 - **Before every capture**, the last trusted point is checked again against the picture as it is
   laid out now, with `eligible`. A video that moved away under a resting pointer clears the gate
   and refuses the capture. The default `eligible` checks geometry only: something laid over the
@@ -286,7 +294,9 @@ dropped and a picture is closed.
   change it. Details you send from there by another channel leave first, but nothing makes them
   arrive first: join them to the card by `cardId` and `releaseId`, or fall back to your own table.
 - **The hold.** `hold: SHOWN_HOLD` keeps a shown card through short gaps: until two analyses in
-  a row have nothing there, or 5 s pass with no analysis seeing it. Another card at the pointer,
+  a row have nothing there, or 5 s pass with no analysis seeing it. A reply with nothing analyzed
+  (busy, or an error), or an analysis that comes back older than `hover.maxAgeMs` (slow, on a playing video),
+  is not one of the two: only the 5 s end the hold then. Another card at the pointer,
   or the pointer leaving the card's box, ends it at once. It keeps a tooltip from flickering on a
   live stream, and is off when absent.
 

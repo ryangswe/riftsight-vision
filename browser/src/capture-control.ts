@@ -34,6 +34,12 @@ import { type VideoWatch, watchVideo } from "./video-events.js";
 /** What a frame's `ready` must carry: 16 lowercase hexadecimal characters, one per frame. */
 const INSTANCE = /^[0-9a-f]{16}$/;
 
+/** How long `connect` waits for the iframe to leave its first `about:blank`, in ms, looking every
+ *  `HELLO_LOAD_STEP_MS`. The waits do not count against `helloRetries`; when they run out, the
+ *  controller reports `no-answer`. */
+const HELLO_LOAD_MS = 60_000;
+const HELLO_LOAD_STEP_MS = 250;
+
 /** The reasons the controller refuses a capture with. */
 export const NOT_POINTING = "not pointing at the video";
 export const CAPTURE_PENDING = "a capture is already pending";
@@ -44,7 +50,8 @@ export type CaptureProblem =
   /** The frame speaks another version of the contract: nothing is captured until a frame that
    *  speaks this one says `ready`. Reloading the page (or the extension) usually mends it. */
   | { kind: "version"; expected: number; received: unknown }
-  /** No `ready` came after every `hello`. A `ready` that comes later is still taken. */
+  /** No `ready` came after every `hello`, or the iframe kept its first `about:blank` for a minute
+   *  (nothing loaded in it). A `ready` that comes later is still taken. */
   | { kind: "no-answer" };
 
 export interface CaptureControlOptions {
@@ -195,6 +202,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   let handshake: Handshake | null = null;
   let helloTimer: unknown = null;
   let helloSent = 0;
+  let loadSince: number | null = null;
   let captureInFlight = false;
   let stopped = false;
   const listening = new Set<() => void>();
@@ -205,8 +213,20 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     return handshake && target === handshake.window ? target : null;
   }
 
+  /** Whether `target` may hold the extension's page yet. While the iframe is still on its first
+   *  `about:blank` (the page's own origin, so its location can be read), a message for the
+   *  extension's origin would only be dropped, with an error in the page's console. Once the
+   *  extension's page is there, its location cannot be read from here, and that is the sign. */
+  function atFrameOrigin(target: Window): boolean {
+    try {
+      return target.location.origin === frameOrigin;
+    } catch {
+      return true;
+    }
+  }
+
   function send(message: ComputeIn, target: Window | null = connectedFrame()): void {
-    if (stopped || !target) return;
+    if (stopped || !target || !atFrameOrigin(target)) return;
     try {
       target.postMessage(protocol.tag(message), frameOrigin);
     } catch {
@@ -328,11 +348,20 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   function hello(): void {
     helloTimer = null;
     if (stopped || connectedFrame()) return;
+    const target = options.frame();
+    if (target && !atFrameOrigin(target)) {
+      // Not loaded yet: wait without spending a try, for at most HELLO_LOAD_MS.
+      const at = now();
+      loadSince ??= at;
+      if (at - loadSince < HELLO_LOAD_MS) helloTimer = timers.set(hello, HELLO_LOAD_STEP_MS);
+      else options.onProblem?.({ kind: "no-answer" });
+      return;
+    }
     if (helloSent >= helloRetries) {
       options.onProblem?.({ kind: "no-answer" });
       return;
     }
-    send({ kind: "hello", version: PROTOCOL_VERSION }, options.frame());
+    send({ kind: "hello", version: PROTOCOL_VERSION }, target);
     helloTimer = timers.set(hello, delay(helloSent));
     helloSent++;
   }
@@ -341,6 +370,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     if (stopped) return;
     stopHello();
     helloSent = 0;
+    loadSince = null;
     hello();
   }
 

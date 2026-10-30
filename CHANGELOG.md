@@ -9,6 +9,29 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.6.0rc2] - 2026-10-29
+
+Fixes from moving the first extension onto 0.6.0rc1. No change to the contract between the
+frames (`PROTOCOL_VERSION` stays 1) or to any stable surface.
+
+### Changed
+
+- `docs/extension-session.md`: a tap needs the picture to receive pointer events (Firefox's
+  native video controls take the touch), and a tap made during a cold start on a slow machine
+  may show nothing.
+
+### Fixed
+
+- `createCaptureControl` (`browser/src/capture-control.ts`) sends nothing to the compute frame
+  while the iframe still holds its first `about:blank` page. 0.6.0rc1 said `hello` to it at once
+  when `connect()` was called right after the iframe was appended, and the browser logged an
+  error in the video page's console for the message it dropped. It waits for at most a minute,
+  then reports `no-answer`.
+- The shown card's hold (`SHOWN_HOLD`) no longer counts a reply with nothing analyzed (busy, or an
+  error), or an analysis that came back older than `hover.maxAgeMs`, as an analysis with nothing
+  at the pointer. On a slow machine two slow analyses of a playing video in a row hid the card for
+  a moment while it was still there; the hold now ends for those only after its 5 s.
+
 ## [0.6.0rc1] - 2026-10-29
 
 A session's policy, apart from the page, so that a browser extension can run it across two
@@ -699,7 +722,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0rc2...HEAD
+[0.6.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0rc1...v0.6.0rc2
 [0.6.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...v0.6.0rc1
 [0.5.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.4.0...v0.5.0
