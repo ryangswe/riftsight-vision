@@ -310,7 +310,7 @@ describe("the progress of a load", () => {
   });
 
   it("is taken by a session only while its release loads: a late reply after it loaded, failed or stopped changes nothing", async () => {
-    const { progressUpdate } = await import("../src/session.js");
+    const { progressUpdate } = await import("../src/session-core.js");
     const reply = { kind: "release-progress", phase: "preparing", bytes: null } as const;
     expect(progressUpdate("loading", reply)).toEqual({ phase: "preparing", bytes: null });
     expect(progressUpdate("loading", { ...reply, phase: "downloading", bytes: 12 })).toEqual({ phase: "downloading", bytes: 12 });

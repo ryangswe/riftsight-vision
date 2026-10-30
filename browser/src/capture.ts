@@ -44,7 +44,21 @@ export function analysisSize(
   range: AnalysisWidth = { min: MIN_ANALYSIS_WIDTH, max: MAX_ANALYSIS_WIDTH },
 ): { width: number; height: number } {
   const width = Math.max(range.min, Math.min(range.max, sourceWidth));
-  return { width, height: Math.round((width * sourceHeight) / sourceWidth) };
+  // At least one row: a very wide, very short picture still gives a frame that can be drawn.
+  return { width, height: Math.max(1, Math.round((width * sourceHeight) / sourceWidth)) };
+}
+
+/** A point (viewport coordinates) in fractions of a box, such as the picture's box from
+ *  `pictureBox`; null when it is outside the box, or the box is empty. The edges count as inside. */
+export function fractionIn(
+  box: { left: number; top: number; width: number; height: number },
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } | null {
+  if (!(box.width > 0 && box.height > 0)) return null;
+  const x = (clientX - box.left) / box.width;
+  const y = (clientY - box.top) / box.height;
+  return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : null;
 }
 
 /** An element a session can read frames from. */
@@ -403,4 +417,32 @@ function createWebGl2Sampler(): SignatureSampler | null {
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     },
   };
+}
+
+/** A rectangle in CSS pixels of the viewport, like `getBoundingClientRect`. */
+export interface ClientBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where the picture sits inside an element's box, for the element's `object-fit`. A video is
+ * fitted inside its box by default, leaving bars; an image fills its box by default.
+ */
+export function pictureBox(element: ClientBox, picture: { width: number; height: number }, fit: string): ClientBox {
+  // Field by field: a DOMRect's fields are not its own properties, so spreading one copies nothing.
+  const whole = { left: element.left, top: element.top, width: element.width, height: element.height };
+  if (picture.width <= 0 || picture.height <= 0 || fit === "fill") return whole;
+  const scaleX = element.width / picture.width;
+  const scaleY = element.height / picture.height;
+  let scale: number;
+  if (fit === "cover") scale = Math.max(scaleX, scaleY);
+  else if (fit === "none") scale = 1;
+  else if (fit === "scale-down") scale = Math.min(1, scaleX, scaleY);
+  else scale = Math.min(scaleX, scaleY);
+  const width = picture.width * scale;
+  const height = picture.height * scale;
+  return { left: element.left + (element.width - width) / 2, top: element.top + (element.height - height) / 2, width, height };
 }

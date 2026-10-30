@@ -2,10 +2,17 @@
 // A session: recognition running on one <video> or image element of the page.
 //
 // The session owns everything that touches the page: it listens to the element and to the
-// pointer over it, decides when a frame is analyzed (frame-scheduler.ts), captures that frame
-// (capture.ts), hands it to the analysis worker (worker.ts), and keeps the newest result that
-// still describes the picture on screen. Asked about a pointer position, it answers from that
-// result: the card that would be shown there, or nothing.
+// pointer over it, captures the frame the session core asks for, and answers, for a pointer
+// position, with the card that would be shown there, or nothing. When a frame is analyzed, which
+// reply may be shown and the worker's lifecycle are the session core's and the worker session's
+// (session-core.ts, worker-session.ts): this file adapts them to an element of its own document.
+//
+//   - the video's events (video-events.ts) and, where there is one, its video-frame callback,
+//     report presented frames, seeks and new sources; an image's `load` is a new source;
+//   - the pointer over the element is reported in fractions of the picture (`pictureBox`);
+//   - a capture is a video's `grabFrame` (page-capture.ts) or an image's `captureFrame`;
+//   - a cut (the picture under a shown card changed without a seek) is detected here, since it
+//     needs the element: a WebGL2 signature sampler (capture.ts) while a card shows.
 //
 // It draws nothing. Whoever creates the session decides how a box and a name are displayed.
 //
@@ -16,33 +23,33 @@
 //   - anything for a box that was detected and not accepted.
 
 import { type AABB } from "./boxes.js";
-import { type AnalysisMode, analyzeIntervalMs, cadenceMs } from "./cadence.js";
+import { type AnalysisMode } from "./cadence.js";
 import {
   type AnalysisWidth,
   captureFrame,
+  type ClientBox,
   createSignatureSampler,
   CUT_SAMPLE_MIN_INTERVAL_MS,
   CutReference,
+  fractionIn,
   type FrameSource,
+  pictureBox,
   type SignatureSampler,
   type SignatureTicket,
   sourceSize,
-  sourceTimeSec,
 } from "./capture.js";
-import {
-  ANALYSIS_WATCHDOG_MS,
-  type AnalysisState,
-  DRIVER_TICK_MS,
-  FrameScheduler,
-  HOVER_MAX_AGE_MS,
-  rejectionAnswersInFlight,
-  replyRejection,
-} from "./frame-scheduler.js";
-import type { NormalizedBounds } from "./hover-geometry.js";
-import { BUSY_ERROR, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
-import { type FrameAnalysis, hoverAt } from "./pipeline.js";
+import { type AnalysisState, DRIVER_TICK_MS } from "./frame-scheduler.js";
+import type { GeometricStatus, ReleaseStatus } from "./messages.js";
+import { type Grab, type GrabDeps, grabFrame, NO_CONTEXT, NO_PICTURE } from "./page-capture.js";
+import type { FrameAnalysis } from "./pipeline.js";
 import type { ExecutionProvider } from "./providers.js";
-import { CONFIRM_FRAMES } from "./temporal-gate.js";
+import type { LoadRequest } from "./remote/choose.js";
+import type { SessionCore, Shown as CoreShown } from "./session-core.js";
+import { type VideoWatch, watchVideo } from "./video-events.js";
+import { createWorkerSession, type WorkerLike } from "./worker-session.js";
+
+export { type ClientBox, pictureBox };
+export { WORKER_RESTARTS } from "./worker-session.js";
 
 export interface SessionOptions {
   /** URL of the release document. Its paths are relative to it. With `releaseFiles`, the
@@ -74,14 +81,6 @@ export interface SessionOptions {
   geometricWatchdog?: boolean;
   /** Called whenever the status or what would be shown may have changed. */
   onUpdate?: () => void;
-}
-
-/** A rectangle in CSS pixels of the viewport, like `getBoundingClientRect`. */
-export interface ClientBox {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
 }
 
 /** What would be shown for a pointer position. */
@@ -136,298 +135,122 @@ export interface Session {
   stop(): void;
 }
 
-/**
- * Where the picture sits inside an element's box, for the element's `object-fit`. A video is
- * fitted inside its box by default, leaving bars; an image fills its box by default.
- */
-export function pictureBox(element: ClientBox, picture: { width: number; height: number }, fit: string): ClientBox {
-  // Field by field: a DOMRect's fields are not its own properties, so spreading one copies nothing.
-  const whole = { left: element.left, top: element.top, width: element.width, height: element.height };
-  if (picture.width <= 0 || picture.height <= 0 || fit === "fill") return whole;
-  const scaleX = element.width / picture.width;
-  const scaleY = element.height / picture.height;
-  let scale: number;
-  if (fit === "cover") scale = Math.max(scaleX, scaleY);
-  else if (fit === "none") scale = 1;
-  else if (fit === "scale-down") scale = Math.min(1, scaleX, scaleY);
-  else scale = Math.min(scaleX, scaleY);
-  const width = picture.width * scale;
-  const height = picture.height * scale;
-  return { left: element.left + (element.width - width) / 2, top: element.top + (element.height - height) / 2, width, height };
-}
-
-/** Whether a result whose frame was taken at `resultSec` may still be shown against a picture
- *  at `nowSec`: their distance in video time is at most `maxAgeMs`. */
-export function withinMaxAge(resultSec: number, nowSec: number, maxAgeMs: number): boolean {
-  return Math.abs(nowSec - resultSec) * 1000 <= maxAgeMs;
-}
-
-interface ShownResult {
-  analysis: FrameAnalysis;
-  videoTimeSec: number;
-}
-
-/** How many times a worker that stops after the release has loaded is started again. */
-export const WORKER_RESTARTS = 1;
-
-/** The same load request without the geometric stage: what a restarted worker loads. */
-export function withoutGeometric(request: WorkerRequest): WorkerRequest {
-  if (request.kind !== "load") return request;
-  const { geometricUrl: _url, geometricManifestSha256: _sha, geometricWatchdog: _watchdog, ...plain } = request;
-  return plain;
-}
-
-/** What `status().loading` becomes on a release-progress reply: the reply's phase while the
- *  release loads; `undefined` (no change) once it has loaded or failed, or the session has
- *  stopped, so a reply that arrives late changes nothing. */
-export function progressUpdate(state: SessionStatus["state"], reply: ReleaseProgress): SessionStatus["loading"] | undefined {
-  return state === "loading" ? { phase: reply.phase, bytes: reply.bytes } : undefined;
-}
+/** A same-document session reads its own video: unlike a content script answering a compute
+ *  frame, it analyzes a video out of the page and a frame of any size, as 0.5 did. */
+const SAME_DOCUMENT: GrabDeps = { requireConnected: false, maxSide: Infinity };
 
 /**
  * Start a session on an element. The release loads in the background (`status().state`); until
  * then, and whenever nothing can be said, `at` returns null.
  */
 export function createSession(source: FrameSource, options: SessionOptions): Session {
-  const mode: AnalysisMode = options.mode ?? "pointer";
-  const scheduler = new FrameScheduler(cadenceMs(null, mode), CONFIRM_FRAMES, mode, analyzeIntervalMs(null));
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  const isVideo = source instanceof HTMLVideoElement;
+  const video = source instanceof HTMLVideoElement ? source : null;
+  const element: HTMLElement = source;
   const workerUrl = options.workerUrl ?? new URL("./worker.js", import.meta.url);
-  let worker: Worker;
-  let restarts = 0;
-  const notify = (): void => options.onUpdate?.();
+  const now = (): number => performance.now();
 
-  const status: SessionStatus = {
-    state: "loading", error: null, release: null, backend: null, schedule: "idle", frames: 0,
-    lastWorkerMs: null, lastRoundTripMs: null, lastFrameError: null,
-    geometric: options.geometricUrl !== undefined ? { state: "loading", reason: null, bytes: null } : null,
-    loading: null,
+  // ------------------------------------------------------------------- onUpdate
+  // The core reports a change of status and of what is shown separately; one input to it (a
+  // pointer move, a worker message, a tick) calls `onUpdate` once, as 0.5 did. Never while
+  // `createSession` runs (the caller has no session yet), never after `stop`.
+  let live = false;
+  let depth = 0;
+  let changed = false;
+  const changedNow = (): void => {
+    if (depth > 0) changed = true;
+    else if (live) options.onUpdate?.();
   };
-  let cards: ReleaseStatus["cards"] = [];
-  let maxAgeMs = HOVER_MAX_AGE_MS;
-  let analysisWidth: AnalysisWidth | undefined;
+  /** Run one input to the core. `always`: call `onUpdate` even if nothing it reports changed
+   *  (a pointer move, a seek: 0.5 called it for those). */
+  const input = (run: () => void, always = false): void => {
+    depth += 1;
+    try {
+      run();
+    } finally {
+      depth -= 1;
+    }
+    if (always) changed = true;
+    if (depth === 0 && changed) {
+      changed = false;
+      if (live) options.onUpdate?.();
+    }
+  };
 
-  // What a reply is judged against.
-  let nextRequestId = 1;
-  let inFlight: { requestId: number; sentAt: number; ticket: SignatureTicket | null } | null = null;
-  let lastAcceptedRequestId = 0;
-  let generation = 0;
-  let sourceCount = 0;
-  let watchdog: ReturnType<typeof setTimeout> | null = null;
-
-  let result: ShownResult | null = null;
-  let pointer: { x: number; y: number } | null = null;
-
-  // Cut detection: only while a tooltip shows over a video.
+  // ------------------------------------------------------------------- cut detection
+  // Only while a card shows over a video. The analyzed frame's own signature (sampled when its
+  // capture was asked for) seeds the reference a cut is measured from.
   let sampler: SignatureSampler | null = null;
   const cutReference = new CutReference();
+  let lookTicket: SignatureTicket | null = null;
   let liveTicket: SignatureTicket | null = null;
   let lastSampleAt = -Infinity;
 
-  const clearResult = (): void => {
-    result = null;
-    cutReference.reset();
+  const onAnalysis = (): void => {
+    const signature = lookTicket && sampler ? sampler.read(lookTicket) : null;
+    if (signature) cutReference.seed(signature);
+    else {
+      sampler?.release(lookTicket);
+      cutReference.reset();
+    }
+    lookTicket = null;
   };
 
-  /** A seek, a new file or a cut: results from before it describe a picture that is gone. */
-  const breakContinuity = (newSource: boolean): void => {
-    generation += 1;
-    if (newSource) sourceCount += 1;
-    scheduler.discontinuity();
-    clearResult();
-    notify();
-  };
-
-  const currentResult = (): ShownResult | null => {
-    if (!result) return null;
-    return withinMaxAge(result.videoTimeSec, sourceTimeSec(source), maxAgeMs) ? result : null;
-  };
-
-  const at = (clientX: number, clientY: number): Shown | null => {
-    const current = currentResult();
-    if (!current) return null;
-    const picture = pictureBox(source.getBoundingClientRect(), sourceSize(source), getComputedStyle(source).objectFit);
-    if (picture.width <= 0 || picture.height <= 0) return null;
-    const frame = current.analysis.frame;
-    const x = ((clientX - picture.left) / picture.width) * frame.width;
-    const y = ((clientY - picture.top) / picture.height) * frame.height;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    const hit = hoverAt(current.analysis, x, y);
-    if (!hit.box || hit.cardId === null || hit.name === null) return null;
-    return {
-      name: hit.name,
-      cardId: hit.cardId,
-      box: {
-        left: picture.left + (hit.box.x / frame.width) * picture.width,
-        top: picture.top + (hit.box.y / frame.height) * picture.height,
-        width: (hit.box.width / frame.width) * picture.width,
-        height: (hit.box.height / frame.height) * picture.height,
-      },
-      frameBox: hit.box,
-    };
-  };
-  const atPointer = (): Shown | null => (pointer ? at(pointer.x, pointer.y) : null);
-
-  /** The box under the pointer in fractions of the frame, when something is shown there. */
-  const shownBounds = (): NormalizedBounds | null => {
-    const shown = atPointer();
-    const frame = result?.analysis.frame;
-    if (!shown || !frame) return null;
-    const b = shown.frameBox;
-    return { x: b.x / frame.width, y: b.y / frame.height, width: b.width / frame.width, height: b.height / frame.height };
-  };
-
-  const analyze = async (trigger?: "hover"): Promise<void> => {
-    if (status.state !== "ready" || inFlight || !ctx) return;
+  // ------------------------------------------------------------------- capture
+  const canvas = video ? null : document.createElement("canvas");
+  const ctx = canvas?.getContext("2d") ?? null;
+  /** An image: drawn whole, at time 0. */
+  const grabImage = async (range: AnalysisWidth): Promise<Grab> => {
+    if (!canvas || !ctx) return { kind: "failed", reason: NO_CONTEXT, retry: false };
     const size = sourceSize(source);
-    if (size.width === 0 || size.height === 0) return;
-    const now = performance.now();
-    const requestId = nextRequestId++;
-    // Claimed before the first await, so that a second call cannot start beside this one.
-    inFlight = { requestId, sentAt: now, ticket: sampler?.usable ? sampler.sample(source) : null };
-    const cut = scheduler.lookPending;
-    scheduler.started(now, { videoTimeSec: sourceTimeSec(source), ...(trigger ? { trigger } : cut ? { trigger: "cut" as const } : {}) });
-    const envelope = { requestId, mediaTimeSec: sourceTimeSec(source), generation, videoKey: `source-${sourceCount}` };
+    if (size.width === 0 || size.height === 0) return { kind: "failed", reason: NO_PICTURE, retry: true };
     try {
-      const frame = await captureFrame(source, canvas, ctx, analysisWidth);
-      const request: WorkerRequest = { kind: "frame", bitmap: frame.bitmap, videoTimeSec: frame.videoTimeSec, envelope };
-      worker.postMessage(request, [frame.bitmap]);
+      const frame = await captureFrame(source, canvas, ctx, range);
+      return { kind: "frame", bitmap: frame.bitmap, mediaTime: frame.videoTimeSec };
     } catch (error) {
       // The picture cannot be read (a file from another origin without permission).
-      sampler?.release(inFlight?.ticket ?? null);
-      inFlight = null;
-      scheduler.lookUnanswered(performance.now());
-      status.lastFrameError = `capture-failed: ${String(error)}`;
-      notify();
-      return;
-    }
-    if (watchdog) clearTimeout(watchdog);
-    watchdog = setTimeout(() => {
-      if (inFlight?.requestId !== requestId) return;
-      // No reply: give up on this request so that the next frame can go. A late reply is
-      // recognized by its request number and dropped.
-      sampler?.release(inFlight.ticket);
-      inFlight = null;
-      scheduler.lookUnanswered(performance.now());
-      status.lastFrameError = "no reply";
-      notify();
-    }, ANALYSIS_WATCHDOG_MS);
-  };
-
-  const onFrameResult = (reply: FrameResult): void => {
-    const rejection = replyRejection(reply.envelope, {
-      inFlightRequestId: inFlight?.requestId ?? null,
-      lastAcceptedRequestId,
-      generation,
-      videoKey: `source-${sourceCount}`,
-    });
-    if (rejection !== null && !rejectionAnswersInFlight(rejection)) return;
-    const sent = inFlight;
-    inFlight = null;
-    if (watchdog) clearTimeout(watchdog);
-    watchdog = null;
-    if (rejection !== null || !sent) {
-      sampler?.release(sent?.ticket ?? null);
-      return;
-    }
-    lastAcceptedRequestId = reply.envelope.requestId;
-    status.lastWorkerMs = reply.workerMs;
-    status.lastRoundTripMs = +(performance.now() - sent.sentAt).toFixed(2);
-    status.lastFrameError = reply.error ?? null;
-    if (!reply.analysis) {
-      sampler?.release(sent.ticket);
-      clearResult();
-      if (reply.error === BUSY_ERROR) scheduler.lookUnanswered(performance.now());
-    } else {
-      scheduler.lookAnswered();
-      status.frames += 1;
-      result = { analysis: reply.analysis, videoTimeSec: reply.videoTimeSec };
-      // The analyzed frame's own signature becomes the reference a cut is measured from.
-      const signature = sent.ticket && sampler ? sampler.read(sent.ticket) : null;
-      if (signature) cutReference.seed(signature);
-      else {
-        sampler?.release(sent.ticket);
-        cutReference.reset();
-      }
-    }
-    scheduler.setTooltipShowing(atPointer() !== null, performance.now());
-    notify();
-  };
-
-  const onWorkerMessage = (reply: WorkerReply): void => {
-    if (reply.kind === "frame-result") {
-      onFrameResult(reply);
-    } else if (reply.kind === "release-progress") {
-      const loading = progressUpdate(status.state, reply);
-      if (loading === undefined) return;
-      status.loading = loading;
-      notify();
-    } else if (reply.kind === "release-status") {
-      if (status.state !== "loading") return;
-      status.loading = null;
-      status.state = reply.ok ? "ready" : "failed";
-      status.error = reply.error;
-      status.release = reply.release;
-      cards = reply.cards;
-      if (reply.release) {
-        status.backend = reply.release.recognizer.ep;
-        maxAgeMs = reply.release.hoverMaxAgeMs;
-        analysisWidth = reply.release.analysisWidth;
-        scheduler.setIntervalMs(cadenceMs(status.backend, mode));
-        scheduler.setReadingIntervalMs(analyzeIntervalMs(status.backend));
-        scheduler.framePresented();
-      }
-      notify();
-    } else if (reply.kind === "geometric-status") {
-      status.geometric = { state: reply.state, reason: reply.reason, bytes: reply.bytes };
-      notify();
+      return { kind: "failed", reason: String(error), retry: false };
     }
   };
 
-  /** The worker stopped with an error. Before the release has loaded the session fails, as a
-   *  release that does not load would. After it has loaded, the worker is restarted once on the
-   *  same release without the geometric stage; a second stop ends recognition ("failed"). */
-  const onWorkerError = (message: string): void => {
-    if (status.state === "stopped" || status.state === "failed") return;
-    worker.terminate();
-    if (inFlight) sampler?.release(inFlight.ticket);
-    inFlight = null;
-    if (watchdog) clearTimeout(watchdog);
-    watchdog = null;
-    clearResult();
-    status.loading = null;
-    if (status.state === "loading" && restarts === 0) {
-      status.state = "failed";
-      status.error = `the worker did not start (${message})`;
-    } else if (restarts < WORKER_RESTARTS) {
-      restarts += 1;
-      status.state = "loading";
-      status.error = null;
-      if (status.geometric) status.geometric = { state: "off", reason: "worker-restarted", bytes: null };
-      startWorker(plainLoad);
-    } else {
-      status.state = "failed";
-      status.error = `the recognition worker stopped (${message})`;
-    }
-    notify();
+  const capture = (requestId: number, range: AnalysisWidth): void => {
+    // The ticket of a look that ended without an analysis is not needed any more.
+    sampler?.release(lookTicket);
+    lookTicket = sampler?.usable ? sampler.sample(source) : null;
+    void (watch ? grabFrame(watch, range, SAME_DOCUMENT) : grabImage(range)).then((grab) =>
+      input(() => {
+        if (grab.kind === "frame") core.frame(requestId, grab.bitmap, grab.mediaTime);
+        else core.captureFailed(requestId, grab.reason, grab.retry);
+      }, grab.kind === "failed"),
+    );
   };
 
-  const startWorker = (request: WorkerRequest): void => {
-    const started = new Worker(workerUrl, { type: "module" });
-    worker = started;
-    // A worker that was replaced may still deliver a message or an error: it is ignored.
-    started.onmessage = (event: MessageEvent<WorkerReply>) => {
-      if (started === worker) onWorkerMessage(event.data);
+  // ------------------------------------------------------------------- the worker
+  // The first worker that cannot be made (a cross-origin `workerUrl`, no module workers) makes
+  // `createSession` throw, as it always has. A restarted worker that cannot be made fails the
+  // session instead (`status().error`): nothing would catch a throw then.
+  let made = 0;
+  let firstError: { error: unknown } | null = null;
+  const createWorker = (): WorkerLike => {
+    made += 1;
+    let worker: Worker;
+    try {
+      worker = new Worker(workerUrl, { type: "module" });
+    } catch (error) {
+      if (made === 1) firstError = { error };
+      throw error;
+    }
+    const like: WorkerLike = {
+      postMessage: (message, transfer) => worker.postMessage(message, transfer ?? []),
+      terminate: () => worker.terminate(),
+      onmessage: null,
+      onerror: null,
     };
-    started.onerror = (event) => {
-      if (started === worker) onWorkerError(event.message || "see the console");
-    };
-    started.postMessage(request);
+    worker.onmessage = (event) => input(() => like.onmessage?.(event));
+    worker.onerror = (event) => input(() => like.onerror?.(event));
+    return like;
   };
 
-  const load: WorkerRequest = {
+  const loadRequest: LoadRequest = {
     kind: "load",
     releaseUrl: options.releaseFiles ? String(options.releaseUrl) : new URL(options.releaseUrl, location.href).href,
     ...(options.releaseFiles ? { files: options.releaseFiles } : {}),
@@ -437,14 +260,73 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     ...(options.geometricManifestSha256 !== undefined ? { geometricManifestSha256: options.geometricManifestSha256 } : {}),
     ...(options.geometricWatchdog === false ? { geometricWatchdog: false } : {}),
   };
-  const plainLoad = withoutGeometric(load);
-  startWorker(load);
 
-  // ------------------------------------------------------------------------- the element
+  // The video's events, before the worker session that `capture` and `mediaTimeNow` serve. Its
+  // sink fires only on later events, once `core` exists.
+  const watch: VideoWatch | null = video
+    ? watchVideo(video, {
+        presented: (time) => input(() => core.presented(time)),
+        discontinuity: (newSource) =>
+          input(() => {
+            cutReference.reset();
+            core.discontinuity(newSource);
+          }, true),
+      })
+    : null;
+  const mediaTime = (): number => watch?.mediaTime() ?? 0;
+
+  const workers = createWorkerSession({
+    createWorker,
+    loadRequest,
+    now,
+    ...(options.mode ? { mode: options.mode } : {}),
+    capture,
+    // The max-age rule, the staleness rule and a look's date read the video's time when they
+    // run, as 0.5 did: a paused video reports no frame, and its time is still known.
+    mediaTimeNow: () => mediaTime(),
+    onShown: changedNow,
+    onStatus: changedNow,
+    onAnalysis,
+  });
+  if (firstError) {
+    watch?.detach();
+    workers.stop();
+    throw (firstError as { error: unknown }).error;
+  }
+  // Without `chooseRelease` the core is made at once.
+  const core: SessionCore = workers.core!;
+
+  // ------------------------------------------------------------------- the picture
+  /** The card at these viewport coordinates, with the picture's box it was found in. */
+  const hitAt = (clientX: number, clientY: number): { hit: CoreShown; picture: ClientBox } | null => {
+    const picture = pictureBox(source.getBoundingClientRect(), sourceSize(source), getComputedStyle(source).objectFit);
+    if (picture.width <= 0 || picture.height <= 0) return null;
+    const hit = core.hitAt((clientX - picture.left) / picture.width, (clientY - picture.top) / picture.height);
+    return hit ? { hit, picture } : null;
+  };
+
+  const at = (clientX: number, clientY: number): Shown | null => {
+    const found = hitAt(clientX, clientY);
+    if (!found) return null;
+    const { hit, picture } = found;
+    return {
+      name: hit.name,
+      cardId: hit.cardId,
+      box: {
+        left: picture.left + hit.box.x * picture.width,
+        top: picture.top + hit.box.y * picture.height,
+        width: hit.box.width * picture.width,
+        height: hit.box.height * picture.height,
+      },
+      frameBox: hit.frameBox,
+    };
+  };
+  let pointer: { x: number; y: number } | null = null;
+  const atPointer = (): Shown | null => (pointer ? at(pointer.x, pointer.y) : null);
+
   /** A live signature sample, compared with the reference over the box of the shown card. */
-  const sampleForCut = (now: number): void => {
-    if (!isVideo) return;
-    const bounds = shownBounds();
+  const sampleForCut = (sampledAt: number): void => {
+    const bounds = pointer ? hitAt(pointer.x, pointer.y)?.hit.box ?? null : null;
     if (!bounds) {
       sampler?.release(liveTicket);
       liveTicket = null;
@@ -457,97 +339,84 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
       if (live) {
         liveTicket = null;
         if (cutReference.observe(live, bounds).cut) {
-          generation += 1;
-          clearResult();
-          scheduler.requestLook();
-          notify();
+          cutReference.reset();
+          core.cut();
+          changed = true;
           return;
         }
       }
     }
-    if (!liveTicket && now - lastSampleAt >= CUT_SAMPLE_MIN_INTERVAL_MS) {
-      lastSampleAt = now;
+    if (!liveTicket && sampledAt - lastSampleAt >= CUT_SAMPLE_MIN_INTERVAL_MS) {
+      lastSampleAt = sampledAt;
       liveTicket = sampler.sample(source);
     }
   };
 
+  // ------------------------------------------------------------------- the element
+
   let frameCallback: number | null = null;
-  const onPresented = (): void => {
-    scheduler.framePresented();
-    sampleForCut(performance.now());
-    if (isVideo && "requestVideoFrameCallback" in source) frameCallback = source.requestVideoFrameCallback(onPresented);
+  const onVideoFrame = (): void => {
+    if (!live || !video) return;
+    input(() => {
+      core.presented(mediaTime());
+      sampleForCut(now());
+    });
+    frameCallback = video.requestVideoFrameCallback(onVideoFrame);
   };
-  const onDiscontinuity = (): void => breakContinuity(false);
-  const onNewSource = (): void => {
-    breakContinuity(true);
-    scheduler.framePresented();
-  };
-  const onTimeUpdate = (): void => scheduler.framePresented();
+  const onImageLoad = (): void =>
+    input(() => {
+      cutReference.reset();
+      core.discontinuity(true);
+    }, true);
 
-  const onPointerMove = (event: PointerEvent): void => {
-    pointer = { x: event.clientX, y: event.clientY };
-    const now = performance.now();
-    if (event.pointerType === "touch") scheduler.tapped(now);
-    else scheduler.pointerMoved(now);
-    if (scheduler.hoverTriggerDue(now, sourceTimeSec(source), inFlight !== null)) void analyze("hover");
-    notify();
-  };
-  const onPointerLeave = (): void => {
-    pointer = null;
-    scheduler.pointerLeft(performance.now());
-    notify();
-  };
+  const onPointerMove = (event: PointerEvent): void =>
+    input(() => {
+      pointer = { x: event.clientX, y: event.clientY };
+      const picture = pictureBox(source.getBoundingClientRect(), sourceSize(source), getComputedStyle(source).objectFit);
+      // Over a bar beside the picture the pointer still counts as activity, outside [0, 1].
+      const f = fractionIn(picture, event.clientX, event.clientY) ?? {
+        x: (event.clientX - picture.left) / picture.width,
+        y: (event.clientY - picture.top) / picture.height,
+      };
+      core.pointer(f.x, f.y, mediaTime(), event.pointerType === "touch");
+    }, true);
+  const onPointerLeave = (): void =>
+    input(() => {
+      pointer = null;
+      core.pointerLeft();
+    }, true);
 
-  if (isVideo) {
-    source.addEventListener("seeking", onDiscontinuity);
-    source.addEventListener("emptied", onNewSource);
-    source.addEventListener("loadeddata", onNewSource);
-    if ("requestVideoFrameCallback" in source) frameCallback = source.requestVideoFrameCallback(onPresented);
-    else (source as HTMLVideoElement).addEventListener("timeupdate", onTimeUpdate);
-    source.addEventListener("seeked", onTimeUpdate);
-  } else {
-    source.addEventListener("load", onNewSource);
-  }
-  const element: HTMLElement = source;
+  if (video && "requestVideoFrameCallback" in video) frameCallback = video.requestVideoFrameCallback(onVideoFrame);
+  if (!video) source.addEventListener("load", onImageLoad);
   element.addEventListener("pointermove", onPointerMove);
   element.addEventListener("pointerdown", onPointerMove);
   element.addEventListener("pointerleave", onPointerLeave);
 
-  const tick = setInterval(() => {
-    const now = performance.now();
-    scheduler.setTooltipShowing(atPointer() !== null, now);
-    const state = scheduler.analysisState(now);
-    if (state !== status.schedule) {
-      status.schedule = state;
-      notify();
-    }
-    if (!inFlight && scheduler.due(now)) void analyze();
-  }, DRIVER_TICK_MS);
+  const driver = setInterval(() => input(() => workers.tick()), DRIVER_TICK_MS);
+  live = true;
 
   return {
-    status: () => ({ ...status }),
+    status: () => core.status(),
     at,
     atPointer,
-    analysis: () => currentResult()?.analysis ?? null,
-    cards: () => cards,
+    analysis: () => core.analysis(),
+    cards: () => core.cards(),
     stop: () => {
-      status.state = "stopped";
-      status.loading = null;
-      clearInterval(tick);
-      if (watchdog) clearTimeout(watchdog);
-      if (frameCallback !== null && isVideo && "cancelVideoFrameCallback" in source) source.cancelVideoFrameCallback(frameCallback);
-      source.removeEventListener("seeking", onDiscontinuity);
-      source.removeEventListener("emptied", onNewSource);
-      source.removeEventListener("loadeddata", onNewSource);
-      source.removeEventListener("timeupdate", onTimeUpdate);
-      source.removeEventListener("seeked", onTimeUpdate);
-      source.removeEventListener("load", onNewSource);
+      if (!live) return;
+      live = false;
+      clearInterval(driver);
+      if (frameCallback !== null && video && "cancelVideoFrameCallback" in video) video.cancelVideoFrameCallback(frameCallback);
+      frameCallback = null;
+      watch?.detach();
+      source.removeEventListener("load", onImageLoad);
       element.removeEventListener("pointermove", onPointerMove);
       element.removeEventListener("pointerdown", onPointerMove);
       element.removeEventListener("pointerleave", onPointerLeave);
+      sampler?.release(lookTicket);
+      sampler?.release(liveTicket);
       sampler?.dispose();
-      worker.terminate();
-      clearResult();
+      cutReference.reset();
+      workers.stop();
     },
   };
 }

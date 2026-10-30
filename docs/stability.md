@@ -36,10 +36,27 @@ These are the public surface: changed only as [versioning](#versioning) and
 
 ## Experimental
 
-These are the tools a product uses to keep its own browser extension current: they publish a
-release, its settings file and card pictures to a host of its own, and judge a card-data
-refresh. They are new, and **may change in a minor release** (0.X.0), not only at 1.0. The
-changelog names each change.
+These are the tools a product uses to run its own browser extension and keep it current: they
+run a session across the extension's two frames, publish a release, its settings file and card
+pictures to a host of its own, and judge a card-data refresh. They are new, and **may change in
+a minor release** (0.X.0), not only at 1.0. The changelog names each change.
+- **The session modules an extension vendors:** the exports of `dist/compute-session.js`
+  (`browser/src/compute-session.ts`) and `dist/page-capture.js`
+  (`browser/src/page-capture-entry.ts`), neither part of `browser/src/index.ts`, and the
+  two-frame contract they implement, [extension-session.md](extension-session.md): its messages,
+  their field limits and the tag rule. Among those exports: `SessionCore` (with `workerStopped`
+  and `reloading`), `SessionCoreDeps.mediaTimeNow`, `createWorkerSession`,
+  `WorkerSessionEnv.mediaTimeNow`, `startComputeFrame` and its types (`ComputeFrameEnv`,
+  `ComputeFrame`, `ComputeFrameWindow`), `DRIVER_TICK_MS`, `computeProtocol`, `MAX_FRAME_SIDE`,
+  `MAX_OTHER_BOXES`, `MAX_REASON_LENGTH`, `MAX_TEXT_LENGTH`, `grabFrame` with the `GrabDeps`
+  options `requireConnected` and `maxSide`, `watchVideo`, `captureAllowed` with `MAX_REST_MS` and
+  `GateLimits.restMs`, `createCaptureControl` and its types (`CaptureControlOptions`,
+  `CaptureControl`, `CaptureProblem`), its refusal reasons (`NOT_POINTING`, `CAPTURE_PENDING`,
+  `PICTURE_CHANGED`), `fromExtensionFrame`,
+  `acceptComputeOut`, `postWithTransfer`, `PROTOCOL_VERSION`, and `ComputeFrame.instance`.
+  Also experimental,
+  in the modules behind them: `withinMaxAge` (`frame-scheduler.ts`) and `progressUpdate`
+  (`session-core.ts`).
 - **The remote-release module:** the exports of `browser/src/remote/`, built to
   `dist/remote-release.js` (not part of `browser/src/index.ts`), and the settings contract it
   implements, [remote-releases.md](remote-releases.md).
@@ -50,9 +67,9 @@ changelog names each change.
 - **`cardvision refresh`**, its steps and flags, and the rule schema `refresh-rule/1`
   ([refresh-rule-template.md](refresh-rule-template.md)).
 
-A product vendors the remote-release module and the Node tools with the runtime
-([extension.md](extension.md#the-maintenance-kit)), so a version it has vendored keeps working
-until the product updates it. `cardvision cdn` and `cardvision refresh` come with the installed
+A product vendors the session modules, the remote-release module and the Node tools with the
+runtime ([extension.md](extension.md#the-maintenance-kit)), so a version it has vendored keeps
+working until the product updates it. `cardvision cdn` and `cardvision refresh` come with the installed
 `cardvision` package: pin its version to keep their behavior.
 
 ## What may change

@@ -33,11 +33,18 @@
 //
 // Replies. Every frame request carries an envelope (messages.ts) and `replyRejection` decides
 // whether its reply may still be shown. A look that comes back with the picture not analyzed
-// (the worker was still busy with an earlier picture, or no reply came in time) has still used
-// up the presented frame or a repeat, and a paused video presents no other: `lookUnanswered`
-// makes the same picture due again after a back-off (`LOOK_RETRY_MS`), until a look comes back
-// analyzed (`lookAnswered`). When the picture under a showing tooltip changes
-// without a seek (a cut), `requestLook` asks for a look at once, whatever the cadence.
+// (the picture could not be captured, the worker was still busy with an earlier picture, or no
+// reply came in time) has still used up the presented frame or a repeat, and a paused video
+// presents no other: `lookUnanswered` makes the same picture due again after a back-off
+// (`LOOK_RETRY_MS`), until a look comes back analyzed (`lookAnswered`), or, after a failed
+// capture, a picture is captured for the look in flight (`pictureReceived`); a busy worker's
+// back-off keeps growing whatever pictures reach it. The retry of a failed capture is "prompt":
+// once its back-off runs out it is due whatever the cadence. The other retries wait for it.
+// A refusal to capture (not about the picture: the pointer outside, an unreadable video) is
+// retried by nothing and grows no back-off (`lookRefused`), but the look used up the picture:
+// a pointer moving over it again makes it due once more, at the cadence. When the picture under
+// a showing tooltip changes without a seek (a cut), `requestLook` asks for a look at once,
+// whatever the cadence.
 //
 // This file holds no timers and touches no element: the policy is a pure function of the
 // events and times it is given, so it can be tested with a made-up clock.
@@ -62,6 +69,11 @@ export const STALE_FRAME_MS = 400;
  *  above the time an analysis takes on a slow device, so ordinary delay never hides a tooltip.
  *  A release document states its own value (`hover.maxAgeMs`). */
 export const HOVER_MAX_AGE_MS = 2_000;
+/** Whether a result whose frame was taken at `resultSec` may still be shown against a picture
+ *  at `nowSec`: their distance in video time is at most `maxAgeMs`. */
+export function withinMaxAge(resultSec: number, nowSec: number, maxAgeMs: number): boolean {
+  return Math.abs(nowSec - resultSec) * 1000 <= maxAgeMs;
+}
 /** The least time between two analyses asked for by the staleness rule. */
 export const HOVER_TRIGGER_MIN_GAP_MS = 250;
 /** An analysis with no reply after this long is given up on, so that the next frame can go. */
@@ -147,6 +159,12 @@ export class FrameScheduler {
   private unanswered = 0;
   /** When the picture counts as newly presented again after an unanswered look; null if not. */
   private retryAt: number | null = null;
+  /** The waiting retry is due whatever the cadence once its back-off runs out (a failed capture). */
+  private retryPrompt = false;
+  /** The newest unanswered look was a failed capture: a picture received starts the back-off over. */
+  private lastUnansweredCapture = false;
+  /** A look's capture was refused since the picture was last answered, received or replaced. */
+  private refused = false;
 
   /**
    * @param intervalMs The cadence of the mode: the fast cadence in pointer mode, the slow one
@@ -199,6 +217,8 @@ export class FrameScheduler {
     // finds the retry still due, and a still busy worker is still backed off from.
     this.unanswered = 0;
     this.retryAt = null;
+    this.lastUnansweredCapture = false;
+    this.refused = false;
   }
 
   /** The picture under a showing tooltip changed without a seek: look at the current picture as
@@ -217,10 +237,17 @@ export class FrameScheduler {
    * counts as newly presented again after a back-off, so that a paused video is looked at again
    * (with its repeats). This is not `requestLook`, which would also make the picture stale and
    * let every pointer move look again at once, past the back-off.
+   *
+   * With `prompt` (a capture that failed for want of a picture: it may come any moment), the
+   * retry is due as soon as the back-off runs out, whatever the cadence, as a `requestLook` is;
+   * it still marks nothing stale, so a pointer move cannot skip the back-off. Otherwise (the
+   * worker busy, or no reply) the retry also waits for the cadence.
    */
-  lookUnanswered(now: number): void {
+  lookUnanswered(now: number, opts: { prompt?: boolean } = {}): void {
     this.repeatsLeft = 0;
     this.retryAt = now + LOOK_RETRY_MS[Math.min(this.unanswered, LOOK_RETRY_MS.length - 1)]!;
+    this.retryPrompt = opts.prompt === true;
+    this.lastUnansweredCapture = opts.prompt === true;
     this.unanswered += 1;
   }
 
@@ -229,6 +256,32 @@ export class FrameScheduler {
   lookAnswered(): void {
     this.unanswered = 0;
     this.retryAt = null;
+    this.lastUnansweredCapture = false;
+    this.refused = false;
+  }
+
+  /**
+   * A look's capture was refused for a reason other than the picture (the page's privacy gate:
+   * the pointer was outside; a video that may not be read). Nothing is retried for it and the
+   * back-off does not grow, but the look used up the picture: the next pointer move over the
+   * picture makes it due again (`pointerMoved`), at most once per cadence. A pointer that does
+   * not move asks for nothing. An analyzed look, a picture received or a new picture forget it.
+   */
+  lookRefused(): void {
+    this.refused = true;
+  }
+
+  /** A picture was captured for the look in flight. When the newest unanswered look was a failed
+   *  capture, the picture can be had now: no retry is waiting and the back-off starts over, so if
+   *  the worker then answers it busy, the retry comes after the first back-off, not after a grown
+   *  one. Otherwise (the worker busy, or no reply) nothing changes: a worker that stays busy is
+   *  backed off from more and more, whatever pictures reach it. */
+  pictureReceived(): void {
+    this.refused = false;
+    if (!this.lastUnansweredCapture) return;
+    this.unanswered = 0;
+    this.retryAt = null;
+    this.lastUnansweredCapture = false;
   }
 
   /** Has the back-off of an unanswered look run out? */
@@ -242,10 +295,19 @@ export class FrameScheduler {
   }
 
   /** The pointer moved over the picture, or was pressed on it. Call it for real movement only:
-   *  a pointer resting on the picture is not activity. */
+   *  a pointer resting on the picture is not activity.
+   *
+   *  When a look went unanswered and its retry was used up without an answer, or a look's
+   *  capture was refused (say while the pointer was outside), the picture is due again now, at
+   *  the cadence: a paused picture would otherwise never be looked at again. A retry still
+   *  waiting keeps its back-off: a pointer move never shortens it. */
   pointerMoved(now: number): void {
     this.pointerInside = true;
     this.lastPointerAt = now;
+    if ((this.unanswered > 0 || this.refused) && this.retryAt === null) {
+      this.retryAt = now;
+      this.retryPrompt = false;
+    }
   }
 
   /** The pointer left the picture. The grace period starts now, and with the pointer outside
@@ -287,6 +349,7 @@ export class FrameScheduler {
   due(now: number): boolean {
     if (!this.analysisActive(now)) return false;
     if (this.lookRequested) return true;
+    if (this.retryPrompt && this.retryReady(now)) return true;
     const since = now - this.lastStartedAt;
     if (this.pending || this.retryReady(now)) return since >= this.intervalInEffectMs(now);
     return this.repeatsLeft > 0 && since >= REPEAT_INTERVAL_MS;
@@ -322,6 +385,7 @@ export class FrameScheduler {
     if (this.retryReady(now)) {
       // The retry's back-off ran out: this start uses it up as it would a presented frame.
       this.retryAt = null;
+      this.retryPrompt = false;
       this.pending = true;
       this.repeatsLeft = 0;
     }

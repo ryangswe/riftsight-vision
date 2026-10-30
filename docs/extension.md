@@ -14,7 +14,8 @@ card would be shown? It loads your release, analyzes frames and applies the acce
 rules. An extension adds everything around that: finding the video on a website and the
 pointer over it, capturing the frame under the pointer, a tooltip beside the card, a settings
 file and its on/off switch, the permissions for the sites it runs on, and a package for a
-browser's store. This repository has none of that.
+browser's store. This repository has the two halves of a session for an extension
+([below](#the-sessions-two-halves)), not the extension around them.
 
 A working example does: the One Piece example extension, Kenbunshoku
 (<https://github.com/ryangswe/kenbunshoku>), an Apache-2.0 Chrome extension built on this
@@ -57,6 +58,19 @@ card. With the released models and your own bank, use the release folder of
 [Your game](your-game.md): `$GAME/cardvision-try/release` from `cardvision try`, or
 `$GAME/release` from its step 6; with your own trained models, your own release folder.
 
+## The session's two halves
+
+An extension often cannot run a session in the video page itself, so it splits it in two: a
+content script in the video page watches the video and the pointer and takes a picture when
+asked, and a compute frame, a hidden page of the extension inside the video page, runs the
+session and the worker. The toolkit builds both halves, `dist/page-capture.js` and
+`dist/compute-session.js`, and in the content script's half a controller,
+`createCaptureControl`, that gives the compute frame pictures only on the authority of the
+viewer's own pointer events. [extension-session.md](extension-session.md) describes the messages
+between them, the controller's rule, and what stays the extension's: the tooltip, the site's
+rules, card details and the store's wording. Both entries are
+[experimental](stability.md#experimental).
+
 ## Card pictures
 
 **Names only is the default, and the safe choice.** The tooltip then shows each card's name,
@@ -72,7 +86,8 @@ repository contains no card art for any game.
 An extension does not import the runtime from a package registry: it vendors a copy, built
 from one tagged commit of this repository, into a folder of its own such as
 `vendor/cardvision-browser/`. `npm ci && npm run build` in `browser/` writes `browser/dist/`:
-`cardvision.js` and `worker.js` (the runtime), `remote-release.js` (the
+`cardvision.js` and `worker.js` (the runtime), `compute-session.js` and `page-capture.js`
+(the [two halves of a session](#the-sessions-two-halves)), `remote-release.js` (the
 [remote releases](remote-releases.md) the settings file can point to), ONNX Runtime's
 WebAssembly files (`ort-wasm-*`), OpenCV.js for the geometric stage (`opencv.mjs`,
 `opencv_js.wasm`, when `scripts/build-opencv.mjs` has built it), `node/verify-release.mjs` and
@@ -88,7 +103,8 @@ package Node finds. Other keys, such as the commit, are the product's own. On th
 [`cardvision cdn`](cdn.md) and, for each card update, [`cardvision refresh`](refresh-rule-template.md)
 ([playbooks/refresh-set.md](../playbooks/refresh-set.md)). To update, vendor a newer tagged
 commit, run the extension's tests and ship it as a store release: code never arrives through
-the settings file. The remote-release module, the Node tools and both commands are
+the settings file. The session halves, the remote-release module, the Node tools and both
+commands are
 [experimental](stability.md#experimental). To show cards in the viewer's language, see
 [languages.md](languages.md).
 

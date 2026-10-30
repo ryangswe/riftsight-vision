@@ -5,7 +5,8 @@ import type { FrameSource } from "../src/capture.js";
 import { DRIVER_TICK_MS } from "../src/frame-scheduler.js";
 import type { WorkerReply, WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
-import { createSession, type Session, WORKER_RESTARTS, withoutGeometric } from "../src/session.js";
+import { createSession, type Session, WORKER_RESTARTS } from "../src/session.js";
+import { plainLoad } from "../src/worker-session.js";
 
 class FakeWorker {
   static all: FakeWorker[] = [];
@@ -81,7 +82,7 @@ describe("a worker that stops with an error", () => {
     expect(first.terminated).toBe(true);
     expect(workers()).toHaveLength(2);
     const second = workers()[1]!;
-    expect(second.posted).toEqual([withoutGeometric(first.posted[0]!)]);
+    expect(second.posted).toEqual([plainLoad(first.posted[0] as Extract<WorkerRequest, { kind: "load" }>)]);
     expect(second.posted[0]).not.toHaveProperty("geometricUrl");
     expect(second.posted[0]).not.toHaveProperty("geometricManifestSha256");
     expect(second.posted[0]).toMatchObject({ kind: "load", releaseUrl: "https://example.test/demo/release.json" });
@@ -191,19 +192,5 @@ describe("a worker that stops with an error", () => {
     workers()[0]!.fail("after stop");
     expect(s.status().state).toBe("stopped");
     expect(workers()).toHaveLength(1);
-  });
-});
-
-describe("withoutGeometric", () => {
-  it("drops the geometric stage's fields and keeps the rest", () => {
-    const load: WorkerRequest = {
-      kind: "load", releaseUrl: "r.json", providers: ["wasm"], geometricUrl: "g.json",
-      geometricManifestSha256: "00", geometricWatchdog: false,
-    };
-    expect(withoutGeometric(load)).toEqual({ kind: "load", releaseUrl: "r.json", providers: ["wasm"] });
-  });
-
-  it("returns any other request unchanged", () => {
-    expect(withoutGeometric({ kind: "ping" })).toEqual({ kind: "ping" });
   });
 });

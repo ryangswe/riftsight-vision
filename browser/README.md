@@ -64,6 +64,8 @@ bundles with esbuild into `dist/`, which is not kept in the repository:
 | --- | --- |
 | `dist/cardvision.js` | The public API, one ES module, ONNX Runtime Web included |
 | `dist/worker.js` | The analysis worker a session starts |
+| `dist/compute-session.js`, `dist/page-capture.js` | The two halves of a session for a browser extension (experimental, not part of the public API): see "For an extension" below. No ONNX Runtime, WebAssembly or OpenCV inside |
+| `dist/remote-release.js` | Remote releases for a browser extension (experimental, not part of the public API): [docs/remote-releases.md](../docs/remote-releases.md) |
 | `dist/ort-wasm-*` | ONNX Runtime Web's WebAssembly files and their loaders, copied from `node_modules` |
 | `dist/opencv.mjs`, `dist/opencv_js.wasm`, `dist/opencv.mjs.LEGAL.txt` | OpenCV.js for the geometric stage and its licenses, copied from `vendor/opencv/` when it has been built; the worker imports it only when a stage is asked for |
 | `dist/demo/` | The demo page, the scoring page beside it (`score.html`), and their style sheets |
@@ -759,8 +761,9 @@ A row without one can land one frame off in a section.
    The frame nearest the row's `frame_dhash` is kept if it is at most 6 bits away: the rule and
    the threshold of `cardvision fetch`. A row without a fingerprint takes the frame on screen
    at `t`. A row whose window starts after the end of the file is recorded as `failed`.
-3. The kept frame is shown again, captured by `captureFrame` and analyzed by the worker, as a
-   session does for every frame it analyzes.
+3. The kept frame is shown again, captured by `captureFrame` at analysis size and analyzed by
+   the worker. A video session captures with `grabFrame`, which draws the same picture at the
+   same size.
 4. For each labeled point, and for the center of each labeled box, the page records what the
    release's hover rule shows there. Each frame is judged alone.
 
@@ -987,6 +990,22 @@ permission for cross-origin use).
 the point, the card under it was detected and not accepted, or the newest result is further
 from the picture on screen than the release's `hover.maxAgeMs` of video time.
 
+`createSession` is built on the session core: `SessionCore` (`src/session-core.ts`) decides when
+a picture is analyzed and what may be shown, and `createWorkerSession` (`src/worker-session.ts`)
+runs the worker that serves it. `createSession` adapts them to an element of its own page: it
+listens to the element, captures the picture and runs the driver tick. Its options, methods and
+status are the same as before; [CHANGELOG.md](../CHANGELOG.md) lists what a caller may notice.
+
+### For an extension
+
+An extension that cannot run a session in the video page splits it in two: a content script
+that watches the video and captures pictures (`dist/page-capture.js`), and an extension frame
+that runs the session and the worker (`dist/compute-session.js`, `startComputeFrame`). In the
+content script, `createCaptureControl` holds the capture gate, the handshake with the frame and
+the transfer of pictures. [docs/extension-session.md](../docs/extension-session.md) has the
+messages between them, the controller's rule and a sketch of each side. Both entries are
+[experimental](../docs/stability.md#experimental).
+
 ### `loadRelease(url, options)` and `analyzeFrame(loaded, frame)`
 
 The lower level, without a worker or any scheduling. It runs in a page, in a worker, or under
@@ -1040,10 +1059,17 @@ release's hover selection or any of the three.
 | `hover-layer.ts`, `hover-geometry.ts`, `scene.ts` | The three hover selections and the hit test | `cardvision/evaluate/hover.py` |
 | `tracker.ts`, `temporal-gate.ts` | Tracks with pooled identities; when the track layer is shown | none: the Python command judges each frame alone |
 | `cadence.ts`, `frame-scheduler.ts` | When a frame is analyzed: fast around pointer activity, slow while a tooltip shows, idle otherwise; the staleness rule | none |
-| `capture.ts` | Reading a frame from the element; cut detection under a shown card | `cardvision/infer/frames.py` (the analysis size only) |
+| `capture.ts` | Reading a frame from the element; cut detection under a shown card; where the picture sits in its element (`pictureBox`, `fractionIn`) | `cardvision/infer/frames.py` (the analysis size only) |
 | `release.ts`, `load.ts` | The release document: parse, fetch, verify, build | `cardvision/bank/release.py` |
 | `pipeline.ts` | One frame in, boxes, names and two layers out | `cardvision/infer/pipeline.py` |
-| `worker.ts`, `worker-host.ts`, `messages.ts`, `session.ts` | The worker (what it does with each request is in `worker-host.ts`), its messages, and the session on an element | none |
+| `worker.ts`, `worker-host.ts`, `messages.ts` | The worker (what it does with each request is in `worker-host.ts`) and its messages | none |
+| `hover-at.ts` | The hit test of a pointer against an analyzed frame (`hoverAt`), apart from the models | none |
+| `session-core.ts`, `worker-session.ts` | The session's policy without a page (`SessionCore`); the core with the workers that serve it, their restart and rules 10 to 12 (`createWorkerSession`) | none |
+| `session.ts` | `createSession`: the session on an element of its own page | none |
+| `compute-messages.ts`, `compute-frame.ts` | The two-frame contract's messages (`computeProtocol`); the compute frame's side of it (`startComputeFrame`) | none |
+| `page-capture.ts`, `video-events.ts`, `capture-gate.ts` | The content script's side: the picture a compute frame asked for (`grabFrame`), the video's events (`watchVideo`), when a picture may be given (`captureAllowed`) | none |
+| `capture-control.ts` | The content script's controller over them: capture authority from trusted pointer events, the handshake, the message guard (`createCaptureControl`, `fromExtensionFrame`, `acceptComputeOut`, `postWithTransfer`) | none |
+| `compute-session.ts`, `page-capture-entry.ts` | The entries of `dist/compute-session.js` and `dist/page-capture.js` | none |
 | `geometric/config.ts` | The geometric stage's settings: the same defaults, checks and messages | `cardvision/geometric/config.py` |
 | `geometric/index.ts` | The packed descriptor index: fetch, cache, hash, bank binding | `cardvision/geometric/index.py`, `pack.py` |
 | `geometric/features.ts`, `match.ts`, `ransac.ts` | A crop's ORB keypoints; the vote's ratio test and the candidate matches; OpenCV's affine fit and the plausibility check | `cardvision/geometric/features.py`, `stage.py` |
