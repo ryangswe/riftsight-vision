@@ -516,6 +516,54 @@ describe("taps", () => {
 });
 
 describe("the handshake", () => {
+  it("waits for the iframe to leave its first about:blank before it says hello", () => {
+    const h = setup({ helloRetries: 2 });
+    let loaded = false;
+    Object.defineProperty(h.frameWindow, "location", {
+      configurable: true,
+      get() {
+        if (loaded) throw new DOMException("cross-origin", "SecurityError");
+        return { origin: "https://video.example" };
+      },
+    });
+    h.control.connect();
+    for (let i = 0; i < 5; i += 1) h.timers.at(-1)!.fn();
+    // Nothing went to the about:blank page (it would only be dropped, with a console error), and
+    // the waits did not spend the two tries.
+    expect(h.frameWindow.postMessage).not.toHaveBeenCalled();
+    expect(h.problems).toEqual([]);
+    loaded = true;
+    h.timers.at(-1)!.fn();
+    expect(h.kinds()).toEqual(["hello"]);
+    h.timers.at(-1)!.fn();
+    expect(h.kinds()).toEqual(["hello", "hello"]);
+  });
+
+  it("reports no answer once when the iframe keeps its first about:blank for a minute", () => {
+    const h = setup();
+    Object.defineProperty(h.frameWindow, "location", { configurable: true, get: () => ({ origin: "https://video.example" }) });
+    h.control.connect();
+    for (let i = 0; i < 239; i += 1) {
+      expect(h.timers.at(-1)!.ms).toBe(250);
+      h.advance(250);
+      h.timers.at(-1)!.fn();
+    }
+    expect(h.problems).toEqual([]);
+    h.advance(250);
+    h.timers.at(-1)!.fn();
+    expect(h.problems).toEqual([{ kind: "no-answer" }]);
+    // Nothing more is scheduled (the first wait and 239 more): the report comes once.
+    expect(h.timers.length).toBe(240);
+    expect(h.frameWindow.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("says hello at once to a frame whose location reads as the extension's origin", () => {
+    const h = setup();
+    Object.defineProperty(h.frameWindow, "location", { configurable: true, get: () => ({ origin: ORIGIN }) });
+    h.control.connect();
+    expect(h.kinds()).toEqual(["hello"]);
+  });
+
   it("says hello until ready, then stops", () => {
     const h = setup();
     h.control.connect();

@@ -64,7 +64,8 @@ export interface Shown {
 
 /** The shown card's hold: how long it survives analyses that do not see it at the pointer. */
 export interface ShownHold {
-  /** Analyses in a row with nothing there before it goes. */
+  /** Analyses in a row with nothing there before it goes. A reply with no analysis, or one too
+   *  old for the picture on screen when it comes back, is not one. */
   misses: number;
   /** Time with no analysis seeing it before it goes, in ms. */
   maxMs: number;
@@ -353,7 +354,10 @@ export class SessionCore {
       this.result = null;
       if (reply.error === BUSY_ERROR) this.scheduler.lookUnanswered(now);
     }
-    if (this.held && this.pointerAt && !this.fresh()) this.held.misses += 1;
+    // A miss is an analysis of the picture on screen without the card at the pointer. A reply that
+    // analyzed nothing (busy, an error), or one already older than hover.maxAgeMs when it came
+    // back (a slow analysis of a playing video), judged nothing: only hold.maxMs ends the hold.
+    if (this.held && this.pointerAt && this.current() && !this.fresh()) this.held.misses += 1;
     this.scheduler.setTooltipShowing(this.shown() !== null, now);
     this.publish();
   }

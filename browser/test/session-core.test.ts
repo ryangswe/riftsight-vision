@@ -471,6 +471,46 @@ describe("HostSession hysteresis (a live stream)", () => {
     expect(lastShown()).toBeNull();
   });
 
+  it("does not count a reply that analyzed nothing as a miss", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    for (let i = 0; i < SHOWN_HOLD.misses; i += 1) {
+      clock += 1000;
+      session.fromContent({ kind: "presented", mediaTime: 1.3 + i * 0.3 });
+      session.tick();
+      const capture = captures().at(-1)!;
+      session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime: 1.3 + i * 0.3 });
+      session.fromWorker(reply(toWorker.at(-1)!.request, { analysis: null, error: "busy" }));
+    }
+    expect(lastShown()?.cardId).toBe("T-001");
+  });
+
+  it("does not count a slow analysis that comes back older than hover.maxAgeMs as a miss", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    let t = 1;
+    for (let i = 0; i < SHOWN_HOLD.misses; i += 1) {
+      const n = captures().length;
+      clock += 2100;
+      t += 0.3;
+      session.fromContent({ kind: "presented", mediaTime: t });
+      session.tick();
+      expect(captures().length).toBe(n + 1);
+      const capture = captures().at(-1)!;
+      session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime: t });
+      // The video plays on while the worker is slow: the card's analysis is too old to show itself.
+      t += 2.2;
+      session.fromContent({ kind: "presented", mediaTime: t });
+      session.fromWorker(reply(toWorker.at(-1)!.request));
+      expect(session.fresh()).toBeNull();
+    }
+    expect(lastShown()?.cardId).toBe("T-001");
+    // Still bounded by SHOWN_HOLD.maxMs with no analysis seeing it.
+    clock += SHOWN_HOLD.maxMs;
+    session.tick();
+    expect(lastShown()).toBeNull();
+  });
+
   it("hides once no analysis has seen the card for SHOWN_HOLD.maxMs", () => {
     ready();
     analyzeAt(0.2, 0.5, 1);
