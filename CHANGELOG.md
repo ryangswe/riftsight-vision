@@ -9,6 +9,21 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-31
+
+From moving the second extension onto 0.6.0: one less layout read per pointer move in the
+content script, and a sentence on why the frame checks `isTrusted`. No change to the contract
+between the frames (`PROTOCOL_VERSION` stays 1) or to any stable surface.
+
+### Changed
+
+- `createCaptureControl` measures the picture once per trusted pointer event, not twice: the
+  pointer it sends reuses the point just checked with `eligible`. Each measure reads the video's
+  box and style, a forced layout on every move.
+- `docs/extension-session.md`: Chrome lets a page build a `MessageEvent` with an extension
+  frame's window as its `source`, and the `isTrusted` check is what stops it; Firefox refuses to
+  build one.
+
 ## [0.6.0] - 2026-10-31
 
 A session's policy, apart from the page, so that a browser extension can run it across two
@@ -833,7 +848,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...v0.6.0
 [0.6.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0rc1...v0.6.0rc2
 [0.6.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...v0.6.0rc1

@@ -315,6 +315,16 @@ describe("capture authority", () => {
     expect(eligible).toHaveBeenLastCalledWith(150, 50, h.video);
   });
 
+  it("measures the picture once per trusted pointer event", () => {
+    const eligible = vi.fn(() => ({ x: 0.5, y: 0.5 }));
+    const h = connected({ eligible });
+    eligible.mockClear();
+    h.hover(600, 300);
+    h.hover(610, 300);
+    expect(eligible).toHaveBeenCalledTimes(2);
+    expect(h.sent.filter((m) => m.kind === "pointer")).toHaveLength(2);
+  });
+
   it("ends a resting hover MAX_REST_MS after the last trusted event, even while a card shows", () => {
     const h = connected();
     h.hover();
