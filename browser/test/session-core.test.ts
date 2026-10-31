@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AnalysisWidth } from "../src/capture.js";
-import { ANALYSIS_WATCHDOG_MS, DRIVER_TICK_MS, LOOK_RETRY_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
+import { ANALYSIS_WATCHDOG_MS, DRIVER_TICK_MS, FIRST_ANALYSIS_WATCHDOG_MS, LOOK_RETRY_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import type { FrameResult, GeometricStatus, ReleaseStatus, WorkerReply, WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
 import { neighborBoxes, SessionCore, type SessionCoreDeps, type SessionCoreOptions, type Shown, SHOWN_HOLD } from "../src/session-core.js";
@@ -293,7 +293,13 @@ describe("HostSession", () => {
     session.fromContent({ kind: "pointer", x: 0.3, y: 0.5, mediaTime: 5, touch: false });
     session.tick();
     expect(captures().length).toBe(1);
+    // The first look waits FIRST_ANALYSIS_WATCHDOG_MS (no analysis yet since the release loaded).
     clock += ANALYSIS_WATCHDOG_MS + 1;
+    session.tick();
+    expect(session.lastFrameError).toBeNull();
+    clock += FIRST_ANALYSIS_WATCHDOG_MS - ANALYSIS_WATCHDOG_MS;
+    // A move just before the give-up, so the pointer is not at rest (POINTER_GRACE_MS).
+    session.fromContent({ kind: "pointer", x: 0.31, y: 0.5, mediaTime: 5, touch: false });
     session.tick();
     expect(session.lastFrameError).toBe("no reply");
     // Changed from the product test (2 in the same tick): the given-up look drops the still
@@ -606,15 +612,16 @@ describe("HostSession on a paused video when the first analysis is slow", () => 
   it("looks again after busy answers and a late answer, and shows the card", () => {
     ready();
     session.fromContent({ kind: "presented", mediaTime: 3 });
-    // The worker takes 9 s for the first picture; each picture sent meanwhile is answered busy.
+    // The worker takes 18 s for the first picture (past FIRST_ANALYSIS_WATCHDOG_MS); each picture
+    // sent meanwhile is answered busy.
     let slow: WorkerRequest | null = null;
     let busyUntil = 0;
-    for (let i = 0; i < 60; i += 1) {
+    for (let i = 0; i < 100; i += 1) {
       wiggle(i);
       const sent = handOver();
       if (sent && slow === null) {
         slow = sent;
-        busyUntil = clock + 9_000;
+        busyUntil = clock + 18_000;
       } else if (sent && clock < busyUntil) {
         session.fromWorker(reply(sent, { analysis: null as never, error: "busy" }));
       } else if (sent) {
@@ -658,7 +665,8 @@ describe("HostSession on a paused video when the first analysis is slow", () => 
   it("looks again when the pointer leaves during the retries and comes back", () => {
     ready();
     session.fromContent({ kind: "presented", mediaTime: 3 });
-    // The first picture takes 9 s; the still picture's other looks are answered busy meanwhile.
+    // The first picture is slow: given up on at FIRST_ANALYSIS_WATCHDOG_MS, then the still picture's
+    // other looks are answered busy.
     let slow: WorkerRequest | null = null;
     let busy = 0;
     for (let i = 0; busy < 2; i += 1) {
@@ -726,7 +734,7 @@ describe("HostSession on a paused video when the first analysis is slow", () => 
     session.fromContent({ kind: "presented", mediaTime: 3 });
     wiggle(0);
     const first = handOver()!;
-    clock += ANALYSIS_WATCHDOG_MS + 1;
+    clock += FIRST_ANALYSIS_WATCHDOG_MS + 1;
     session.tick();
     expect(session.lastFrameError).toBe("no reply");
     // The pointer rests: no move for a long time.
@@ -927,13 +935,17 @@ function slowFirstLookThroughCore(firstMs: number, endMs: number): { sent: numbe
 describe("SessionCore reproduces the scheduler's session loop", () => {
   // The same times as scheduler.test.ts (PINNED_SLOW_FIRST_LOOK).
   it("a first look of 6 s", () => {
-    expect(slowFirstLookThroughCore(6_000, 20_000)).toEqual({ sent: [0, 5_250, 6_250, 6_500, 6_750], analyzed: [6_500, 6_750, 7_000] });
+    expect(slowFirstLookThroughCore(6_000, 20_000)).toEqual({ sent: [0, 6_000, 6_250], analyzed: [6_000, 6_250, 6_500] });
   });
 
   it("a first look of 12 s", () => {
-    expect(slowFirstLookThroughCore(12_000, 20_000)).toEqual({
-      sent: [0, 5_250, 6_250, 7_500, 9_750, 12_000, 12_250, 12_500],
-      analyzed: [12_250, 12_500, 12_750],
+    expect(slowFirstLookThroughCore(12_000, 20_000)).toEqual({ sent: [0, 12_000, 12_250], analyzed: [12_000, 12_250, 12_500] });
+  });
+
+  it("a first look of 18 s, given up on at FIRST_ANALYSIS_WATCHDOG_MS", () => {
+    expect(slowFirstLookThroughCore(18_000, 30_000)).toEqual({
+      sent: [0, 15_250, 16_250, 17_500, 19_750, 20_000, 20_250],
+      analyzed: [20_000, 20_250, 20_500],
     });
   });
 });
@@ -1115,7 +1127,7 @@ describe("SessionCore looks", () => {
     const { core, out, ready } = directCore();
     ready();
     core.pointer(0.2, 0.5, 1);
-    clock += ANALYSIS_WATCHDOG_MS - 1;
+    clock += FIRST_ANALYSIS_WATCHDOG_MS - 1;
     core.tick();
     expect(core.status().lastFrameError).toBeNull();
     clock += 1;
@@ -1124,6 +1136,67 @@ describe("SessionCore looks", () => {
     const late = bitmap();
     core.frame(out.captures[0]!.requestId, late, 1);
     expect(late.closed).toBe(true);
+  });
+});
+
+describe("SessionCore: the first analysis gets a longer watchdog", () => {
+  /** Asks a look on a playing video (a new frame each time) and returns its capture. */
+  const look = (core: SessionCore, out: ReturnType<typeof directCore>["out"], at: number) => {
+    core.presented(at);
+    core.pointer(0.2 + at * 0.001, 0.5, at);
+    core.tick();
+    return out.captures.at(-1)!;
+  };
+
+  it("waits FIRST_ANALYSIS_WATCHDOG_MS for the first analysis, and shows its late card", () => {
+    const { core, out, ready } = directCore();
+    ready();
+    const first = look(core, out, 1);
+    core.frame(first.requestId, bitmap(), 1);
+    clock += 9_000;
+    core.pointer(0.2, 0.5, 1);
+    core.tick();
+    expect(core.status().lastFrameError).toBeNull();
+    // A 9 s first analysis (a cold start on a slow machine) is shown, not dropped.
+    core.fromWorker(reply(out.requests.at(-1)!.request, { videoTimeSec: 1 } as Partial<FrameResult>));
+    expect(core.status().frames).toBe(1);
+  });
+
+  it("gives up after ANALYSIS_WATCHDOG_MS once the worker has analyzed a picture", () => {
+    const { core, out, ready, answer } = directCore();
+    ready();
+    look(core, out, 1);
+    answer(1);
+    expect(core.status().frames).toBe(1);
+    clock += 1_000;
+    const second = look(core, out, 2);
+    expect(second.requestId).toBeGreaterThan(out.captures[0]!.requestId);
+    clock += ANALYSIS_WATCHDOG_MS - 1;
+    core.pointer(0.2, 0.5, 2);
+    core.tick();
+    expect(core.status().lastFrameError).toBeNull();
+    clock += 1;
+    core.tick();
+    expect(core.status().lastFrameError).toBe("no reply");
+  });
+
+  it("waits FIRST_ANALYSIS_WATCHDOG_MS again for the first analysis of a restarted worker", () => {
+    const { core, out, ready, answer } = directCore();
+    ready();
+    look(core, out, 1);
+    answer(1);
+    core.workerStopped({ restart: true });
+    ready();
+    clock += 1_000;
+    look(core, out, 2);
+    clock += ANALYSIS_WATCHDOG_MS + 1;
+    core.pointer(0.2, 0.5, 2);
+    core.tick();
+    expect(core.status().lastFrameError).toBeNull();
+    clock += FIRST_ANALYSIS_WATCHDOG_MS - ANALYSIS_WATCHDOG_MS;
+    core.pointer(0.21, 0.5, 2);
+    core.tick();
+    expect(core.status().lastFrameError).toBe("no reply");
   });
 });
 

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { activeAnalyzeIntervalMs, analyzeIntervalMs, cadenceMs, isSlowDevice } from "../src/cadence.js";
 import {
   ANALYSIS_WATCHDOG_MS,
+  FIRST_ANALYSIS_WATCHDOG_MS,
   type AnalysisState,
   DRIVER_TICK_MS,
   FrameScheduler,
@@ -324,7 +325,7 @@ describe("a look asked for after a cut", () => {
 /**
  * A paused video under the pointer, driven as session.ts drives it: a tick every
  * DRIVER_TICK_MS, one look in flight at a time, a look given up on after ANALYSIS_WATCHDOG_MS
- * (its late reply dropped), and a worker that answers "busy" while it is still analyzing an
+ * (FIRST_ANALYSIS_WATCHDOG_MS until the first analysis; its late reply dropped), and a worker that answers "busy" while it is still analyzing an
  * earlier picture. The first picture takes `firstMs`; later ones 100 ms.
  */
 function pausedWithSlowFirstLook(opts: {
@@ -344,6 +345,7 @@ function pausedWithSlowFirstLook(opts: {
   const sent: number[] = [];
   const analyzed: number[] = [];
   let workerFreeAt = -Infinity;
+  let analyzedOnce = false;
   type Look = { sentAt: number; replyAt: number; analyzed: boolean };
   // Set inside `send`, so the declared type keeps TypeScript from narrowing it to null.
   let inFlight = null as Look | null;
@@ -368,11 +370,12 @@ function pausedWithSlowFirstLook(opts: {
       const reply = inFlight;
       inFlight = null;
       if (reply.analyzed) {
+        analyzedOnce = true;
         s.lookAnswered();
         analyzed.push(t);
       } else if (retry) s.lookUnanswered(t);
     }
-    if (inFlight && t - inFlight.sentAt >= ANALYSIS_WATCHDOG_MS) {
+    if (inFlight && t - inFlight.sentAt >= (analyzedOnce ? ANALYSIS_WATCHDOG_MS : FIRST_ANALYSIS_WATCHDOG_MS)) {
       inFlight = null;
       if (retry) s.lookUnanswered(t);
     }
@@ -385,12 +388,15 @@ function pausedWithSlowFirstLook(opts: {
   return { sent, analyzed };
 }
 
-/** `pausedWithSlowFirstLook` with pictures received, first look 6 s and 12 s, to 20 s. */
+/** `pausedWithSlowFirstLook` with pictures received, first look 6 s and 12 s (to 20 s) and 18 s
+ *  (to 30 s). */
 const PINNED_SLOW_FIRST_LOOK: Record<number, { sent: number[]; analyzed: number[] }> = {
-  6_000: { sent: [0, 5_250, 6_250, 6_500, 6_750], analyzed: [6_500, 6_750, 7_000] },
-  12_000: {
-    sent: [0, 5_250, 6_250, 7_500, 9_750, 12_000, 12_250, 12_500],
-    analyzed: [12_250, 12_500, 12_750],
+  6_000: { sent: [0, 6_000, 6_250], analyzed: [6_000, 6_250, 6_500] },
+  12_000: { sent: [0, 12_000, 12_250], analyzed: [12_000, 12_250, 12_500] },
+  // Given up on at 15 s (FIRST_ANALYSIS_WATCHDOG_MS); the worker answers busy until 18 s.
+  18_000: {
+    sent: [0, 15_250, 16_250, 17_500, 19_750, 20_000, 20_250],
+    analyzed: [20_000, 20_250, 20_500],
   },
 };
 
@@ -398,16 +404,17 @@ describe("a paused picture whose first look is slow", () => {
   const moving = (): boolean => true;
 
   it("without a retry, nothing is analyzed again until the video moves", () => {
-    const { analyzed } = pausedWithSlowFirstLook({ firstMs: 9_000, endMs: 60_000, pointerAt: moving, retry: false });
+    // Past FIRST_ANALYSIS_WATCHDOG_MS, so the first look is given up on.
+    const { analyzed } = pausedWithSlowFirstLook({ firstMs: 18_000, endMs: 60_000, pointerAt: moving, retry: false });
     expect(analyzed).toEqual([]);
   });
 
   it("is looked at again after the busy answers and the given-up look, and gets analyzed", () => {
-    const { analyzed } = pausedWithSlowFirstLook({ firstMs: 9_000, endMs: 60_000, pointerAt: moving });
+    const { analyzed } = pausedWithSlowFirstLook({ firstMs: 18_000, endMs: 60_000, pointerAt: moving });
     expect(analyzed.length).toBeGreaterThan(0);
-    // The worker is free at 9 s; the back-off is at most 2 s, plus the cadence.
-    expect(analyzed[0]).toBeGreaterThanOrEqual(9_000);
-    expect(analyzed[0]).toBeLessThanOrEqual(9_000 + 2_000 + 1_000);
+    // The worker is free at 18 s; the back-off is at most 2 s, plus the cadence.
+    expect(analyzed[0]).toBeGreaterThanOrEqual(18_000);
+    expect(analyzed[0]).toBeLessThanOrEqual(18_000 + 2_000 + 1_000);
   });
 
   it("backs off while the worker stays busy: one look every 2 s or so, never one every tick", () => {
@@ -840,6 +847,8 @@ describe("the session loop with prompt retries and pictures received", () => {
     expect(six).toEqual(PINNED_SLOW_FIRST_LOOK[6_000]);
     const twelve = pausedWithSlowFirstLook({ firstMs: 12_000, endMs: 20_000, pointerAt: moving, pictureReceived: true });
     expect(twelve).toEqual(PINNED_SLOW_FIRST_LOOK[12_000]);
+    const eighteen = pausedWithSlowFirstLook({ firstMs: 18_000, endMs: 30_000, pointerAt: moving, pictureReceived: true });
+    expect(eighteen).toEqual(PINNED_SLOW_FIRST_LOOK[18_000]);
   });
 });
 

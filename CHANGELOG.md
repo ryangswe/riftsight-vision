@@ -9,6 +9,21 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-31
+
+The first analysis after a release loads gets 15 s before it is given up on. No change to the
+contract between the frames (`PROTOCOL_VERSION` stays 1) or to any stable surface.
+
+### Fixed
+
+- `SessionCore`, and so `createSession` and `createWorkerSession`: the first analysis after a
+  worker's release loads (also after a restart) is given up on after 15 s
+  (`FIRST_ANALYSIS_WATCHDOG_MS`), not 5 s; later ones keep 5 s. The first analysis warms the
+  models up, and on a slow machine it took longer than 5 s: the look was given up on, its late
+  card dropped, and the busy worker's answers delayed the first card further. A paused video
+  under a resting pointer could show nothing until the pointer moved again. A first analysis of
+  6 s now shows its card at 6 s; 0.6.1 dropped it and showed the card at 6.5 s.
+
 ## [0.6.1] - 2026-10-31
 
 From moving the second extension onto 0.6.0: one less layout read per pointer move in the
@@ -848,7 +863,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...v0.6.0
 [0.6.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0rc1...v0.6.0rc2
