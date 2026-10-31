@@ -39,7 +39,7 @@
 import type { AABB } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
 import { type AnalysisMode, analyzeIntervalMs, cadenceMs } from "./cadence.js";
-import { ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
+import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
 import { hoverAt } from "./hover-at.js";
@@ -157,6 +157,9 @@ export class SessionCore {
   private nextRequestId = 1;
   private inFlight: InFlight | null = null;
   private lastAcceptedRequestId = 0;
+  /** Whether the worker answered a look with an analysis since its release loaded: until then
+   *  the watchdog waits `FIRST_ANALYSIS_WATCHDOG_MS`. */
+  private analyzedSinceLoad = false;
   private generation = 0;
   private sourceCount = 0;
   private result: { analysis: FrameAnalysis; videoTimeSec: number } | null = null;
@@ -302,6 +305,7 @@ export class SessionCore {
       }
       case "release-status":
         this.st.state = reply.ok ? "ready" : "failed";
+        this.analyzedSinceLoad = false;
         this.st.error = reply.error;
         this.st.release = reply.release;
         this.st.loading = null;
@@ -346,6 +350,7 @@ export class SessionCore {
     this.st.lastWorkerMs = reply.workerMs;
     this.st.lastRoundTripMs = +(now - sent.sentAt).toFixed(2);
     if (reply.analysis) {
+      this.analyzedSinceLoad = true;
       this.scheduler.lookAnswered();
       this.st.frames += 1;
       this.result = { analysis: reply.analysis, videoTimeSec: reply.videoTimeSec };
@@ -367,9 +372,11 @@ export class SessionCore {
   tick(): void {
     if (this.st.state === "stopped") return;
     const now = this.deps.now();
-    if (this.inFlight && now - this.inFlight.sentAt >= ANALYSIS_WATCHDOG_MS) {
+    const watchdogMs = this.analyzedSinceLoad ? ANALYSIS_WATCHDOG_MS : FIRST_ANALYSIS_WATCHDOG_MS;
+    if (this.inFlight && now - this.inFlight.sentAt >= watchdogMs) {
       // No answer: give up on this look so that the next one can go. A late picture is closed; a
-      // late reply is recognized by its request number and dropped.
+      // late reply is recognized by its request number and dropped. Before the worker's first
+      // analysis the wait is longer: that one warms the models up.
       this.inFlight = null;
       this.st.lastFrameError = "no reply";
       this.scheduler.lookUnanswered(now);
@@ -413,6 +420,7 @@ export class SessionCore {
       if (this.st.geometric) this.st.geometric = { state: off.state, reason: off.reason, bytes: off.bytes };
       this.deps.onGeometricStatus?.(off);
       this.st.state = "loading";
+      this.analyzedSinceLoad = false;
       this.st.error = null;
     } else {
       this.st.state = "failed";

@@ -78,6 +78,11 @@ export function withinMaxAge(resultSec: number, nowSec: number, maxAgeMs: number
 export const HOVER_TRIGGER_MIN_GAP_MS = 250;
 /** An analysis with no reply after this long is given up on, so that the next frame can go. */
 export const ANALYSIS_WATCHDOG_MS = 5_000;
+/** The watchdog of the looks before a worker's first analysis, once its release has loaded: the
+ *  first analysis warms the models up, and on a slow machine it can take several times longer
+ *  than the ones after it. Given up on at 5 s, it was dropped when it came back and looked again,
+ *  so the first card was late or never came. */
+export const FIRST_ANALYSIS_WATCHDOG_MS = 15_000;
 /** After a look comes back with the picture not analyzed, the same picture is due again after
  *  these delays, one per unanswered look in a row, then the last one each time. */
 export const LOOK_RETRY_MS: readonly number[] = [250, 500, 1_000, 2_000];
@@ -232,8 +237,8 @@ export class FrameScheduler {
 
   /**
    * A look came back with the picture not analyzed: the picture could not be captured, the
-   * worker was still busy with an earlier picture, or no reply came within
-   * `ANALYSIS_WATCHDOG_MS`. The still picture's other repeats are dropped, and the same picture
+   * worker was still busy with an earlier picture, or no reply came within the watchdog's time
+   * (`ANALYSIS_WATCHDOG_MS`, or `FIRST_ANALYSIS_WATCHDOG_MS` before the first analysis). The still picture's other repeats are dropped, and the same picture
    * counts as newly presented again after a back-off, so that a paused video is looked at again
    * (with its repeats). This is not `requestLook`, which would also make the picture stale and
    * let every pointer move look again at once, past the back-off.

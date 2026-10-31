@@ -323,13 +323,17 @@ async function slowFirstLook(firstMs: number, endMs: number): Promise<{ sent: nu
 describe("createSession reproduces the scheduler's session loop", () => {
   // The same times as scheduler.test.ts (PINNED_SLOW_FIRST_LOOK) and session-core.test.ts.
   it("a first look of 6 s", async () => {
-    expect(await slowFirstLook(6_000, 20_000)).toEqual({ sent: [0, 5_250, 6_250, 6_500, 6_750], analyzed: [6_500, 6_750, 7_000] });
+    expect(await slowFirstLook(6_000, 20_000)).toEqual({ sent: [0, 6_000, 6_250], analyzed: [6_000, 6_250, 6_500] });
   });
 
   it("a first look of 12 s", async () => {
-    expect(await slowFirstLook(12_000, 20_000)).toEqual({
-      sent: [0, 5_250, 6_250, 7_500, 9_750, 12_000, 12_250, 12_500],
-      analyzed: [12_250, 12_500, 12_750],
+    expect(await slowFirstLook(12_000, 20_000)).toEqual({ sent: [0, 12_000, 12_250], analyzed: [12_000, 12_250, 12_500] });
+  });
+
+  it("a first look of 18 s, given up on at FIRST_ANALYSIS_WATCHDOG_MS", async () => {
+    expect(await slowFirstLook(18_000, 30_000)).toEqual({
+      sent: [0, 15_250, 16_250, 17_500, 19_750, 20_000, 20_250],
+      analyzed: [20_000, 20_250, 20_500],
     });
   });
 });

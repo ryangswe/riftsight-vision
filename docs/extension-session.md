@@ -237,9 +237,11 @@ moment draws a card only while `gateState().inside` is true.
 ## Retries
 
 There is one back-off counter, the scheduler's (`browser/src/frame-scheduler.ts`). A look that
-comes back with the picture not analyzed (answered busy, given up on by the 5 s watchdog, or a
+comes back with the picture not analyzed (answered busy, given up on by the watchdog, or a
 capture that failed with `retry: true`) makes the same picture due again after 250 ms, 500 ms,
-1 s, then every 2 s. A failed capture is retried promptly: once its back-off runs out, the look is
+1 s, then every 2 s. The watchdog gives up on a look after 5 s, or after 15 s until the worker's
+first analysis since its release loaded: that one warms the models up, and on a slow machine it
+can take several times as long. A failed capture is retried promptly: once its back-off runs out, the look is
 due whatever the cadence; the other retries also wait for the cadence. A pointer move never
 shortens a back-off still waiting. A refusal (`retry: false`: the gate, an unreadable video, a
 picture too large, no 2D context) is retried by nothing and grows no back-off; the next pointer
