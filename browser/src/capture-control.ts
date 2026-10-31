@@ -268,9 +268,11 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     return captureAllowed(gateState(), now(), options.limits);
   }
 
-  function sendPointer(): void {
+  /** Send the trusted point, with `known` when the caller just measured it (one layout read per
+   *  pointer event: `eligible` reads the video's box and style). */
+  function sendPointer(known?: { x: number; y: number }): void {
     if (!authority || !watch) return;
-    const at = where(authority.clientX, authority.clientY);
+    const at = known ?? where(authority.clientX, authority.clientY);
     if (at) send({ kind: "pointer", x: at.x, y: at.y, mediaTime: watch.mediaTime(), touch: authority.kind === "tap" });
   }
 
@@ -283,7 +285,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     if (kind === "hover") {
       if (at) {
         authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now() };
-        sendPointer();
+        sendPointer(at);
       } else if (authority?.kind === "hover") {
         reset();
       }
@@ -294,7 +296,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     if (event.type === "pointerdown") {
       if (at) {
         authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now() };
-        sendPointer();
+        sendPointer(at);
       } else if (authority?.kind === "tap") {
         // A new touch elsewhere ends the last tap's window.
         reset();
@@ -304,7 +306,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       // The finger moved on the picture: a new point, the same window.
       authority.clientX = event.clientX;
       authority.clientY = event.clientY;
-      sendPointer();
+      sendPointer(at);
     }
     // pointerup: the tap's window outlives the finger; another pointer's move inherits nothing.
   }

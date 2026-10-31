@@ -220,7 +220,9 @@ Check every `message` event from one of the extension's frames before reading it
 `fromExtensionFrame(event, frame, origin)` is true only for a trusted event (`event.isTrusted`)
 whose `source` is that frame's window and whose `origin` is the extension's. Source and origin
 alone are not enough: a page script can make a `MessageEvent` with both set and dispatch it on
-the window it shares with the content script, and such an event is not trusted. Use it for every
+the window it shares with the content script, and such an event is not trusted. (Chrome lets a
+page build such an event, and the `isTrusted` check is what stops it; Firefox refuses to build one
+with an extension frame's window as its `source`.) Use it for every
 frame of yours, a tooltip frame too. `acceptComputeOut(event, { frame, origin, protocol })` adds
 the parse for the compute frame, and the controller's `onMessage` uses it.
 
