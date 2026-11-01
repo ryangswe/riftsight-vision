@@ -57,13 +57,17 @@ export type LoadProgress = { phase: "downloading"; bytes: number | null } | { ph
 export interface ModelLoadTimings {
   /** Creating its session on the execution provider that worked. ONNX Runtime starts a backend
    *  (and WebGPU its device) on the first session created on it: the recognizer is prepared
-   *  first, so that time is in its `createMs`, or in its `totalMs` when a provider tried before
-   *  failed. */
+   *  first, so that time is in its `createMs`, or in its `failedProvidersMs` when a provider
+   *  tried before failed. */
   createMs: number;
   /** Its first run, a warm-up on a blank input: it pays one-off allocation and, on WebGPU,
    *  shader compilation, so it can take many times longer than the runs after it. */
   firstRunMs: number;
-  /** All of it, including any provider tried first that failed. */
+  /** Providers tried before the one that worked, which failed: their sessions, runs and
+   *  release. When ONNX Runtime's backend started on one of them, that time is here. */
+  failedProvidersMs: number;
+  /** All of it: the failed providers, then the create and first run. Each part is rounded on
+   *  its own, so they add up to it to within 1 ms. */
   totalMs: number;
 }
 
@@ -73,10 +77,13 @@ export interface LoadTimings {
   /** The thread's clock when the load began. In a worker it counts from the worker's start, so
    *  it holds loading the worker's script and ONNX Runtime's module. */
   startedAtMs: number;
-  /** Fetching the release's files, checking their sizes and SHA-256, and reading them (the
-   *  catalog's JSON among them). With `options.files` nothing is fetched (a remote release's
-   *  files were downloaded before, and timed by whoever chose it): only the checks and reads. */
+  /** Fetching and reading the release document, then fetching every file it pins and checking
+   *  their sizes and SHA-256. With `options.files` nothing is fetched (a remote release's files were downloaded
+   *  before, and timed by whoever chose it): only the checks. */
   filesMs: number;
+  /** Reading the files once checked: decoding the bank, parsing the catalog and the identity
+   *  groups, and checking that they belong together. Plain script: its CPU cost shows here. */
+  readMs: number;
   recognizer: ModelLoadTimings;
   detector: ModelLoadTimings;
   /** The whole load, from `startedAtMs`. */
@@ -123,11 +130,15 @@ const ms = (value: number): number => Math.round(value);
 
 /** The model factories of one load, which note how long each model took to become ready. */
 function timedFactories(noted: { recognizer?: ModelLoadTimings; detector?: ModelLoadTimings }): ReleaseModelFactories {
-  const timed = (setup: SessionSetup, started: number): ModelLoadTimings => ({
-    createMs: ms(setup.createMs),
-    firstRunMs: ms(setup.firstRunMs),
-    totalMs: ms(performance.now() - started),
-  });
+  const timed = (setup: SessionSetup, started: number): ModelLoadTimings => {
+    const total = performance.now() - started;
+    return {
+      createMs: ms(setup.createMs),
+      firstRunMs: ms(setup.firstRunMs),
+      failedProvidersMs: ms(Math.max(0, total - setup.createMs - setup.firstRunMs)),
+      totalMs: ms(total),
+    };
+  };
   return {
     embedder: async (bytes, settings, providers) => {
       const started = performance.now();
@@ -164,12 +175,19 @@ export async function loadRelease(releaseUrl: string | URL, options: LoadOptions
   const started = performance.now();
   progress({ phase: "downloading", bytes: null });
   const deps: ReleaseDeps = { ...defaultReleaseDeps, ...options.deps, ...(options.files ? { fetchFn: filesFetch(options.files) } : {}) };
+  let fetchedAt: number | null = null;
   const loaded = await loadReleaseData(url, deps, {
     ortWeb: ortWebVersion(),
+    onFetched: () => {
+      fetchedAt = performance.now();
+    },
     ...(options.onProgress ? { onDocument: (bytes: number) => progress({ phase: "downloading", bytes }) } : {}),
   });
   if (!loaded.ok) throw new ReleaseError(loaded.reason);
-  const filesMs = performance.now() - started;
+  const readAt = performance.now();
+  // Set once the files were fetched and checked, which a load that got here did.
+  const filesMs = (fetchedAt ?? readAt) - started;
+  const readMs = readAt - (fetchedAt ?? readAt);
   progress({ phase: "preparing" });
   const { data } = loaded;
   configureOrt({ wasmThreads: data.release.runtime.wasmThreads, ...(options.wasmPaths !== undefined ? { wasmPaths: options.wasmPaths } : {}) });
@@ -192,7 +210,7 @@ export async function loadRelease(releaseUrl: string | URL, options: LoadOptions
       identities: voteIdentities(data.cards, data.release.identity.level, data.identityGroups),
     },
     ...(noted.recognizer && noted.detector
-      ? { timings: { startedAtMs: ms(started), filesMs: ms(filesMs), recognizer: noted.recognizer, detector: noted.detector, totalMs: ms(performance.now() - started) } }
+      ? { timings: { startedAtMs: ms(started), filesMs: ms(filesMs), readMs: ms(readMs), recognizer: noted.recognizer, detector: noted.detector, totalMs: ms(performance.now() - started) } }
       : {}),
     dispose: async () => {
       await built.embedder.release?.();

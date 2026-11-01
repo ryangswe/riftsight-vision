@@ -9,6 +9,28 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.7.0rc2] - 2026-10-31
+
+From running 0.7.0rc1 in the first extension: the timings now tell reading the files apart from
+fetching them, and the providers that failed apart from the one that worked. No break from
+0.6.2; rc1's `filesMs` narrows.
+
+### Changed
+
+- `LoadTimings.filesMs` is now fetching and reading the release document, then fetching the
+  files it pins and checking their sizes and SHA-256, only. Reading those files (decoding the
+  bank, parsing the catalog and the identity groups, checking that they belong together) is the
+  new `LoadTimings.readMs`. On an emulated slow machine 0.7.0rc1's `filesMs` was 5.2 s, of which
+  about 3.2 s was this reading, not the files.
+
+### Added
+
+- `ModelLoadTimings.failedProvidersMs`: the time spent on providers tried before the one that
+  worked, which failed. When WebGPU is listed first and fails, ONNX Runtime's backend start is
+  in it (5.3 s of the recognizer's total on that machine).
+- `ReleaseLoadOptions.onFetched`, for `loadReleaseData`: called once every pinned file is
+  fetched and checked, before any is read. Advisory: what it throws is ignored.
+
 ## [0.7.0rc1] - 2026-10-31
 
 A load reports where its time went, so that an extension can see why the first card is slow on
@@ -879,7 +901,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc2...HEAD
+[0.7.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc1...v0.7.0rc2
 [0.7.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0rc1
 [0.6.2]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0...v0.6.1

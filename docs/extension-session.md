@@ -283,17 +283,26 @@ Once a release loads, the session's status says where the time went:
 
 - `startedAtMs`: when the load began on the worker's clock, so it counts loading the worker's
   script and ONNX Runtime's module;
-- `filesMs`: fetching, checking and reading the release's files (for a remote release, whose
-  files `chooseRelease` downloaded before, only the checks and reads);
-- `recognizer` and `detector`: each model's session create, first run and total, the total
-  counting any provider tried before that failed;
+- `filesMs`: fetching and reading the release document, then fetching every file it pins and
+  checking their sizes and SHA-256 (for a remote release, whose files `chooseRelease`
+  downloaded before, only the checks);
+- `readMs`: reading them once checked: decoding the bank, parsing the catalog and the identity
+  groups, and checking that they belong together. It is plain script, so its CPU cost shows
+  here and not in `filesMs`;
+- `recognizer` and `detector`: each model's session create (`createMs`), first run
+  (`firstRunMs`), providers tried before that failed (`failedProvidersMs`), and total;
 - `totalMs`: the whole load.
 
 ONNX Runtime starts a backend on the first session created on it. The recognizer is prepared
-first, so that time is in its `createMs`, or in its `totalMs` when a provider before failed.
-A first run pays one-off allocation and, on WebGPU, shader compilation, so on a slow machine it
-can take many times longer than the runs after it. It is measured only, never used to decide
-anything, and nothing in it leaves the compute frame. A worker older than 0.7.0 leaves it out.
+first, so that time is in its `createMs`, or in its `failedProvidersMs` when a provider before
+failed (WebGPU listed first on a machine where it fails, for example). A first run pays
+one-off allocation and, on WebGPU, shader compilation, so on a slow machine it can take many
+times longer than the runs after it.
+
+`totalMs` is not the time to the first card. Before the load comes making the compute frame and
+starting the worker; after it, the first analysis (its `FrameAnalysis.timings`). It is measured
+only, never used to decide anything, and nothing in it leaves the compute frame. A worker older
+than 0.7.0 leaves it out.
 
 ## What each side must do
 

@@ -289,7 +289,7 @@ describe("the progress of a load", () => {
   });
 
   it("passes the load's timings on in the release-status, and says nothing of them when the loader has none", async () => {
-    const timings = { startedAtMs: 900, filesMs: 40, recognizer: { createMs: 300, firstRunMs: 700, totalMs: 1000 }, detector: { createMs: 100, firstRunMs: 200, totalMs: 300 }, totalMs: 1340 };
+    const timings = { startedAtMs: 900, filesMs: 40, readMs: 10, recognizer: { createMs: 300, firstRunMs: 700, failedProvidersMs: 0, totalMs: 1000 }, detector: { createMs: 100, firstRunMs: 200, failedProvidersMs: 0, totalMs: 300 }, totalMs: 1350 };
     const statusOf = async (withTimings: boolean) => {
       const replies: WorkerReply[] = [];
       const h = createWorkerHost<FakeDevice>({
