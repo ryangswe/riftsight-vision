@@ -86,7 +86,8 @@ export interface LoadTimings {
   readMs: number;
   recognizer: ModelLoadTimings;
   detector: ModelLoadTimings;
-  /** The whole load, from `startedAtMs`. */
+  /** The whole load, from `startedAtMs`. A little more than its parts: it also holds the short
+   *  steps between them, such as building the pipeline once both models are ready. */
   totalMs: number;
 }
 

@@ -291,7 +291,8 @@ Once a release loads, the session's status says where the time went:
   here and not in `filesMs`;
 - `recognizer` and `detector`: each model's session create (`createMs`), first run
   (`firstRunMs`), providers tried before that failed (`failedProvidersMs`), and total;
-- `totalMs`: the whole load.
+- `totalMs`: the whole load, a little more than its parts: it also holds the short steps
+  between them.
 
 ONNX Runtime starts a backend on the first session created on it. The recognizer is prepared
 first, so that time is in its `createMs`, or in its `failedProvidersMs` when a provider before
