@@ -395,6 +395,9 @@ export interface ReleaseLoadOptions {
    *  sum of their sizes as the document pins them: what is left to download. Advisory: what it
    *  throws is ignored, and the load goes on. */
   onDocument?: (pinnedBytes: number) => void;
+  /** Called once every file the release pins is fetched and its size and SHA-256 checked,
+   *  before any is read. Advisory: what it throws is ignored, and the load goes on. */
+  onFetched?: () => void;
 }
 
 /**
@@ -602,6 +605,11 @@ export async function loadReleaseData(releaseUrl: string, deps: ReleaseDeps = de
       fetchPinned(deps, releaseUrl, release.identity.groups, "identity.groups"),
       fetchPinned(deps, releaseUrl, release.catalog, "catalog"),
     ]);
+    try {
+      opts.onFetched?.();
+    } catch {
+      // Advisory, as onDocument.
+    }
 
     const bankBytes = new Uint8Array(bankBuf);
     const binaryVersion = binaryBankVersion(bankBytes);
