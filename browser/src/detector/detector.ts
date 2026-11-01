@@ -2,7 +2,7 @@
 // The detector's model: one analysis frame in, the valid boxes of that frame out.
 
 import type { Candidate } from "../boxes.js";
-import { createSession, float32Tensor, type InferenceSession } from "../ort.js";
+import { createSession, float32Tensor, type InferenceSession, type SessionSetup } from "../ort.js";
 import type { ExecutionProvider } from "../providers.js";
 import { BOX_COLUMNS, type DecodeSettings, validDetections } from "./decode.js";
 import { type LetterboxSettings, toDetectorTensor } from "./letterbox.js";
@@ -47,6 +47,8 @@ export class Detector implements FrameDetector {
     /** The execution provider that initialized. */
     readonly ep: ExecutionProvider,
     private readonly settings: DetectorSettings,
+    /** How long the session took to create and to run once, on `ep`. */
+    readonly setup: SessionSetup,
   ) {
     this.columns = BOX_COLUMNS + settings.classes.length;
   }
@@ -64,7 +66,7 @@ export class Detector implements FrameDetector {
       const dims = out[settings.outputName]?.dims ?? [];
       return dims.length === 3 && dims[0] === 1 && dims[1] === settings.anchors && dims[2] === columns;
     });
-    return opened ? new Detector(opened.session, opened.ep, settings) : null;
+    return opened ? new Detector(opened.session, opened.ep, settings, { createMs: opened.createMs, firstRunMs: opened.firstRunMs }) : null;
   }
 
   async propose(frame: Frame): Promise<Candidate[]> {

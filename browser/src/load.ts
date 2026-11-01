@@ -5,7 +5,7 @@
 import type { Frame } from "./detector/detector.js";
 import { Detector } from "./detector/detector.js";
 import { Embedder } from "./embedder.js";
-import { configureOrt, ortWebVersion, takeSessionFailures } from "./ort.js";
+import { configureOrt, ortWebVersion, type SessionSetup, takeSessionFailures } from "./ort.js";
 import type { Cv } from "./geometric/features.js";
 import { type GeometricStage, openGeometricStage, type StageIndex, type StageVoter, voteIdentities } from "./geometric/stage.js";
 import type { FrameAnalysis, Pipeline } from "./pipeline.js";
@@ -53,6 +53,36 @@ export interface LoadOptions {
  *  add up to `bytes` (null until the release document is read), or preparing the models. */
 export type LoadProgress = { phase: "downloading"; bytes: number | null } | { phase: "preparing" };
 
+/** How long one model took to become ready, in whole ms. */
+export interface ModelLoadTimings {
+  /** Creating its session on the execution provider that worked. ONNX Runtime starts a backend
+   *  (and WebGPU its device) on the first session created on it: the recognizer is prepared
+   *  first, so that time is in its `createMs`, or in its `totalMs` when a provider tried before
+   *  failed. */
+  createMs: number;
+  /** Its first run, a warm-up on a blank input: it pays one-off allocation and, on WebGPU,
+   *  shader compilation, so it can take many times longer than the runs after it. */
+  firstRunMs: number;
+  /** All of it, including any provider tried first that failed. */
+  totalMs: number;
+}
+
+/** Where a load's time went, in whole ms, for a product that wants to see why the first card
+ *  is slow on some machine. Measured, never used to decide anything. */
+export interface LoadTimings {
+  /** The thread's clock when the load began. In a worker it counts from the worker's start, so
+   *  it holds loading the worker's script and ONNX Runtime's module. */
+  startedAtMs: number;
+  /** Fetching the release's files, checking their sizes and SHA-256, and reading them (the
+   *  catalog's JSON among them). With `options.files` nothing is fetched (a remote release's
+   *  files were downloaded before, and timed by whoever chose it): only the checks and reads. */
+  filesMs: number;
+  recognizer: ModelLoadTimings;
+  detector: ModelLoadTimings;
+  /** The whole load, from `startedAtMs`. */
+  totalMs: number;
+}
+
 /** A release that loaded whole: its document, its catalog and a pipeline ready for frames. */
 export interface LoadedRelease {
   release: VisionRelease;
@@ -65,6 +95,9 @@ export interface LoadedRelease {
   /** What a geometric stage must serve: the bank's SHA-256 and card ids, and card id to
    *  identity key for the vote (the catalog's rule with the release's groups over it). */
   stageInputs: { bankSha256: string; bankIds: string[]; identities: Map<string, string> };
+  /** Where the load's time went. Set by `loadRelease`; optional so that a stand-in made
+   *  elsewhere need not state it. */
+  timings?: LoadTimings;
   /** Free the models. */
   dispose(): Promise<void>;
 }
@@ -85,10 +118,31 @@ export function filesFetch(files: Record<string, Blob>): ReleaseDeps["fetchFn"] 
   };
 }
 
-const factories: ReleaseModelFactories = {
-  embedder: (bytes, settings, providers) => Embedder.create(bytes, settings, providers),
-  detector: (bytes, settings, providers) => Detector.create(bytes, settings, providers),
-};
+/** Whole milliseconds, for a report. */
+const ms = (value: number): number => Math.round(value);
+
+/** The model factories of one load, which note how long each model took to become ready. */
+function timedFactories(noted: { recognizer?: ModelLoadTimings; detector?: ModelLoadTimings }): ReleaseModelFactories {
+  const timed = (setup: SessionSetup, started: number): ModelLoadTimings => ({
+    createMs: ms(setup.createMs),
+    firstRunMs: ms(setup.firstRunMs),
+    totalMs: ms(performance.now() - started),
+  });
+  return {
+    embedder: async (bytes, settings, providers) => {
+      const started = performance.now();
+      const model = await Embedder.create(bytes, settings, providers);
+      if (model) noted.recognizer = timed(model.setup, started);
+      return model;
+    },
+    detector: async (bytes, settings, providers) => {
+      const started = performance.now();
+      const model = await Detector.create(bytes, settings, providers);
+      if (model) noted.detector = timed(model.setup, started);
+      return model;
+    },
+  };
+}
 
 /**
  * Load the release whose document is at `releaseUrl`: fetch it and every file it pins, check
@@ -107,6 +161,7 @@ export async function loadRelease(releaseUrl: string | URL, options: LoadOptions
       // Advisory: a caller's display cannot stop the load.
     }
   };
+  const started = performance.now();
   progress({ phase: "downloading", bytes: null });
   const deps: ReleaseDeps = { ...defaultReleaseDeps, ...options.deps, ...(options.files ? { fetchFn: filesFetch(options.files) } : {}) };
   const loaded = await loadReleaseData(url, deps, {
@@ -114,11 +169,13 @@ export async function loadRelease(releaseUrl: string | URL, options: LoadOptions
     ...(options.onProgress ? { onDocument: (bytes: number) => progress({ phase: "downloading", bytes }) } : {}),
   });
   if (!loaded.ok) throw new ReleaseError(loaded.reason);
+  const filesMs = performance.now() - started;
   progress({ phase: "preparing" });
   const { data } = loaded;
   configureOrt({ wasmThreads: data.release.runtime.wasmThreads, ...(options.wasmPaths !== undefined ? { wasmPaths: options.wasmPaths } : {}) });
   takeSessionFailures();
-  const built = await buildReleasePipeline(data, factories, options.providers ?? data.release.runtime.executionProviders);
+  const noted: { recognizer?: ModelLoadTimings; detector?: ModelLoadTimings } = {};
+  const built = await buildReleasePipeline(data, timedFactories(noted), options.providers ?? data.release.runtime.executionProviders);
   if ("error" in built) {
     const causes = takeSessionFailures();
     throw new ReleaseError(causes.length > 0 ? `${built.error} (${causes.join("; ")})` : built.error);
@@ -134,6 +191,9 @@ export async function loadRelease(releaseUrl: string | URL, options: LoadOptions
       bankIds: [...new Set(data.bank.ids)],
       identities: voteIdentities(data.cards, data.release.identity.level, data.identityGroups),
     },
+    ...(noted.recognizer && noted.detector
+      ? { timings: { startedAtMs: ms(started), filesMs: ms(filesMs), recognizer: noted.recognizer, detector: noted.detector, totalMs: ms(performance.now() - started) } }
+      : {}),
     dispose: async () => {
       await built.embedder.release?.();
       await built.detector.release?.();

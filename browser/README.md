@@ -1028,7 +1028,8 @@ sizes once the document is read, then `{ phase: "preparing" }` while the models 
 when a file fails). It is advisory: what it throws is ignored. `options.files`, a record of
 `Blob`s by path relative to the release document's folder, reads the release from them in place
 of fetching it: `url` is then the document's path among them (`"release.json"`), and every check
-is the same.
+is the same. `loaded.timings` says where the load's time went, in whole ms: the files, then each
+model's session create, first run and total (`LoadTimings`; measured only).
 
 `analyzeFrame` takes `{ data, width, height }` (an `ImageData` fits) whose width lies within
 the release's analysis range (720 to 1920 by default; `analysisSize` gives the size for a

@@ -288,6 +288,29 @@ describe("the progress of a load", () => {
     ]);
   });
 
+  it("passes the load's timings on in the release-status, and says nothing of them when the loader has none", async () => {
+    const timings = { startedAtMs: 900, filesMs: 40, recognizer: { createMs: 300, firstRunMs: 700, totalMs: 1000 }, detector: { createMs: 100, firstRunMs: 200, totalMs: 300 }, totalMs: 1340 };
+    const statusOf = async (withTimings: boolean) => {
+      const replies: WorkerReply[] = [];
+      const h = createWorkerHost<FakeDevice>({
+        post: (reply) => replies.push(reply),
+        loadRelease: async () => (withTimings ? { ...loadedRelease(makePipeline()), timings } : loadedRelease(makePipeline())),
+        wasmPaths: "/",
+        voteDevice: async () => null,
+        openStage: async () => ({ stage: fakeStage(), bytes: 1, note: null }),
+        releaseDevice: () => undefined,
+        readBitmap: () => FRAME,
+      });
+      await h.handle({ kind: "load", releaseUrl: "/release.json" });
+      const status = replies.find((reply) => reply.kind === "release-status");
+      return status?.kind === "release-status" ? status.release : null;
+    };
+    expect((await statusOf(true))?.loadTimings).toEqual(timings);
+    const without = await statusOf(false);
+    expect(without).not.toBeNull();
+    expect(without && "loadTimings" in without).toBe(false);
+  });
+
   it("hands the loader the release's files when the page gives them, and nothing of the kind otherwise", async () => {
     const given: Array<[string, Record<string, Blob> | undefined]> = [];
     const make = () => createWorkerHost<FakeDevice>({
