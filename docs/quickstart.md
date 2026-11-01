@@ -93,7 +93,7 @@ pip prints many lines while it installs (a notice that a newer pip exists is har
 should see something like this as the last line:
 
 ```
-cardvision 0.7.0rc2
+cardvision 0.7.0
 ```
 
 **2. Run the toy quickstart.** One script draws the toy game (20 card images and a

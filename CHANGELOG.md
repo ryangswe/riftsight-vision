@@ -9,6 +9,32 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-31
+
+A release load reports where its time went, so that an extension can see why the first card is
+slow on some machine without a patched build. It is release candidate 0.7.0rc2, listed below
+it, which split reading the files from fetching them and the providers that failed from the one
+that worked; that candidate built on 0.7.0rc1. One sentence of documentation is added: the
+load's total also holds the short steps between its parts. Nothing in the public surface breaks.
+The contract's `PROTOCOL_VERSION` stays 1. The released models are unchanged: release
+`201478a00d6ef6ba`.
+
+### Added
+
+- `loadRelease` reports where a load's time went, in whole ms: `LoadedRelease.timings`
+  (`LoadTimings`): `startedAtMs`; `filesMs`, fetching and reading the release document, then
+  fetching the files it pins and checking their sizes and SHA-256; `readMs`, reading those
+  files (decoding the bank, parsing the catalog and the identity groups, checking that they
+  belong together); `recognizer` and `detector` (`ModelLoadTimings`: `createMs`, `firstRunMs`,
+  `failedProvidersMs` and `totalMs`); and `totalMs`. `Embedder.setup` and `Detector.setup`
+  (`SessionSetup`) hold a model's create and first run. All exported from
+  `browser/src/index.ts`.
+- The worker passes the timings on in the release status (`release.loadTimings`, optional), so
+  an extension reads them in the compute frame (`frame.core?.status().release?.loadTimings`).
+  Measured only; nothing decides on them, and nothing in them leaves the compute frame.
+- `ReleaseLoadOptions.onFetched`, for `loadReleaseData`: called once every pinned file is
+  fetched and checked, before any is read. Advisory: what it throws is ignored.
+
 ## [0.7.0rc2] - 2026-10-31
 
 From running 0.7.0rc1 in the first extension: the timings now tell reading the files apart from
@@ -901,7 +927,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc2...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0
 [0.7.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc1...v0.7.0rc2
 [0.7.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0rc1
 [0.6.2]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.1...v0.6.2
