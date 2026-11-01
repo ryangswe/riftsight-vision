@@ -9,6 +9,22 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.7.0rc1] - 2026-10-31
+
+A load reports where its time went, so that an extension can see why the first card is slow on
+some machine. Additive only: no change to the contract between the frames (`PROTOCOL_VERSION`
+stays 1), nothing in the public surface breaks, and the released models are unchanged.
+
+### Added
+
+- `loadRelease` reports where a load's time went (`LoadedRelease.timings`, `LoadTimings` and
+  `ModelLoadTimings`; `Embedder.setup` and `Detector.setup`, of type `SessionSetup`; all
+  exported from `browser/src/index.ts`): the release's files, then each
+  model's session create, first run and total, in whole ms. The worker passes it on in the
+  release status (`release.loadTimings`, optional), so an extension can read it in the compute
+  frame (`frame.core?.status().release?.loadTimings`) and see why the first card is slow on some
+  machine. Measured only; nothing decides on it, and nothing in it leaves the compute frame.
+
 ## [0.6.2] - 2026-10-31
 
 The first analysis after a release loads gets 15 s before it is given up on. No change to the
@@ -863,7 +879,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc1...HEAD
+[0.7.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0rc1
 [0.6.2]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.5.1...v0.6.0

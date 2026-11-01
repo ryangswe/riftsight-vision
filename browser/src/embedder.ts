@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The recognizer's model: preprocessed crops in, one embedding per crop out.
 
-import { createSession, float32Tensor, type InferenceSession } from "./ort.js";
+import { createSession, float32Tensor, type InferenceSession, type SessionSetup } from "./ort.js";
 import type { ExecutionProvider } from "./providers.js";
 
 /**
@@ -58,6 +58,8 @@ export class Embedder implements BatchEmbedder {
     /** The execution provider that initialized. */
     readonly ep: ExecutionProvider,
     private readonly settings: EmbedderSettings,
+    /** How long the session took to create and to run once, on `ep`. */
+    readonly setup: SessionSetup,
   ) {}
 
   /**
@@ -71,7 +73,7 @@ export class Embedder implements BatchEmbedder {
       const out = await session.run({ [settings.inputName]: float32Tensor(new Float32Array(3 * n * n), [1, 3, n, n]) });
       return out[settings.outputName]?.data.length === settings.dim;
     });
-    return opened ? new Embedder(opened.session, opened.ep, settings) : null;
+    return opened ? new Embedder(opened.session, opened.ep, settings, { createMs: opened.createMs, firstRunMs: opened.firstRunMs }) : null;
   }
 
   /** Embed `n` preprocessed crops (concatenated channel-first tensors). The model normalizes

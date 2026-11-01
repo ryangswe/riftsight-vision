@@ -16,7 +16,8 @@
 //
 // The modules behind them are exported too, for callers that want one step on its own.
 
-export { analyzeFrame, type LoadedRelease, type LoadOptions, type LoadProgress, loadRelease, ReleaseError } from "./load.js";
+export { analyzeFrame, type LoadedRelease, type LoadOptions, type LoadProgress, type LoadTimings, loadRelease, type ModelLoadTimings, ReleaseError } from "./load.js";
+export type { SessionSetup } from "./ort.js";
 export { type ClientBox, createSession, type Session, type SessionOptions, type SessionStatus, type Shown } from "./session.js";
 export { type BoxResult, type FaceResult, type FrameAnalysis, hoverAt, hoverCardsOf, Pipeline, type PipelineOptions } from "./pipeline.js";
 

@@ -189,6 +189,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
             hoverMaxAgeMs: r.hover.maxAgeMs,
             analysisWidth: r.runtime.analysisWidth,
             ortWeb: r.runtime.ortWeb,
+            ...(result.timings ? { loadTimings: result.timings } : {}),
           },
           cards: result.cards,
         });

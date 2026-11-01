@@ -7,6 +7,7 @@
 // `files`) is read from them, and nothing is fetched for it.
 
 import type { IdentityRule } from "./identity.js";
+import type { LoadTimings } from "./load.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { ExecutionProvider } from "./providers.js";
 import type { AcceptRule } from "./recognizer.js";
@@ -53,6 +54,9 @@ export interface ReleaseStatus {
     hoverMaxAgeMs: number;
     analysisWidth: { min: number; max: number };
     ortWeb: string;
+    /** Where the load's time went, in whole ms (`LoadTimings` in load.ts). Measured, never
+     *  used to decide anything; absent from a worker older than 0.7.0. */
+    loadTimings?: LoadTimings;
   } | null;
   /** Card id to name and image path (null for a card without art), from the release's catalog;
    *  empty when none loaded. */

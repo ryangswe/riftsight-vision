@@ -35,7 +35,15 @@ export function takeSessionFailures(): string[] {
   return taken;
 }
 
-export interface OpenSession {
+/** How long a model took to become ready on the provider that worked, in ms: creating its
+ *  session, then its first run (the warm-up check, which also pays one-off allocation and, on
+ *  WebGPU, shader compilation). Providers tried before it and failed are not counted here. */
+export interface SessionSetup {
+  createMs: number;
+  firstRunMs: number;
+}
+
+export interface OpenSession extends SessionSetup {
   session: ort.InferenceSession;
   /** The execution provider that initialized. */
   ep: ExecutionProvider;
@@ -54,8 +62,10 @@ export async function createSession(
   for (const ep of providers) {
     let session: ort.InferenceSession | null = null;
     try {
+      const created = performance.now();
       session = await ort.InferenceSession.create(modelBytes.slice().buffer, { executionProviders: [ep] });
-      if (await check(session)) return { session, ep };
+      const checked = performance.now();
+      if (await check(session)) return { session, ep, createMs: checked - created, firstRunMs: performance.now() - checked };
       failures.push(`${ep}: the model does not have the inputs and outputs the release describes`);
     } catch (error) {
       // This provider cannot run the model here: note why, and try the next one.

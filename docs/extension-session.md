@@ -275,6 +275,26 @@ loading restarts once on the bundled release.
 skip-list and the log reasons. While the release is chosen there is no session: messages are
 dropped and a picture is closed.
 
+### Where a load's time goes
+
+Once a release loads, the session's status says where the time went:
+`frame.core?.status().release?.loadTimings` in the compute frame (`LoadTimings` in
+`browser/src/load.ts`, whole ms). It holds:
+
+- `startedAtMs`: when the load began on the worker's clock, so it counts loading the worker's
+  script and ONNX Runtime's module;
+- `filesMs`: fetching, checking and reading the release's files (for a remote release, whose
+  files `chooseRelease` downloaded before, only the checks and reads);
+- `recognizer` and `detector`: each model's session create, first run and total, the total
+  counting any provider tried before that failed;
+- `totalMs`: the whole load.
+
+ONNX Runtime starts a backend on the first session created on it. The recognizer is prepared
+first, so that time is in its `createMs`, or in its `totalMs` when a provider before failed.
+A first run pays one-off allocation and, on WebGPU, shader compilation, so on a slow machine it
+can take many times longer than the runs after it. It is measured only, never used to decide
+anything, and nothing in it leaves the compute frame. A worker older than 0.7.0 leaves it out.
+
 ## What each side must do
 
 - **The driver tick.** Nothing in the compute frame runs on its own. Call `tick()` every
