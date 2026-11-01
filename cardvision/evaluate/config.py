@@ -31,7 +31,7 @@ from cardvision.detect import MAX_DETECTIONS, NMS_IOU, PAD_VALUE, SCORE_THRESHOL
 from cardvision.evaluate.hover import ACCEPTED_NMS, ACCEPTED_NMS_IOU, SELECTIONS
 from cardvision.infer.frames import MAX_ANALYSIS_WIDTH, MIN_ANALYSIS_WIDTH
 from cardvision.infer.pipeline import Pipeline
-from cardvision.recognize import AcceptRule, Recognizer, load_accept, parse_accept
+from cardvision.recognize import AcceptRule, Recognizer, TiltedRetry, load_accept, parse_accept, parse_tilted_retry
 
 
 def file_sha256(path: str | Path) -> str:
@@ -58,6 +58,10 @@ class Spec:
     (``cardvision.geometric``). It is not part of a release: it is added to whatever the rest
     of the spec describes, and recorded, with the descriptor index it pins, beside the other
     files. Without it nothing about the configuration changes.
+
+    ``tilted`` is a release's ``tiltedRetry`` block, read: with it the recognizer gives the
+    tilted retry to every face it does not accept (``cardvision.recognize.tilt``). It is a
+    setting, so it stays when files are replaced.
     """
 
     detector: Path
@@ -79,6 +83,7 @@ class Spec:
     release: Path | None = None
     release_id: str | None = None
     geometric: Path | None = None
+    tilted: TiltedRetry | None = None
 
     def replacing(
         self,
@@ -145,7 +150,7 @@ def spec_from_release(path: str | Path) -> Spec:
     computed. A release whose settings this package's reference pipeline cannot follow is
     refused.
     """
-    from cardvision.bank.release import verify_release
+    from cardvision.bank.release import TILTED_RETRY, verify_release
 
     path = Path(path)
     doc = verify_release(path)
@@ -175,6 +180,7 @@ def spec_from_release(path: str | Path) -> Spec:
         identity_groups=root / doc["identity"]["groups"]["path"],
         release=path,
         release_id=doc["id"],
+        tilted=parse_tilted_retry(doc[TILTED_RETRY], f"{path.name}: tiltedRetry") if TILTED_RETRY in doc else None,
     )
 
 
@@ -249,6 +255,9 @@ class Configuration:
 
             described["geometric"] = {**stage.config.to_json(), "opencv": cv2_module().__version__,
                                       "indexOpencv": stage.index.doc.get("opencv")}
+        tilted = self.pipeline.recognizer.tilted
+        if tilted is not None:
+            described["tiltedRetry"] = tilted.to_json()
         return described
 
 
@@ -309,7 +318,7 @@ def open_configuration(spec: Spec) -> Configuration:
     detector = Detector.open(spec.detector, threshold=spec.threshold, nms_iou=spec.nms_iou,
                              max_detections=spec.max_detections, pad=spec.pad)
     recognizer = Recognizer.open(spec.recognizer, spec.bank, catalog, spec.rule, contract=spec.contract,
-                                 geometric=stage, identities=identities)
+                                 geometric=stage, identities=identities, tilted=spec.tilted)
     pipeline = Pipeline(detector, recognizer, min_width=spec.min_width, max_width=spec.max_width,
                         min_crop_px=spec.min_crop_px)
     return Configuration(spec=spec, pipeline=pipeline, catalog=catalog, files=files)

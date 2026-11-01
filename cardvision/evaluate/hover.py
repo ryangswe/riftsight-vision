@@ -60,6 +60,8 @@ class Proposal:
         name: the card's name when accepted, else ``None``.
         card_id: the matched printing when accepted, else ``None``.
         top_name: the best bank row's name, accepted or not.
+        tilted: whether a rectangle of the tilted retry named the card. Such a face enters the
+            suppression with the turned looks, whatever its look.
     """
 
     box: Box
@@ -71,6 +73,7 @@ class Proposal:
     name: str | None
     card_id: str | None = None
     top_name: str | None = None
+    tilted: bool = False
 
 
 def proposals_of(result: FrameResult) -> list[Proposal]:
@@ -80,7 +83,8 @@ def proposals_of(result: FrameResult) -> list[Proposal]:
         found = card.recognition
         out.append(Proposal(box=tuple(card.box), detector_score=card.score, similarity=found.similarity,
                             look=found.look, tau_passed=found.tau_passed, accepted=found.accepted,
-                            name=found.name, card_id=found.card_id, top_name=found.top_name))
+                            name=found.name, card_id=found.card_id, top_name=found.top_name,
+                            tilted=found.named_by_tilt))
     return out
 
 
@@ -97,8 +101,8 @@ def box_iou(a: Box, b: Box) -> float:
 def kept_after_nms(proposals: Sequence[Proposal], iou: float = ACCEPTED_NMS_IOU) -> list[int]:
     """The members of the ``accepted-nms`` selection, as indices into ``proposals``, in the
     order they were kept."""
-    upright = [i for i, p in enumerate(proposals) if p.tau_passed and p.look == 0]
-    turned = [i for i, p in enumerate(proposals) if p.tau_passed and p.look != 0]
+    upright = [i for i, p in enumerate(proposals) if p.tau_passed and p.look == 0 and not p.tilted]
+    turned = [i for i, p in enumerate(proposals) if p.tau_passed and (p.look != 0 or p.tilted)]
     kept: list[int] = []
     for i in sorted(upright + turned, key=lambda i: -proposals[i].similarity):  # stable
         if all(box_iou(proposals[i].box, proposals[k].box) < iou for k in kept):

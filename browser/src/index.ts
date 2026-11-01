@@ -19,7 +19,7 @@
 export { analyzeFrame, type LoadedRelease, type LoadOptions, type LoadProgress, type LoadTimings, loadRelease, type ModelLoadTimings, ReleaseError } from "./load.js";
 export type { SessionSetup } from "./ort.js";
 export { type ClientBox, createSession, type Session, type SessionOptions, type SessionStatus, type Shown } from "./session.js";
-export { type BoxResult, type FaceResult, type FrameAnalysis, hoverAt, hoverCardsOf, Pipeline, type PipelineOptions } from "./pipeline.js";
+export { type AnalyzeOptions, type BoxResult, type FaceResult, type FrameAnalysis, hoverAt, hoverCardsOf, Pipeline, type PipelineOptions } from "./pipeline.js";
 
 export { type AABB, type Candidate, iou, nonMaxSuppression, type Rect } from "./boxes.js";
 export { type EmbeddingBank, parseBank } from "./bank.js";
@@ -33,10 +33,11 @@ export { type AnalysisState, FrameScheduler, HOVER_MAX_AGE_MS, replyRejection } 
 export { computeCardQuad, type LayerCard, type NormalizedBounds, pointInConvexQuad, resolveHoveredCard } from "./hover-geometry.js";
 export { HOVER_SELECTIONS, type HoverOutcome, type HoverSelection, hoverOrder, resolveHover, selectHoverLayer } from "./hover-layer.js";
 export { type IdentityDisplay, type IdentityGroups, IdentityMap, type IdentityRule, parseIdentityGroups } from "./identity.js";
-export type { FrameEnvelope, FrameResult, ReleaseProgress, ReleaseStatus, WorkerReply, WorkerRequest } from "./messages.js";
+export type { FrameEnvelope, FrameResult, ReleaseProgress, ReleaseStatus, TiltedStatus, WorkerReply, WorkerRequest } from "./messages.js";
 export { boxAverageRgb, PREPROCESSING, type PreprocessingContract, rotateTensor90, toContractTensor } from "./preprocess.js";
 export { EXECUTION_PROVIDERS, type ExecutionProvider } from "./providers.js";
-export { chooseLook, cropRgba, lookAccepted, recognizeFrame, type ScoredFrame, type ScoredProposal } from "./recognition.js";
+export { chooseLook, cropRgba, lookAccepted, recognizeFrame, type ScoredFrame, type ScoredProposal, type TiltedEvidence, type TiltedRun, tiltedOrder } from "./recognition.js";
+export { DEFAULT_TILTED_RETRY, estimateTilt, rectFromAabb, sampleRect, tiltedRects, type TiltedRetrySettings } from "./tilt.js";
 export { type AcceptRule, DEFAULT_ACCEPT, EmbeddingRecognizer, type ScoredMatch } from "./recognizer.js";
 export { type CatalogCard, loadReleaseData, parseRelease, type ReleaseData, type VisionRelease } from "./release.js";
 export { resizeBilinearRgb } from "./resize.js";

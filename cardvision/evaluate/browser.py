@@ -475,6 +475,7 @@ class BrowserConfiguration:
             "identity": self.catalog.identity_description,
             "accept": {"tau": release["accept"]["tau"], "delta": release["accept"]["delta"],
                        "rotationRetry": release["accept"]["rotationRetry"]},
+            **({"tiltedRetry": dict(release["tiltedRetry"])} if isinstance(release.get("tiltedRetry"), dict) else {}),
             "hover": {"selection": selection,
                       **({"nmsIou": release["hover"].get("nmsIou", ACCEPTED_NMS_IOU)} if selection == ACCEPTED_NMS else {})},
             "detector": {"threshold": detector["threshold"], "nmsIou": detector["nmsIou"],

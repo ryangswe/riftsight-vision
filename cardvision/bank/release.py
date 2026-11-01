@@ -39,7 +39,10 @@ Shape
      "accept":     {"tau": 0.62, "delta": 0.05, "rotationRetry": true},
      "hover":      {"selection": "accepted-nms", "maxAgeMs": 2000},
      "runtime":    {"ortWeb": "1.29.0", "executionProviders": ["webgpu", "wasm"],
-                    "wasmThreads": 1, "analysisWidth": {"min": 720, "max": 1920}}}
+                    "wasmThreads": 1, "analysisWidth": {"min": 720, "max": 1920}},
+     "tiltedRetry": {"scales": [0.95, 1.0, 1.05], "maxFacesPerFrame": 8, "budgetMs": 1500}}
+
+``tiltedRetry`` is the one optional block.
 
 ``detector``
     ``arm`` names the detector family, which fixes how its raw output becomes boxes; ``decode``
@@ -79,6 +82,13 @@ Shape
     What the in-browser runtime was measured on: the ``onnxruntime-web`` version, the
     execution providers to try in order, the WebAssembly thread count, and the range of
     widths, in pixels, of the frame handed to the detector.
+``tiltedRetry``
+    Optional. When present, a face crop that is still not accepted after the turned looks gets
+    the tilted retry (``cardvision.recognize.tilt``): ``scales`` are the sizes of the
+    straightened rectangles, tried in that order; ``maxFacesPerFrame`` caps how many faces of a
+    frame the browser runtime retries; ``budgetMs`` is how much of a frame the retry may take,
+    on two frames in a row, before the browser runtime turns it off for the session. Without
+    the block the retry is off, and a runtime that predates it refuses the document.
 
 The id
 ------
@@ -114,6 +124,7 @@ from cardvision.core.catalog import IDENTITY_NAME, IDENTITY_RULES, CatalogError,
 from cardvision.core.constants import DETECTOR_FACE_CLASS, DETECTOR_MIN_CROP_PX, DETECTOR_PARITY_SCORE_FLOOR
 from cardvision.core.preprocess import FULL128
 from cardvision.recognize.accept import ACCEPT_KEYS, AcceptRule, accept_errors
+from cardvision.recognize.tilt import TiltedRetry, tilted_retry_errors
 
 RELEASE_SCHEMA_VERSION = 1
 RELEASE_KIND = "vision-release"
@@ -128,8 +139,9 @@ EXECUTION_PROVIDERS = ("webgpu", "wasm")
 YOLOX_STRIDES = (8, 16, 32)
 
 _TOP_KEYS = ("schemaVersion", "kind", "id", "game", "locale", "detector", "recognizer", "bank", "identity",
-             "catalog", "accept", "hover", "runtime")
-_SETTINGS_KEYS = ("detector", "recognizer", "identity", "hover", "runtime")
+             "catalog", "accept", "hover", "runtime", "tiltedRetry")
+_SETTINGS_KEYS = ("detector", "recognizer", "identity", "hover", "runtime", "tiltedRetry")
+TILTED_RETRY = "tiltedRetry"  # the optional block
 _SEAL_KEYS = ("path", "sha256", "bytes")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
@@ -546,6 +558,8 @@ def release_errors(doc: Any, root: str | Path) -> list[str]:
     # -- the accept rule, the hover rule, the runtime
     accept = doc["accept"]
     errors += accept_errors(accept)
+    if TILTED_RETRY in doc:
+        errors += tilted_retry_errors(doc[TILTED_RETRY])
     hover = doc["hover"]
     if hover.get("selection") not in HOVER_SELECTIONS:
         errors.append(f"hover.selection {hover.get('selection')!r} is not one of {list(HOVER_SELECTIONS)}")
@@ -734,7 +748,8 @@ def compose_release(
     ``recognizer_version`` to the bank's ``model``. ``settings`` overrides parts of the default
     ``detector``, ``recognizer``, ``identity``, ``hover`` and ``runtime`` blocks (see
     ``default_settings``); tensor names, the detector's input size and the embedding size are
-    read from the models unless it sets them.
+    read from the models unless it sets them. A ``tiltedRetry`` key in ``settings`` turns the
+    tilted retry on: its keys override the defaults (``TiltedRetry``), so ``{}`` gives them all.
     """
     root = Path(out).parent
     settings = _settings(settings)
@@ -806,6 +821,7 @@ def compose_release(
         "accept": {key: accept.get(key) for key in ACCEPT_KEYS} if isinstance(accept, Mapping) else accept,
         "hover": _merge(defaults["hover"], settings.get("hover", {})),
         "runtime": _merge(defaults["runtime"], settings.get("runtime", {})),
+        **({TILTED_RETRY: _merge(TiltedRetry().to_json(), settings[TILTED_RETRY])} if TILTED_RETRY in settings else {}),
     })
 
 

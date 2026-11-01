@@ -11,6 +11,7 @@ import type { LoadTimings } from "./load.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { ExecutionProvider } from "./providers.js";
 import type { AcceptRule } from "./recognizer.js";
+import type { TiltedRetrySettings } from "./tilt.js";
 
 /**
  * What a frame request was taken from. The worker echoes it unchanged on the reply and never
@@ -57,6 +58,9 @@ export interface ReleaseStatus {
     /** Where the load's time went, in whole ms (`LoadTimings` in load.ts). Measured, never
      *  used to decide anything; absent from a worker older than 0.7.0. */
     loadTimings?: LoadTimings;
+    /** The release's tilted retry settings, or null when it does not turn the retry on; absent
+     *  from a worker older than 0.8.0. */
+    tiltedRetry?: TiltedRetrySettings | null;
   } | null;
   /** Card id to name and image path (null for a card without art), from the release's catalog;
    *  empty when none loaded. */
@@ -114,6 +118,9 @@ export type WorkerRequest =
       /** False turns the geometric watchdog off (default: on). For a scoring run, which measures
        *  the stage on every frame and times it separately; a session that shows cards keeps it. */
       geometricWatchdog?: boolean;
+      /** False turns the tilted retry's watchdog off (default: on), as `geometricWatchdog` does
+       *  for the stage. */
+      tiltedWatchdog?: boolean;
     }
   | {
       kind: "frame";
@@ -122,6 +129,11 @@ export type WorkerRequest =
       /** Time of the picture in the video, in seconds. */
       videoTimeSec: number;
       envelope: FrameEnvelope;
+      /** False skips the release's tilted retry on this frame (default: it runs). */
+      tilted?: boolean;
+      /** A point in the analyzed frame's pixels, such as the pointer: the tilted retry takes the
+       *  faces whose box holds it first. */
+      focus?: { x: number; y: number } | null;
     };
 
 /** A frame result's `error` when the frame arrived while another was still being analyzed. */
@@ -169,4 +181,13 @@ export interface ReleaseProgress {
   bytes: number | null;
 }
 
-export type WorkerReply = { kind: "pong" } | ReleaseStatus | ReleaseProgress | FrameResult | GeometricStatus;
+/** The tilted retry was turned off for the rest of the session: it failed during a frame (that
+ *  frame was answered without it), or the watchdog found it over the release's `budgetMs` of a
+ *  frame on two frames in a row. Sent once. */
+export interface TiltedStatus {
+  kind: "tilted-status";
+  state: "off";
+  reason: string;
+}
+
+export type WorkerReply = { kind: "pong" } | ReleaseStatus | ReleaseProgress | FrameResult | GeometricStatus | TiltedStatus;

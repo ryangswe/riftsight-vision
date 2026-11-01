@@ -77,7 +77,9 @@ is optional or belongs to one runtime.
    Saying nothing is a normal result: a wrong name is treated as worse than a missing one.
 7. **The rotation retry.** The upright look is tried, and when it is accepted the turned
    looks are never computed. Otherwise the three quarter turns are computed and all four
-   compete.
+   compete. A release may add the **tilted retry** for a crop still not accepted: the card's
+   tilt is estimated from the crop's edges and three straightened rectangles get one look
+   each. It is off unless the release turns it on.
 8. **The optional geometric stage** is off unless you ask for it. It matches keypoints of the
    crop with those of the recognizer's top candidates, fuses the result with the cosine, and
    sends the fused scores through the same accept rule.
@@ -376,6 +378,52 @@ is known to be upright.
 
 In the output, `look` is the orientation that was used (0 upright, `k` for `k` quarter turns
 counter-clockwise) and `retried` says whether the turned looks were computed.
+
+### The tilted retry
+
+Module: `cardvision/recognize/tilt.py` (browser: `browser/src/tilt.ts`).
+
+A detector box is axis-aligned. When the card in it is turned by a few degrees, the crop holds
+the card at that angle and the corners of whatever lies around it, and its look may fall short
+of the accept rule. The tilted retry gives such a crop a second chance. It is off unless the
+release has a `tiltedRetry` block, and it never touches a crop that is already accepted.
+
+1. **The tilt.** The crop is shrunk to at most 128 pixels a side, turned grey and
+   differentiated with a 3 × 3 Sobel filter. In the outer fifth of the crop, where the card's
+   outline lies, the strongest quarter of the gradients vote for their direction modulo 90
+   degrees, each weighted by its strength. The votes are smoothed and the peak, refined by a
+   parabola, is the tilt, between -45 and 45 degrees. A card turned by a quarter gives the
+   same tilt as an upright one; the look settles the quarter turn.
+2. **The rectangles.** The card's sides are solved from the box's width and height and the
+   tilt. Near 45 degrees, or when the solve gives a shape unlike a card, a card in the
+   proportions 63 × 88, upright or sideways, is fitted to the box instead. Rectangles at 0.95,
+   1.0 and 1.05 times that size, centered on the box and turned by the tilt, are sampled from
+   the frame (bilinear, black outside it) and go through the recognizer's own preprocessing.
+3. **One look each.** Each rectangle is looked at in the orientation of the crop's best look,
+   the one with the highest score among those computed. That is three more model runs per
+   crop.
+4. **The decision.** A rectangle counts only if its look passes the same accept rule. If one
+   or more pass, the one with the highest score names the card, the earlier scale in the list
+   winning a tie; if none does, the crop keeps its answer. A crop named this way enters the second
+   suppression with the turned looks.
+
+It runs after the geometric stage, if any, on what that stage left unaccepted. The tracker
+still pools the crop's own look.
+
+In the output a crop the retry was tried on carries `tilted`: the estimated `tilt`, the
+`scale` of the rectangle that named the card (or null), and the answer `before` the retry.
+`cardvision evaluate crops` counts named crops by look, with the tilted retry apart.
+
+The block's `maxFacesPerFrame` (8 by default) caps how many crops of one frame the browser
+runtime retries, those under the pointer first when the page passes it as `focus`. `budgetMs`
+(1500 by default) is how long the retry may take of a frame: over it on two frames in a row,
+the browser runtime turns the retry off for the session and reports why (`tilted-status`). The
+Python tools retry every crop and keep no budget, so on a frame with more unaccepted crops than
+the cap they count retries the browser runtime does not make. A crop of a card that is exactly upright
+reads a tilt of +0.5 degree: the votes are counted in one-degree bins centered on half degrees.
+
+The threshold search (`cardvision calibrate`) refuses a release with the retry, because the
+retry needs the frame and the search works on looks alone.
 
 ## 9. The hover rule
 
@@ -687,7 +735,11 @@ only mean something together. Accuracy is measured for one exact combination. A 
 names the combination: one JSON document that points at each file with its SHA-256 and size,
 and writes down every setting that is not a file (the detector's decode, the crop
 preprocessing, the accept rule, the hover rule, the runtime settings). Its `id` is the first
-16 hex digits of the SHA-256 of its own content.
+16 hex digits of the SHA-256 of its own content. One block is optional: `tiltedRetry` turns on
+the tilted retry ([its section](#the-tilted-retry)). `cardvision build-release` writes it when
+the `--settings` file has a `tiltedRetry` key; the keys it gives replace the defaults, so
+`{"tiltedRetry": {}}` gives all of them. A runtime older than 0.8.0 refuses a release with the
+block, rather than run it without the retry.
 
 A release is all or nothing. `cardvision verify-release` returns every reason a release
 cannot be used, and any reason at all means it must not be. There is no partial load and no

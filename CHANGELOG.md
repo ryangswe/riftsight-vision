@@ -9,6 +9,53 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.8.0rc1] - 2026-11-01
+
+A release may turn on the **tilted retry**: a face crop that is still not accepted after the
+turned looks (and after the geometric stage, if any) gets its card's tilt estimated from the
+crop's edges, and three straightened rectangles of the frame get one look each. It is off
+unless a release document has the new optional `tiltedRetry` block, so a release without it
+behaves exactly as before. The accept rule is unchanged, and no model or weight changes. The
+contract's `PROTOCOL_VERSION` stays 1. The released models are unchanged: release
+`201478a00d6ef6ba`, which does not turn the retry on.
+
+### Added
+
+- `cardvision.recognize.tilt` (Python) and `browser/src/tilt.ts`: `estimate_tilt` /
+  `estimateTilt`, `rect_from_aabb` / `rectFromAabb`, `sample_rect` / `sampleRect`, and the
+  release block's settings, `TiltedRetry` / `TiltedRetrySettings` (`scales`, default 0.95, 1.0
+  and 1.05; `maxFacesPerFrame`, default 8; `budgetMs`, default 1500). The two sides do the same
+  arithmetic, including a gradient's direction taken in 64 bits and rounded to 32 (NumPy's
+  32-bit arctangent is not correctly rounded on every platform), and give the same tilt and the
+  same rectangles to the byte; the browser's tests check them against the Python package's
+  answers (the `tilt` section of `browser/test/fixtures/contract.json`).
+- The release document's optional `tiltedRetry` block, checked by `verify-release` and by the
+  browser runtime, and written by `build-release` from a `tiltedRetry` key in its `--settings`
+  file. A runtime older than 0.8.0 refuses a release that has the block.
+- `Recognizer(..., tilted=)` and `Recognizer.recognize(crops, frame=, boxes=, tilted=)`: with
+  the frame and the boxes the crops were cut from, every crop still not accepted gets the
+  retry; `tilted=False` skips it for one call. `Recognition.tilted` (`TiltedOutcome`: the tilt,
+  the scale that named the card or none, and the answer before) and
+  `Recognition.named_by_tilt`. `Pipeline.analyze(..., tilted=)` passes the analysis frame
+  and the boxes. `cardvision infer` prints `tilted` for a face it was tried on.
+- In the browser: `Pipeline.analyze(frame, time, { tilted, focus })` (`AnalyzeOptions`), the
+  frame request's `tilted` and `focus`, `FaceResult.tilted`, `timings.tiltedMs`,
+  `ScoredProposal.tilted`, `tiltedOrder`, the release status's `release.tiltedRetry`, the
+  worker's `tilted-status` reply (`TiltedStatus`) when it turns the retry off for the session
+  (a failure during a frame, or over `budgetMs` on two frames in a row), the load request's
+  `tiltedWatchdog`, and the session status's `tilted`. The session passes no focus yet. The
+  scoring page turns the retry's watchdog off, and stops a run if the retry fails.
+- Evaluation: `cardvision evaluate crops` counts named crops by look, with the tilted retry
+  apart (`byLook`, and a line in the report); a crop's listing line and an evidence file's
+  faces carry `tilted`; a face a rectangle named enters the `accepted-nms` suppression with
+  the turned looks.
+
+### Changed
+
+- `Recognizer.looks` and `Recognizer.decide`, and so `cardvision calibrate`, refuse a
+  recognizer with the tilted retry, as they refuse one with the geometric stage: the retry
+  needs the frame.
+
 ## [0.7.0] - 2026-10-31
 
 A release load reports where its time went, so that an extension can see why the first card is
@@ -927,7 +974,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0rc1...HEAD
+[0.8.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...v0.8.0rc1
 [0.7.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0
 [0.7.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc1...v0.7.0rc2
 [0.7.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0rc1

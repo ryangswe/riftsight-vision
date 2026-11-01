@@ -16,6 +16,7 @@ from cardvision.core.catalog import Catalog
 from cardvision.core.onnx import DEFAULT_PROVIDERS, Preprocess, create_session, output_width, run_batched
 from cardvision.core.preprocess import CONTRACTS, FULL128, preprocessor, rot4
 from cardvision.recognize.accept import NAMED, NOTHING, AcceptRule, Choice, choose_look
+from cardvision.recognize.crops import Box
 from cardvision.recognize.looks import (
     NO_OTHER_IDENTITY,
     Look,
@@ -26,6 +27,7 @@ from cardvision.recognize.looks import (
     score_look,
     similarities,
 )
+from cardvision.recognize.tilt import TiltedOutcome, TiltedRetry, tilted_rects
 
 if TYPE_CHECKING:
     import onnxruntime as ort
@@ -67,6 +69,10 @@ class Recognition:
         geometric: with a geometric stage, what it found and what the answer was without it;
             ``None`` without one. With a stage, ``top_id``, ``similarity``, ``margin`` and the
             outcome are those of the fused scores, and ``rows`` and ``names`` are ranked by them.
+        tilted: with the tilted retry, on a crop it was tried on: the tilt, the rectangle that
+            named the card (or none), and the answer before it; ``None`` when it was not tried.
+            When a rectangle named the card, ``top_id``, ``similarity``, ``margin``, ``rows`` and
+            ``names`` are that rectangle's, and ``look`` is the look it was embedded at.
     """
 
     name: str | None
@@ -82,11 +88,17 @@ class Recognition:
     rows: tuple[Candidate, ...] = ()
     names: tuple[Candidate, ...] = ()
     geometric: GeometricOutcome | None = None
+    tilted: TiltedOutcome | None = None
 
     @property
     def outcome(self) -> str:
         """``"named"`` or ``"nothing"``."""
         return NAMED if self.accepted else NOTHING
+
+    @property
+    def named_by_tilt(self) -> bool:
+        """Whether one of the tilted retry's rectangles named the card."""
+        return self.tilted is not None and self.tilted.scale is not None
 
 
 def declared_contract(bank_doc: Mapping[str, Any]) -> str | None:
@@ -115,6 +127,10 @@ class Recognizer:
     each crop and the chosen look's ranking to the stage and decides on the fused scores
     (``_geometric_recognition``); ``looks`` and ``decide``, which serve the threshold search,
     refuse to run, because the stage needs the crop itself.
+
+    ``tilted`` turns on the tilted retry (``cardvision.recognize.tilt``) with a release's
+    ``tiltedRetry`` settings. It needs the frame, so it runs only when ``recognize`` is given the
+    frame and the boxes; ``looks`` and ``decide`` refuse to run with it.
     """
 
     def __init__(
@@ -127,6 +143,7 @@ class Recognizer:
         preprocess: Preprocess | None = None,
         identities: Mapping[str, str] | None = None,
         geometric: GeometricStage | None = None,
+        tilted: TiltedRetry | None = None,
     ) -> None:
         rows = np.asarray(rows, dtype=np.float32)
         if rows.ndim != 2 or len(rows) != len(ids) or len(ids) == 0:
@@ -145,6 +162,7 @@ class Recognizer:
         self._names = [names[card_id] for card_id in self.ids]
         self._bank_t = bank_transposed(rows)
         self.geometric = geometric
+        self.tilted = tilted
         self._columns: dict[str, list[int]] = {}
         for column, card_id in enumerate(self.ids):
             self._columns.setdefault(card_id, []).append(column)
@@ -161,6 +179,7 @@ class Recognizer:
         providers: Sequence[str] = DEFAULT_PROVIDERS,
         geometric: GeometricStage | None = None,
         identities: Mapping[str, str] | None = None,
+        tilted: TiltedRetry | None = None,
     ) -> Recognizer:
         """Open a recognizer from its ONNX file, its bank file and the game's catalog.
 
@@ -178,7 +197,8 @@ class Recognizer:
                 )
         session = create_session(model_path, providers=providers)
         identities = catalog.identities() if identities is None else {**catalog.identities(), **identities}
-        return cls(session, ids, rows, catalog.names(), rule, preprocessor(contract), identities, geometric=geometric)
+        return cls(session, ids, rows, catalog.names(), rule, preprocessor(contract), identities, geometric=geometric,
+                   tilted=tilted)
 
     def _candidate(self, column: int, row: np.ndarray) -> Candidate:
         return Candidate(card_id=self.ids[column], name=self._names[column], similarity=float(row[column]))
@@ -224,7 +244,9 @@ class Recognizer:
             names=names,
         )
 
-    def recognize(self, crops: Sequence[np.ndarray], source_type: str | None = None) -> list[Recognition]:
+    def recognize(self, crops: Sequence[np.ndarray], source_type: str | None = None, *,
+                  frame: np.ndarray | None = None, boxes: Sequence[Box] | None = None,
+                  tilted: bool = True) -> list[Recognition]:
         """One ``Recognition`` per ``(H, W, 3)`` uint8 RGB crop.
 
         ``source_type`` is the kind of footage the crops come from (a manifest's
@@ -237,9 +259,17 @@ class Recognizer:
         the orientation rule picks among the four (``cardvision.recognize.accept``). The turns
         are applied to the preprocessed tensor, not to the crop. A rule whose ``rotation_retry``
         is false skips the second batch: every crop is judged on its upright look alone.
+
+        With the tilted retry on (``self.tilted``), ``frame`` the ``(H, W, 3)`` uint8 RGB frame the
+        crops were cut from and ``boxes`` their unrounded ``(x, y, width, height)`` boxes in it,
+        every crop still not accepted after that is retried (``_tilted_retry``). ``tilted`` false
+        skips it for this call: a caller's own condition, such as the kind of footage. Without a
+        frame it does not run.
         """
         if len(crops) == 0:
             return []
+        if frame is not None and (boxes is None or len(boxes) != len(crops)):
+            raise ValueError("recognize: a frame needs one box per crop")
         tensors = [self.preprocess(crop) for crop in crops]
         upright_rows = similarities(run_batched(self.session, tensors), self._bank_t)
         uprights = [score_look(row, self.column_identity) for row in upright_rows]
@@ -259,7 +289,53 @@ class Recognizer:
                 results.append(self._recognition(choice, row))
             else:
                 results.append(self._geometric_recognition(choice, row, crops[i]))
+        if self.tilted is not None and tilted and frame is not None:
+            results = self._tilted_retry(results, crops, frame, boxes)
         return results
+
+    def _tilted_retry(self, results: list[Recognition], crops: Sequence[np.ndarray], frame: np.ndarray,
+                      boxes: Sequence[Box]) -> list[Recognition]:
+        """``results`` after the tilted retry of every crop that is not accepted.
+
+        Each such crop's straightened rectangles (``tilted_rects``) are embedded in one batch, each
+        at the crop's chosen look: the look with the highest score among those computed, which is
+        the look its recognition reports. A rectangle whose look the accept rule accepts may name
+        the card: the one with the highest score, the earlier scale on equal scores. A geometric
+        stage's findings stay on the recognition either way.
+        """
+        settings = self.tilted
+        assert settings is not None
+        which = [i for i, found in enumerate(results) if not found.accepted]
+        if not which:
+            return results
+        scales = settings.scales
+        tilts: dict[int, float] = {}
+        tensors = []
+        for i in which:
+            tilts[i], rects = tilted_rects(frame, boxes[i], crops[i], scales)
+            tensors.extend(rot4(self.preprocess(rect))[results[i].look] for rect in rects)
+        rows = similarities(run_batched(self.session, tensors), self._bank_t)
+        out = list(results)
+        for j, i in enumerate(which):
+            before = out[i]
+            best: tuple[int, Look, np.ndarray] | None = None
+            for q in range(len(scales)):
+                row = rows[j * len(scales) + q]
+                look = score_look(row, self.column_identity)
+                if self.rule.accepts(look) and (best is None or look.score > best[1].score):
+                    best = (q, look, row)
+            if best is None:
+                out[i] = dataclasses.replace(before, tilted=TiltedOutcome(
+                    tilt=tilts[i], scale=None, top_id=before.top_id, similarity=before.similarity,
+                    margin=before.margin))
+                continue
+            q, look, row = best
+            choice = Choice(orientation=before.look, look=look, retried=before.retried, tau_passed=True, accepted=True)
+            out[i] = dataclasses.replace(
+                self._recognition(choice, row), geometric=before.geometric,
+                tilted=TiltedOutcome(tilt=tilts[i], scale=scales[q], top_id=before.top_id,
+                                     similarity=before.similarity, margin=before.margin))
+        return out
 
     def _geometric_recognition(self, choice: Choice, row: np.ndarray, crop: np.ndarray) -> Recognition:
         """The ``Recognition`` of a crop when a geometric stage verifies its candidates.
@@ -340,3 +416,6 @@ class Recognizer:
         if self.geometric is not None:
             raise ValueError(f"Recognizer.{method} works on looks alone, and the geometric stage needs the crop: "
                              "use recognize, or a recognizer without the stage")
+        if self.tilted is not None:
+            raise ValueError(f"Recognizer.{method} works on looks alone, and the tilted retry needs the frame: "
+                             "use recognize, or a recognizer without the retry")
