@@ -116,6 +116,9 @@ export interface SessionStatus {
   /** The geometric stage's state as the worker last reported it, or off with the reason
    *  `worker-restarted` after a restart; null when none was asked for. */
   geometric?: { state: GeometricStatus["state"]; reason: string | null; bytes: number | null } | null;
+  /** The tilted retry: on when the release turns it on, off with the worker's reason once it is
+   *  turned off for the session; null when the release does not turn it on. */
+  tilted?: { state: "on" | "off"; reason: string | null } | null;
   /** While the release loads: downloading its files (`bytes`, their sum once known) or preparing
    *  the models. Null once it has loaded or failed, and before the worker has said. */
   loading?: { phase: "downloading" | "preparing"; bytes: number | null } | null;

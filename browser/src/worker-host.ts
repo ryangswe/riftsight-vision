@@ -7,7 +7,9 @@
 // analyzed without it, and joins between two frames. It stays off where WebGPU is missing and
 // when any part fails to load; it is turned off for the rest of the session when it fails
 // during a frame (that frame is answered without it), when its GPU device is lost, and when the
-// watchdog trips.
+// watchdog trips. The tilted retry comes with the release when its document turns it on, and is
+// turned off for the session in the same two ways: a failure during a frame, or its own watchdog
+// (the release's `budgetMs` of a frame, on two frames in a row).
 
 import { type GeometricStage, GeometricWatchdog } from "./geometric/stage.js";
 import type { LoadedRelease, LoadOptions } from "./load.js";
@@ -47,6 +49,8 @@ export interface WorkerHostDeps<D extends VoteDevice = GPUDevice> {
   readBitmap(bitmap: ImageBitmap): FramePixels | null;
   now?: () => number;
   watchdog?: GeometricWatchdog;
+  /** The tilted retry's watchdog; by default one over the release's `budgetMs`. */
+  tiltedWatchdog?: GeometricWatchdog;
 }
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -67,6 +71,18 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
   let geometricOff = false;
   /** Whether the watchdog may turn the stage off (the load request's `geometricWatchdog`). */
   let watchdogOn = true;
+  /** The tilted retry's watchdog, once a release that turns it on has loaded; whether it may
+   *  turn the retry off; and whether the retry is off for the session. */
+  let tiltedWatchdog: GeometricWatchdog | null = null;
+  let tiltedWatchdogOn = true;
+  let tiltedOff = false;
+
+  function turnTiltedOff(reason: string): void {
+    if (tiltedOff) return;
+    tiltedOff = true;
+    loaded?.pipeline.setTiltedRetry(null);
+    deps.post({ kind: "tilted-status", state: "off", reason });
+  }
 
   function geometricStatus(state: GeometricStatus["state"], reason: string | null = null, bytes: number | null = null, note: string | null = null): void {
     deps.post({ kind: "geometric-status", state, reason, bytes, ...(note !== null ? { note } : {}) });
@@ -138,6 +154,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
    *  watchdog turns it off when its share of a frame is too long twice in a row. */
   function watch(analysis: FrameAnalysis): void {
     if (!loaded) return;
+    watchTilted(analysis);
     const failure = loaded.pipeline.takeGeometricFailure();
     if (failure) {
       failure.stage.dispose();
@@ -151,6 +168,22 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
     }
   }
 
+  /** The tilted retry after each frame: off for the session when it failed during the frame, or
+   *  when its share of a frame is over the budget twice in a row. */
+  function watchTilted(analysis: FrameAnalysis): void {
+    if (!loaded || tiltedOff) return;
+    const failure = loaded.pipeline.takeTiltedFailure();
+    if (failure) {
+      turnTiltedOff(`runtime: ${message(failure.error)}`);
+      return;
+    }
+    const ms = analysis.timings.tiltedMs;
+    if (ms === undefined || !tiltedWatchdogOn || tiltedWatchdog === null) return;
+    if (tiltedWatchdog.observe(ms)) {
+      turnTiltedOff(`watchdog: the tilted retry took over ${tiltedWatchdog.limitMs} ms of a frame on ${tiltedWatchdog.frames} frames in a row`);
+    }
+  }
+
   function failed(error: string): ReleaseStatus {
     return { kind: "release-status", ok: false, error, release: null, cards: [] };
   }
@@ -159,6 +192,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
     if (loadStarted) return Promise.resolve();
     loadStarted = true;
     watchdogOn = request.geometricWatchdog !== false;
+    tiltedWatchdogOn = request.tiltedWatchdog !== false;
     const wasmPaths = request.wasmPaths ?? deps.wasmPaths;
     return deps
       .loadRelease(request.releaseUrl, {
@@ -170,6 +204,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
       .then(async (result) => {
         loaded = result;
         const r = result.release;
+        if (r.tiltedRetry) tiltedWatchdog = deps.tiltedWatchdog ?? new GeometricWatchdog(r.tiltedRetry.budgetMs);
         deps.post({
           kind: "release-status",
           ok: true,
@@ -190,6 +225,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
             analysisWidth: r.runtime.analysisWidth,
             ortWeb: r.runtime.ortWeb,
             ...(result.timings ? { loadTimings: result.timings } : {}),
+            tiltedRetry: r.tiltedRetry ? { ...r.tiltedRetry, scales: [...r.tiltedRetry.scales] } : null,
           },
           cards: result.cards,
         });
@@ -219,7 +255,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
   }
 
   async function frame(request: Extract<WorkerRequest, { kind: "frame" }>): Promise<void> {
-    const { bitmap, videoTimeSec, envelope } = request;
+    const { bitmap, videoTimeSec, envelope, tilted, focus } = request;
     const t0 = now();
     const { width, height } = bitmap;
     // Every frame gets an answer: the session waits for one before it sends the next.
@@ -240,7 +276,10 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
         fail("no-2d-context");
         return;
       }
-      const analysis = await loaded.pipeline.analyze({ data: image.data, width: image.width, height: image.height }, videoTimeSec);
+      const analysis = await loaded.pipeline.analyze({ data: image.data, width: image.width, height: image.height }, videoTimeSec, {
+        ...(tilted !== undefined ? { tilted } : {}),
+        ...(focus !== undefined ? { focus } : {}),
+      });
       watch(analysis);
       deps.post(frameResult(analysis, { envelope, videoTimeSec, width: image.width, height: image.height, t0 }));
     } catch (error) {

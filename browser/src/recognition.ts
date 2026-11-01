@@ -11,6 +11,7 @@ import { rotateTensor90, toContractTensor } from "./preprocess.js";
 import { evidenceToJson, fuseRow, type GeometricEvidence } from "./geometric/fusion.js";
 import type { GeometricStage, VerifyItem } from "./geometric/stage.js";
 import type { AcceptRule, EmbeddingRecognizer, ScoredMatch } from "./recognizer.js";
+import { tiltedRects, type TiltedRetrySettings } from "./tilt.js";
 
 /** Among boxes whose look reaches tau, one that overlaps a better one by this much is dropped. */
 export const ACCEPTED_NMS_IOU = 0.3;
@@ -118,6 +119,29 @@ export interface ScoredProposal {
    *  answered (Python: `GeometricOutcome.to_json`). The fields above are then the fused look's.
    *  Absent when no stage ran. */
   geometric?: GeometricEvidence;
+  /** With the tilted retry, on a face it was tried on: the tilt, the rectangle that named the
+   *  card (or none), and the answer before it. When a rectangle named the card, the fields above
+   *  are that rectangle's look and `orientation` is the look it was embedded at. Absent when the
+   *  retry was not tried. */
+  tilted?: TiltedEvidence;
+}
+
+/** What the tilted retry did with one face (Python: `TiltedOutcome.to_json`). */
+export interface TiltedEvidence {
+  /** The estimated tilt, in degrees. */
+  tilt: number;
+  /** The scale of the rectangle that named the card, or null when none passed. */
+  scale: number | null;
+  /** The face's answer before the retry. */
+  before: { topId: string; similarity: number; margin: number };
+}
+
+/** The tilted retry for one frame: the release's settings and, when known, a focus point. */
+export interface TiltedRun {
+  settings: TiltedRetrySettings;
+  /** A point in frame pixels, such as the pointer: the faces whose box holds it are retried
+   *  first, smallest box first, then the rest by their score. */
+  focus?: { x: number; y: number } | null;
 }
 
 /** One frame's recognition. */
@@ -139,6 +163,11 @@ export interface ScoredFrame {
   /** The stage's error when it failed on this frame. The frame is then answered exactly as
    *  without a stage, and the caller turns the stage off. */
   geometricError?: unknown;
+  /** With the tilted retry: its time on this frame, in ms. Absent without it, and when it failed. */
+  tiltedMs?: number;
+  /** The tilted retry's error when it failed on this frame. The frame is then answered as
+   *  without it, and the caller turns it off. */
+  tiltedError?: unknown;
 }
 
 /**
@@ -146,11 +175,13 @@ export interface ScoredFrame {
  * look is upright, in proposal order, then the ones whose chosen look is turned, in proposal
  * order. The suppression's sort is stable, so this order decides exact ties in score.
  */
-export function nmsPreOrder(looks: ReadonlyArray<{ tauPassed: boolean; orientation: number }>): number[] {
+export function nmsPreOrder(looks: ReadonlyArray<{ tauPassed: boolean; orientation: number; tilted?: TiltedEvidence }>): number[] {
   const upright: number[] = [];
   const turned: number[] = [];
   looks.forEach((l, i) => {
-    if (l.tauPassed) (l.orientation === 0 ? upright : turned).push(i);
+    // A face a tilted rectangle named enters with the turned looks, whatever its look.
+    const tiltedNamed = l.tilted !== undefined && l.tilted.scale !== null;
+    if (l.tauPassed) (l.orientation === 0 && !tiltedNamed ? upright : turned).push(i);
   });
   return [...upright, ...turned];
 }
@@ -192,6 +223,13 @@ export function keepAfterNms(
  * cosine looks are returned too (`base`): the tracker pools those, as it did before the stage.
  * When the stage throws, the frame is answered with the cosine looks alone, exactly as without
  * a stage, and the error is returned (`geometricError`).
+ *
+ * With `tilted`, every face still not accepted after that (at most the settings'
+ * `maxFacesPerFrame`, those under the focus point first) gets the tilted retry (tilt.ts,
+ * Python: `Recognizer._tilted_retry`): its straightened rectangles are embedded in one batch, each
+ * at the face's chosen look, and the passing one with the highest score names the face, the
+ * earlier scale on equal scores. The tracker still pools the cosine looks (`base`). When the
+ * retry throws, the frame is answered as without it and the error is returned (`tiltedError`).
  */
 export async function recognizeFrame(
   frame: Frame,
@@ -200,6 +238,7 @@ export async function recognizeFrame(
   faces: readonly Candidate[],
   minCropPx: number = DEFAULT_MIN_CROP_PX,
   stage: GeometricStage | null = null,
+  tilted: TiltedRun | null = null,
 ): Promise<ScoredFrame> {
   const contract = recognizer.preprocessing;
   const rule = recognizer.rule;
@@ -214,9 +253,9 @@ export async function recognizeFrame(
     if (width < minCropPx || height < minCropPx) continue;
     tensors.push(toContractTensor(rgba, width, height, contract));
     kept.push(face);
-    if (stage) crops.push(crop);
+    if (stage || tilted) crops.push(crop);
   }
-  if (kept.length === 0) return { proposals: [], kept: [], retried: 0, embeddings: 0, ...(stage ? { geometricMs: 0 } : {}) };
+  if (kept.length === 0) return { proposals: [], kept: [], retried: 0, embeddings: 0, ...(stage ? { geometricMs: 0 } : {}), ...(tilted ? { tiltedMs: 0 } : {}) };
 
   const plane = 3 * n * n;
   const batch = new Float32Array(kept.length * plane);
@@ -301,13 +340,66 @@ export async function recognizeFrame(
     }
   }
 
+  // The tilted retry, on the faces still not accepted, in one batch.
+  const tiltedLooks = new Map<number, { match: ScoredMatch | null; evidence: TiltedEvidence }>();
+  let tiltedMs: number | undefined;
+  let tiltedError: unknown;
+  let tiltedFailed = false;
+  let tiltedEmbeddings = 0;
+  if (tilted) {
+    try {
+      const t0 = performance.now();
+      const { scales, maxFacesPerFrame } = tilted.settings;
+      const current = (i: number): ScoredMatch => fusedLooks.get(i)?.match ?? choices[i]!.match;
+      const which = tiltedOrder(
+        kept.map((face, i) => ({ aabb: face.aabb, similarity: choices[i]!.match.similarity, accepted: lookAccepted(current(i), rule) })),
+        tilted.focus ?? null,
+      ).slice(0, maxFacesPerFrame);
+      if (which.length > 0) {
+        const tilts: number[] = [];
+        const batch = new Float32Array(which.length * scales.length * plane);
+        which.forEach((i, j) => {
+          const crop = crops[i]!;
+          const { tilt, rects } = tiltedRects(frame, kept[i]!.aabb, { data: crop.rgba, width: crop.width, height: crop.height }, scales);
+          tilts.push(tilt);
+          rects.forEach((rect, q) => {
+            const tensor = toContractTensor(rect.rgba, rect.width, rect.height, contract);
+            batch.set(rotateTensor90(tensor, choices[i]!.orientation, n), (j * scales.length + q) * plane);
+          });
+        });
+        tiltedEmbeddings = which.length * scales.length;
+        const rectEmbs = await embedder.embedBatch(batch, tiltedEmbeddings);
+        which.forEach((i, j) => {
+          const before = current(i);
+          let best: { q: number; match: ScoredMatch } | null = null;
+          for (let q = 0; q < scales.length; q++) {
+            const match = recognizer.matchScored(rectEmbs, (j * scales.length + q) * dim);
+            if (lookAccepted(match, rule) && (best === null || match.similarity > best.match.similarity)) best = { q, match };
+          }
+          tiltedLooks.set(i, {
+            match: best ? best.match : null,
+            evidence: { tilt: tilts[j]!, scale: best ? scales[best.q]! : null, before: { topId: before.topId, similarity: before.similarity, margin: before.margin } },
+          });
+        });
+      }
+      tiltedMs = performance.now() - t0;
+    } catch (error) {
+      tiltedFailed = true;
+      tiltedError = error;
+      tiltedLooks.clear();
+      tiltedEmbeddings = 0;
+      tiltedMs = undefined;
+    }
+  }
+
   const proposalsOf = (fused: boolean): ScoredProposal[] => {
     const scored: ScoredProposal[] = [];
     for (let i = 0; i < kept.length; i++) {
       const chosen = choices[i]!;
       const fusedLook = fused ? fusedLooks.get(i) : undefined;
+      const tiltedLook = fused ? tiltedLooks.get(i) : undefined;
       const { orientation, retried } = chosen;
-      const m = fusedLook ? fusedLook.match : chosen.match;
+      const m = tiltedLook?.match ?? (fusedLook ? fusedLook.match : chosen.match);
       const tauPassed = m.cardId !== null;
       // A look that reaches tau carries the chosen look's embedding (a fused look too, though
       // the tracker is given the cosine looks only: `base`).
@@ -331,21 +423,40 @@ export async function recognizeFrame(
         accepted: lookAccepted(m, rule),
         embedding,
         ...(fusedLook ? { geometric: fusedLook.geometric } : {}),
+        ...(tiltedLook ? { tilted: tiltedLook.evidence } : {}),
       });
     }
     return scored;
   };
 
   const scored = proposalsOf(true);
-  const ran = stage !== null && !failed;
+  const ran = (stage !== null && !failed) || (tilted !== null && !tiltedFailed);
   const base = ran ? proposalsOf(false) : null;
   return {
     proposals: scored,
     kept: keepAfterNms(scored, nmsPreOrder(scored)),
     retried: retry.length,
-    embeddings: kept.length + 3 * retry.length,
+    embeddings: kept.length + 3 * retry.length + tiltedEmbeddings,
     ...(geometricMs !== undefined ? { geometricMs } : {}),
+    ...(tiltedMs !== undefined ? { tiltedMs } : {}),
     ...(base ? { base: { proposals: base, kept: keepAfterNms(base, nmsPreOrder(base)) } } : {}),
     ...(failed ? { geometricError } : {}),
+    ...(tiltedFailed ? { tiltedError } : {}),
   };
+}
+
+/**
+ * The order in which the tilted retry takes the faces that are not accepted: those whose box
+ * holds `focus`, smallest box first, then the rest by their score (`similarity`, the chosen
+ * cosine look's), highest first; on equal keys, in proposal order. Returns indices.
+ */
+export function tiltedOrder(
+  faces: ReadonlyArray<{ aabb: AABB; similarity: number; accepted: boolean }>,
+  focus: { x: number; y: number } | null,
+): number[] {
+  const holds = (b: AABB): boolean => focus !== null && focus.x >= b.x && focus.x <= b.x + b.width && focus.y >= b.y && focus.y <= b.y + b.height;
+  const open = faces.map((_, i) => i).filter((i) => !faces[i]!.accepted);
+  const under = open.filter((i) => holds(faces[i]!.aabb)).sort((a, b) => faces[a]!.aabb.width * faces[a]!.aabb.height - faces[b]!.aabb.width * faces[b]!.aabb.height);
+  const rest = open.filter((i) => !holds(faces[i]!.aabb)).sort((a, b) => faces[b]!.similarity - faces[a]!.similarity);
+  return [...under, ...rest];
 }

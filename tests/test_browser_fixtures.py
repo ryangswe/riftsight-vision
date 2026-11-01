@@ -52,6 +52,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import re
 import shutil
 import sys
@@ -1009,7 +1010,64 @@ def build_contract() -> dict:
         "geometricIndex": section_geometric_index(),
         "geometricAppend": section_geometric_append(),
         "paths": section_paths(),
+        "tilt": section_tilt(),
     }
+
+
+# ----------------------------------------------------------------------------- the tilted retry
+TILT_CARD_SIZE = 301
+TILT_CARD = (126, 176)
+TILT_CARD_THETAS = (-40, -12, -2, 0, 3, 7, 33, 90, 107)
+TILT_NOISE = ((11, 40, 30), (12, 9, 9), (13, 7, 50), (14, 150, 90), (15, 300, 260))
+TILT_SAMPLE_FRAME = (21, 64, 48)
+# (cx, cy, width, height, tilt): inside the frame, half outside it, a half-pixel side, and none.
+TILT_SAMPLES = ((32.0, 24.0, 20.0, 12.0, 0.0), (30.3, 21.7, 18.4, 26.6, 7.3), (60.2, 5.1, 30.5, 22.5, -21.7),
+                (10.0, 40.0, 1.2, 2.5, 44.0), (-40.0, -40.0, 6.0, 4.0, 10.0))
+TILT_RECTS = ((100.0, 140.0, 0.0), (100.0, 140.0, 10.0), (140.0, 100.0, -8.0), (120.0, 130.0, 20.0), (130.0, 130.0, 40.0),
+              (90.0, 160.0, 3.0), (150.0, 150.0, 0.0), (211.0, 217.0, -39.629), (205.0, 173.0, 15.259))
+
+
+def tilt_card(theta: float) -> np.ndarray:
+    """A white card on black turned by ``theta`` degrees about the image's center, each pixel the
+    share of a 4 x 4 grid of its points inside the card, cropped to the pixels it touches."""
+    size, center = TILT_CARD_SIZE, TILT_CARD_SIZE / 2
+    c, s = math.cos(math.radians(theta)), math.sin(math.radians(theta))
+    offsets = (np.arange(4) + 0.5) / 4
+    xs = (np.arange(size)[:, None] + offsets[None, :]).ravel() - center
+    big_x, big_y = np.repeat(xs[None, :], size * 4, 0), np.repeat(xs[:, None], size * 4, 1)
+    u, v = big_x * c + big_y * s, -big_x * s + big_y * c
+    cover = ((np.abs(u) <= TILT_CARD[0] / 2) & (np.abs(v) <= TILT_CARD[1] / 2)).reshape(size, 4, size, 4).mean((1, 3))
+    image = np.repeat(np.floor(cover * 255 + 0.5)[..., None], 3, 2).astype(np.uint8)
+    rows, cols = np.nonzero(cover > 0)
+    return image[rows.min():rows.max() + 1, cols.min():cols.max() + 1]
+
+
+def section_tilt() -> dict:
+    """The tilted retry's estimate on synthetic cards and on noise, the rectangle solve, and the
+    sampler on a synthetic frame. The estimates are compared to 0.001 degree, the rest exactly:
+    a 64-bit arctangent may differ between math libraries in its last bit, and on rare pixels that
+    survives the rounding to 32 bits."""
+    from cardvision.recognize.tilt import estimate_tilt, rect_from_aabb, sample_rect
+
+    cards = []
+    for theta in TILT_CARD_THETAS:
+        crop = tilt_card(theta)
+        cards.append({"theta": theta, "width": int(crop.shape[1]), "height": int(crop.shape[0]),
+                      "estimate": estimate_tilt(crop)})
+    noise = [{"seed": seed, "width": width, "height": height,
+              "estimate": estimate_tilt(synthetic_rgba(seed, width, height)[..., :3])}
+             for seed, width, height in TILT_NOISE]
+    rects = [dict(zip(("width", "height", "tilt", "w", "h", "how"), (*case, *rect_from_aabb(*case)))) for case in TILT_RECTS]
+    seed, width, height = TILT_SAMPLE_FRAME
+    frame = np.ascontiguousarray(synthetic_rgba(seed, width, height)[..., :3])
+    samples = []
+    for cx, cy, w, h, tilt in TILT_SAMPLES:
+        out = sample_rect(frame, cx, cy, w, h, tilt)
+        samples.append({"cx": cx, "cy": cy, "w": w, "h": h, "tilt": tilt, "width": int(out.shape[1]),
+                        "height": int(out.shape[0]), "sha256": sha(out)})
+    return {"card": {"size": TILT_CARD_SIZE, "width": TILT_CARD[0], "height": TILT_CARD[1]}, "cards": cards,
+            "noise": noise, "rects": rects, "frame": {"seed": seed, "width": width, "height": height},
+            "samples": samples}
 
 
 # ------------------------------------------------------------------- the packed geometric index
@@ -1365,6 +1423,12 @@ def test_the_contract_file_holds_what_the_python_code_computes_now():
     assert [look["top"] for look in stored_looks] == [look["top"] for look in current_looks]
     for key in ("score", "margin"):
         assert [look[key] for look in stored_looks] == pytest.approx([look[key] for look in current_looks], rel=0, abs=1e-12)
+    # The tilt estimates go through an arctangent whose last bit may differ between math libraries
+    # (section_tilt); they are held to 0.001 degree, as the method's tests hold them.
+    for part in ("cards", "noise"):
+        stored_estimates = [item.pop("estimate") for item in stored["tilt"][part]]
+        current_estimates = [item.pop("estimate") for item in current["tilt"][part]]
+        assert stored_estimates == pytest.approx(current_estimates, rel=0, abs=1e-3)
     for section in current:
         assert stored[section] == current[section], f"{section}: run python tests/test_browser_fixtures.py --write"
 

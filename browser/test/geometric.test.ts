@@ -640,7 +640,7 @@ describe("the stage in the pipeline", () => {
     expect(Object.keys(line)).toEqual(["key", "platform", "video_id", "t", "group", "source_type", "frame", "analyzed", "ms", "faces", "events", "namedFaces"]);
     expect(line.faces).toHaveLength(1);
     const face = line.faces[0]!;
-    expect(Object.keys(face)).toEqual(["index", "box", "score", "topId", "similarity", "margin", "look", "accepted", "shownId", "geometric"]);
+    expect(Object.keys(face)).toEqual(["index", "box", "score", "topId", "similarity", "margin", "look", "accepted", "shownId", "geometric", "tilted"]);
     expect([face.index, face.box, face.topId, face.accepted, face.shownId]).toEqual([0, [10, 10, 60, 84], "B", true, "B"]);
     expect(face.geometric!.before.topId).toBe("A");
     expect(line.events.map((e) => [e.hit, e.shownId, e.box, e.outcome])).toEqual([[0, "B", [10, 10, 60, 84], null], [null, null, null, null]]);

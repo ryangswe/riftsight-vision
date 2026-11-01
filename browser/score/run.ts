@@ -97,6 +97,8 @@ export interface RunHeader {
      *  another. */
     identity: { level: IdentityRule };
     accept: { tau: number; delta: number; rotationRetry: boolean };
+    /** The release's tilted retry settings, given only when the release turns it on. */
+    tiltedRetry?: { scales: number[]; maxFacesPerFrame: number; budgetMs: number };
     /** `nmsIou` is the suppression overlap of the "accepted-nms" selection, given for it alone. */
     hover: { selection: string; nmsIou?: number };
     analysisWidth: { min: number; max: number };
@@ -220,6 +222,7 @@ export function runHeader(
       recognizer: { version: release.recognizer.version },
       identity: { level: release.identityLevel },
       accept: { ...release.accept },
+      ...(release.tiltedRetry ? { tiltedRetry: { ...release.tiltedRetry, scales: [...release.tiltedRetry.scales] } } : {}),
       hover: { selection: release.hoverSelection, ...(release.hoverSelection === "accepted-nms" ? { nmsIou: ACCEPTED_NMS_IOU } : {}) },
       analysisWidth: { ...release.analysisWidth },
       ortWeb: release.ortWeb,

@@ -298,7 +298,7 @@ def _build_release_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--recognizer-version", help="label for the recognizer (default: the bank's model)")
     parser.add_argument("--settings", type=Path,
                         help="a JSON file overriding parts of the default detector, recognizer, identity, "
-                             "hover and runtime blocks")
+                             "hover and runtime blocks; a tiltedRetry key turns the tilted retry on")
     parser.add_argument("--overwrite", action="store_true", help="replace an existing release file")
 
 

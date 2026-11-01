@@ -55,6 +55,8 @@ DEFINITIONS = {
     "namedWrong": "named wrong = crops the accept rule passed with another name / crops",
     "rejected": "rejected = crops the accept rule did not pass / crops",
     "wrongOfNamed": "wrong of named = named wrong / (named right + named wrong)",
+    "byLook": "by look = named right and named wrong counted by the look that named the crop: upright (0), one, two "
+              "or three quarter turns, or a rectangle of the tilted retry (counted apart, whatever its look)",
 }
 
 
@@ -101,6 +103,8 @@ class CropResult:
     truth_id: str | None = None
     top_id: str | None = None
     card_id: str | None = None
+    # Whether a rectangle of the tilted retry named the crop (``Recognition.named_by_tilt``).
+    tilted: bool = False
 
     @property
     def _keys(self) -> tuple[str, str, str | None]:
@@ -135,7 +139,8 @@ class CropResult:
                 **named("truth", self.truth, "truthId", self.truth_id),
                 **named("topName", self.top_name, "topId", self.top_id),
                 **named("name", self.name, "cardId", self.card_id),
-                "similarity": round(self.similarity, 6), "margin": round(self.margin, 6), "look": self.look}
+                "similarity": round(self.similarity, 6), "margin": round(self.margin, 6), "look": self.look,
+                **({"tilted": True} if self.tilted else {})}
 
 
 def _labels(names: Mapping[str, str]):
@@ -154,7 +159,7 @@ def run_crops(rows: Sequence[Row], frames: FrameStore | str | Path, config: Conf
     for row, rgb in scorable_rows(rows, frames, account, _labels(names)):
         analyzed = analysis_frame(rgb, pipeline.min_width, pipeline.max_width)
         height, width = analyzed.shape[:2]
-        wanted, crops = [], []
+        wanted, crops, boxes = [], [], []
         for index, box in enumerate(row.boxes or ()):
             reason = crop_exclusion(box, names)
             if reason is None:
@@ -164,18 +169,23 @@ def run_crops(rows: Sequence[Row], frames: FrameStore | str | Path, config: Conf
             if reason is None:
                 wanted.append((index, box))
                 crops.append(crop_truncated(analyzed, pixel_box))
+                boxes.append(pixel_box)
             elif reason != "not-face":
                 account.labels_skipped[reason] += 1
         from cardvision.evaluate.scoring import source_of
 
-        for (index, box), found in zip(wanted, pipeline.recognizer.recognize(crops, **source_of(config, row))):
+        context = source_of(config, row)
+        if pipeline.recognizer.tilted is not None:
+            context.update(frame=analyzed, boxes=boxes)
+        for (index, box), found in zip(wanted, pipeline.recognizer.recognize(crops, **context)):
             results.append(CropResult(platform=row.platform, video_id=row.video_id, t=row.t, group=row.group,
                                       source_type=row.source_type, label=box.id or f"b{index}",
                                       truth=names[box.card_id], top_name=found.top_name, name=found.name,
                                       similarity=found.similarity, margin=found.margin, look=found.look,
                                       truth_key=identities[box.card_id], top_key=identities[found.top_id],
                                       name_key=None if found.card_id is None else identities[found.card_id],
-                                      truth_id=box.card_id, top_id=found.top_id, card_id=found.card_id))
+                                      truth_id=box.card_id, top_id=found.top_id, card_id=found.card_id,
+                                      tilted=found.named_by_tilt))
     return results
 
 
@@ -201,7 +211,24 @@ def crop_rates(results: Sequence[CropResult], seed: int, replicates: int) -> dic
         "namedWrong": of(n_wrong, n, "upper", (wrong, ones)),
         "rejected": of(n - n_right - n_wrong, n, "upper", (ones - right - wrong, ones)),
         "wrongOfNamed": of(n_wrong, n_right + n_wrong, "upper", (wrong, right + wrong)),
+        "byLook": by_look(results),
     }
+
+
+LOOKS = ("0", "1", "2", "3")
+TILTED = "tilted"
+
+
+def by_look(results: Sequence[CropResult]) -> dict[str, dict[str, int]]:
+    """Named right and named wrong by the look that named each crop: ``"0"`` to ``"3"`` quarter
+    turns, and ``"tilted"`` for a rectangle of the tilted retry, listed only when one named a crop."""
+    counts = {key: {"namedRight": 0, "namedWrong": 0} for key in LOOKS}
+    for result in results:
+        if result.named_right or result.named_wrong:
+            key = TILTED if result.tilted else str(result.look)
+            entry = counts.setdefault(key, {"namedRight": 0, "namedWrong": 0})
+            entry["namedRight" if result.named_right else "namedWrong"] += 1
+    return counts
 
 
 def crop_results(results: Sequence[CropResult], seed: int, replicates: int) -> dict[str, Any]:

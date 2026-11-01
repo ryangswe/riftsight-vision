@@ -78,6 +78,9 @@ export function createAnalyzer(options: AnalyzerOptions): Promise<Analyzer> {
   const waiting = new Map<number, (reply: FrameResult) => void>();
   let geometric: Omit<GeometricStatus, "kind"> | null = options.geometricUrl !== undefined ? { state: "loading", reason: null, bytes: null } : null;
   const settledWaiters: Array<() => void> = [];
+  /** Why the worker turned the tilted retry off, once it has. A scoring run never continues
+   *  without it: the frame it failed on, and every later one, is refused. */
+  let tiltedOff: string | null = null;
 
   return new Promise<Analyzer>((resolve, reject) => {
     worker.onerror = (event) => reject(new Error(`the worker did not start (${event.message || "see the console"})`));
@@ -86,6 +89,10 @@ export function createAnalyzer(options: AnalyzerOptions): Promise<Analyzer> {
       if (reply.kind === "frame-result") {
         waiting.get(reply.envelope.requestId)?.(reply);
         waiting.delete(reply.envelope.requestId);
+        return;
+      }
+      if (reply.kind === "tilted-status") {
+        tiltedOff = reply.reason;
         return;
       }
       if (reply.kind === "geometric-status") {
@@ -121,6 +128,7 @@ export function createAnalyzer(options: AnalyzerOptions): Promise<Analyzer> {
         };
         worker.postMessage(request, [bitmap]);
         const result = await answered;
+        if (tiltedOff !== null) throw new Error(`the tilted retry was turned off, so the run stops: ${tiltedOff}`);
         if (!result.analysis) throw new Error(`the frame was not analyzed: ${result.error ?? "no reason given"}`);
         return result.analysis;
       };
@@ -154,6 +162,8 @@ export function createAnalyzer(options: AnalyzerOptions): Promise<Analyzer> {
       ...(options.geometricDebug ? { geometricDebug: true } : {}),
       ...(options.geometricManifestSha256 !== undefined ? { geometricManifestSha256: options.geometricManifestSha256 } : {}),
       ...(options.geometricWatchdog === false ? { geometricWatchdog: false } : {}),
+      // A scoring run measures the tilted retry on every frame; its time is not what is scored.
+      tiltedWatchdog: false,
     };
     worker.postMessage(load);
   });

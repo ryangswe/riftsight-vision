@@ -28,7 +28,8 @@ A face: ``index`` (its position among the frame's detections, best detector scor
 ``box`` (``[x, y, width, height]`` in frame pixels, to three decimals), ``score``, ``topId``,
 ``similarity``, ``margin``, ``look``, ``accepted``, ``shownId`` (the card named, or null) and
 ``geometric`` (the stage's ``GeometricOutcome.to_json``, its ``debug`` included, or null
-without a stage).
+without a stage) and ``tilted`` (``TiltedOutcome.to_json``: the tilt, the scale that named the card
+or null, and the answer before the retry; null when the retry was not tried on the face).
 
 An event: ``key``, ``kind``, ``label``, ``role``, ``x``, ``y`` (fractions of the frame),
 ``truthId``, ``hit`` (the ``index`` of the face the pointer is on, or null), ``shownId`` and
@@ -86,7 +87,8 @@ def face_json(card: Any) -> dict[str, Any]:
     return {"index": card.index, "box": reported_box(card.box), "score": round(card.score, 6), "topId": found.top_id,
             "similarity": round(found.similarity, 6), "margin": round(found.margin, 6), "look": found.look,
             "accepted": found.accepted, "shownId": found.card_id if found.accepted else None,
-            "geometric": None if found.geometric is None else found.geometric.to_json()}
+            "geometric": None if found.geometric is None else found.geometric.to_json(),
+            "tilted": None if found.tilted is None else found.tilted.to_json()}
 
 
 def row_line(row: Row, rgb: np.ndarray, result: FrameResult, layer: HoverLayer, scored: Sequence[Scored]) -> dict[str, Any]:

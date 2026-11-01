@@ -1040,13 +1040,23 @@ picture) and returns a `FrameAnalysis`:
 | --- | --- |
 | `frame` | Size of the analyzed frame |
 | `boxes` | Every valid detection, best detector score first: `box` (`[x, y, width, height]`, clipped to the frame), `score`, `cls`, `className`, and `face` |
-| `boxes[].face` | For a face: `topId`, `topName`, `similarity`, `margin`, `look` (0 upright, k quarter turns counter-clockwise), `retried`, `tauPassed`, `accepted`, `cardId`, `name`, `kept`. `null` for a back. |
+| `boxes[].face` | For a face: `topId`, `topName`, `similarity`, `margin`, `look` (0 upright, k quarter turns counter-clockwise), `retried`, `tauPassed`, `accepted`, `cardId`, `name`, `kept`; with the tilted retry, on a face it was tried on, `tilted` (`tilt`, `scale` or null, `before`). `null` for a back. |
 | `hover` | The hover layer under the release's selection: the cards a pointer is resolved against, bottom of the stack first |
 | `tracks` | The track layer: cards with ids that persist between frames and pooled identities, shown once the temporal gate holds |
-| `discontinuity`, `retried`, `embeddings`, `timings` | Whether the state between frames was reset; how many faces were retried and embeddings computed; milliseconds per stage |
+| `discontinuity`, `retried`, `embeddings`, `timings` | Whether the state between frames was reset; how many faces were retried and embeddings computed; milliseconds per stage (`tiltedMs` while the tilted retry runs) |
 
 `hoverAt(analysis, x, y, selection?)` resolves a pointer against an analyzed frame, under the
 release's hover selection or any of the three.
+
+A release with a `tiltedRetry` block gives each face that is still not accepted the tilted retry
+([how it works](../docs/how-it-works.md#the-tilted-retry)). `Pipeline.analyze(frame, time,
+{ tilted, focus })` skips it on a frame with `tilted: false` (a page's own condition, such as the
+kind of footage) and takes the faces under `focus`, a point in the frame's pixels, first; a
+worker's frame request carries the same two fields. The session sends neither yet. The worker
+turns the retry off for the session when it fails during a frame or takes more than the block's
+`budgetMs` on two frames in a row, and says why in a `tilted-status` reply; the session's
+status shows it as `tilted`. A worker that is restarted loads the release again, with the retry
+on. The scoring page turns the watchdog off and stops a run when the retry fails.
 
 ## What is in it
 
@@ -1058,6 +1068,7 @@ release's hover selection or any of the three.
 | `preprocess.ts` | The `full128` crop contract and quarter turns | `cardvision/core/preprocess.py` |
 | `bank.ts`, `identity.ts` | The bank file, and the identity groups under the rule the catalog states | `cardvision/core/bank.py`, `cardvision/core/catalog.py` |
 | `recognizer.ts`, `recognition.ts` | Best match and margin; the accept rule; the rotation retry; suppression | `cardvision/recognize/` |
+| `tilt.ts` | The tilted retry: the tilt estimate, the straightened rectangles; off unless the release's `tiltedRetry` block turns it on | `cardvision/recognize/tilt.py` |
 | `hover-layer.ts`, `hover-geometry.ts`, `scene.ts` | The three hover selections and the hit test | `cardvision/evaluate/hover.py` |
 | `tracker.ts`, `temporal-gate.ts` | Tracks with pooled identities; when the track layer is shown | none: the Python command judges each frame alone |
 | `cadence.ts`, `frame-scheduler.ts` | When a frame is analyzed: fast around pointer activity, slow while a tooltip shows, idle otherwise; the staleness rule | none |

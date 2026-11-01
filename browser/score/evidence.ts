@@ -31,6 +31,9 @@ export interface EvidenceFace {
   /** The card named, or null. */
   shownId: string | null;
   geometric: GeometricEvidence | null;
+  /** The tilted retry on this face (Python: `TiltedOutcome.to_json`), or null when it was not
+   *  tried. */
+  tilted: { tilt: number; scale: number | null; before: { topId: string; similarity: number; margin: number } } | null;
 }
 
 /** A labeled position, as the Python side lists it for a frame. */
@@ -95,6 +98,13 @@ export function evidenceFaces(analysis: FrameAnalysis): EvidenceFace[] {
       accepted: face.accepted,
       shownId: face.accepted ? face.cardId : null,
       geometric: face.geometric ?? null,
+      tilted: face.tilted
+        ? {
+            tilt: pyRound(face.tilted.tilt, 6),
+            scale: face.tilted.scale,
+            before: { topId: face.tilted.before.topId, similarity: pyRound(face.tilted.before.similarity, 6), margin: pyRound(face.tilted.before.margin, 6) },
+          }
+        : null,
     });
   });
   return faces;

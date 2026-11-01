@@ -26,6 +26,7 @@ import { EXECUTION_PROVIDERS, type ExecutionProvider } from "./providers.js";
 import { Pipeline } from "./pipeline.js";
 import { contractOf, PREPROCESSING, type PreprocessingId } from "./preprocess.js";
 import type { AcceptRule } from "./recognizer.js";
+import { type TiltedRetrySettings, tiltedRetryError } from "./tilt.js";
 
 export const RELEASE_SCHEMA_VERSION = 1;
 export const RELEASE_KIND = "vision-release";
@@ -58,12 +59,15 @@ export interface VisionRelease {
   accept: AcceptRule;
   hover: { selection: HoverSelection; maxAgeMs: number };
   runtime: { ortWeb: string; executionProviders: ExecutionProvider[]; wasmThreads: 1; analysisWidth: { min: number; max: number } };
+  /** The optional `tiltedRetry` block (tilt.ts): null when the release does not turn the
+   *  tilted retry on. */
+  tiltedRetry: TiltedRetrySettings | null;
 }
 
 const HEX16 = /^[0-9a-f]{16}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
-const TOP_KEYS = ["schemaVersion", "kind", "id", "game", "locale", "detector", "recognizer", "bank", "identity", "catalog", "accept", "hover", "runtime"];
+const TOP_KEYS = ["schemaVersion", "kind", "id", "game", "locale", "detector", "recognizer", "bank", "identity", "catalog", "accept", "hover", "runtime", "tiltedRetry"];
 const ACCEPT_KEYS = ["tau", "delta", "rotationRetry"];
 
 type Obj = Record<string, unknown>;
@@ -228,6 +232,14 @@ export function parseRelease(raw: unknown): { release: VisionRelease } | { error
   const aw = rt.analysisWidth;
   if (!isObj(aw) || !isPosInt(aw.min) || !isPosInt(aw.max) || aw.min > aw.max) return fail("runtime.analysisWidth must give whole numbers min <= max above 0");
 
+  let tiltedRetry: TiltedRetrySettings | null = null;
+  if ("tiltedRetry" in raw) {
+    const problem = tiltedRetryError(raw.tiltedRetry);
+    if (problem !== null) return fail(problem);
+    const block = raw.tiltedRetry as { scales: number[]; maxFacesPerFrame: number; budgetMs: number };
+    tiltedRetry = { scales: [...block.scales], maxFacesPerFrame: block.maxFacesPerFrame, budgetMs: block.budgetMs };
+  }
+
   return {
     release: {
       id: raw.id,
@@ -241,6 +253,7 @@ export function parseRelease(raw: unknown): { release: VisionRelease } | { error
       accept: { tau: acc.tau, delta: acc.delta, rotationRetry: acc.rotationRetry },
       hover: { selection: hov.selection, maxAgeMs: hov.maxAgeMs },
       runtime: { ortWeb: rt.ortWeb, executionProviders: eps as ExecutionProvider[], wasmThreads: 1, analysisWidth: { min: aw.min, max: aw.max } },
+      tiltedRetry,
     },
   };
 }
@@ -742,6 +755,7 @@ export async function buildReleasePipeline(
       classNames: release.detector.settings.classes,
       faceClass: release.detector.settings.faceClass,
       minCropPx: release.detector.settings.minCropPx,
+      tiltedRetry: release.tiltedRetry,
     });
     return { pipeline, embedder, detector, providers: [...providers] };
   } catch (error) {

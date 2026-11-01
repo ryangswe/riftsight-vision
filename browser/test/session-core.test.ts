@@ -1014,6 +1014,19 @@ describe("SessionCore modes and options", () => {
     expect(out.statuses.at(-1)?.geometric).toEqual({ state: "ready", reason: null, bytes: 1234 });
     expect(directCore().core.status().geometric).toBeNull();
   });
+
+  it("the tilted retry is on when the release turns it on, and off with the worker's reason", () => {
+    const { core, out } = directCore();
+    const settings = { scales: [0.95, 1.0, 1.05], maxFacesPerFrame: 8, budgetMs: 1500 };
+    core.fromWorker({ kind: "release-status", ok: true, error: null, release: { ...release, tiltedRetry: settings }, cards: [] });
+    expect(core.status().tilted).toEqual({ state: "on", reason: null });
+    core.fromWorker({ kind: "tilted-status", state: "off", reason: "runtime: boom" });
+    expect(core.status().tilted).toEqual({ state: "off", reason: "runtime: boom" });
+    expect(out.statuses.at(-1)?.tilted).toEqual({ state: "off", reason: "runtime: boom" });
+    const plain = directCore();
+    plain.ready();
+    expect(plain.core.status().tilted).toBeNull();
+  });
 });
 
 describe("SessionCore status", () => {
@@ -1021,7 +1034,7 @@ describe("SessionCore status", () => {
     const { core, out, ready, answer } = directCore();
     expect(core.status()).toEqual({
       state: "loading", error: null, release: null, backend: null, schedule: "idle", frames: 0,
-      lastWorkerMs: null, lastRoundTripMs: null, lastFrameError: null, geometric: null, loading: null,
+      lastWorkerMs: null, lastRoundTripMs: null, lastFrameError: null, geometric: null, loading: null, tilted: null,
     });
     core.fromWorker({ kind: "release-progress", phase: "downloading", bytes: 10 });
     expect(out.statuses.at(-1)?.loading).toEqual({ phase: "downloading", bytes: 10 });

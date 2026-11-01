@@ -284,6 +284,11 @@ def _crops_slice(part: Mapping[str, Any]) -> list[str]:
     for key, label in (("top1Right", "top-1 right"), ("namedRight", "named right"), ("namedWrong", "named wrong"),
                        ("rejected", "rejected"), ("wrongOfNamed", "wrong of named")):
         lines.append(f"- **{label}**: {format_rate(part[key])}")
+    looks = part.get("byLook")
+    if looks:
+        names = {"0": "upright", "1": "one quarter turn", "2": "two", "3": "three", "tilted": "tilted retry"}
+        lines.append("- named by look (right / wrong): " + "; ".join(
+            f"{names.get(key, key)} {counts['namedRight']} / {counts['namedWrong']}" for key, counts in looks.items()))
     return lines
 
 

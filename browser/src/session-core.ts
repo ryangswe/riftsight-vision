@@ -40,7 +40,7 @@ import type { AABB } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
 import { type AnalysisMode, analyzeIntervalMs, cadenceMs } from "./cadence.js";
 import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
-import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
+import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
 import { hoverAt } from "./hover-at.js";
 import type { FrameAnalysis } from "./pipeline.js";
@@ -96,6 +96,8 @@ export interface SessionCoreDeps {
   onAnalysis?(analysis: FrameAnalysis): void;
   /** The geometric stage's state changed. */
   onGeometricStatus?(status: GeometricStatus): void;
+  /** The tilted retry was turned off for the session. */
+  onTiltedStatus?(status: TiltedStatus): void;
   /** Replaceable for tests; `hoverAt` by default. */
   hoverAt?: typeof hoverAt;
   /** The time of the picture on screen now, in seconds, for a host that can read it at any
@@ -183,6 +185,7 @@ export class SessionCore {
       lastWorkerMs: null, lastRoundTripMs: null, lastFrameError: null,
       geometric: options.geometric ? { state: "loading", reason: null, bytes: null } : null,
       loading: null,
+      tilted: null,
     };
     this.lastStatusKey = this.statusKey();
   }
@@ -297,6 +300,11 @@ export class SessionCore {
         this.deps.onGeometricStatus?.(reply);
         this.publishStatus();
         return;
+      case "tilted-status":
+        this.st.tilted = { state: "off", reason: reply.reason };
+        this.deps.onTiltedStatus?.(reply);
+        this.publishStatus();
+        return;
       case "release-progress": {
         const loading = progressUpdate(this.st.state, reply);
         if (loading !== undefined) this.st.loading = loading;
@@ -309,6 +317,7 @@ export class SessionCore {
         this.st.error = reply.error;
         this.st.release = reply.release;
         this.st.loading = null;
+        this.st.tilted = reply.release?.tiltedRetry ? { state: "on", reason: null } : null;
         this.cardList = reply.cards;
         if (reply.release) {
           this.st.backend = reply.release.recognizer.ep;

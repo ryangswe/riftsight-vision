@@ -140,6 +140,8 @@ def card_json(card: Card) -> dict[str, Any]:
         })
         if found.geometric is not None:
             out["geometric"] = found.geometric.to_json()
+        if found.tilted is not None:
+            out["tilted"] = found.tilted.to_json()
     return out
 
 
@@ -171,8 +173,9 @@ def reported_box(box: Sequence[float]) -> list[float]:
 
 @dataclass(frozen=True)
 class _Cut:
-    """One frame after the detector: its sizes, the valid detections in the analysis frame, and
-    each face's crop by its position among the detections."""
+    """One frame after the detector: its sizes, the valid detections in the analysis frame, each
+    face's crop and the box it was cut from by its position among the detections, and the analysis
+    frame itself (the tilted retry samples it)."""
 
     frame_width: int
     frame_height: int
@@ -182,6 +185,8 @@ class _Cut:
     crops: dict[int, np.ndarray]
     too_small: int
     best_score: float | None
+    analyzed: np.ndarray = field(repr=False)
+    boxes: dict[int, Box] = field(default_factory=dict, repr=False)
 
     def result(self, recognitions: Mapping[int, Recognition], crops: Mapping[int, np.ndarray], name: str, source: str,
                t: float, started: float) -> FrameResult:
@@ -320,22 +325,29 @@ class Pipeline:
 
         # A face is cut from its box in the analysis frame, clipped to that frame and not rounded.
         crops: dict[int, np.ndarray] = {}
+        boxes: dict[int, Box] = {}
         for index, detection in enumerate(detections):
             if detection.cls == DETECTOR_FACE_CLASS:
-                crops[index] = crop_truncated(analyzed, frame_box(detection, 1.0, 1.0, analysis_width, analysis_height))
-        return _Cut(frame_width, frame_height, analysis_width, analysis_height, detections, crops, too_small, best_score)
+                boxes[index] = frame_box(detection, 1.0, 1.0, analysis_width, analysis_height)
+                crops[index] = crop_truncated(analyzed, boxes[index])
+        return _Cut(frame_width, frame_height, analysis_width, analysis_height, detections, crops, too_small, best_score,
+                    analyzed, boxes)
 
     def analyze(self, rgb: np.ndarray, name: str = "", source: str = "", t: float = 0.0,
-                source_type: str | None = None) -> FrameResult:
+                source_type: str | None = None, *, tilted: bool = True) -> FrameResult:
         """Detect and recognize the cards in one ``(H, W, 3)`` uint8 RGB frame.
 
         ``source_type`` is the kind of footage (a manifest's ``source_type``), when known; only a
-        recognizer's geometric stage reads it (``Recognizer.recognize``)."""
+        recognizer's geometric stage reads it (``Recognizer.recognize``). A recognizer with the
+        tilted retry is given the analysis frame and each crop's box, and ``tilted`` false skips
+        the retry for this frame."""
         started = time.perf_counter()
         cut = self._cut(rgb)
         crops = list(cut.crops.values())
-        found = self.recognizer.recognize(crops) if source_type is None else \
-            self.recognizer.recognize(crops, source_type=source_type)
+        context = {} if source_type is None else {"source_type": source_type}
+        if self.recognizer.tilted is not None:
+            context.update(frame=cut.analyzed, boxes=list(cut.boxes.values()), tilted=tilted)
+        found = self.recognizer.recognize(crops, **context)
         recognitions = dict(zip(cut.crops, found))
         return cut.result(recognitions, cut.crops, name, source, t, started)
 

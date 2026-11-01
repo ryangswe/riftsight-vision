@@ -637,3 +637,25 @@ def test_a_release_document_can_be_rebuilt_from_its_own_blocks(built):
     assert "://" not in text and str(built) not in text
     doc = copy.deepcopy(read_json(built / "release.json"))
     assert R.with_id(doc) == doc
+
+
+# ---------------------------------------------------------------------------- the tilted retry
+def test_the_tilted_retry_is_an_optional_block_filled_from_the_defaults(folder):
+    from cardvision.evaluate.config import spec_from_release
+    from cardvision.recognize import TiltedRetry
+
+    assert "tiltedRetry" not in read_json(folder / "release.json")
+    assert spec_from_release(folder / "release.json").tilted is None
+    doc = R.build_release(folder / "tilted.json", **components(folder, settings={"tiltedRetry": {"budgetMs": 400}}))
+    assert list(doc)[-1] == "tiltedRetry"
+    assert doc["tiltedRetry"] == {"scales": [0.95, 1.0, 1.05], "maxFacesPerFrame": 8, "budgetMs": 400}
+    assert spec_from_release(folder / "tilted.json").tilted == TiltedRetry(budget_ms=400)
+    whole = R.build_release(folder / "defaults.json", **components(folder, settings={"tiltedRetry": {}}))
+    assert whole["tiltedRetry"] == TiltedRetry().to_json() and whole["id"] != doc["id"]
+
+
+def test_a_tilted_retry_block_that_cannot_be_used_is_refused(folder):
+    with pytest.raises(R.ReleaseError, match=r"tiltedRetry.scales must list 1 to 5 numbers"):
+        R.build_release(folder / "other.json", **components(folder, settings={"tiltedRetry": {"scales": [2.0]}}))
+    errors = rewrite(folder, lambda doc: doc.update(tiltedRetry={"scales": [1.0], "maxFacesPerFrame": 0, "budgetMs": 10}))
+    assert errors == ["tiltedRetry.maxFacesPerFrame must be a whole number above 0"]
