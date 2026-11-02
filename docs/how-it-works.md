@@ -419,7 +419,15 @@ runtime retries, those under the pointer first when the page passes it as `focus
 (1500 by default) is how long the retry may take of a frame: over it on two frames in a row,
 the browser runtime turns the retry off for the session and reports why (`tilted-status`). The
 Python tools retry every crop and keep no budget, so on a frame with more unaccepted crops than
-the cap they count retries the browser runtime does not make. A crop of a card that is exactly upright
+the cap they count retries the browser runtime does not make.
+
+Choosing a budget: the default only catches a machine on which the retry is far too slow to be
+of use. A product that analyzes frames at a steady pace should measure the retry's `tiltedMs` on
+the slowest machines it supports, on footage with many unaccepted crops, and set `budgetMs` a few
+times above that measure's 90th percentile and well below the time between two analyses. A
+retry measured at about 100 ms at the 90th percentile, for example, fits a budget of 500 ms. Too
+low a budget turns the retry off after two ordinary busy frames; too high a budget lets a slow
+machine delay the next analysis before the watchdog acts. A crop of a card that is exactly upright
 reads a tilt of +0.5 degree: the votes are counted in one-degree bins centered on half degrees.
 
 The threshold search (`cardvision calibrate`) refuses a release with the retry, because the

@@ -55,6 +55,20 @@ the contract's `PROTOCOL_VERSION` stays 1.
   (`"pointer" | "always-on"`, as before). Code that switches over `AnalysisState` exhaustively
   needs a case for `"probe"`.
 
+## [0.8.0] - 2026-11-01
+
+A release may turn on the **tilted retry**, which gives a face crop that is still not accepted a
+second look along its card's estimated tilt. It is release candidate 0.8.0rc1, listed below it,
+unchanged. One paragraph of documentation is added: how to choose the release block's
+`budgetMs` from the retry's measured time ([docs/how-it-works.md](docs/how-it-works.md#the-tilted-retry)).
+Nothing in the public surface breaks. The contract's `PROTOCOL_VERSION` stays 1. The released
+models are unchanged: release `201478a00d6ef6ba`, which does not turn the retry on.
+
+### Added
+
+- Documentation: choosing `budgetMs` (`docs/how-it-works.md`, "The tilted retry", and a pointer
+  from `browser/README.md`). The default stays 1500 ms.
+
 ## [0.8.0rc1] - 2026-11-01
 
 A release may turn on the **tilted retry**: a face crop that is still not accepted after the
@@ -1021,7 +1035,8 @@ Initial public release.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
 [Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc1...HEAD
-[0.9.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0rc1...v0.9.0rc1
+[0.9.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0rc1
+[0.8.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...v0.8.0
 [0.8.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...v0.8.0rc1
 [0.7.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0
 [0.7.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc1...v0.7.0rc2
