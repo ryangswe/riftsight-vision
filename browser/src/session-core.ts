@@ -38,7 +38,7 @@
 
 import type { AABB } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
-import { type AnalysisMode, analyzeIntervalMs, cadenceMs } from "./cadence.js";
+import { analyzeIntervalMs, cadenceMs, type SessionMode } from "./cadence.js";
 import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
@@ -110,7 +110,7 @@ export interface SessionCoreDeps {
 export interface SessionCoreOptions {
   /** "pointer" (the default): analyze only around pointer activity. "always-on": analyze for as
    *  long as the session runs. */
-  mode?: AnalysisMode;
+  mode?: SessionMode;
   /** Hold a shown card through short gaps. Off when absent; `SHOWN_HOLD` is the usual value. */
   hold?: ShownHold;
   /** Other cards' boxes reported with a shown card (default `MAX_OTHER_BOXES`). */
@@ -147,7 +147,7 @@ interface InFlight {
 
 export class SessionCore {
   readonly scheduler: FrameScheduler;
-  private readonly mode: AnalysisMode;
+  private readonly mode: SessionMode;
   private readonly hold: ShownHold | null;
   private readonly maxOtherBoxes: number;
   private readonly hitTest: typeof hoverAt;

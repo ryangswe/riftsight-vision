@@ -821,6 +821,9 @@ has it, WebAssembly otherwise. It adds what only a player needs:
   after the pointer last moved over the picture, at a slow cadence while it rests on a card
   that is being shown, and not at all otherwise. A pointer that moves over a picture whose
   newest result is stale asks for an analysis at once.
+- **Layout registration.** For a product that already knows the board from another source, the
+  runtime can find where that board sits in the picture from the cards it names, and say when
+  the placement can be trusted ([browser/README.md](../browser/README.md#layout-registration)).
 - **What may still be shown.** A result from before a seek or a cut is dropped, and so is one
   whose frame is further from the picture on screen than the release's `hover.maxAgeMs` of
   video time.

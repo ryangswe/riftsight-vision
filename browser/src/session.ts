@@ -23,7 +23,7 @@
 //   - anything for a box that was detected and not accepted.
 
 import { type AABB } from "./boxes.js";
-import { type AnalysisMode } from "./cadence.js";
+import { type SessionMode } from "./cadence.js";
 import {
   type AnalysisWidth,
   captureFrame,
@@ -68,7 +68,7 @@ export interface SessionOptions {
   providers?: ExecutionProvider[];
   /** "pointer" (the default): analyze only around pointer activity. "always-on": analyze for as
    *  long as the session runs. */
-  mode?: AnalysisMode;
+  mode?: SessionMode;
   /** URL of the geometric stage's settings document (it names the packed index). Optional and
    *  off by default: without it recognition is the embedding's alone. With it the stage loads
    *  after the release and joins between frames; `status().geometric` says where it is. */

@@ -19,7 +19,7 @@
 // remote release is in effect (`release.table`) only once the worker has confirmed its id.
 
 import type { AnalysisWidth } from "./capture.js";
-import type { AnalysisMode } from "./cadence.js";
+import type { SessionMode } from "./cadence.js";
 import type { GeometricStatus, WorkerReply, WorkerRequest } from "./messages.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { CardTable } from "./remote/card-table.js";
@@ -64,7 +64,7 @@ export interface WorkerSessionEnv {
   loadRequest: LoadRequest;
   /** The clock, in ms. */
   now(): number;
-  mode?: AnalysisMode;
+  mode?: SessionMode;
   /** Hold a shown card through short gaps (`SHOWN_HOLD`); off when absent. */
   hold?: ShownHold;
   /** Capture the picture now and answer the core with `frame` or `captureFailed`. */

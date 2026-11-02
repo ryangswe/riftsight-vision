@@ -1071,7 +1071,9 @@ on. The scoring page turns the watchdog off and stops a run when the retry fails
 | `tilt.ts` | The tilted retry: the tilt estimate, the straightened rectangles; off unless the release's `tiltedRetry` block turns it on | `cardvision/recognize/tilt.py` |
 | `hover-layer.ts`, `hover-geometry.ts`, `scene.ts` | The three hover selections and the hit test | `cardvision/evaluate/hover.py` |
 | `tracker.ts`, `temporal-gate.ts` | Tracks with pooled identities; when the track layer is shown | none: the Python command judges each frame alone |
-| `cadence.ts`, `frame-scheduler.ts` | When a frame is analyzed: fast around pointer activity, slow while a tooltip shows, idle otherwise; the staleness rule | none |
+| `cadence.ts`, `frame-scheduler.ts` | When a frame is analyzed: fast around pointer activity, slow while a tooltip shows, idle otherwise; the staleness rule; the `"layout"` mode's probe | none |
+| `layout-fit.ts`, `layout-state.ts`, `mismatch-monitor.ts` | Layout registration: one frame's fit; the verdict across frames; the membership monitor | none |
+| `layout-metrics.ts`, `layout-recording.ts` | Measuring layout registration: the metric primitives; the `layout-recording/1` reader and the replay driver | none |
 | `capture.ts` | Reading a frame from the element; cut detection under a shown card; where the picture sits in its element (`pictureBox`, `fractionIn`) | `cardvision/infer/frames.py` (the analysis size only) |
 | `release.ts`, `load.ts` | The release document: parse, fetch, verify, build | `cardvision/bank/release.py` |
 | `pipeline.ts` | One frame in, boxes, names and two layers out | `cardvision/infer/pipeline.py` |
@@ -1277,6 +1279,109 @@ ORB itself can take a few other keypoints from the same pixels. On the seven toy
 `test/fixtures/geometric.json`, this build and the Python package's OpenCV 5.0.0 take the same
 keypoints on the one crop that is not resized; on the others most descriptors are the same and
 a few differ. Given Python's keypoints, the stage chooses, votes and matches exactly as Python.
+
+## Layout registration
+
+Some products already know the board: a game client or another source reports a *layout*, the
+cards with their boxes in the layout's own unit square. The video shows that board somewhere in
+the picture, at a scale and offset nobody states, perhaps cropped or partly covered. Layout
+registration finds that placement from the cards the recognizer names, decides when it can be
+trusted, and keeps deciding as frames arrive. The product then draws the layout's cards through
+the placement. Nothing here names a card from the layout, changes the recognizer's decisions,
+or draws anything.
+
+A product supplies a `LayoutSource` (the layout in force for a picture, and the identities its
+source offers around that instant) and runs a `LayoutRegistration`:
+
+```ts
+const registration = new LayoutRegistration(config, { exclude });
+registration.reset(generation, now);                 // a new page, source or eligibility
+const verdict = registration.analyze(input, now);    // after each analysis; null: another generation
+registration.tick(now);                              // on a timer: the hold and freshness
+```
+
+The verdict's `display` is one of:
+
+| `display` | The product |
+| --- | --- |
+| `fitted` | draws the layout through `region` (the layout's unit square in the frame), leaving out the `suppressed` instances |
+| `today` | does what it does without registration |
+| `vision` | the layout is known to be wrong for this picture: shows the recognizer's own cards |
+| `hidden` | shows nothing: the picture has no cards |
+
+**One frame** (`layout-fit.ts`). The correspondences are the identities seen exactly once in the
+frame and exactly once in the layout (cards without identity, or under the layout's `blocking`
+box, never match); at most 40, the largest frame boxes first. Each one proposes the scale and
+offset that put its layout box exactly on its frame box; the proposal that also places the most
+other correspondences within `fitMinIoU` wins, a least-squares refit over those follows, and a
+single re-test under the refit keeps the inliers. The frame is verified with at least three
+inliers, at least two thirds of the correspondences, and inliers spread over at least `minSpan`
+of the layout on each axis. Two names fit any scale and offset exactly, so three distinct
+identities with spread is the least that can outvote a wrong one. A second, incompatible
+placement with two supporters of its own makes the frame ambiguous: it never confirms or
+contradicts anything. Two placements are compatible when they put every point of a 5 × 5 grid
+over the layout within 0.01 of the frame of each other, on each axis.
+
+**Across frames** (`layout-state.ts`). `confirmFits` compatible verified fits in a row, each within
+`confirmWindowMs` of the one before, confirm a placement, and the page shows `fitted`. A
+confirmed placement is held for `holdMs` through analyses that do not confirm it, and withdrawn
+when no analysis has arrived for `freshnessMs`. Three kinds of evidence withdraw it at once and
+mark the generation contradicted, which shows `vision` until a placement is confirmed again: a
+verified fit incompatible with it, two analyses in a row in which no two names agree on any
+placement, and the membership monitor tripping. The precedence of all of this is the table at
+the top of `layout-state.ts`. The clock the host passes must stop while the video is paused;
+the hold and the freshness then pause too.
+
+**The monitor** (`mismatch-monitor.ts`) asks whether the layout describes the picture at all:
+over the last 10 analyses in which the source offered identities, the share of distinct
+accepted identities (leaving out those `exclude` names) that the source offered. Below 0.4 with
+at least 3 identities it trips; it recovers after 10 analyses in a row at 0.7 or more. A
+confirmed placement clears a trip and the identities behind it, so only later evidence can trip
+it again. It cannot tell apart layouts that share most of their cards; the geometry above
+carries those.
+
+**The probe** (`FrameScheduler` in `"layout"` mode). Registration needs analyses when nobody
+points at anything: one every probe interval while the video plays, one per picture while it is
+paused, whatever the verdict. While the product shows `vision` it can ask for pointer-driven
+analysis too (`setPointerAnalysis(true)`); the pointer's cadence then applies in the same single
+slot.
+
+**The configuration has no defaults.** These are the product's tuned values, and the constructor
+refuses a missing or out-of-range one:
+
+| Value | Meaning | Checked |
+| --- | --- | --- |
+| `fitMinIoU` | the overlap at which a correspondence supports a placement | 0.5 to 1 |
+| `minSpan` | the inliers' spread, as a share of the layout's extent on each axis | 0 to 1 |
+| `confirmFits` | compatible verified fits in a row that confirm a placement | 1, 2 or 3 |
+| `confirmWindowMs` | the most time between two fits of a run | at least 3 × `intervalMs` |
+| `holdMs` | how long a confirmed placement outlives analyses that do not confirm it | at least `freshnessMs` |
+| `freshnessMs` | how long a fitted page survives without any analysis | at least 2 × `intervalMs` |
+| `intervalMs` | the probe interval | positive |
+| `suppressionIoU` | a layout card overlapping a recognized card of another identity this much is not drawn | above 0, at most 1 |
+| `ambiguityMin` (optional) | supporters of its own that make a second, incompatible placement ambiguous | 2 (when absent) or 3 |
+
+The fixed values (40 correspondences, three inliers, two thirds, the 0.01 tolerance, the monitor's 10 / 3 / 0.4 / 0.7) are `LAYOUT_FIT_DEFAULTS` and
+`MONITOR_DEFAULTS`.
+
+**Measuring it.** `layout-metrics.ts` has the primitives a product composes into its own bar:
+`fitError` (the largest distance from the true placement over the grid, in pixels of a
+reference frame), `classifyAccept` (correct within 8 px, false beyond 20), `classifyHitbox`,
+`coverage` and `exitLatency`. `layout-recording.ts` reads a `layout-recording/1` file (the
+frames with their analyses, the candidate layouts with when each was produced and when it
+arrived, the scenes with their true placement), offers each frame only the candidates that had
+arrived when it was captured, and `replayRecording` replays it through a scheduler and the
+state machine, recording the verdict at every frame. Everything but the clocks and the truths
+must be well formed or the file is refused; a malformed clock or truth only sets that frame or
+scene aside, and is listed in `problems` (an absent or null truth is no truth, not a problem). A scene's truth is usable when every solve is within 2 px and no two
+solves place the five fiducial points more than 2 px apart.
+
+**The contract.** `test/fixtures/layout-contract.json` holds the cases another implementation or
+a copy of these files can replay: frame fits, every state of the precedence table against every
+event with the row it should take, named traces, the configuration checks, the metrics and the
+probe. `scripts/layout-contract.mjs` builds it; its expected values are written by hand.
+`test/fixtures/layout-shared-cases.json` holds cases written against the same definition by a
+second, independent implementation, in the same step format; the tests run both.
 
 ## Python and the browser
 
