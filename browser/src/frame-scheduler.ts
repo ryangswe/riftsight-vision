@@ -26,6 +26,12 @@
 //   - "idle": otherwise. Nothing is analyzed. Any pointer activity returns to "fast" at once.
 // "always-on" mode has no such states: the cadence alone decides.
 //
+// "layout" mode is the probe of layout registration: the "probe" state analyzes one presented
+// picture every `probeIntervalMs`, whatever the pointer does, and never repeats a still picture
+// (a paused video gets one analysis per picture). While the host wants pointer-driven analysis
+// as well (`setPointerAnalysis`), the pointer states above apply whenever they are not "idle";
+// it is one slot either way, so an analysis serves both and two never run at once.
+//
 // The staleness rule. On top of the cadence, a pointer moving over the picture asks for an
 // analysis at once when the newest analyzed frame is stale: more than `staleFrameMs` of video
 // time away from the picture on screen, or from before a seek or a new source. This happens at
@@ -134,7 +140,7 @@ export function rejectionAnswersInFlight(reason: ReplyRejection): boolean {
 }
 
 /** Which analysis policy applies right now. */
-export type AnalysisState = "always-on" | "fast" | "reading" | "idle";
+export type AnalysisState = "always-on" | "fast" | "reading" | "idle" | "probe";
 
 export interface StartedInfo {
   /** Time of the analyzed picture in the video, in seconds: what staleness is measured from. */
@@ -170,6 +176,8 @@ export class FrameScheduler {
   private lastUnansweredCapture = false;
   /** A look's capture was refused since the picture was last answered, received or replaced. */
   private refused = false;
+  /** Layout mode: the host also wants pointer-driven analysis. */
+  private pointerAnalysis = false;
 
   /**
    * @param intervalMs The cadence of the mode: the fast cadence in pointer mode, the slow one
@@ -177,13 +185,34 @@ export class FrameScheduler {
    * @param confirmFrames How many times a still picture is analyzed in all.
    * @param mode Defaults to "always-on": the cadence alone decides.
    * @param readingIntervalMs The slow cadence of the "reading" state. Defaults to `intervalMs`.
+   * @param probeIntervalMs Layout mode: the probe interval (the product's). Required there.
    */
   constructor(
     private intervalMs: number,
     private readonly confirmFrames = CONFIRM_FRAMES,
     private mode: AnalysisMode = "always-on",
     private readingIntervalMs: number = intervalMs,
-  ) {}
+    private probeIntervalMs: number | null = null,
+  ) {
+    this.checkProbe(mode);
+  }
+
+  private checkProbe(mode: AnalysisMode): void {
+    if (mode === "layout" && !(this.probeIntervalMs !== null && this.probeIntervalMs > 0)) {
+      throw new Error("layout mode needs a positive probe interval");
+    }
+  }
+
+  setProbeIntervalMs(ms: number): void {
+    this.probeIntervalMs = ms;
+    this.checkProbe(this.mode);
+  }
+
+  /** Layout mode: does the host also want pointer-driven analysis (while its display shows the
+   *  recognizer's own cards)? */
+  setPointerAnalysis(on: boolean): void {
+    this.pointerAnalysis = on;
+  }
 
   setIntervalMs(ms: number): void {
     this.intervalMs = ms;
@@ -201,6 +230,7 @@ export class FrameScheduler {
   }
 
   setMode(mode: AnalysisMode): void {
+    this.checkProbe(mode);
     this.mode = mode;
   }
 
@@ -335,6 +365,14 @@ export class FrameScheduler {
 
   analysisState(now: number): AnalysisState {
     if (this.mode === "always-on") return "always-on";
+    if (this.mode === "layout") {
+      const pointer = this.pointerAnalysis ? this.pointerState(now) : "idle";
+      return pointer === "idle" ? "probe" : pointer;
+    }
+    return this.pointerState(now);
+  }
+
+  private pointerState(now: number): "fast" | "reading" | "idle" {
     if (this.pointerActive(now)) return "fast";
     if (!this.pointerInside) return "idle";
     return this.tooltipShowing || now - this.lastTooltipAt < READING_LINGER_MS ? "reading" : "idle";
@@ -347,7 +385,9 @@ export class FrameScheduler {
 
   /** The cadence in effect: the slow reading cadence while reading, else the mode's cadence. */
   intervalInEffectMs(now: number): number {
-    return this.analysisState(now) === "reading" ? this.readingIntervalMs : this.intervalMs;
+    const state = this.analysisState(now);
+    if (state === "probe") return this.probeIntervalMs!;
+    return state === "reading" ? this.readingIntervalMs : this.intervalMs;
   }
 
   /** Should the current picture be analyzed now, by the cadence or as a repeat of a still? */
@@ -357,6 +397,8 @@ export class FrameScheduler {
     if (this.retryPrompt && this.retryReady(now)) return true;
     const since = now - this.lastStartedAt;
     if (this.pending || this.retryReady(now)) return since >= this.intervalInEffectMs(now);
+    // The probe looks once per picture: a still picture is not repeated.
+    if (this.analysisState(now) === "probe") return false;
     return this.repeatsLeft > 0 && since >= REPEAT_INTERVAL_MS;
   }
 
@@ -380,7 +422,8 @@ export class FrameScheduler {
    * consulted.
    */
   hoverTriggerDue(now: number, videoTimeSec: number, inFlight: boolean): boolean {
-    if (inFlight || !this.analysisActive(now)) return false;
+    const state = this.analysisState(now);
+    if (inFlight || state === "idle" || state === "probe") return false;
     if (now - this.lastHoverTriggerAt < HOVER_TRIGGER_MIN_GAP_MS) return false;
     return this.frameStale(videoTimeSec, now);
   }
@@ -404,9 +447,9 @@ export class FrameScheduler {
     this.lookRequested = false;
     if (this.pending || hover || cut) {
       // A look started by the pointer or by a cut uses up the pending frame just as a start by
-      // the cadence does, and a still picture then gets its repeats.
+      // the cadence does, and a still picture then gets its repeats (none for the probe).
       this.pending = false;
-      this.repeatsLeft = this.confirmFrames - 1;
+      this.repeatsLeft = this.analysisState(now) === "probe" ? 0 : this.confirmFrames - 1;
     } else if (this.repeatsLeft > 0) {
       this.repeatsLeft -= 1;
     }

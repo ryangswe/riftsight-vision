@@ -3,7 +3,7 @@
 // holds no ONNX Runtime, no WebAssembly and no OpenCV: the build and test/bundle-purity.test.ts
 // keep it that way.
 
-export { type AnalysisMode, cadenceMs } from "./cadence.js";
+export { type AnalysisMode, cadenceMs, type SessionMode } from "./cadence.js";
 export { type AnalysisState, FrameScheduler, HOVER_MAX_AGE_MS, replyRejection } from "./frame-scheduler.js";
 export { hoverAt } from "./hover-at.js";
 export {

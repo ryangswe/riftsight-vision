@@ -23,7 +23,7 @@ export { type AnalyzeOptions, type BoxResult, type FaceResult, type FrameAnalysi
 
 export { type AABB, type Candidate, iou, nonMaxSuppression, type Rect } from "./boxes.js";
 export { type EmbeddingBank, parseBank } from "./bank.js";
-export { type AnalysisMode, cadenceMs } from "./cadence.js";
+export { type AnalysisMode, cadenceMs, type SessionMode } from "./cadence.js";
 export { analysisSize, captureFrame, type FrameSource, MAX_ANALYSIS_WIDTH, MIN_ANALYSIS_WIDTH } from "./capture.js";
 export { type DecodeSettings, decodeDetections, DEFAULT_DECODE, validBox } from "./detector/decode.js";
 export { Detector, type DetectorSettings, type Frame, type FrameDetector } from "./detector/detector.js";
@@ -32,6 +32,57 @@ export { type BatchEmbedder, Embedder, type EmbedderSettings } from "./embedder.
 export { type AnalysisState, FrameScheduler, HOVER_MAX_AGE_MS, replyRejection } from "./frame-scheduler.js";
 export { computeCardQuad, type LayerCard, type NormalizedBounds, pointInConvexQuad, resolveHoveredCard } from "./hover-geometry.js";
 export { HOVER_SELECTIONS, type HoverOutcome, type HoverSelection, hoverOrder, resolveHover, selectHoverLayer } from "./hover-layer.js";
+export {
+  type Box,
+  compatible,
+  correspondences,
+  type Correspondence,
+  fitFrame,
+  fitFrameDetail,
+  type FitParams,
+  type FrameFitOutcome,
+  iou as layoutIoU,
+  type Layout,
+  type LayoutCard,
+  LAYOUT_FIT_DEFAULTS,
+  layoutExtent,
+  type Observation,
+  placementDistance,
+  project,
+  type Region,
+  toRegion,
+  type Transform,
+} from "./layout-fit.js";
+export { classifyAccept, classifyHitbox, coverage, exitLatency, fitError, type Hitbox, type TruthCard } from "./layout-metrics.js";
+export {
+  clockUsable,
+  FIDUCIAL_POINTS,
+  type LayoutCandidate,
+  type LayoutRecording,
+  latestOffered,
+  offeredCandidates,
+  type ProbeScheduler,
+  readLayoutRecording,
+  recordingSource,
+  type Replay,
+  replayRecording,
+  sceneAt,
+  timedFrames,
+  truthCandidate,
+  truthUsable,
+} from "./layout-recording.js";
+export {
+  type Display,
+  type FrameInput,
+  type LayoutConfig,
+  layoutConfigError,
+  LayoutRegistration,
+  type LayoutSource,
+  type State as LayoutState,
+  suppressedInstances,
+  type Verdict,
+} from "./layout-state.js";
+export { MismatchMonitor, MONITOR_DEFAULTS } from "./mismatch-monitor.js";
 export { type IdentityDisplay, type IdentityGroups, IdentityMap, type IdentityRule, parseIdentityGroups } from "./identity.js";
 export type { FrameEnvelope, FrameResult, ReleaseProgress, ReleaseStatus, TiltedStatus, WorkerReply, WorkerRequest } from "./messages.js";
 export { boxAverageRgb, PREPROCESSING, type PreprocessingContract, rotateTensor90, toContractTensor } from "./preprocess.js";

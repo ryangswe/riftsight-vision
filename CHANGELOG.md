@@ -9,6 +9,52 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.9.0rc1] - 2026-11-01
+
+The browser runtime gains **layout registration**, for a product that already knows the board
+from another source: it finds where that board sits in the picture from the cards the
+recognizer names, decides when the placement can be trusted, and keeps deciding as frames
+arrive ([browser/README.md](browser/README.md#layout-registration)). Nothing changes for a
+product that does not use it: no model, release document or recognizer decision changes, and
+the contract's `PROTOCOL_VERSION` stays 1.
+
+### Added
+
+- `browser/src/layout-fit.ts`: one frame's fit (`fitFrame`, `fitFrameDetail`): the
+  correspondences (`correspondences`), the best supported placement, a least-squares refit, the
+  verified, ambiguous and insufficient outcomes; the geometry (`project`, `toRegion`,
+  `layoutExtent`, `compatible`, `placementDistance`) and `LAYOUT_FIT_DEFAULTS`.
+- `browser/src/layout-state.ts`: `LayoutRegistration`, the verdict across frames (`fitted`,
+  `today`, `vision`, `hidden`) with its precedence table, the hold, the freshness, generations,
+  and the instances not to draw (`suppressedInstances`); `LayoutConfig`, which has no defaults
+  (but for an optional `ambiguityMin`, 2 when absent) and is checked when the registration is
+  made (`layoutConfigError`); the `LayoutSource`
+  interface a product implements.
+- `browser/src/mismatch-monitor.ts`: `MismatchMonitor`, whether the layout describes the
+  picture at all, with an `exclude` predicate for card types every layout shares
+  (`MONITOR_DEFAULTS`).
+- `browser/src/layout-metrics.ts`: `fitError`, `classifyAccept`, `classifyHitbox`, `coverage`,
+  `exitLatency`.
+- `browser/src/layout-recording.ts`: the `layout-recording/1` reader (`readLayoutRecording`)
+  with its causal rule (`offeredCandidates`, `truthCandidate`), whether a frame's clock or a
+  scene's truth can be used (`clockUsable`, `truthUsable`), and `replayRecording`, which replays
+  a recording through a scheduler and the state machine.
+- The scheduler's `"layout"` analysis mode: a probe every product-set interval whatever the
+  pointer does, one analysis per picture while paused, with pointer-driven analysis on top when
+  the product asks for it (`FrameScheduler`'s `probeIntervalMs`, `setProbeIntervalMs`,
+  `setPointerAnalysis`; the `"probe"` analysis state).
+- `browser/test/fixtures/layout-contract.json`, the contract cases, built by
+  `browser/scripts/layout-contract.mjs` with hand-written expectations, and
+  `browser/test/fixtures/layout-shared-cases.json`, cases from a second implementation of the
+  same definition.
+
+### Changed
+
+- `AnalysisMode` has a third value, `"layout"`, and `AnalysisState` a fifth, `"probe"`. A
+  session runs only the first two modes: its `mode` option is now typed `SessionMode`
+  (`"pointer" | "always-on"`, as before). Code that switches over `AnalysisState` exhaustively
+  needs a case for `"probe"`.
+
 ## [0.8.0rc1] - 2026-11-01
 
 A release may turn on the **tilted retry**: a face crop that is still not accepted after the
@@ -974,7 +1020,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc1...HEAD
+[0.9.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0rc1...v0.9.0rc1
 [0.8.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...v0.8.0rc1
 [0.7.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.6.2...v0.7.0
 [0.7.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0rc1...v0.7.0rc2
