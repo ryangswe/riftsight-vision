@@ -16,6 +16,19 @@
 //      lower index.
 //   3. A least-squares refit per axis over the winner's supporters, then one re-test under the
 //      refit (no second refit).
+//
+//      With the aspect prior (the layout's `aspect` and the frame's aspect both given), a
+//      placement keeps the layout's proportions in pixels: sy / sx must equal frameAspect /
+//      aspect. A hypothesis whose own ratio differs from that by more than `scaleRatioTol`
+//      (relative) is set aside before scoring, and the refit has one scale instead of two
+//      (sy = ratio · sx, by least squares in pixels). Where no hypothesis left can win (none
+//      left, or the winner supported by itself alone), the frame is `insufficient` for the
+//      reason `aspect` when a set-aside hypothesis is supported by another name (the names agree
+//      on a placement out of proportion: a stretched picture), and `zero-inliers` otherwise.
+//      A frame that passes everything in step 4 gets one more test: the per-axis refit over
+//      its inliers must keep the layout's proportions within `scaleRatioTol` too, or the frame
+//      is `aspect`. This judges the whole board, which one card's noise cannot carry, and also
+//      catches rows that drift apart while each card keeps its shape.
 //   4. The frame is `verified` with enough inliers (`fitMinInliers`, and two thirds of all
 //      correspondences, tested in integers) spread far enough over the layout (`minSpan` of its extent on each
 //      axis). Two coherent names fit any scale and offset exactly, so three distinct
@@ -50,6 +63,9 @@ export interface Layout {
   /** A region of the layout painted over in the picture (a dialog). Cards whose center lies in
    *  it are never matched. */
   blocking?: Box;
+  /** The layout's own width / height in pixels. With the frame's aspect, it turns on the aspect
+   *  prior (see the file comment); without it, a placement scales each axis freely. */
+  aspect?: number;
 }
 
 /** A card the recognizer accepted, in frame units. */
@@ -74,7 +90,7 @@ export interface Region {
   height: number;
 }
 
-export type InsufficientReason = "too-few" | "share" | "span" | "degenerate" | "zero-inliers";
+export type InsufficientReason = "too-few" | "share" | "span" | "degenerate" | "zero-inliers" | "aspect";
 
 export type FrameFitOutcome =
   | {
@@ -111,6 +127,9 @@ export interface FitParams {
   /** Two placements are compatible when they put every point of the layout's extent within
    *  this distance of each other, as a fraction of the frame on each axis. */
   compatTol: number;
+  /** With the aspect prior: a hypothesis whose sy / sx differs from the aspect-implied ratio by
+   *  more than this share of it is set aside. */
+  scaleRatioTol: number;
 }
 
 /** The toolkit's defaults for the parameters a product does not tune. */
@@ -123,6 +142,8 @@ export const LAYOUT_FIT_DEFAULTS = {
   ambiguityMin: 2,
   /** 0.01 of the frame per axis: 19.2 px across and 10.8 px down a 1920 × 1080 frame. */
   compatTol: 0.01,
+  /** 3 % of the aspect-implied ratio. */
+  scaleRatioTol: 0.03,
 } as const;
 
 /** Ties between IoU sums closer than this count as equal, and so do span tests this close. */
@@ -331,6 +352,56 @@ export function refit(cs: readonly Correspondence[]): Transform | null {
   return { sx: fx.s, sy: fy.s, tx: fx.t, ty: fy.t };
 }
 
+/**
+ * The refit under the aspect prior: one scale, sy = ratio · sx, and a translation per axis, by
+ * least squares over both edges of each box on each axis, in pixels (x residuals weighted by
+ * the frame's aspect, so that a pixel counts the same across and down). Null when the points
+ * do not determine a positive scale.
+ */
+export function refitAspect(cs: readonly Correspondence[], ratio: number, frameAspect: number): Transform | null {
+  if (cs.length === 0 || !(ratio > 0) || !(frameAspect > 0)) return null;
+  const xs: Array<[number, number]> = [];
+  const ys: Array<[number, number]> = [];
+  for (const { r, v } of cs) {
+    xs.push([r.x, v.x], [r.x + r.w, v.x + v.w]);
+    ys.push([r.y, v.y], [r.y + r.h, v.y + v.h]);
+  }
+  const mean = (ps: Array<[number, number]>, k: 0 | 1): number => ps.reduce((a, p) => a + p[k], 0) / ps.length;
+  const ma = mean(xs, 0);
+  const mv = mean(xs, 1);
+  const mb = mean(ys, 0);
+  const mw = mean(ys, 1);
+  let saa = 0;
+  let sav = 0;
+  let sbb = 0;
+  let sbw = 0;
+  for (const [a, v] of xs) {
+    saa += (a - ma) * (a - ma);
+    sav += (a - ma) * (v - mv);
+  }
+  for (const [b, w] of ys) {
+    sbb += (b - mb) * (b - mb);
+    sbw += (b - mb) * (w - mw);
+  }
+  const f2 = frameAspect * frameAspect;
+  const den = f2 * saa + ratio * ratio * sbb;
+  if (!(den > 0)) return null;
+  const sx = (f2 * sav + ratio * sbw) / den;
+  if (!(sx > 0) || !Number.isFinite(sx)) return null;
+  const t = { sx, sy: ratio * sx, tx: mv - sx * ma, ty: mw - ratio * sx * mb };
+  if (![t.sy, t.tx, t.ty].every(Number.isFinite)) return null;
+  return t;
+}
+
+/** The ratio sy / sx the aspect prior requires, null when the prior is off, or NaN when an
+ *  aspect is given but not a positive finite number. */
+function aspectRatio(layout: Layout, frameAspect: number | undefined): number | null {
+  if (layout.aspect === undefined || frameAspect === undefined) return null;
+  const ok = (v: number): boolean => Number.isFinite(v) && v > 0;
+  if (!ok(layout.aspect) || !ok(frameAspect)) return NaN;
+  return frameAspect / layout.aspect;
+}
+
 /** Everything the fit computed, for diagnostics and tests. */
 export interface FitDetail {
   outcome: FrameFitOutcome;
@@ -339,34 +410,65 @@ export interface FitDetail {
   support: number[][];
   /** The winning hypothesis's index, or -1. */
   winner: number;
+  /** Hypotheses the aspect prior set aside (indices into `correspondences`). */
+  aspectRejected: number[];
 }
 
-/** Fit one frame. See the file comment for the steps. */
+/**
+ * Fit one frame. See the file comment for the steps.
+ * @param frameAspect The analyzed frame's width / height in pixels; with the layout's `aspect`,
+ *   it turns on the aspect prior.
+ */
 export function fitFrame(
   observations: readonly Observation[],
   layout: Layout | null,
   params: FitParams,
+  frameAspect?: number,
 ): FrameFitOutcome {
-  return fitFrameDetail(observations, layout, params).outcome;
+  return fitFrameDetail(observations, layout, params, frameAspect).outcome;
 }
 
 export function fitFrameDetail(
   observations: readonly Observation[],
   layout: Layout | null,
   params: FitParams,
+  frameAspect?: number,
 ): FitDetail {
-  if (layout === null) return { outcome: { kind: "no-layout" }, correspondences: [], support: [], winner: -1 };
+  if (layout === null) {
+    return { outcome: { kind: "no-layout" }, correspondences: [], support: [], winner: -1, aspectRejected: [] };
+  }
   const cs = correspondences(observations, layout, params.maxCorrespondences);
   const n = cs.length;
+  const aspectRejected: number[] = [];
   const insufficient = (reason: InsufficientReason, inliers: number, support: number[][] = [], winner = -1): FitDetail => ({
     outcome: { kind: "insufficient", reason, n, inliers },
     correspondences: cs,
     support,
     winner,
+    aspectRejected,
   });
+  const ratio = aspectRatio(layout, frameAspect);
+  if (ratio !== null && Number.isNaN(ratio)) return insufficient("degenerate", 0);
 
-  // Hypotheses and the support matrix.
-  const hyps = cs.map(hypothesis);
+  const offAspect = (t: Transform): boolean => ratio !== null && Math.abs(t.sy / t.sx / ratio - 1) > params.scaleRatioTol;
+  const supportOf = (h: Transform): number[] => {
+    const sup: number[] = [];
+    for (let j = 0; j < n; j++) if (iou(project(h, cs[j]!.r), cs[j]!.v) >= params.fitMinIoU) sup.push(j);
+    return sup;
+  };
+
+  // Hypotheses (those off the aspect set aside) and the support matrix.
+  const raw = cs.map(hypothesis);
+  const hyps = raw.map((h, i) => {
+    if (h && offAspect(h)) {
+      aspectRejected.push(i);
+      return null;
+    }
+    return h;
+  });
+  // Is a set-aside hypothesis supported by another name? Only the reason uses it: a set-aside
+  // hypothesis never wins and is never a runner-up.
+  const asideAgreed = (): boolean => aspectRejected.some((i) => supportOf(raw[i]!).length >= 2);
   const support: number[][] = [];
   const iouSum: number[] = [];
   for (let i = 0; i < n; i++) {
@@ -397,12 +499,19 @@ export function fitFrameDetail(
     const b = support[winner]!.length;
     if (a > b || (a === b && iouSum[i]! > iouSum[winner]! + TIE_EPS)) winner = i;
   }
-  if (winner < 0) return insufficient(n < params.fitMinInliers ? "too-few" : "degenerate", 0, support, winner);
-  // A winner supported by itself alone: no two names agree on any placement.
-  if (support[winner]!.length <= 1 && n >= params.fitMinInliers) return insufficient("zero-inliers", 0, support, winner);
+  if (winner < 0) {
+    const reason =
+      n < params.fitMinInliers ? "too-few" : aspectRejected.length === 0 ? "degenerate" : asideAgreed() ? "aspect" : "zero-inliers";
+    return insufficient(reason, 0, support, winner);
+  }
+  // A winner supported by itself alone: no two names agree on any placement in proportion; if
+  // two agree on one out of proportion, the reason is the prior's.
+  if (support[winner]!.length <= 1 && n >= params.fitMinInliers) {
+    return insufficient(asideAgreed() ? "aspect" : "zero-inliers", 0, support, winner);
+  }
 
   const candidates = support[winner]!.map((j) => cs[j]!);
-  const t = refit(candidates);
+  const t = ratio === null ? refit(candidates) : refitAspect(candidates, ratio, frameAspect!);
   if (!t) return insufficient("degenerate", 0, support, winner);
 
   // Re-test under the refit; no second refit.
@@ -433,6 +542,7 @@ export function fitFrameDetail(
       correspondences: cs,
       support,
       winner,
+      aspectRejected,
     };
   }
 
@@ -454,10 +564,16 @@ export function fitFrameDetail(
   if (span[0] < params.minSpan * extent.w - TIE_EPS || span[1] < params.minSpan * extent.h - TIE_EPS) {
     return insufficient("span", inliers.length, support, winner);
   }
+  // The board's proportions: the per-axis refit over the inliers must keep them too.
+  if (ratio !== null) {
+    const free = refit(inlierIdx.map((j) => cs[j]!));
+    if (!free || offAspect(free)) return insufficient("aspect", inliers.length, support, winner);
+  }
   return {
     outcome: { kind: "verified", transform: t, inliers, n, minIoU, span },
     correspondences: cs,
     support,
     winner,
+    aspectRejected,
   };
 }

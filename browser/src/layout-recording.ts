@@ -14,10 +14,12 @@
 // candidates, and also each scene's id, class and span and each frame's image. Clocks and
 // truths are checked more gently: a frame whose clock is malformed counts as having none, and a
 // scene whose truth is malformed has none; both are listed in `problems`. A truth that is absent
-// or null is simply no truth, not a problem. Frames
-// without a decoded clock are left out of time-dependent measurements, and counted. A negative
-// scene (no layout to place) has a truth with `region: null`. Keys the reader does not know are
-// ignored, so a recorder may add its own.
+// or null is simply no truth, not a problem. Frames without a decoded clock are left out of
+// time-dependent measurements, and counted. A negative scene (no layout to place) has a truth
+// with `region: null`. A truth is usable only when its region and all its solves agree at five
+// fiducial points within 2 px. A candidate's layout may carry its `aspect`; replay then passes
+// the recording's frame aspect, which turns on the aspect prior. Keys the reader does not know
+// are ignored, so a recorder may add its own.
 //
 // The driver replays a recording through a scheduler policy and the state machine: each
 // frame is presented to the scheduler, an analysis starts when the scheduler says it is due and
@@ -178,6 +180,10 @@ function layout(v: unknown, path: string): Layout {
   });
   const out: Layout = { key: str(o.key, `${path}.key`), cards };
   if (o.blocking !== undefined) out.blocking = box(o.blocking, `${path}.blocking`);
+  if (o.aspect !== undefined) {
+    out.aspect = num(o.aspect, `${path}.aspect`);
+    if (!(out.aspect > 0)) fail(`${path}.aspect`, "must be positive");
+  }
   return out;
 }
 
@@ -350,10 +356,10 @@ export function sceneAt(rec: LayoutRecording, atMs: number): Scene | null {
 
 /**
  * Is a scene's true placement usable? It must be present, its residual and every solve's within
- * `MAX_TRUTH_RESIDUAL_PX`, and no two solves may put a fiducial point more than that many
- * pixels apart (on either axis, in a frame of `frame.width` × `frame.height`). Null for a scene
- * with no placement to judge (`region: null`, a negative scene); false for a scene without a
- * truth.
+ * `MAX_TRUTH_RESIDUAL_PX`, and the region and every solve must agree: no two of them may put a
+ * fiducial point more than that many pixels apart (on either axis, in a frame of
+ * `frame.width` × `frame.height`). Null for a scene with no placement to judge
+ * (`region: null`, a negative scene); false for a scene without a truth.
  */
 export function truthUsable(scene: Scene, frame: { width: number; height: number }): boolean | null {
   const t = scene.truth;
@@ -361,17 +367,25 @@ export function truthUsable(scene: Scene, frame: { width: number; height: number
   if (t.region === null) return null;
   if (!(t.residualPx <= MAX_TRUTH_RESIDUAL_PX)) return false;
   if (!t.solves.every((s) => s.residualPx <= MAX_TRUTH_RESIDUAL_PX)) return false;
-  for (let i = 0; i < t.solves.length; i++) {
-    for (let j = i + 1; j < t.solves.length; j++) {
-      const a = t.solves[i]!.region;
-      const b = t.solves[j]!.region;
-      if (!a || !b) return false;
-      for (const p of FIDUCIAL_POINTS) {
-        const dx = Math.abs(a.x + p.x * a.width - (b.x + p.x * b.width)) * frame.width;
-        const dy = Math.abs(a.y + p.y * a.height - (b.y + p.y * b.height)) * frame.height;
-        if (dx > MAX_TRUTH_RESIDUAL_PX || dy > MAX_TRUTH_RESIDUAL_PX) return false;
-      }
+  const regions: Region[] = [t.region];
+  for (const s of t.solves) {
+    if (!s.region) return false;
+    regions.push(s.region);
+  }
+  for (let i = 0; i < regions.length; i++) {
+    for (let j = i + 1; j < regions.length; j++) {
+      if (!regionsAgree(regions[i]!, regions[j]!, frame)) return false;
     }
+  }
+  return true;
+}
+
+/** Whether two regions put every fiducial point within `MAX_TRUTH_RESIDUAL_PX` of each other. */
+function regionsAgree(a: Region, b: Region, frame: { width: number; height: number }): boolean {
+  for (const p of FIDUCIAL_POINTS) {
+    const dx = Math.abs(a.x + p.x * a.width - (b.x + p.x * b.width)) * frame.width;
+    const dy = Math.abs(a.y + p.y * a.height - (b.y + p.y * b.height)) * frame.height;
+    if (dx > MAX_TRUTH_RESIDUAL_PX || dy > MAX_TRUTH_RESIDUAL_PX) return false;
   }
   return true;
 }
@@ -465,6 +479,7 @@ export function replayRecording(rec: LayoutRecording, options: ReplayOptions): R
       observations: f.analysis.observations,
       layout: source.layoutAt(f.capturedAtMs),
       windowIdentities: source.windowIdentitiesAt(f.capturedAtMs),
+      frameAspect: rec.frame.width / rec.frame.height,
     };
     machine.analyze(input, run.endedAtMs);
     analyses.push({

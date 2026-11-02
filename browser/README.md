@@ -1323,6 +1323,30 @@ placement with two supporters of its own makes the frame ambiguous: it never con
 contradicts anything. Two placements are compatible when they put every point of a 5 × 5 grid
 over the layout within 0.01 of the frame of each other, on each axis.
 
+**The aspect prior.** Scaling each axis freely lets a placement stretch: a few inliers can agree
+on a placement whose far edge is tens of pixels off, and consecutive fits from the same inliers
+drift together, so compatibility does not catch it. A product that knows its layout's
+proportions gives the layout an `aspect` (its width / height in pixels) and each analysis the
+frame's (`FrameInput.frameAspect`, the fourth argument of `fitFrame`). With both, a placement
+keeps the layout's proportions: sy / sx = frameAspect / aspect.
+- A proposal whose own ratio is off by more than `scaleRatioTol` of that (relative; 0.03 unless
+  the configuration says otherwise) is set aside: it neither wins nor makes a frame ambiguous.
+- The refit has one scale instead of two, by least squares in pixels.
+- A frame that passes every other test is then judged as a board: the per-axis refit over its
+  inliers must keep the proportions within `scaleRatioTol` too. One card's noise cannot carry
+  this test, and it also catches rows that drift apart while each card keeps its shape.
+- A frame that fails the board test, or in which no proposal left can win while two names agree
+  on a set-aside one, is `insufficient` for the reason `aspect`. That reason does not count
+  toward the two analyses in which no two names agree, so a stretched picture does not confirm
+  and falls back to `today`, not to `vision`. Names that agree on nothing, in proportion or
+  not, are still zero inliers.
+- When both are given, one that is not a positive number makes no placement (`degenerate`).
+  Without either one, nothing changes.
+
+One proposal comes from one card's box, so the tolerance must cover the detector's error on a
+card's proportions at the smallest card size the product handles, in width and height both: a
+2 px error in the height of a 60 px card is already 3.3 %.
+
 **Across frames** (`layout-state.ts`). `confirmFits` compatible verified fits in a row, each within
 `confirmWindowMs` of the one before, confirm a placement, and the page shows `fitted`. A
 confirmed placement is held for `holdMs` through analyses that do not confirm it, and withdrawn
@@ -1361,6 +1385,7 @@ refuses a missing or out-of-range one:
 | `intervalMs` | the probe interval | positive |
 | `suppressionIoU` | a layout card overlapping a recognized card of another identity this much is not drawn | above 0, at most 1 |
 | `ambiguityMin` (optional) | supporters of its own that make a second, incompatible placement ambiguous | 2 (when absent) or 3 |
+| `scaleRatioTol` (optional) | with the aspect prior, how far a proposal's sy / sx may be off the layout's proportions, as a share | above 0, at most 0.25; 0.03 when absent |
 
 The fixed values (40 correspondences, three inliers, two thirds, the 0.01 tolerance, the monitor's 10 / 3 / 0.4 / 0.7) are `LAYOUT_FIT_DEFAULTS` and
 `MONITOR_DEFAULTS`.
@@ -1374,8 +1399,10 @@ arrived, the scenes with their true placement), offers each frame only the candi
 arrived when it was captured, and `replayRecording` replays it through a scheduler and the
 state machine, recording the verdict at every frame. Everything but the clocks and the truths
 must be well formed or the file is refused; a malformed clock or truth only sets that frame or
-scene aside, and is listed in `problems` (an absent or null truth is no truth, not a problem). A scene's truth is usable when every solve is within 2 px and no two
-solves place the five fiducial points more than 2 px apart.
+scene aside, and is listed in `problems` (an absent or null truth is no truth, not a problem).
+A scene's truth is usable when every solve is within 2 px and no two of its region and its
+solves place the five fiducial points more than 2 px apart. A candidate's layout may carry its
+`aspect`; replay passes the recording's frame aspect with every analysis.
 
 **The contract.** `test/fixtures/layout-contract.json` holds the cases another implementation or
 a copy of these files can replay: frame fits, every state of the precedence table against every

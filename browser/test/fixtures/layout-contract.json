@@ -51,6 +51,30 @@
     {"instance":"card-u4","identity":"u4","bounds":{"x":0.32,"y":0.5,"w":0.1,"h":0.12}},
     {"instance":"card-u5","identity":"u5","bounds":{"x":0.45,"y":0.5,"w":0.1,"h":0.12}}
    ]
+  },
+  "six-aspect": {
+   "key": "six-aspect",
+   "cards": [
+    {"instance":"card-a","identity":"a","bounds":{"x":0.05,"y":0.1,"w":0.12,"h":0.16}},
+    {"instance":"card-b","identity":"b","bounds":{"x":0.4,"y":0.08,"w":0.12,"h":0.16}},
+    {"instance":"card-c","identity":"c","bounds":{"x":0.78,"y":0.12,"w":0.12,"h":0.16}},
+    {"instance":"card-d","identity":"d","bounds":{"x":0.1,"y":0.7,"w":0.12,"h":0.16}},
+    {"instance":"card-e","identity":"e","bounds":{"x":0.45,"y":0.72,"w":0.12,"h":0.16}},
+    {"instance":"card-f","identity":"f","bounds":{"x":0.8,"y":0.68,"w":0.12,"h":0.16}}
+   ],
+   "aspect": 1.7777777777777777
+  },
+  "six-4x3": {
+   "key": "six-4x3",
+   "cards": [
+    {"instance":"card-a","identity":"a","bounds":{"x":0.05,"y":0.1,"w":0.12,"h":0.16}},
+    {"instance":"card-b","identity":"b","bounds":{"x":0.4,"y":0.08,"w":0.12,"h":0.16}},
+    {"instance":"card-c","identity":"c","bounds":{"x":0.78,"y":0.12,"w":0.12,"h":0.16}},
+    {"instance":"card-d","identity":"d","bounds":{"x":0.1,"y":0.7,"w":0.12,"h":0.16}},
+    {"instance":"card-e","identity":"e","bounds":{"x":0.45,"y":0.72,"w":0.12,"h":0.16}},
+    {"instance":"card-f","identity":"f","bounds":{"x":0.8,"y":0.68,"w":0.12,"h":0.16}}
+   ],
+   "aspect": 1.3333333333333333
   }
  },
  "fits": [
@@ -270,6 +294,297 @@
     "inliers": ["a","b","c","d","e","f"],
     "transform": {"sx":0.6,"sy":0.6,"tx":0.2,"ty":0.1}
    }
+  },
+  {
+   "name": "aspect prior: G1 is unchanged",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+   ],
+   "expect": {
+    "kind": "verified",
+    "n": 6,
+    "inliers": ["a","b","c","d","e","f"],
+    "transform": {"sx":0.6,"sy":0.6,"tx":0.2,"ty":0.1},
+    "minIoU": 1,
+    "span": [0.75,0.64]
+   }
+  },
+  {
+   "name": "aspect prior: a picture stretched 4.8 % down (31 px at the far edge) is not verified",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+   ],
+   "expect": {"kind":"insufficient","reason":"aspect","n":6,"inliers":0}
+  },
+  {
+   "name": "without the layout's aspect, the stretched picture verifies, stretched",
+   "layout": "six",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+   ],
+   "expect": {
+    "kind": "verified",
+    "n": 6,
+    "inliers": ["a","b","c","d","e","f"],
+    "transform": {"sx":0.6,"sy":0.6288,"tx":0.2,"ty":0.1}
+   }
+  },
+  {
+   "name": "without the frame's aspect, the stretched picture verifies, stretched",
+   "layout": "six-aspect",
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+   ],
+   "expect": {
+    "kind": "verified",
+    "n": 6,
+    "inliers": ["a","b","c","d","e","f"],
+    "transform": {"sx":0.6,"sy":0.6288,"tx":0.2,"ty":0.1}
+   }
+  },
+  {
+   "name": "aspect prior: a stretch within the tolerance verifies in proportion",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.1612,"w":0.072,"h":0.09792000000000001}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.14896,"w":0.072,"h":0.09792000000000001}},
+    {
+     "identity": "c",
+     "bounds": {"x":0.6679999999999999,"y":0.17343999999999998,"w":0.072,"h":0.09792000000000001}
+    },
+    {"identity":"d","bounds":{"x":0.26,"y":0.5284,"w":0.072,"h":0.09792000000000001}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.54064,"w":0.072,"h":0.09792000000000001}},
+    {
+     "identity": "f",
+     "bounds": {"x":0.6799999999999999,"y":0.5161600000000001,"w":0.072,"h":0.09792000000000001}
+    }
+   ],
+   "expect": {
+    "kind": "verified",
+    "n": 6,
+    "inliers": ["a","b","c","d","e","f"],
+    "transform": {"sx":0.6030623552366833,"sy":0.6030623552366833,"tx":0.19849944593402483,"ty":0.10429006948639193}
+   }
+  },
+  {
+   "name": "aspect prior: a tolerance of 0.05 lets the 4.8 % stretch through, placed in proportion",
+   "config": {"scaleRatioTol":0.05},
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+   ],
+   "expect": {
+    "kind": "verified",
+    "n": 6,
+    "inliers": ["a","b","c","d","e","f"],
+    "transform": {"sx":0.6073496525680414,"sy":0.6073496525680414,"tx":0.1963986702416596,"ty":0.11029616676734001}
+   }
+  },
+  {
+   "name": "aspect prior: rows drifting 31 px at the far edge, every card the right shape, are not verified",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.096}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.096}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.096}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.096}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.096}}
+   ],
+   "expect": {"kind":"insufficient","reason":"aspect","n":6,"inliers":5}
+  },
+  {
+   "name": "without the prior, the drifting rows stretch the placement",
+   "layout": "six",
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.096}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.096}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.096}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.096}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.096}}
+   ],
+   "expect": {
+    "kind": "verified",
+    "n": 6,
+    "inliers": ["a","b","c","d","f"],
+    "transform": {"sx":0.5999999999999998,"sy":0.6267552715654953,"tx":0.2,"ty":0.09854660702875401}
+   }
+  },
+  {
+   "name": "aspect prior: a 4:3 layout in a 16:9 frame, placed in proportion",
+   "layout": "six-4x3",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.3225,"y":0.16,"w":0.054,"h":0.096}},
+    {"identity":"b","bounds":{"x":0.48,"y":0.14800000000000002,"w":0.054,"h":0.096}},
+    {"identity":"c","bounds":{"x":0.651,"y":0.172,"w":0.054,"h":0.096}},
+    {"identity":"d","bounds":{"x":0.345,"y":0.52,"w":0.054,"h":0.096}},
+    {"identity":"e","bounds":{"x":0.5025,"y":0.532,"w":0.054,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.66,"y":0.508,"w":0.054,"h":0.096}}
+   ],
+   "expect": {
+    "kind": "verified",
+    "n": 6,
+    "inliers": ["a","b","c","d","e","f"],
+    "transform": {"sx":0.45,"sy":0.6,"tx":0.3,"ty":0.1}
+   }
+  },
+  {
+   "name": "aspect prior: one badly shaped detection is set aside as a placement, and still fits",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.10560000000000001}}
+   ],
+   "expect": {"kind":"verified","n":6,"inliers":["a","b","c","d","e","f"],"aspectRejected":["f"]}
+  },
+  {
+   "name": "aspect prior: card-shaped names that agree on nothing are still zero inliers",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.02,"y":0.03,"w":0.06,"h":0.08}},
+    {"identity":"b","bounds":{"x":0.62,"y":0.11,"w":0.09,"h":0.12}},
+    {"identity":"c","bounds":{"x":0.31,"y":0.6,"w":0.045,"h":0.06}},
+    {"identity":"d","bounds":{"x":0.83,"y":0.52,"w":0.105,"h":0.14}}
+   ],
+   "expect": {"kind":"insufficient","reason":"zero-inliers","n":4,"inliers":0}
+  },
+  {
+   "name": "aspect prior: one placement set aside and no two names agreeing: still zero inliers",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.02,"y":0.03,"w":0.06,"h":0.08}},
+    {"identity":"b","bounds":{"x":0.62,"y":0.11,"w":0.09,"h":0.12}},
+    {"identity":"c","bounds":{"x":0.31,"y":0.6,"w":0.045,"h":0.06}},
+    {"identity":"d","bounds":{"x":0.83,"y":0.52,"w":0.07,"h":0.13}}
+   ],
+   "expect": {"kind":"insufficient","reason":"zero-inliers","n":4,"inliers":0,"aspectRejected":["d"]}
+  },
+  {
+   "name": "aspect prior: G2f is unchanged (its boxes are set aside, and none agrees with another)",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.02,"y":0.03,"w":0.05,"h":0.07}},
+    {"identity":"b","bounds":{"x":0.62,"y":0.11,"w":0.09,"h":0.05}},
+    {"identity":"c","bounds":{"x":0.31,"y":0.71,"w":0.04,"h":0.11}},
+    {"identity":"d","bounds":{"x":0.83,"y":0.52,"w":0.07,"h":0.13}}
+   ],
+   "expect": {"kind":"insufficient","reason":"zero-inliers","n":4,"inliers":0,"aspectRejected":["a","b","c","d"]}
+  },
+  {
+   "name": "aspect prior: the one placement left supports only itself while the set-aside ones agree: aspect",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+    {"identity":"e","bounds":{"x":0.02,"y":0.85,"w":0.072,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+   ],
+   "expect": {"kind":"insufficient","reason":"aspect","n":6,"inliers":0,"aspectRejected":["a","b","c","d","f"]}
+  },
+  {
+   "name": "aspect prior: a stretched picture is not verified when one card's noise passes the test",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.09863529411764706}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+   ],
+   "expect": {"kind":"insufficient","reason":"aspect","n":6,"inliers":6,"aspectRejected":["a","b","c","d","f"]}
+  },
+  {
+   "name": "aspect prior: G2b is unchanged",
+   "layout": "six-aspect",
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+    {"identity":"e","bounds":{"x":0.62,"y":0.532,"w":0.072,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.83,"y":0.508,"w":0.072,"h":0.096}}
+   ],
+   "expect": {
+    "kind": "ambiguous",
+    "n": 6,
+    "inliers": ["a","b","c","d"],
+    "runnerUp": ["e","f"],
+    "transform": {"sx":0.6,"sy":0.6,"tx":0.2,"ty":0.1}
+   }
+  },
+  {
+   "name": "an aspect that is not positive makes no placement",
+   "layout": {
+    "key": "six-flat",
+    "cards": [
+     {"instance":"card-a","identity":"a","bounds":{"x":0.05,"y":0.1,"w":0.12,"h":0.16}},
+     {"instance":"card-b","identity":"b","bounds":{"x":0.4,"y":0.08,"w":0.12,"h":0.16}},
+     {"instance":"card-c","identity":"c","bounds":{"x":0.78,"y":0.12,"w":0.12,"h":0.16}},
+     {"instance":"card-d","identity":"d","bounds":{"x":0.1,"y":0.7,"w":0.12,"h":0.16}},
+     {"instance":"card-e","identity":"e","bounds":{"x":0.45,"y":0.72,"w":0.12,"h":0.16}},
+     {"instance":"card-f","identity":"f","bounds":{"x":0.8,"y":0.68,"w":0.12,"h":0.16}}
+    ],
+    "aspect": 0
+   },
+   "frameAspect": 1.7777777777777777,
+   "observations": [
+    {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+    {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+    {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+    {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+    {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+    {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+   ],
+   "expect": {"kind":"insufficient","reason":"degenerate","n":6,"inliers":0}
   }
  ],
  "states": [
@@ -7846,6 +8161,596 @@
    ]
   },
   {
+   "name": "aspect prior: a stretched source never verifies and keeps today's hovers",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 6000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    }
+   ]
+  },
+  {
+   "name": "aspect prior: frames off the aspect after a confirmation hold, then fall back to today, not to vision",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"verified","display":"fitted","contradicted":false,"row":9}
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 6000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10}
+    },
+    {
+     "op": "analyze",
+     "now": 12000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 12000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 15000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 15000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 18000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 18000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 21000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 21000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 24000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 24000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 27000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 27000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 30000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 30000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {"op":"tick","now":33000,"expect":{"state":"unverified","display":"today","contradicted":false,"row":11}}
+   ]
+  },
+  {
+   "name": "aspect prior: a stretched picture with one in-tolerance card never confirms",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.09863529411764706}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.09863529411764706}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 6000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.09863529411764706}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    }
+   ]
+  },
+  {
+   "name": "aspect prior: a stretched picture whose one in-proportion card stands alone holds, then falls back to today",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"verified","display":"fitted","contradicted":false,"row":9}
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 6000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.02,"y":0.85,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.02,"y":0.85,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10}
+    }
+   ]
+  },
+  {
+   "name": "aspect prior: one off-shape card does not keep a wrong layout on screen (row 6 still applies)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"verified","display":"fitted","contradicted":false,"row":9}
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 6000,
+      "faces": 4,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.02,"y":0.03,"w":0.06,"h":0.08}},
+       {"identity":"b","bounds":{"x":0.62,"y":0.11,"w":0.09,"h":0.12}},
+       {"identity":"c","bounds":{"x":0.31,"y":0.6,"w":0.045,"h":0.06}},
+       {"identity":"d","bounds":{"x":0.83,"y":0.52,"w":0.07,"h":0.13}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 4,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.02,"y":0.03,"w":0.06,"h":0.08}},
+       {"identity":"b","bounds":{"x":0.62,"y":0.11,"w":0.09,"h":0.12}},
+       {"identity":"c","bounds":{"x":0.31,"y":0.6,"w":0.045,"h":0.06}},
+       {"identity":"d","bounds":{"x":0.83,"y":0.52,"w":0.07,"h":0.13}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"contradicted","display":"vision","contradicted":true,"row":6}
+    }
+   ]
+  },
+  {
+   "name": "aspect prior through the registration: scaleRatioTol 0.05 confirms the 4.8 % stretch, in proportion",
+   "config": {"scaleRatioTol":0.05},
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16288000000000002,"w":0.072,"h":0.100608}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.150304,"w":0.072,"h":0.100608}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.175456,"w":0.072,"h":0.100608}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.54016,"w":0.072,"h":0.100608}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.552736,"w":0.072,"h":0.100608}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.527584,"w":0.072,"h":0.100608}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"verified","display":"fitted","contradicted":false,"row":9}
+    }
+   ]
+  },
+  {
    "name": "the monitor leaves out identities the product excludes",
    "exclude": ["x1","x2","x3"],
    "steps": [
@@ -7998,6 +8903,36 @@
     "ambiguityMin": 2.5
    },
    "error": "ambiguityMin"
+  },
+  {
+   "name": "scaleRatioTol 0",
+   "config": {
+    "fitMinIoU": 0.7,
+    "minSpan": 0.3,
+    "confirmFits": 2,
+    "confirmWindowMs": 15000,
+    "holdMs": 30000,
+    "freshnessMs": 12000,
+    "intervalMs": 3000,
+    "suppressionIoU": 0.3,
+    "scaleRatioTol": 0
+   },
+   "error": "scaleRatioTol"
+  },
+  {
+   "name": "scaleRatioTol above 0.25",
+   "config": {
+    "fitMinIoU": 0.7,
+    "minSpan": 0.3,
+    "confirmFits": 2,
+    "confirmWindowMs": 15000,
+    "holdMs": 30000,
+    "freshnessMs": 12000,
+    "intervalMs": 3000,
+    "suppressionIoU": 0.3,
+    "scaleRatioTol": 0.3
+   },
+   "error": "scaleRatioTol"
   }
  ],
  "compat": [
@@ -8146,6 +9081,50 @@
      ]
     },
     "usable": false
+   },
+   {
+    "name": "a region 1 px from its one solve",
+    "truth": {
+     "region": {"x":0.1,"y":0.05092592592592593,"width":0.8,"height":0.9},
+     "residualPx": 1.2,
+     "mask": {"x":0,"y":0,"w":1,"h":1},
+     "solves": [{"atMs":0,"residualPx":1.2,"region":{"x":0.1,"y":0.05,"width":0.8,"height":0.9}}]
+    },
+    "usable": true
+   },
+   {
+    "name": "a region 3 px from its one solve",
+    "truth": {
+     "region": {"x":0.1,"y":0.05277777777777778,"width":0.8,"height":0.9},
+     "residualPx": 1.2,
+     "mask": {"x":0,"y":0,"w":1,"h":1},
+     "solves": [{"atMs":0,"residualPx":1.2,"region":{"x":0.1,"y":0.05,"width":0.8,"height":0.9}}]
+    },
+    "usable": false
+   },
+   {
+    "name": "a region of another scale than its solves, 2.4 px off at the far fiducials",
+    "truth": {
+     "region": {"x":0.1,"y":0.05,"width":0.80125,"height":0.9},
+     "residualPx": 1.2,
+     "mask": {"x":0,"y":0,"w":1,"h":1},
+     "solves": [
+      {"atMs":0,"residualPx":1.2,"region":{"x":0.1,"y":0.05,"width":0.8,"height":0.9}},
+      {"atMs":60000,"residualPx":1,"region":{"x":0.1,"y":0.05,"width":0.8,"height":0.9}}
+     ]
+    },
+    "usable": false
+   },
+   {
+    "name": "a solve with no region",
+    "truth": {
+     "region": {"x":0.1,"y":0.05,"width":0.8,"height":0.9},
+     "residualPx": 1.2,
+     "mask": {"x":0,"y":0,"w":1,"h":1},
+     "solves": [{"atMs":0,"residualPx":1.2,"region":null}]
+    },
+    "usable": false,
+    "problem": true
    },
    {
     "name": "a solve over 2 px",

@@ -65,13 +65,95 @@ const DIALOG = {
     ["u5", box(0.45, 0.5, 0.1, 0.12)],
   ].map(card),
 };
-const LAYOUTS = { six: L6, eight: L8, dialog: DIALOG };
+/** The six-card layout with the aspect prior: drawn at 16:9, as the frames are. */
+const L6_ASPECT = { ...L6, key: "six-aspect", aspect: 16 / 9 };
+/** The same cards drawn at 4:3. */
+const L6_4X3 = { ...L6, key: "six-4x3", aspect: 4 / 3 };
+const LAYOUTS = { six: L6, eight: L8, dialog: DIALOG, "six-aspect": L6_ASPECT, "six-4x3": L6_4X3 };
+/** The frames of the aspect cases: 1920 × 1080. */
+const FRAME_ASPECT = 16 / 9;
 
 const T = { sx: 0.6, sy: 0.6, tx: 0.2, ty: 0.1 };
 /** A second placement, far from T: 0.1 of the frame to the right. */
 const T_RIGHT = { sx: 0.6, sy: 0.6, tx: 0.3, ty: 0.1 };
 /** The second region of the ambiguity case. */
 const T_SECOND = { sx: 0.6, sy: 0.6, tx: 0.35, ty: 0.1 };
+
+/** T stretched 4.8 % down: at the layout's far edge, 0.6 × 0.048 × 1080 = 31.1 px below where
+ *  a placement in proportion puts it. */
+const T_TALL = { sx: 0.6, sy: 0.6 * 1.048, tx: 0.2, ty: 0.1 };
+/** T stretched 2 % down: within the 3 % tolerance. */
+const T_SLIGHT = { sx: 0.6, sy: 0.6 * 1.02, tx: 0.2, ty: 0.1 };
+/** A 4:3 layout in a 16:9 frame, in proportion: sy / sx = (16/9) / (4/3) = 4/3. */
+const T_PROP = { sx: 0.45, sy: 0.6, tx: 0.3, ty: 0.1 };
+
+/**
+ * The aspect prior's refit, written independently of the toolkit for the expected values: least
+ * squares over (sx, tx, ty) with sy = ratio · sx, every box edge one equation, x equations
+ * scaled by the frame's aspect (pixels), solved through the normal equations by Cramer's rule.
+ */
+function proportionalFit(observations, layout, ratio, frameAspect) {
+  const rows = [];
+  for (const o of observations) {
+    const c = layout.cards.find((k) => k.identity === o.identity);
+    const r = c.bounds;
+    const v = o.bounds;
+    for (const [a, val] of [[r.x, v.x], [r.x + r.w, v.x + v.w]]) rows.push([frameAspect * a, frameAspect, 0, frameAspect * val]);
+    for (const [b, val] of [[r.y, v.y], [r.y + r.h, v.y + v.h]]) rows.push([ratio * b, 0, 1, val]);
+  }
+  const m = [0, 1, 2].map((i) => [0, 1, 2].map((j) => rows.reduce((acc, q) => acc + q[i] * q[j], 0)));
+  const rhs = [0, 1, 2].map((i) => rows.reduce((acc, q) => acc + q[i] * q[3], 0));
+  const det = (a) =>
+    a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+  const d = det(m);
+  const col = (k) => det(m.map((row, i) => row.map((x, j) => (j === k ? rhs[i] : x))));
+  const sx = col(0) / d;
+  return { sx, sy: ratio * sx, tx: col(1) / d, ty: col(2) / d };
+}
+
+/** Observations of the six cards in the right shape (placed by T) whose rows drift apart: their
+ *  tops follow T_TALL. */
+const drifted = () =>
+  L6.cards.map((c) => ({
+    identity: c.identity,
+    bounds: { x: T.sx * c.bounds.x + T.tx, y: T_TALL.sy * c.bounds.y + T_TALL.ty, w: T.sx * c.bounds.w, h: T.sy * c.bounds.h },
+  }));
+
+const DRIFT_INLIERS = ["a", "b", "c", "d", "f"];
+/** The stretched picture with e's box 2 % shorter (1.6 px of an 81 px card in 1080 lines). */
+const STRETCHED_ONE_NOISY_OF = (t) =>
+  placed(L6, t).map((o) => (o.identity === "e" ? { ...o, bounds: { ...o.bounds, h: o.bounds.h / 1.02 } } : o));
+const driftedOf = (ids) => drifted().filter((o) => ids.includes(o.identity));
+
+/** The refit without the prior, for the expected values: least squares of each axis on its
+ *  own over both edges of each box. */
+function freeFit(observations, layout) {
+  const axis = (pairs) => {
+    const n = pairs.length;
+    const ma = pairs.reduce((acc, [a]) => acc + a, 0) / n;
+    const mv = pairs.reduce((acc, [, v]) => acc + v, 0) / n;
+    const s = pairs.reduce((acc, [a, v]) => acc + (a - ma) * (v - mv), 0) / pairs.reduce((acc, [a]) => acc + (a - ma) ** 2, 0);
+    return [s, mv - s * ma];
+  };
+  const xs = [];
+  const ys = [];
+  for (const o of observations) {
+    const r = layout.cards.find((k) => k.identity === o.identity).bounds;
+    const v = o.bounds;
+    xs.push([r.x, v.x], [r.x + r.w, v.x + v.w]);
+    ys.push([r.y, v.y], [r.y + r.h, v.y + v.h]);
+  }
+  const [sx, tx] = axis(xs);
+  const [sy, ty] = axis(ys);
+  return { sx, sy, tx, ty };
+}
+
+/** Card-shaped observations (3:4 in the frame's units, like the six-card layout's cards placed
+ *  by a proportional T) at mutually inconsistent places and sizes. */
+function scatteredCards(ids) {
+  const spots = [box(0.02, 0.03, 0.06, 0.08), box(0.62, 0.11, 0.09, 0.12), box(0.31, 0.6, 0.045, 0.06), box(0.83, 0.52, 0.105, 0.14)];
+  return ids.map((identity, i) => ({ identity, bounds: spots[i] }));
+}
 
 /** Observations of a layout's cards placed by `t` (identified cards only). */
 function placed(layout, t, ids) {
@@ -117,6 +199,7 @@ function A(at, observations, opts = {}) {
       observations,
       layout: opts.layout === undefined ? "six" : opts.layout,
       windowIdentities: opts.window ?? [],
+      ...(opts.frameAspect !== undefined ? { frameAspect: opts.frameAspect } : {}),
     },
     ...(opts.expect ? { expect: opts.expect } : {}),
   };
@@ -138,6 +221,12 @@ const tick = (now, expect) => ({ op: "tick", now, ...(expect ? { expect } : {}) 
 // ---------------------------------------------------------------------------------------------
 // G1, G2: frame fits
 // ---------------------------------------------------------------------------------------------
+
+const MIXED_DISAGREE = [...scatteredCards(["a", "b", "c"]), ...scattered(["x", "x", "x", "d"]).slice(3)];
+const STRETCHED_ONE_NOISY = STRETCHED_ONE_NOISY_OF(T_TALL);
+/** The stretched picture with e in the layout's proportions but somewhere else: e's placement
+ *  passes the test and wins, supported by nothing but itself, while the five set aside agree. */
+const STRETCHED_E_ALONE = placed(L6, T_TALL).map((o) => (o.identity === "e" ? { ...o, bounds: box(0.02, 0.85, 0.072, 0.096) } : o));
 
 const fits = [
   {
@@ -240,6 +329,133 @@ const fits = [
     layout: { key: "hidden", cards: [...L6.cards, { instance: "back-1", bounds: box(0.3, 0.4, 0.12, 0.16) }] },
     observations: placed(L6, T),
     expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: T },
+  },
+  // The aspect prior (amendment 5).
+  {
+    name: "aspect prior: G1 is unchanged",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: placed(L6, T),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: T, minIoU: 1, span: [0.75, 0.64] },
+  },
+  {
+    name: "aspect prior: a picture stretched 4.8 % down (31 px at the far edge) is not verified",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: placed(L6, T_TALL),
+    expect: { kind: "insufficient", reason: "aspect", n: 6, inliers: 0 },
+  },
+  {
+    name: "without the layout's aspect, the stretched picture verifies, stretched",
+    layout: "six",
+    frameAspect: FRAME_ASPECT,
+    observations: placed(L6, T_TALL),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: T_TALL },
+  },
+  {
+    name: "without the frame's aspect, the stretched picture verifies, stretched",
+    layout: "six-aspect",
+    observations: placed(L6, T_TALL),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: T_TALL },
+  },
+  {
+    name: "aspect prior: a stretch within the tolerance verifies in proportion",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: placed(L6, T_SLIGHT),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: proportionalFit(placed(L6, T_SLIGHT), L6, 1, FRAME_ASPECT) },
+  },
+  {
+    name: "aspect prior: a tolerance of 0.05 lets the 4.8 % stretch through, placed in proportion",
+    config: { scaleRatioTol: 0.05 },
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: placed(L6, T_TALL),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: proportionalFit(placed(L6, T_TALL), L6, 1, FRAME_ASPECT) },
+  },
+  {
+    // Every card keeps its shape, so no hypothesis is set aside; c's placement wins (it supports
+    // a, b, c, d and f) and the one-scale refit places those five within fitMinIoU. The board
+    // test then refits them per axis: sy / sx = 1.045 (see the next case), over 3 %.
+    name: "aspect prior: rows drifting 31 px at the far edge, every card the right shape, are not verified",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: drifted(),
+    expect: { kind: "insufficient", reason: "aspect", n: 6, inliers: 5 },
+  },
+  {
+    name: "without the prior, the drifting rows stretch the placement",
+    layout: "six",
+    observations: drifted(),
+    expect: { kind: "verified", n: 6, inliers: DRIFT_INLIERS, transform: freeFit(driftedOf(DRIFT_INLIERS), L6) },
+  },
+  {
+    name: "aspect prior: a 4:3 layout in a 16:9 frame, placed in proportion",
+    layout: "six-4x3",
+    frameAspect: FRAME_ASPECT,
+    observations: placed(L6, T_PROP),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: T_PROP },
+  },
+  {
+    name: "aspect prior: one badly shaped detection is set aside as a placement, and still fits",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    // f's box is 10 % too tall: its own placement is off the aspect, T's still covers it.
+    observations: [...placed(L6, T, ["a", "b", "c", "d", "e"]), { identity: "f", bounds: (() => { const b = project(T, SIX[5][1]); return { ...b, h: b.h * 1.1 }; })() }],
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, aspectRejected: ["f"] },
+  },
+  {
+    name: "aspect prior: card-shaped names that agree on nothing are still zero inliers",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: scatteredCards(["a", "b", "c", "d"]),
+    expect: { kind: "insufficient", reason: "zero-inliers", n: 4, inliers: 0 },
+  },
+  {
+    name: "aspect prior: one placement set aside and no two names agreeing: still zero inliers",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    // a, b and c are card-shaped and disagree; d is not card-shaped and is set aside, but its
+    // own placement is supported by no other name.
+    observations: MIXED_DISAGREE,
+    expect: { kind: "insufficient", reason: "zero-inliers", n: 4, inliers: 0, aspectRejected: ["d"] },
+  },
+  {
+    name: "aspect prior: G2f is unchanged (its boxes are set aside, and none agrees with another)",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: scattered(["a", "b", "c", "d"]),
+    expect: { kind: "insufficient", reason: "zero-inliers", n: 4, inliers: 0, aspectRejected: ["a", "b", "c", "d"] },
+  },
+  {
+    name: "aspect prior: the one placement left supports only itself while the set-aside ones agree: aspect",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: STRETCHED_E_ALONE,
+    expect: { kind: "insufficient", reason: "aspect", n: 6, inliers: 0, aspectRejected: ["a", "b", "c", "d", "f"] },
+  },
+  {
+    // e's box is 2 % short, so its own placement passes the 3 % test and wins, and the
+    // one-scale refit places all six. The board test refits them per axis: 4.8 % off.
+    name: "aspect prior: a stretched picture is not verified when one card's noise passes the test",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: STRETCHED_ONE_NOISY,
+    expect: { kind: "insufficient", reason: "aspect", n: 6, inliers: 6, aspectRejected: ["a", "b", "c", "d", "f"] },
+  },
+  {
+    name: "aspect prior: G2b is unchanged",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    observations: [...placed(L6, T, ["a", "b", "c", "d"]), ...placed(L6, T_SECOND, ["e", "f"])],
+    expect: { kind: "ambiguous", n: 6, inliers: ["a", "b", "c", "d"], runnerUp: ["e", "f"], transform: T },
+  },
+  {
+    name: "an aspect that is not positive makes no placement",
+    layout: { ...L6, key: "six-flat", aspect: 0 },
+    frameAspect: FRAME_ASPECT,
+    observations: placed(L6, T),
+    expect: { kind: "insufficient", reason: "degenerate", n: 6, inliers: 0 },
   },
 ];
 
@@ -841,6 +1057,66 @@ const traces = [
     ],
   },
   {
+    name: "aspect prior: a stretched source never verifies and keeps today's hovers",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("unverified", "today", false, 12) }),
+      A(3000, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("unverified", "today", false, 12) }),
+      A(6000, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("unverified", "today", false, 12) }),
+    ],
+  },
+  {
+    name: "aspect prior: frames off the aspect after a confirmation hold, then fall back to today, not to vision",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("verified", "fitted", false, 9) }),
+      // Two in a row would be row 6 if they counted as zero inliers; they do not.
+      A(6000, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
+      A(9000, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
+      ...[12_000, 15_000, 18_000, 21_000, 24_000, 27_000, 30_000].map((at) => A(at, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT })),
+      tick(33_000, v("unverified", "today", false, 11)),
+    ],
+  },
+  {
+    name: "aspect prior: a stretched picture with one in-tolerance card never confirms",
+    steps: [
+      reset(0),
+      A(0, STRETCHED_ONE_NOISY, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("unverified", "today", false, 12) }),
+      A(3000, STRETCHED_ONE_NOISY, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("unverified", "today", false, 12) }),
+      A(6000, STRETCHED_ONE_NOISY, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("unverified", "today", false, 12) }),
+    ],
+  },
+  {
+    name: "aspect prior: a stretched picture whose one in-proportion card stands alone holds, then falls back to today",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("verified", "fitted", false, 9) }),
+      A(6000, STRETCHED_E_ALONE, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
+      A(9000, STRETCHED_E_ALONE, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
+    ],
+  },
+  {
+    name: "aspect prior: one off-shape card does not keep a wrong layout on screen (row 6 still applies)",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("verified", "fitted", false, 9) }),
+      A(6000, MIXED_DISAGREE, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
+      A(9000, MIXED_DISAGREE, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("contradicted", "vision", true, 6) }),
+    ],
+  },
+  {
+    name: "aspect prior through the registration: scaleRatioTol 0.05 confirms the 4.8 % stretch, in proportion",
+    config: { scaleRatioTol: 0.05 },
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("verified", "fitted", false, 9) }),
+    ],
+  },
+  {
     name: "the monitor leaves out identities the product excludes",
     exclude: ["x1", "x2", "x3"],
     steps: [reset(0), A(3000, scattered(["x1", "x2", "x3"]), { window: W, expect: v("unverified", "today", false, 12) })],
@@ -861,6 +1137,8 @@ const configErrors = [
   { name: "an unknown key", config: { ...CONFIG, extra: 1 }, error: "extra" },
   { name: "ambiguityMin 1", config: { ...CONFIG, ambiguityMin: 1 }, error: "ambiguityMin" },
   { name: "ambiguityMin 2.5", config: { ...CONFIG, ambiguityMin: 2.5 }, error: "ambiguityMin" },
+  { name: "scaleRatioTol 0", config: { ...CONFIG, scaleRatioTol: 0 }, error: "scaleRatioTol" },
+  { name: "scaleRatioTol above 0.25", config: { ...CONFIG, scaleRatioTol: 0.3 }, error: "scaleRatioTol" },
 ];
 
 // The six-card layout's extent is x 0.05..0.92 (0.87), y 0.08..0.88 (0.80). A scale change that
@@ -1067,6 +1345,23 @@ const recording = {
       truth: { region: truthRegion, residualPx: 1.2, mask: fullMask, solves: [solve(0, 1.2), solve(60_000, 0.8, { ...truthRegion, height: 0.9 + 0.0025 })] },
       usable: false,
     },
+    {
+      name: "a region 1 px from its one solve",
+      truth: { region: { ...truthRegion, y: 0.05 + 1 / 1080 }, residualPx: 1.2, mask: fullMask, solves: [solve(0, 1.2)] },
+      usable: true,
+    },
+    {
+      name: "a region 3 px from its one solve",
+      truth: { region: { ...truthRegion, y: 0.05 + 3 / 1080 }, residualPx: 1.2, mask: fullMask, solves: [solve(0, 1.2)] },
+      usable: false,
+    },
+    {
+      name: "a region of another scale than its solves, 2.4 px off at the far fiducials",
+      // 0.95 × 0.00125 × 1920 = 2.28 px across at the right-hand fiducials.
+      truth: { region: { ...truthRegion, width: 0.8 + 0.00125 }, residualPx: 1.2, mask: fullMask, solves: [solve(0, 1.2), solve(60_000, 1)] },
+      usable: false,
+    },
+    { name: "a solve with no region", truth: { region: truthRegion, residualPx: 1.2, mask: fullMask, solves: [solve(0, 1.2, null)] }, usable: false, problem: true },
     { name: "a solve over 2 px", truth: { region: truthRegion, residualPx: 1.2, mask: fullMask, solves: [solve(0, 2.5)] }, usable: false },
     { name: "a residual over 2 px", truth: { region: truthRegion, residualPx: 2.5, mask: fullMask, solves: [] }, usable: false },
     { name: "no truth", truth: null, usable: false },
