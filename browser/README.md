@@ -1056,7 +1056,8 @@ worker's frame request carries the same two fields. The session sends neither ye
 turns the retry off for the session when it fails during a frame or takes more than the block's
 `budgetMs` on two frames in a row, and says why in a `tilted-status` reply; the session's
 status shows it as `tilted`. A worker that is restarted loads the release again, with the retry
-on. The scoring page turns the watchdog off and stops a run when the retry fails.
+on. The default budget, 1500 ms, is a backstop; a product that analyzes at a steady pace sets
+its own from measured `tiltedMs` ([choosing a budget](../docs/how-it-works.md#the-tilted-retry)). The scoring page turns the watchdog off and stops a run when the retry fails.
 
 ## What is in it
 
