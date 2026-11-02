@@ -9,6 +9,41 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.9.0rc2] - 2026-11-01
+
+Layout registration gains an optional **aspect prior**, for a product that knows its layout's
+proportions: a placement then keeps them, so a few inliers can no longer agree on a stretched
+placement whose far edge is far off ([browser/README.md](browser/README.md#layout-registration)).
+A layout without an `aspect`, or an analysis without the frame's, behaves exactly as in
+0.9.0rc1. The recording reader also checks a scene's true region against its solves. Nothing
+else changes: no model, release document or recognizer decision, and the contract's
+`PROTOCOL_VERSION` stays 1.
+
+### Added
+
+- `Layout.aspect`, the layout's width / height in pixels, and `FrameInput.frameAspect` (the
+  fourth argument of `fitFrame` and `fitFrameDetail`), the frame's. With both, a proposal whose
+  sy / sx is off the layout's proportions by more than `scaleRatioTol` is set aside, the refit
+  has one scale (`refitAspect`), by least squares in pixels, and a frame that passes every
+  other test must also keep the proportions as a board: the per-axis refit over its inliers.
+  An aspect that is not a positive number makes no placement.
+- `LayoutConfig.scaleRatioTol`, optional (above 0, at most 0.25; 0.03 when absent), and
+  `LAYOUT_FIT_DEFAULTS.scaleRatioTol`.
+- The insufficient reason `"aspect"`: the board test failed, or no proposal left can win while
+  two names agree on a set-aside one. It does not count as a frame in which no two names agree,
+  so a stretched picture falls back to `today`, not to `vision`; names that agree on nothing are
+  still zero inliers.
+- `FitDetail.aspectRejected`: the proposals the prior set aside.
+- The recording reader reads a candidate layout's `aspect`, and replay passes the recording's
+  frame aspect with every analysis.
+
+### Changed
+
+- `truthUsable` also compares a scene's `truth.region` with each solve: a region more than 2 px
+  from a solve at any of the five fiducial points makes the truth unusable.
+- `InsufficientReason` has a sixth value, `"aspect"`; code that switches over it exhaustively
+  needs a case for it.
+
 ## [0.9.0rc1] - 2026-11-01
 
 The browser runtime gains **layout registration**, for a product that already knows the board
@@ -1034,7 +1069,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc2...HEAD
+[0.9.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc1...v0.9.0rc2
 [0.9.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0rc1
 [0.8.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...v0.8.0
 [0.8.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...v0.8.0rc1

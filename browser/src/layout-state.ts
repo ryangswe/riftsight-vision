@@ -87,6 +87,10 @@ export interface LayoutConfig {
   /** Optional: a second, incompatible placement with this many supporters of its own makes a
    *  frame ambiguous (2 or 3; 2 when absent). */
   ambiguityMin?: number;
+  /** Optional: with the aspect prior (a layout's `aspect` and an analysis's `frameAspect`), a
+   *  placement whose sy / sx is off the layout's proportions by more than this share is set
+   *  aside (above 0, at most 0.25; 0.03 when absent). */
+  scaleRatioTol?: number;
   /** A layout card whose placed box overlaps a recognized card of another identity at this IoU
    *  or more is not drawn (0 to 1). */
   suppressionIoU: number;
@@ -111,11 +115,17 @@ export function layoutConfigError(config: unknown): string | null {
     if (typeof c[key] !== "number" || !Number.isFinite(c[key])) return `${key} must be a finite number`;
   }
   for (const key of Object.keys(c)) {
-    if (!(CONFIG_KEYS as readonly string[]).includes(key) && key !== "ambiguityMin") {
+    if (!(CONFIG_KEYS as readonly string[]).includes(key) && key !== "ambiguityMin" && key !== "scaleRatioTol") {
       return `unknown layout configuration key: ${key}`;
     }
   }
   if (c.ambiguityMin !== undefined && (c.ambiguityMin !== 2 && c.ambiguityMin !== 3)) return "ambiguityMin must be 2 or 3";
+  if (
+    c.scaleRatioTol !== undefined &&
+    !(typeof c.scaleRatioTol === "number" && Number.isFinite(c.scaleRatioTol) && c.scaleRatioTol > 0 && c.scaleRatioTol <= 0.25)
+  ) {
+    return "scaleRatioTol must be above 0 and at most 0.25";
+  }
   const v = c as unknown as LayoutConfig;
   if (v.fitMinIoU < 0.5 || v.fitMinIoU > 1) return "fitMinIoU must be between 0.5 and 1";
   if (v.minSpan < 0 || v.minSpan > 1) return "minSpan must be between 0 and 1";
@@ -141,6 +151,9 @@ export interface FrameInput {
   observations: Observation[];
   /** The candidate layout in force at `capturedAtMs`; null when there is none. */
   layout: Layout | null;
+  /** The analyzed picture's width / height in pixels. With the layout's `aspect`, it turns on
+   *  the aspect prior; absent, a placement scales each axis freely. */
+  frameAspect?: number;
   /** Identities the product's source offers around this instant (the monitor; empty: not
    *  counted). */
   windowIdentities: ReadonlySet<string>;
@@ -248,6 +261,7 @@ export class LayoutRegistration {
       fitMinIoU: config.fitMinIoU,
       minSpan: config.minSpan,
       ambiguityMin: config.ambiguityMin ?? LAYOUT_FIT_DEFAULTS.ambiguityMin,
+      scaleRatioTol: config.scaleRatioTol ?? LAYOUT_FIT_DEFAULTS.scaleRatioTol,
     };
     this.monitor = new MismatchMonitor({ exclude: options.exclude, params: MONITOR_DEFAULTS });
     this.current = this.build(0, 0);
@@ -300,7 +314,7 @@ export class LayoutRegistration {
     if (expiredFirst) this.expire();
 
     const prev = this.stateValue;
-    const fit = fitFrame(input.observations, input.layout, this.fitParams);
+    const fit = fitFrame(input.observations, input.layout, this.fitParams, input.frameAspect);
     this.lastFrame = fit;
     const step = this.monitor.observe({
       windowIdentities: input.windowIdentities,

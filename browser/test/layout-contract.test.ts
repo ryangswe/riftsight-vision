@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { FrameScheduler } from "../src/frame-scheduler.js";
-import { compatible, fitFrame, type Layout, LAYOUT_FIT_DEFAULTS, layoutExtent, type Observation, project, toRegion, type Transform } from "../src/layout-fit.js";
+import { compatible, fitFrame, fitFrameDetail, type Layout, LAYOUT_FIT_DEFAULTS, layoutExtent, type Observation, project, toRegion, type Transform } from "../src/layout-fit.js";
 import { classifyAccept, classifyHitbox, coverage, exitLatency, fitError } from "../src/layout-metrics.js";
 import { clockUsable, latestOffered, offeredCandidates, readLayoutRecording, truthCandidate, truthUsable } from "../src/layout-recording.js";
 import { type FrameInput, type LayoutConfig, LayoutRegistration, type Verdict } from "../src/layout-state.js";
@@ -117,7 +117,11 @@ describe("G1, G2: frame fits", () => {
   const params = { ...LAYOUT_FIT_DEFAULTS, fitMinIoU: contract.config.fitMinIoU, minSpan: contract.config.minSpan };
   for (const c of contract.fits) {
     it(c.name, () => {
-      const out = fitFrame(c.observations as Observation[], layoutOf(c.layout), { ...params, ...(c.config ?? {}) });
+      const detail = fitFrameDetail(c.observations as Observation[], layoutOf(c.layout), { ...params, ...(c.config ?? {}) }, c.frameAspect);
+      const out = detail.outcome;
+      if (c.expect.aspectRejected) {
+        expect(detail.aspectRejected.map((i) => detail.correspondences[i]!.identity)).toEqual(c.expect.aspectRejected);
+      }
       const want = c.expect;
       expect(out.kind).toBe(want.kind);
       if (out.kind === "no-layout") return;
@@ -185,6 +189,7 @@ describe("configuration", () => {
   it("accepts the contract's configuration, with or without ambiguityMin", () => {
     expect(() => new LayoutRegistration(contract.config)).not.toThrow();
     expect(() => new LayoutRegistration({ ...contract.config, ambiguityMin: 3 })).not.toThrow();
+    expect(() => new LayoutRegistration({ ...contract.config, scaleRatioTol: 0.03 })).not.toThrow();
   });
   for (const c of contract.configErrors) {
     it(`refuses ${c.name}`, () => {

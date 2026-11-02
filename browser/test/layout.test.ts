@@ -97,8 +97,9 @@ describe("the state machine", () => {
 
 // A small recording: 10 frames a second for 20 s, the six-card layout placed by T throughout,
 // one candidate arriving at 500 ms.
-function recording(durationMs = 400): LayoutRecording {
-  const layout = grid(3, 2);
+function recording(durationMs = 400, opts: { aspect?: number; place?: Transform } = {}): LayoutRecording {
+  const layout: Layout = opts.aspect === undefined ? grid(3, 2) : { ...grid(3, 2), aspect: opts.aspect };
+  const place = opts.place ?? T;
   const frames = [];
   for (let k = 0; k < 200; k++) {
     frames.push({
@@ -106,7 +107,7 @@ function recording(durationMs = 400): LayoutRecording {
       capturedAtMs: k * 100,
       image: `frames/${String(k).padStart(6, "0")}.png`,
       clock: k % 50 === 7 ? { status: "undecodable" } : { status: "ok", streamTimeMs: 90_000 + k * 100 },
-      analysis: { durationMs, faces: 6, observations: placed(layout, T) },
+      analysis: { durationMs, faces: 6, observations: placed(layout, place) },
     });
   }
   return readLayoutRecording({
@@ -205,6 +206,8 @@ describe("the recording reader", () => {
     [{ frames: [{ index: 0, capturedAtMs: 5, image: "a", clock: { status: "missing" }, analysis: { durationMs: 1, faces: 0, observations: [] } }, { index: 1, capturedAtMs: 4, image: "b", clock: { status: "missing" }, analysis: { durationMs: 1, faces: 0, observations: [] } }] }, "recording.frames[1].capturedAtMs"],
     [{ frames: [{ index: 0, capturedAtMs: 0, image: "a", clock: { status: "missing" }, analysis: { durationMs: -1, faces: 0, observations: [] } }] }, "recording.frames[0].analysis.durationMs"],
     [{ candidates: [{ key: "k", producedAtMs: 0, arrivedAtMs: 0, layout: { key: "l", cards: [{ instance: "i", bounds: { x: 0, y: 0, w: -1, h: 1 } }] } }] }, "recording.candidates[0].layout.cards[0].bounds.w"],
+    [{ candidates: [{ key: "k", producedAtMs: 0, arrivedAtMs: 0, layout: { key: "l", cards: [], aspect: 0 } }] }, "recording.candidates[0].layout.aspect"],
+    [{ candidates: [{ key: "k", producedAtMs: 0, arrivedAtMs: 0, layout: { key: "l", cards: [], aspect: "wide" } }] }, "recording.candidates[0].layout.aspect"],
   ] as Array<[Record<string, unknown>, string]>)("names the first bad field: %j", (patch, path) => {
     const base = { schema: "layout-recording/1", frame: { width: 1920, height: 1080 }, cadenceProfiles: [], scenes: [], frames: [], candidates: [] };
     expect(() => readLayoutRecording({ ...base, ...patch })).toThrow(path);
@@ -225,6 +228,20 @@ describe("the replay driver", () => {
     expect(at(6300).display).toBe("today");
     expect(at(6400).display).toBe("fitted");
     expect(replay.steps).toHaveLength(200);
+  });
+
+  it("passes the recording's frame aspect, so a layout's aspect turns on the prior", () => {
+    const tall = { ...T, sy: T.sy * 1.048 };
+    const stretched = recording(400, { aspect: 16 / 9, place: tall });
+    expect(stretched.candidates[0]!.layout.aspect).toBeCloseTo(16 / 9, 12);
+    const off = replayRecording(stretched, { config: CONFIG, profile: "fast", scheduler: layoutScheduler });
+    expect(off.steps.some((s) => s.result.display === "fitted")).toBe(false);
+    // The same picture without the layout's aspect fits, stretched.
+    const free = replayRecording(recording(400, { place: tall }), { config: CONFIG, profile: "fast", scheduler: layoutScheduler });
+    expect(free.steps.at(-1)!.result.display).toBe("fitted");
+    // In proportion, the prior changes nothing.
+    const fair = replayRecording(recording(400, { aspect: 16 / 9 }), { config: CONFIG, profile: "fast", scheduler: layoutScheduler });
+    expect(fair.steps.at(-1)!.result.display).toBe("fitted");
   });
 
   it("uses the profile's interval and marks late analyses", () => {
