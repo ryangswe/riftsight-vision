@@ -48,14 +48,14 @@ protobuf==7.36.2
 psutil==7.2.2
 pycocotools==2.0.11
 Pygments==2.21.0
-pytest==9.1.1
+pytest==9.2.0
 pytest-xdist==3.8.0
 referencing==0.37.0
 rpds-py==2026.9.1
 safetensors==0.8.0
 sympy==1.14.0
 tabulate==0.10.0
-torch==2.14.1
-torchvision==0.29.1
+torch==2.15.0
+torchvision==0.29.2
 tqdm==4.70.1
 typing_extensions==4.16.0
