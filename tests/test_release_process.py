@@ -58,7 +58,11 @@ def test_the_stability_page_names_every_command():
 def test_dependabot_covers_pip_npm_and_actions_monthly_and_grouped():
     text = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
     assert re.findall(r"package-ecosystem: (\S+)", text) == ["pip", "npm", "github-actions"]
-    assert text.count("interval: monthly") == 3 and text.count("patterns:") == 3
+    assert text.count("interval: monthly") == 3
+    # Every ecosystem keeps one catch-all group, so no update arrives as a pull request of its own.
+    assert text.count('patterns: ["*"]') == 3
+    # Test tools and types come in their own groups: the only ones dependabot-auto-merge.yml may queue.
+    assert re.findall(r"^      (\S+-checks):$", text, re.M) == ["python-checks", "npm-checks"]
 
 
 def test_the_pull_request_template_asks_for_a_changelog_line():

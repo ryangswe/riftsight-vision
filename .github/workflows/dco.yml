@@ -8,8 +8,9 @@
 # contributor certifies the Developer Certificate of Origin 1.1,
 # https://developercertificate.org/ . A persistent handle is accepted in place of a legal
 # name. Merge commits are not checked, and neither are commits authored by Dependabot, which
-# cannot sign off. A person reviews each of those pull requests before merging it. The check is
-# written out here; it uses no app.
+# cannot sign off. A person reviews each of those pull requests before merging it, except the
+# small test-tool and type updates that dependabot-auto-merge.yml queues (version numbers only,
+# no code written by anyone here). The check is written out here; it uses no app.
 name: DCO
 
 on:
