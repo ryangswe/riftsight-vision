@@ -826,7 +826,7 @@ describe("upload from the account holder's machine (a key file, an env file)", (
       { name: "Google refuses", reply: { status: 400, body: { error: "invalid_grant", error_description: "echoing PLACEHOLDER" } }, expect: /Google refused a token .*HTTP 400 \(invalid_grant\)/ },
       { name: "Google's reply has no token", reply: { status: 200, body: { note: "nothing" } }, expect: /has no access token/ },
       { name: "an odd error code", reply: { status: 401, body: { error: "Bad <PLACEHOLDER>" } }, expect: /HTTP 401$/m },
-      { name: "not JSON", key: `{"private_key": "${PEM.replace(/\n/g, "\n")}`, expect: /is not JSON/ },
+      { name: "not JSON", key: `{"private_key": "${PEM.replace(/\n/g, "\\n")}`, expect: /is not JSON/ },
       { name: "a bare key, not JSON", key: PEM.split("\n").filter((l) => !l.startsWith("-----")).join("\n"), expect: /is not JSON/ },
       { name: "no private key", key: JSON.stringify({ client_email: EMAIL, private_key_id: "abc" }), expect: /has no client_email and private_key/ },
       { name: "a broken private key", key: JSON.stringify({ client_email: EMAIL, private_key: `${PEM.slice(0, 200)}` }), expect: /is not a usable key/ },
