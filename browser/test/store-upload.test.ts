@@ -2,8 +2,9 @@
 // node/store-*.ts: the store-upload tool. Every store call goes to a fake in this file; nothing
 // here reaches the network. Made-up ids, packages and addresses only.
 
+import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,10 +13,33 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { amoJwt } from "../node/store-amo.js";
 import { chromeDecision } from "../node/store-chrome.js";
-import { DENY_PATTERNS, denyFindings, deniedEnvNames, notesText, permissionSurface, readReleaseFile, surfaceChanges } from "../node/store-checks.js";
-import { type Deps, main, runCheck } from "../node/store-upload.js";
+import {
+  DENY_PATTERNS,
+  denyFindings,
+  deniedEnvNames,
+  lintProblems,
+  manifestEntry,
+  notesText,
+  permissionSurface,
+  readReleaseFile,
+  surfaceChanges,
+} from "../node/store-checks.js";
+import { DEFAULT_DEPS, type Deps, main, runCheck } from "../node/store-upload.js";
 
 const TEMPLATES = join(fileURLToPath(new URL(".", import.meta.url)), "..", "templates");
+
+// The real-zip test needs the `zip` and `unzip` programs, and skips, saying so, where they are
+// missing (as test/package-zip.test.ts does).
+function hasTool(name: string): boolean {
+  try {
+    execFileSync("which", [name], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const MISSING_ZIP_TOOLS = ["zip", "unzip"].filter((tool) => !hasTool(tool));
+if (MISSING_ZIP_TOOLS.length > 0) console.warn(`store-upload: the real-zip test is skipped, the ${MISSING_ZIP_TOOLS.join(" and ")} program is not on the PATH`);
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -120,7 +144,7 @@ function deps(fetchFn: typeof fetch, env: Record<string, string | undefined> = {
     env: all,
     fetchFn,
     readFile: (p) => new Uint8Array(readFileSync(p)),
-    zipManifest: (p) => (p.endsWith("firefox.zip") ? FIREFOX_MANIFEST : CHROME_MANIFEST) as Record<string, unknown>,
+    zipManifest: (p) => ({ path: "manifest.json", manifest: (p.endsWith("firefox.zip") ? FIREFOX_MANIFEST : CHROME_MANIFEST) as Record<string, unknown> }),
     log: (line) => log.push(line),
     sleep: async () => undefined,
     chromeBase: "https://cws.test",
@@ -224,6 +248,10 @@ describe("the pieces", () => {
     expect(denyFindings(text, config.deny)).toEqual([]);
     expect(text).toMatch(/\n {2}upload:\n(?:.*\n)*? {4}needs: build\n(?:.*\n)*? {4}environment: store\n/);
     expect(text).toMatch(/tags: \["v\*"\]/);
+    expect(text).toMatch(/\n {2}TAG_PREFIX: v\n/);
+    expect(text).toMatch(/--tag-prefix "\$TAG_PREFIX"/);
+    expect(text).toMatch(/--lint out\/lint\.json --lint-baseline store\/lint-baseline\.json/);
+    expect(text).not.toMatch(/TAG#v/);
     // A run from a branch is refused, so the workflow checked is the one running.
     expect(text).not.toMatch(/inputs\.tag/);
     expect(text).toMatch(/if: github\.ref_type != 'tag'/);
@@ -233,6 +261,79 @@ describe("the pieces", () => {
     // Store credentials appear only in the upload job.
     const build = text.slice(text.indexOf("\n  build:"), text.indexOf("\n  upload:"));
     expect(build).not.toMatch(/secrets\.|CWS_ACCESS_TOKEN|id-token/);
+  });
+
+  it("the template finds the newest earlier release tag of its own prefix, without pre-releases", () => {
+    const text = readFileSync(join(TEMPLATES, "store-release.yml"), "utf-8");
+    const step = text.slice(text.indexOf("- name: The previous release's permissions"));
+    const lines = step.split("\n");
+    const start = lines.findIndex((l) => l.trim() === "run: |") + 1;
+    const body: string[] = [];
+    for (const l of lines.slice(start)) {
+      if (l.trim() !== "" && !l.startsWith("          ")) break;
+      body.push(l.slice(10));
+    }
+    const dir = mkdtempSync(join(tmpdir(), "store-upload-test-"));
+    dirs.push(dir);
+    // A stand-in git: `tag` prints TAGS (newest first, as --sort=-v:refname does) filtered by the
+    // --list pattern; `cat-file -e` succeeds; `show` prints what it was asked for.
+    const git = `git() { case "$1" in
+      tag) for t in $TAGS; do case "$t" in $3) echo "$t" ;; esac; done ;;
+      cat-file) return 0 ;;
+      show) echo "$2" ;;
+    esac; }`;
+    const previous = (tag: string, prefix: string, tags: string): string => {
+      const env = join(dir, "env");
+      writeFileSync(env, "");
+      execFileSync("bash", ["-eo", "pipefail", "-c", `${git}\nmkdir -p out\n${body.join("\n")}`], {
+        cwd: dir,
+        env: { PATH: process.env.PATH, TAG: tag, TAG_PREFIX: prefix, TAGS: tags, GITHUB_ENV: env },
+      });
+      const chosen = join(dir, "out/previous-permissions.json");
+      const text = readFileSync(env, "utf-8") === "" ? "" : readFileSync(chosen, "utf-8").trim();
+      rmSync(join(dir, "out"), { recursive: true, force: true });
+      return text;
+    };
+    expect(previous("v1.3.0", "v", "v1.3.0 v1.3.0-rc1 v1.2.0 v1.1.0")).toBe("v1.2.0:store/permissions.json");
+    expect(previous("extension-v1.4.0", "extension-v", "extension-v1.4.0 extension-v1.4.0-rc1 extension-v1.3.0 v9.0.0")).toBe("extension-v1.3.0:store/permissions.json");
+    // The first release of a prefix has no previous one, even beside other products' tags.
+    expect(previous("extension-v1.3.0", "extension-v", "extension-v1.3.0 extension-v1.3.0-rc2 v9.0.0")).toBe("");
+  });
+
+  it("finds a package's manifest at the root or in one top-level folder", () => {
+    expect(manifestEntry(["manifest.json", "dist/a.js"])).toBe("manifest.json");
+    expect(manifestEntry(["ext/", "ext/manifest.json", "ext/dist/", "ext/dist/a.js", ""])).toBe("ext/manifest.json");
+    expect(manifestEntry(["ext/manifest.json", "other/a.js"])).toBeNull();
+    expect(manifestEntry(["ext/manifest.json", "README.md"])).toBeNull();
+    expect(manifestEntry(["ext/sub/manifest.json"])).toBeNull();
+    expect(manifestEntry([])).toBeNull();
+    expect(manifestEntry(["ext/", "ext/manifest.json", "__MACOSX/", "__MACOSX/ext/._manifest.json"])).toBe("ext/manifest.json");
+  });
+
+  it.skipIf(MISSING_ZIP_TOOLS.length > 0)("reads the manifest of a real zip, at its root or in its one folder", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-upload-test-"));
+    dirs.push(dir);
+    const make = (name: string, folder: string): string => {
+      const src = join(dir, `${name}-src`);
+      mkdirSync(join(src, folder, "dist"), { recursive: true });
+      writeFileSync(join(src, folder, "manifest.json"), JSON.stringify({ ...CHROME_MANIFEST, name }));
+      writeFileSync(join(src, folder, "dist", "a.js"), "export {};");
+      execFileSync("zip", ["-q", "-r", join(dir, `${name}.zip`), folder === "" ? "." : folder], { cwd: src });
+      return join(dir, `${name}.zip`);
+    };
+    expect(DEFAULT_DEPS.zipManifest(make("root", ""))).toEqual({ path: "manifest.json", manifest: { ...CHROME_MANIFEST, name: "root" } });
+    expect(DEFAULT_DEPS.zipManifest(make("folder", "my-ext"))).toEqual({ path: "my-ext/manifest.json", manifest: { ...CHROME_MANIFEST, name: "folder" } });
+    expect(() => DEFAULT_DEPS.zipManifest(make("pattern", "e[x]t"))).toThrow(/rename the folder e\[x\]t/);
+  });
+
+  it("lint: errors fail, warnings beyond the baseline fail, baseline entries no longer warned are named", () => {
+    const w = (code: string, file: string) => ({ code, file });
+    const report = { errors: [], warnings: [w("DANGEROUS_EVAL", "a.js"), w("DANGEROUS_EVAL", "a.js"), w("UNSAFE_VAR_ASSIGNMENT", "b.js")] };
+    expect(lintProblems(report, [w("DANGEROUS_EVAL", "a.js"), w("DANGEROUS_EVAL", "a.js"), w("UNSAFE_VAR_ASSIGNMENT", "b.js")])).toEqual({ problems: [], gone: [] });
+    const res = lintProblems(report, [w("DANGEROUS_EVAL", "a.js"), w("INCOMPATIBLE_API", "c.js")]);
+    expect(res.problems).toEqual(["new lint warning DANGEROUS_EVAL in a.js (not in the baseline)", "new lint warning UNSAFE_VAR_ASSIGNMENT in b.js (not in the baseline)"]);
+    expect(res.gone).toEqual([w("INCOMPATIBLE_API", "c.js")]);
+    expect(lintProblems({ errors: [w("MANIFEST_FIELD_INVALID", "manifest.json")], warnings: [] }, []).problems).toEqual(["lint error MANIFEST_FIELD_INVALID in manifest.json"]);
   });
 
   it("a notes file's leading license comment is not part of the notes", () => {
@@ -270,8 +371,12 @@ describe("check (the build job)", () => {
     const dir = workspace();
     writeFileSync(join(dir, "store-release.yml"), `${readFileSync(join(dir, "store-release.yml"), "utf-8")}\n# EXAMPLE_CDN_SECRET\n`);
     const d = deps(fakeStores({ detailsStatus: 404 }).fetchFn);
-    d.zipManifest = (p) =>
-      (p.endsWith("firefox.zip") ? { ...FIREFOX_MANIFEST, version: "1.0.1" } : { ...CHROME_MANIFEST, key: "k", host_permissions: ["https://x.example.org/*"] }) as Record<string, unknown>;
+    d.zipManifest = (p) => ({
+      path: "manifest.json",
+      manifest: (p.endsWith("firefox.zip")
+        ? { ...FIREFOX_MANIFEST, version: "1.0.1" }
+        : { ...CHROME_MANIFEST, key: "k", host_permissions: ["https://x.example.org/*"] }) as Record<string, unknown>,
+    });
     const res = await runCheck(
       {
         config: join(dir, "store/store.config.json"),
@@ -292,6 +397,72 @@ describe("check (the build job)", () => {
     expect(text).toMatch(/chrome: the package's permissions differ.*host_permissions: \+ https:\/\/x.example.org/);
     expect(text).toMatch(/before upload: https:\/\/cdn.example.org\/data\/details-1.json: HTTP 404/);
     expect(text).toMatch(/mentions a denied name \(line \d+: EXAMPLE_CDN_SECRET\)/);
+  });
+
+  it("a Chrome zip may keep its files in a folder; a Firefox zip may not", async () => {
+    const dir = workspace();
+    const d = deps(fakeStores().fetchFn);
+    const inFolder = (p: string) => ({ path: "ext/manifest.json", manifest: (p.endsWith("firefox.zip") ? FIREFOX_MANIFEST : CHROME_MANIFEST) as Record<string, unknown> });
+    d.zipManifest = (p) => (p.endsWith("chrome.zip") ? inFolder(p) : { path: "manifest.json", manifest: FIREFOX_MANIFEST as Record<string, unknown> });
+    const log: string[] = [];
+    d.log = (line) => log.push(line);
+    expect(await main(checkArgv(dir), d), log.join("\n")).toBe(0);
+    expect(log.join("\n")).toMatch(/chrome: `chrome.zip` \d+ bytes, files in `ext\/`/);
+    d.zipManifest = inFolder;
+    expect(await main(checkArgv(dir), d)).toBe(1);
+    const res = await runCheck(
+      {
+        config: join(dir, "store/store.config.json"),
+        release: join(dir, "store/releases/1.0.0.json"),
+        tag: "v1.0.0",
+        tagPrefix: "v",
+        permissions: join(dir, "store/permissions.json"),
+        firefoxZip: join(dir, "firefox.zip"),
+        workflows: [join(dir, "store-release.yml")],
+      },
+      d,
+    );
+    expect(res.problems).toEqual(["firefox.zip: addons.mozilla.org needs manifest.json at the zip's root, not ext/manifest.json"]);
+  });
+
+  it("checks a release tag with another prefix", async () => {
+    const dir = workspace();
+    expect(await main(checkArgv(dir).map((a) => (a === "v1.0.0" ? "extension-v1.0.0" : a)).concat(["--tag-prefix", "extension-v"]), deps(fakeStores().fetchFn))).toBe(0);
+    const log: string[] = [];
+    expect(await main(checkArgv(dir).map((a) => (a === "v1.0.0" ? "extension-v1.0.0" : a)), deps(fakeStores().fetchFn, {}, log))).toBe(1);
+  });
+
+  it("checks the Firefox lint report against the product's baseline", async () => {
+    const dir = workspace();
+    const report = (warnings: Array<{ code: string; file: string }>, errors: Array<{ code: string; file: string }> = []) => {
+      writeFileSync(join(dir, "lint.json"), JSON.stringify({ count: warnings.length + errors.length, summary: {}, errors, notices: [{ code: "N", file: "x" }], warnings }));
+    };
+    const lint = ["--lint", join(dir, "lint.json"), "--lint-baseline", join(dir, "store/lint-baseline.json")];
+    report([]);
+    expect(await main(checkArgv(dir, lint), deps(fakeStores().fetchFn))).toBe(0);
+    report([{ code: "DANGEROUS_EVAL", file: "dist/a.js" }]);
+    const log: string[] = [];
+    expect(await main(checkArgv(dir, lint), deps(fakeStores().fetchFn, {}, log))).toBe(1);
+    writeFileSync(join(dir, "store/lint-baseline.json"), JSON.stringify({ warnings: [{ code: "DANGEROUS_EVAL", file: "dist/a.js", why: "wasm glue" }] }));
+    const ok: string[] = [];
+    expect(await main(checkArgv(dir, lint), deps(fakeStores().fetchFn, {}, ok))).toBe(0);
+    expect(ok.join("\n")).toMatch(/firefox lint: 0 errors, 1 warnings \(1 in the baseline\)/);
+    report([], [{ code: "JSON_INVALID", file: "manifest.json" }]);
+    expect(await main(checkArgv(dir, lint), deps(fakeStores().fetchFn))).toBe(1);
+    report([]);
+    const gone: string[] = [];
+    expect(await main(checkArgv(dir, lint), deps(fakeStores().fetchFn, {}, gone))).toBe(0);
+    expect(gone.join("\n")).toMatch(/no longer warned, can leave the baseline: DANGEROUS_EVAL in dist\/a.js/);
+    writeFileSync(join(dir, "lint.json"), "web-ext crashed");
+    expect(await main(checkArgv(dir, lint), deps(fakeStores().fetchFn))).toBe(1);
+    expect(await main(checkArgv(dir, ["--lint-baseline", join(dir, "store/lint-baseline.json")]), deps(fakeStores().fetchFn))).toBe(1);
+    report([]);
+    const missing: string[] = [];
+    expect(await main(checkArgv(dir, ["--lint", join(dir, "lint.json"), "--lint-baseline", join(dir, "store/none.json")]), deps(fakeStores().fetchFn, {}, missing))).toBe(1);
+    expect(missing.join("\n")).toMatch(/none\.json: .*starts it from the template's store\/lint-baseline\.json/);
+    const without: string[] = [];
+    expect(await main(checkArgv(dir), deps(fakeStores().fetchFn, {}, without))).toBe(0);
+    expect(without.join("\n")).toMatch(/firefox lint: no report given \(--lint\), not checked/);
   });
 
   it("a change since the previous release needs permissionsChanged, and the flag needs a change", async () => {

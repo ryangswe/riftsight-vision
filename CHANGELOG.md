@@ -9,6 +9,31 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-03
+
+A dry run of store uploads on a real extension release found two gaps; the release now passes as
+it is, its Chrome zip's folder and its tag names unchanged. Experimental, as in 0.9.0.
+Nothing else changes: no model, release document, layout or recognizer decision, and the
+contract's `PROTOCOL_VERSION` stays 1.
+
+### Changed
+
+- `store-upload.mjs check` reads a Chrome package's `manifest.json` from one top-level folder
+  when the zip's root has none (the Chrome Web Store dashboard accepts both); a Firefox package still needs
+  it at the root, and is refused otherwise.
+- The workflow template takes the tag's prefix from `TAG_PREFIX` (`v` by default): the version,
+  `--tag-prefix` and the previous release's tag follow it, so tags such as `extension-v1.2.3` work.
+  The previous release is now the newest earlier tag of that prefix that is not a pre-release.
+
+### Added
+
+- `check --lint REPORT --lint-baseline FILE`: the Firefox package's `web-ext lint --output json`
+  report fails on any error and on any warning not in the product's
+  `store/lint-baseline.json`, by rule and file; the template runs it with a pinned linter
+  version, and its `store/` folder has an empty baseline. A product that copied the 0.9.0
+  template copies the new one and adds `store/lint-baseline.json`, listing the warnings of its
+  last release after reading them.
+
 ## [0.9.0] - 2026-11-03
 
 The browser runtime's **layout registration**, for a product that already knows the board from
@@ -1136,7 +1161,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0
 [0.9.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...v0.9.0rc4
 [0.9.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc2...v0.9.0rc3

@@ -3,7 +3,7 @@
 //   - a release-page zip (the manifest carries a key): <packageName>-<version>.zip holding one
 //     folder of the same name, which is what a user selects in a browser's "Load unpacked";
 //   - a Chrome Web Store zip (no key): <packageName>-<version>-store.zip with manifest.json and
-//     every other file at the top level, as the store requires;
+//     every other file at the top level, the layout the store documents;
 //   - a Firefox zip (a manifest with a gecko ID): <packageName>-<version>-firefox.zip, also with
 //     everything at the top level, for addons.mozilla.org.
 //

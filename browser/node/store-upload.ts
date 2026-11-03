@@ -5,12 +5,14 @@
 //   node store-upload.mjs check --config store/store.config.json --release store/releases/<v>.json
 //        --tag <tag> --permissions store/permissions.json [--previous-permissions FILE]
 //        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] --workflow FILE...
-//        [--hashes-out FILE] [--summary FILE]
+//        [--lint REPORT [--lint-baseline FILE]] [--hashes-out FILE] [--summary FILE]
 //
 //     The build job's last step, with no store access: the files agree with each other and with
 //     the tag, the permission surface is the one committed (and a change is acknowledged), the
-//     notes exist, the "before upload" addresses answer, and the workflow mentions no CDN
-//     credential. Writes the packages' sha256 to --hashes-out and a summary for the run page.
+//     notes exist, the "before upload" addresses answer, the workflow mentions no CDN
+//     credential, and the Firefox lint has no error and no warning outside the product's
+//     baseline. A Chrome zip may keep its files in one top-level folder; a Firefox zip may not.
+//     Writes the packages' sha256 to --hashes-out and a summary for the run page.
 //
 //   node store-upload.mjs upload --config … --release … --targets chrome,firefox --hashes FILE
 //        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]
@@ -37,6 +39,10 @@ import {
   denyFindings,
   type PermissionSurface,
   permissionSurface,
+  lintProblems,
+  manifestEntry,
+  readLintBaseline,
+  readLintReport,
   readNotes,
   readReleaseFile,
   readStoreConfig,
@@ -51,8 +57,8 @@ export interface Deps {
   env: Record<string, string | undefined>;
   fetchFn: typeof fetch;
   readFile: (path: string) => Uint8Array;
-  /** manifest.json of a zip. */
-  zipManifest: (zipPath: string) => Record<string, unknown>;
+  /** A zip's manifest.json and where it is in the zip (`manifestEntry`). */
+  zipManifest: (zipPath: string) => { path: string; manifest: Record<string, unknown> };
   log: (line: string) => void;
   sleep?: (ms: number) => Promise<void>;
   /** Origins of the store APIs (tests). */
@@ -60,9 +66,14 @@ export interface Deps {
   amoBase?: string;
 }
 
-function defaultZipManifest(zipPath: string): Record<string, unknown> {
-  const text = execFileSync("unzip", ["-p", zipPath, "manifest.json"], { encoding: "utf-8" });
-  return JSON.parse(text) as Record<string, unknown>;
+function defaultZipManifest(zipPath: string): { path: string; manifest: Record<string, unknown> } {
+  const entries = execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf-8", maxBuffer: 64 << 20 }).split("\n");
+  const path = manifestEntry(entries);
+  if (!path) throw new StoreError(`${basename(zipPath)} has no manifest.json at its root or in a single top-level folder`);
+  // unzip reads its file argument as a pattern.
+  if (/[*?[\]\\]/.test(path)) throw new StoreError(`${basename(zipPath)}: rename the folder ${path.slice(0, path.indexOf("/"))}: no * ? [ ] or \\ in it`);
+  const text = execFileSync("unzip", ["-p", zipPath, path], { encoding: "utf-8" });
+  return { path, manifest: JSON.parse(text) as Record<string, unknown> };
 }
 
 export const DEFAULT_DEPS: Deps = {
@@ -99,6 +110,9 @@ export interface CheckArgs {
   firefoxSource?: string;
   workflows: string[];
   hashesOut?: string;
+  /** `web-ext lint --output json` of the Firefox package, and the product's known warnings. */
+  lint?: string;
+  lintBaseline?: string;
 }
 
 /** Everything the build job verifies. Returns the problems (empty: pass) and the summary. */
@@ -127,7 +141,8 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
   for (const [target, zip] of targets) {
     if (!zip) continue;
     if (!config[target]) problems.push(`a ${target} package was given but ${a.config} names no ${target} item`);
-    const manifest = deps.zipManifest(zip);
+    const { path: manifestPath, manifest } = deps.zipManifest(zip);
+    if (target === "firefox" && manifestPath !== "manifest.json") problems.push(`${basename(zip)}: addons.mozilla.org needs manifest.json at the zip's root, not ${manifestPath}`);
     if (manifest.version !== release.version) problems.push(`${basename(zip)} is version ${String(manifest.version)}, the release is ${release.version}`);
     const gecko = (manifest.browser_specific_settings as { gecko?: unknown } | undefined)?.gecko;
     if (target === "chrome" && manifest.key !== undefined) problems.push(`${basename(zip)} carries a key (a store package must not)`);
@@ -146,7 +161,8 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     }
     const bytes = deps.readFile(zip);
     hashes[basename(zip)] = sha256(bytes);
-    summary.push(`- ${target}: \`${basename(zip)}\` ${bytes.length} bytes, sha256 \`${hashes[basename(zip)]}\``);
+    const folder = manifestPath === "manifest.json" ? "" : `, files in \`${manifestPath.slice(0, -"manifest.json".length)}\``;
+    summary.push(`- ${target}: \`${basename(zip)}\` ${bytes.length} bytes${folder}, sha256 \`${hashes[basename(zip)]}\``);
   }
   if (a.firefoxSource) {
     const bytes = deps.readFile(a.firefoxSource);
@@ -154,6 +170,19 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     summary.push(`- firefox source: \`${basename(a.firefoxSource)}\` sha256 \`${hashes[basename(a.firefoxSource)]}\``);
   } else if (a.firefoxZip) {
     summary.push("- firefox source: none (the add-on's code is not minified or generated)");
+  }
+  if (a.lintBaseline && !a.lint) problems.push("--lint-baseline needs --lint (the web-ext lint JSON report)");
+  if (!a.lint && a.firefoxZip) summary.push("- firefox lint: no report given (--lint), not checked");
+  if (a.lint) {
+    const baseline = a.lintBaseline ? readLintBaseline(a.lintBaseline) : [];
+    const report = readLintReport(a.lint);
+    const lint = lintProblems(report, baseline);
+    problems.push(...lint.problems);
+    const known = report.warnings.length - lint.problems.filter((p) => p.startsWith("new lint warning")).length;
+    summary.push(`- firefox lint: ${report.errors.length} errors, ${report.warnings.length} warnings (${known} in the baseline)`);
+    if (lint.gone.length > 0) {
+      summary.push(`- firefox lint: no longer warned, can leave the baseline: ${lint.gone.map((f) => `${f.code} in ${f.file}`).join("; ")}`);
+    }
   }
   if (!previous && (a.chromeZip || a.firefoxZip)) {
     summary.push("", "No previous release's permissions: not compared.");
@@ -338,7 +367,8 @@ export async function runUpload(a: UploadArgs, deps: Deps, report: (line: string
 const USAGE = `usage:
   node store-upload.mjs check --config FILE --release FILE --tag TAG [--tag-prefix v] --permissions FILE
        [--previous-permissions FILE] [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S]
-       --workflow FILE [--workflow FILE…] [--hashes-out FILE] [--summary FILE]
+       --workflow FILE [--workflow FILE…] [--lint REPORT [--lint-baseline FILE]]
+       [--hashes-out FILE] [--summary FILE]
   node store-upload.mjs upload --config FILE --release FILE --targets chrome,firefox --hashes FILE
        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]`;
 
@@ -364,6 +394,8 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
         "firefox-source": { type: "string" },
         workflow: { type: "string", multiple: true },
         "hashes-out": { type: "string" },
+        lint: { type: "string" },
+        "lint-baseline": { type: "string" },
         hashes: { type: "string" },
         targets: { type: "string" },
         "precheck-only": { type: "boolean", default: false },
@@ -395,6 +427,8 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
           firefoxSource: values["firefox-source"],
           workflows: values.workflow,
           hashesOut: values["hashes-out"],
+          lint: values.lint,
+          lintBaseline: values["lint-baseline"],
         },
         deps,
       );

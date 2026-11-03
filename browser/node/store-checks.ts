@@ -7,7 +7,8 @@
 //   store/releases/<v>.json   one per release: how Chrome submits, the notes files, and what must
 //                             be true before upload
 //
-// plus store/permissions.json, the permission surface of this release, per browser. The packages
+// plus store/permissions.json, the permission surface of this release, per browser, and
+// store/lint-baseline.json, the Firefox lint warnings the product has read and accepts. The packages
 // must have exactly that surface; a surface that differs from the previous release's file fails
 // unless the release file says the change is acknowledged (the store's justification fields are
 // filled by hand first).
@@ -253,6 +254,89 @@ export function denyFindings(text: string, extra: string[] = []): string[] {
 /** Environment variable names a store job must not have. */
 export function deniedEnvNames(env: Record<string, string | undefined>, extra: string[] = []): string[] {
   return Object.keys(env).filter((name) => denyFindings(name, extra).length > 0).sort();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Packages
+// ---------------------------------------------------------------------------------------------
+
+/** Where a package's manifest.json is: at the zip's root, or in the one folder that holds every
+ *  file (a Chrome Web Store zip may keep its files in a folder; addons.mozilla.org needs them at
+ *  the root). The `__MACOSX/` folder macOS's Finder adds is ignored. Null when neither. */
+export function manifestEntry(entries: string[]): string | null {
+  const files = entries.filter((e) => e !== "" && !e.endsWith("/") && !e.startsWith("__MACOSX/"));
+  if (files.includes("manifest.json")) return "manifest.json";
+  if (files.length === 0 || files.some((e) => !e.includes("/"))) return null;
+  const tops = new Set(files.map((e) => e.slice(0, e.indexOf("/"))));
+  if (tops.size !== 1) return null;
+  const path = `${[...tops][0]}/manifest.json`;
+  return files.includes(path) ? path : null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Firefox lint
+// ---------------------------------------------------------------------------------------------
+
+/** One finding of `web-ext lint --output json`, by rule and file (lines move between builds). */
+export interface LintFinding {
+  code: string;
+  file: string;
+}
+
+const lintFindings = (value: unknown, path: string, field: string): LintFinding[] => {
+  if (!Array.isArray(value)) throw new StoreError(`${path}: ${field} must be a list`);
+  return value.map((v) => {
+    const o = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
+    if (typeof o.code !== "string") throw new StoreError(`${path}: a ${field} entry has no code`);
+    return { code: o.code, file: typeof o.file === "string" ? o.file : "" };
+  });
+};
+
+/** The errors and warnings of a `web-ext lint --output json` report (notices are ignored). */
+export function readLintReport(path: string): { errors: LintFinding[]; warnings: LintFinding[] } {
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  } catch (error) {
+    throw new StoreError(`${path}: not a web-ext lint JSON report (${(error as Error).message})`);
+  }
+  return { errors: lintFindings(o.errors, path, "errors"), warnings: lintFindings(o.warnings, path, "warnings") };
+}
+
+/** The product's known warnings: `{"warnings": [{"code", "file", "why"?}]}`. */
+export function readLintBaseline(path: string): LintFinding[] {
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  } catch (error) {
+    throw new StoreError(
+      `${path}: ${(error as Error).message} (a product starts it from the template's store/lint-baseline.json, docs/store-uploads.md)`,
+    );
+  }
+  return lintFindings(o.warnings, path, "warnings");
+}
+
+/** Every error, and every warning beyond the baseline's count for its rule and file. `gone`:
+ *  baseline entries the package no longer has (they can leave the baseline). */
+export function lintProblems(report: { errors: LintFinding[]; warnings: LintFinding[] }, baseline: LintFinding[]): { problems: string[]; gone: LintFinding[] } {
+  const key = (f: LintFinding): string => `${f.code} in ${f.file || "(no file)"}`;
+  const left = new Map<string, number>();
+  for (const f of baseline) left.set(key(f), (left.get(key(f)) ?? 0) + 1);
+  const problems = report.errors.map((f) => `lint error ${key(f)}`);
+  for (const f of report.warnings) {
+    const n = left.get(key(f)) ?? 0;
+    if (n > 0) left.set(key(f), n - 1);
+    else problems.push(`new lint warning ${key(f)} (not in the baseline)`);
+  }
+  const gone: LintFinding[] = [];
+  for (const f of baseline) {
+    const n = left.get(key(f)) ?? 0;
+    if (n > 0) {
+      gone.push(f);
+      left.set(key(f), n - 1);
+    }
+  }
+  return { problems, gone };
 }
 
 // ---------------------------------------------------------------------------------------------
