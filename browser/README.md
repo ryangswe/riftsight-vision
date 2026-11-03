@@ -1368,9 +1368,12 @@ confirmed placement is held for `holdMs` through analyses that do not confirm it
 when no analysis has arrived for `freshnessMs`. Three kinds of evidence withdraw it at once and
 mark the generation contradicted, which shows `vision` until a placement is confirmed again: a
 verified fit incompatible with it, two analyses in a row in which no two names agree on any
-placement, and the membership monitor tripping. The precedence of all of this is the table at
-the top of `layout-state.ts`. The clock the host passes must stop while the video is paused;
-the hold and the freshness then pause too.
+placement, and the membership monitor tripping. A frame without faces hides the page and keeps
+the hold's clock running. Since the picture can change unobserved meanwhile (a break screen, a
+rescale), the placement comes back only on a verified fit compatible with it, and any other
+analysis ends the hold (`today`, or `vision` if contradicted). The precedence of all of this is
+the table at the top of `layout-state.ts`. The clock the host passes must stop while the video is
+paused; the hold and the freshness then pause too.
 
 **The monitor** (`mismatch-monitor.ts`) asks whether the layout describes the picture at all:
 over the last 10 analyses in which the source offered identities, the share of distinct

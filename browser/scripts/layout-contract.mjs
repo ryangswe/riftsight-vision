@@ -722,13 +722,13 @@ const INTENT = {
     "A:verified-incompatible": [5, "contradicted"],
     "A:verified-confirming": [9, "verified"],
     "A:verified-not-confirming": [10, "held"],
-    "A:insufficient": [10, "held"],
+    "A:insufficient": [12, "unverified"],
     "A:insufficient-after-hold": [11, "unverified"],
-    "A:zero-inliers-first": [10, "held"],
-    "A:zero-inliers-second": "n/a: not from this starting point: the first moves a no-faces page to held",
-    "A:ambiguous": [8, "held"],
+    "A:zero-inliers-first": [12, "unverified"],
+    "A:zero-inliers-second": "n/a: not from this starting point: the first ends the hold (row 12)",
+    "A:ambiguous": [8, "unverified"],
     "A:no-faces": [7, "no-faces"],
-    "A:no-layout": [10, "held"],
+    "A:no-layout": [12, "unverified"],
     "timer:hold": [11, "unverified"],
     "timer:freshness": [11, "unverified"],
   },
@@ -1329,6 +1329,85 @@ const traces = [
       reset(0),
       A(0, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
       A(3000, placed(L6, T_TALL), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("verified", "fitted", false, 9) }),
+    ],
+  },
+  // Amendment 8: a held placement returns from no-faces only on a verified, compatible fit.
+  {
+    name: "no-faces, then a frame with faces and no layout: the hold ends (row 12, today)",
+    steps: [
+      ...setup("no-faces").steps,
+      noLayout(9000, { expect: v("unverified", "today", false, 12) }),
+      // The placement is gone: a fit elsewhere is a new start, not a contradiction.
+      fitRight(12_000, { expect: v("unverified", "today", false, 12) }),
+    ],
+  },
+  {
+    name: "no-faces, then an insufficient frame: the hold ends (row 12)",
+    steps: [...setup("no-faces").steps, thin(9000, { expect: v("unverified", "today", false, 12) })],
+  },
+  {
+    name: "no-faces, then a zero-inlier frame: the hold ends (row 12)",
+    steps: [...setup("no-faces").steps, zero(9000, { expect: v("unverified", "today", false, 12) })],
+  },
+  {
+    name: "no-faces, then an ambiguous frame: the hold ends (reported as row 8)",
+    steps: [...setup("no-faces").steps, ambiguous(9000, { expect: v("unverified", "today", false, 8) })],
+  },
+  {
+    name: "no-faces, then a verified compatible frame that does not complete a run: held, the hold not restarted",
+    steps: [
+      ...setup("no-faces").steps,
+      noFaces(9000),
+      noFaces(12_000),
+      noFaces(15_000),
+      // 16 s after the confirmation's capture: a new run of 1, not a confirmation.
+      fitT(19_000, { expect: { ...v("held", "fitted", false, 10), runLength: 1 } }),
+      thin(22_000, { expect: v("held", "fitted", false, 10) }),
+      thin(25_000),
+      thin(28_000),
+      thin(31_000, { expect: v("held", "fitted", false, 10) }),
+      // The hold began at the confirmation (3000).
+      tick(33_000, v("unverified", "today", false, 11)),
+    ],
+  },
+  {
+    name: "no-faces ended by a frame with faces stops the hold: a later no-faces page outlives the old hold",
+    steps: [
+      ...setup("no-faces").steps,
+      thin(9000, { expect: v("unverified", "today", false, 12) }),
+      ...noFacesFrom(12_000, 30_000),
+      tick(33_500, v("no-faces", "hidden", false, 0)),
+    ],
+  },
+  {
+    name: "no-faces, then a frame without faces and without a layout: the hold ends (row 12)",
+    steps: [
+      ...setup("no-faces").steps,
+      A(9000, [], { faces: 0, layout: null, expect: v("unverified", "today", false, 12) }),
+      // A later frame without faces over the layout hides the page again, with nothing to draw.
+      noFaces(12_000, { expect: v("no-faces", "hidden", false, 7) }),
+    ],
+  },
+  {
+    name: "no-faces, then a verified compatible frame within the window: it completes the run (row 9)",
+    steps: [...setup("no-faces").steps, fitT(9000, { expect: v("verified", "fitted", false, 9) })],
+  },
+  {
+    name: "no-faces, then a verified incompatible frame: contradicted (row 5)",
+    steps: [...setup("no-faces").steps, fitRight(9000, { expect: v("contradicted", "vision", true, 5) })],
+  },
+  {
+    name: "no-faces ended by an insufficient frame keeps the pooled correction (the generation is the same)",
+    config: { scaleRatioTol: 0.05 },
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1.045 } }),
+      A(6000, [], { faces: 0, layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("no-faces", "hidden", false, 7) }),
+      A(9000, placed(L6, T_BIG, ["a", "b"]), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("unverified", "today", false, 12), ratioScale: 1.045 } }),
+      // The run from before the gap (latest at 3000) is compatible and within the window: one fit,
+      // made with the kept correction, confirms the placement again.
+      A(12_000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), runLength: 3, ratioScale: 1.045, region: toRegionOf(T_BIG) } }),
     ],
   },
   {

@@ -9,6 +9,25 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.9.0rc4] - 2026-11-02
+
+Layout registration brings a placement back after a stretch without card faces only when the
+picture shows it is still right. While no faces show, the picture can change unobserved (a
+break screen, a rescale); 0.9.0rc3 then redrew the placement on the first analysis with faces,
+whatever it found, until a later fit contradicted it. No model, release document or recognizer
+decision changes, and the contract's `PROTOCOL_VERSION` stays 1.
+
+### Changed
+
+- From `no-faces`, the hold continues (`held`, `fitted`) only on a verified fit compatible with
+  the confirmed placement; a fit that completes a run confirms it as before (row 9), and an
+  incompatible one contradicts it (row 5). Any other analysis (insufficient, no two names
+  agreeing, ambiguous, no layout, or no faces without a layout to hide) ends the hold: the
+  placement is dropped and the page shows `today`, or `vision` if the generation is
+  contradicted (row 12; an ambiguous frame reports row 8). The hold's clock still runs while the
+  page is hidden; a return under row 10 keeps it, and a confirmation (row 9) starts a new one,
+  as always.
+
 ## [0.9.0rc3] - 2026-11-02
 
 Layout registration learns a source's small stretch. A capture can show a picture a few percent
@@ -1095,7 +1114,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc4...HEAD
+[0.9.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...v0.9.0rc4
 [0.9.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc2...v0.9.0rc3
 [0.9.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc1...v0.9.0rc2
 [0.9.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0rc1
