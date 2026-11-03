@@ -62,7 +62,8 @@ a minor release** (0.X.0), not only at 1.0. The changelog names each change.
   implements, [remote-releases.md](remote-releases.md).
 - **The Node tools** `dist/node/verify-release.mjs`, `dist/node/package-zip.mjs` and
   `dist/node/store-upload.mjs`: their arguments, their output and their exit codes; and the
-  store-upload files (`store/store.config.json`, `store/permissions.json`, the release files) and
+  store-upload files (`store/store.config.json`, `store/permissions.json`,
+  `store/lint-baseline.json`, the release files) and
   the workflow template ([store-uploads.md](store-uploads.md)).
 - **`cardvision cdn`**, its subcommands and flags, and the format of `cdn.config.json`
   ([cdn.md](cdn.md)).

@@ -15,13 +15,15 @@
 # the version is skipped.
 #
 # Replace the two steps marked PRODUCT with the product's own commands. Pin every `uses:` to a
-# commit when copying. This file must name no CDN credential or pointer tool: `check` refuses it.
+# commit when copying. Release tags are TAG_PREFIX followed by the version (v1.2.0); a product
+# whose tags look different (extension-v1.2.0) sets TAG_PREFIX and the `tags:` pattern to match.
+# This file must name no CDN credential or pointer tool: `check` refuses it.
 
 name: Store release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*"] # TAG_PREFIX followed by *
   workflow_dispatch:
     inputs:
       upload:
@@ -34,6 +36,7 @@ permissions:
 
 env:
   TAG: ${{ github.ref_name }}
+  TAG_PREFIX: v
   STORE_TOOL: vendor/cardvision-browser/node/store-upload.mjs
 
 jobs:
@@ -59,18 +62,25 @@ jobs:
       #   out/chrome.zip, out/firefox.zip, and out/firefox-source.zip when the add-on's code is
       #   minified or generated (Mozilla's reviewers then need the source). Run the product's own
       #   release gates here too (leak scan, source-archive round trip, release checks).
+      #   out/chrome.zip may keep its files in one top-level folder; out/firefox.zip needs
+      #   manifest.json at its root.
       - name: Build the store packages
         run: npm run store:build
 
+      # Errors fail the check below, and so does any warning not in store/lint-baseline.json. A new
+      # linter version can add warnings: update the version and the baseline together.
       - name: Lint the Firefox package
         run: |
           mkdir -p out/firefox && unzip -q -o out/firefox.zip -d out/firefox
-          npx --yes web-ext@8 lint --source-dir out/firefox
+          npx --yes web-ext@8.10.0 lint --source-dir out/firefox --output json > out/lint.json || true
 
       - name: The previous release's permissions
         run: |
           # The newest earlier release tag (pre-release tags such as v1.0.0-rc1 are left out).
-          prev=$(git tag --list 'v*' --sort=-v:refname --merged HEAD | grep -v -- '-' | grep -vx "$TAG" | head -1 || true)
+          prev=$(git tag --list "${TAG_PREFIX}*" --sort=-v:refname --merged HEAD | while read -r t; do
+            case "${t#"$TAG_PREFIX"}" in (*-*) continue ;; esac
+            if [ "$t" != "$TAG" ]; then echo "$t"; break; fi
+          done || true)
           if [ -n "$prev" ] && git cat-file -e "$prev:store/permissions.json" 2>/dev/null; then
             git show "$prev:store/permissions.json" > out/previous-permissions.json
             echo "PREVIOUS=--previous-permissions out/previous-permissions.json" >> "$GITHUB_ENV"
@@ -78,12 +88,13 @@ jobs:
 
       - name: Check the release
         run: |
-          version="${TAG#v}"
+          version="${TAG#"$TAG_PREFIX"}"
           source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
           node "$STORE_TOOL" check --config store/store.config.json --release "store/releases/$version.json" \
-            --tag "$TAG" --permissions store/permissions.json $PREVIOUS \
+            --tag "$TAG" --tag-prefix "$TAG_PREFIX" --permissions store/permissions.json $PREVIOUS \
             --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \
             --workflow .github/workflows/store-release.yml \
+            --lint out/lint.json --lint-baseline store/lint-baseline.json \
             --hashes-out out/hashes.json --summary "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
@@ -135,7 +146,7 @@ jobs:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
-          version="${TAG#v}"
+          version="${TAG#"$TAG_PREFIX"}"
           source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
           node "$STORE_TOOL" upload --config store/store.config.json --release "store/releases/$version.json" \
             --targets chrome,firefox --hashes out/hashes.json \

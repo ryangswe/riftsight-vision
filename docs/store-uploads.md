@@ -11,10 +11,14 @@ It is [experimental](stability.md#experimental).
 
 ## How a release goes up
 
-1. **The tag.** Pushing a release tag (`v1.2.3`) starts the workflow.
+1. **The tag.** Pushing a release tag (`v1.2.3`) starts the workflow. A product whose tags look
+   different (`extension-v1.2.3`) sets the template's `TAG_PREFIX` and its `tags:` pattern.
 2. **The build job** has no store access. It builds the packages from that commit, runs the
    product's own release checks, then `store-upload.mjs check`, which refuses when:
    - the tag, the release file and the packages' manifests name different versions;
+   - a package has no `manifest.json` at its root (a Chrome package may instead keep all its
+     files in one top-level folder, as the Chrome Web Store dashboard accepts; addons.mozilla.org
+     needs the root);
    - a Chrome package carries a `key`, or a Firefox package has no gecko settings;
    - a package's permission surface (permissions, hosts, content-script and web-accessible
      matches, externally connectable, Firefox data collection) is not the one committed in
@@ -23,7 +27,10 @@ It is [experimental](stability.md#experimental).
    - an address in the release file's `before` list does not answer 200 (or its bytes do not
      match the sha256 given);
    - a workflow file mentions a CDN or object-store credential, the remote flag or the toolkit's
-     CDN tool, or a word the product lists in `deny`.
+     CDN tool, or a word the product lists in `deny`;
+   - `web-ext lint` finds an error in the Firefox package, or a warning not in the product's
+     `store/lint-baseline.json` (by rule and file; the run page names baseline entries that no
+     longer occur, so they can be removed).
 
    It writes each package's sha256 and a summary (versions, hashes, notes, any permission change,
    what goes where) to the run page.
@@ -57,12 +64,13 @@ skipped, and the other one is finished. The upload jobs of two runs never overla
 ```
 store/store.config.json        the store items, and words the workflow must never contain
 store/permissions.json         the permission surface of this release, per browser
+store/lint-baseline.json       the Firefox lint warnings the product knows and accepts
 store/releases/<version>.json  one per release
 store/releases/<version>/      its notes files
 ```
 
 `store/permissions.json` is this release's surface. When it differs from the previous release's
-file (the newest earlier `v*` tag that is not a pre-release), the release file must say
+file (the newest earlier `TAG_PREFIX` tag that is not a pre-release), the release file must say
 `permissionsChanged`. With no earlier file, the run page says the surfaces were not compared.
 
 `store.config.json`:
@@ -77,13 +85,18 @@ A release file:
 
 | Key | Meaning |
 | --- | --- |
-| `version` | the version; the tag is `v<version>` (`--tag-prefix` changes the `v`) |
+| `version` | the version; the tag is `TAG_PREFIX` followed by it, `v<version>` by default (`--tag-prefix`) |
 | `chrome.submit` | `auto`: submit for review after the upload. `upload-only`: the Chrome listing text changes (the API cannot set "What's new" or the test instructions), so the account holder pastes it in the dashboard and submits |
 | `chrome.publish` | `default`: live once approved. `staged`: published by hand after approval |
 | `firefox.releaseNotes` | locale → a notes file, beside the release file (a leading `<!-- SPDX-License-Identifier: … -->` line is left out) |
 | `firefox.approvalNotes` | a file with the notes to Mozilla's reviewers |
 | `permissionsChanged` | true when the permission surface changed since the previous release |
 | `before` | `[{url, sha256?, why?}]`: what must be live before upload |
+
+`lint-baseline.json` is `{"warnings": [{"code", "file", "why"}]}`, one entry per accepted
+warning of `web-ext lint --output json` (`why` is for the reader). Start it from the last release
+that went up by hand, after reading each warning. The template pins the linter's version, since a
+new version can add warnings; update the version and the baseline together.
 
 The template's `store/` folder ([`browser/templates/store/`](../browser/templates/store/)) has
 one of each, with made-up ids.
@@ -103,7 +116,7 @@ Nothing secret is in a repository or passes through a chat. In the product's rep
   on addons.mozilla.org.
 
 Set the environment's required reviewer to the store account's holder and its deployment policy
-to the release tags.
+to the release tags (`v*`, or the product's `TAG_PREFIX` followed by `*`).
 
 ## What it never does
 
