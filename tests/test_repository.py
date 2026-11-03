@@ -263,7 +263,10 @@ def test_detector_constants():
 def _locked(name: str) -> dict[str, str]:
     lines = (ROOT / name).read_text(encoding="utf-8").splitlines()
     assert lines[0] == HEADER
-    pins = [line for line in lines if line and not line.startswith("#")]
+    # A pin may carry its files' hashes on continuation lines (`name==version \`, then
+    # `    --hash=sha256:…`); the pin is the first part.
+    text = "\n".join(line for line in lines if not line.startswith("#")).replace(" \\\n", " ")
+    pins = [line.split(" --hash=", 1)[0].strip() for line in text.splitlines() if line.strip()]
     assert all("==" in line for line in pins), "only exact versions; anything else is explained in a comment"
     # A package may be pinned twice, each line with a Python version marker (see the comment above
     # it); the value then holds both pins, so the two files still have to agree line for line.
@@ -296,6 +299,19 @@ def test_the_lock_files_agree_with_each_other_and_with_the_package():
     text = (ROOT / "requirements-lock-train.txt").read_text(encoding="utf-8")
     assert "yolox" not in {name.lower() for name in train}
     assert f"python -m {YOLOX_INSTALL}" in text and YOLOX_REVISION in text
+
+
+def test_the_base_lock_and_the_publish_tools_are_pinned_by_hash():
+    """pip checks every downloaded file against these hashes; with hashes in a file it asks for one
+    on every pin, so a pin without one would fail the install rather than go unchecked."""
+    for name in ("requirements-lock.txt", "requirements-publish.txt"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        pins = [chunk for chunk in body.replace(" \\\n", " ").splitlines() if chunk.strip()]
+        assert pins and all(re.search(r"==\S+(\s+--hash=sha256:[0-9a-f]{64})+\s*$", pin) for pin in pins), name
+    publish = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
+    assert "python -m pip install --require-hashes -r requirements-publish.txt" in publish
+    assert "pip install --upgrade" not in publish
 
 
 def test_the_dev_extra_can_run_every_test_that_needs_no_pytorch():
