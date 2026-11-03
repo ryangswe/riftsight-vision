@@ -116,6 +116,10 @@ export interface AnalyzeOptions {
   /** A point in the frame's pixels, such as the pointer: the tilted retry takes the faces whose
    *  box holds it first. */
   focus?: { x: number; y: number } | null;
+  /** True gives each named card on this frame its outline (tilt.ts `outlineRect`): `rotation`,
+   *  `localWidth` and `localHeight` follow a tilted card, `bounds` stays the box. Default false:
+   *  every card's outline is its box, as before. */
+  rotatedOutlines?: boolean;
 }
 
 export interface PipelineOptions {
@@ -277,7 +281,7 @@ export class Pipeline {
 
     const tRecognize = this.now();
     const tilted = this.tiltedRetry && options.tilted !== false ? { settings: this.tiltedRetry, focus: options.focus ?? null } : null;
-    const scored = await recognizeFrame(frame, this.embedder, this.recognizer, faces, this.minCropPx, this.geometric, tilted);
+    const scored = await recognizeFrame(frame, this.embedder, this.recognizer, faces, this.minCropPx, this.geometric, tilted, options.rotatedOutlines === true);
     const recognizeMs = this.now() - tRecognize;
     if (scored.tiltedError !== undefined && this.tiltedRetry) {
       // The retry failed on this frame: the frame is answered without it, and it is off.
@@ -302,7 +306,7 @@ export class Pipeline {
     const tracked = scored.base ?? scored;
     const detections: Detection[] = tracked.kept.map((i) => {
       const p = tracked.proposals[i]!;
-      return { aabb: p.aabb, rect: p.rect, cardId: p.topId, embedding: p.embedding! };
+      return { aabb: p.aabb, rect: p.rect, cardId: p.topId, embedding: p.embedding!, ...(p.outline ? { outline: p.outline } : {}) };
     });
     const tracks = this.tracker.update(detections);
     const recognized = detections.length > 0;
@@ -315,7 +319,13 @@ export class Pipeline {
       trackCards = this.heldCards;
     } else {
       trackCards = toLayerCards(
-        tracks.map((t) => ({ instanceId: t.instanceId, aabb: t.detection.aabb, rect: t.detection.rect, identity: t.identity })),
+        tracks.map((t) => ({
+          instanceId: t.instanceId,
+          aabb: t.detection.aabb,
+          rect: t.detection.rect,
+          ...(t.detection.outline ? { outline: t.detection.outline } : {}),
+          identity: t.identity,
+        })),
         ctx,
       );
       this.heldCards = trackCards;

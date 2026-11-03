@@ -67,6 +67,8 @@ export interface WorkerSessionEnv {
   mode?: SessionMode;
   /** Hold a shown card through short gaps (`SHOWN_HOLD`); off when absent. */
   hold?: ShownHold;
+  /** True: named cards follow their outline (`SessionOptions.rotatedOutlines`). */
+  rotatedOutlines?: boolean;
   /** Capture the picture now and answer the core with `frame` or `captureFailed`. */
   capture(requestId: number, analysisWidth: AnalysisWidth): void;
   onShown?(card: Shown | null): void;
@@ -139,6 +141,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       {
         ...(env.mode ? { mode: env.mode } : {}),
         ...(env.hold ? { hold: env.hold } : {}),
+        ...(env.rotatedOutlines ? { rotatedOutlines: true } : {}),
         geometric: request.geometricUrl !== undefined,
       },
     );

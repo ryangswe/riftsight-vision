@@ -200,6 +200,10 @@ export function estimateTilt(crop: Pixels): number {
   return fold(peak);
 }
 
+/** The outline (`outlineRect`) stays the detector's box below this tilt, in degrees: an upright
+ *  card reads a fraction of a degree (exactly +0.5 when perfectly axis-aligned), which is noise. */
+export const OUTLINE_MIN_TILT = 1.0;
+
 /** How `rectFromAabb` found the sides. */
 export type RectHow = "exact" | "prior";
 
@@ -288,6 +292,30 @@ export function tiltedRects(
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   return { tilt, rects: scales.map((scale) => sampleRect(frame, cx, cy, w * scale, h * scale, tilt)) };
+}
+
+/**
+ * The outline of a card whose detector box is `boxWidth` x `boxHeight` and whose estimated tilt
+ * is `tilt` degrees (Python: `outline_from_tilt`): the rectangle `rectFromAabb` solves, centered
+ * on the box and turned by the tilt, or the box itself (`tilt` 0, the box's sides) when the tilt
+ * is under `OUTLINE_MIN_TILT` in size or the solve is not exact (the card-aspect prior, near 45
+ * degrees, or a box no tilted card fits). `w` runs along the tilted top edge.
+ */
+export function outlineFromTilt(tilt: number, boxWidth: number, boxHeight: number): { tilt: number; w: number; h: number } {
+  if (Math.abs(tilt) < OUTLINE_MIN_TILT) return { tilt: 0, w: boxWidth, h: boxHeight };
+  const { w, h, how } = rectFromAabb(boxWidth, boxHeight, tilt);
+  if (how !== "exact") return { tilt: 0, w: boxWidth, h: boxHeight };
+  return { tilt, w, h };
+}
+
+/**
+ * The outline of the card in a detector box `boxWidth` x `boxHeight` pixels, from `crop`, the
+ * shipped crop that box gave (Python: `outline_rect`): `outlineFromTilt` of its `estimateTilt`.
+ * In pixels, `tilt` in degrees in (-45, 45], positive clockwise on screen (y down). For drawing
+ * and hit-testing a card that sits at an angle; it decides nothing.
+ */
+export function outlineRect(crop: Pixels, boxWidth: number, boxHeight: number): { tilt: number; w: number; h: number } {
+  return outlineFromTilt(estimateTilt(crop), boxWidth, boxHeight);
 }
 
 /** Every reason `raw` is not a valid `tiltedRetry` block, or null when it is (Python:

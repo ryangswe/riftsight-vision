@@ -11,7 +11,7 @@ import { rotateTensor90, toContractTensor } from "./preprocess.js";
 import { evidenceToJson, fuseRow, type GeometricEvidence } from "./geometric/fusion.js";
 import type { GeometricStage, VerifyItem } from "./geometric/stage.js";
 import type { AcceptRule, EmbeddingRecognizer, ScoredMatch } from "./recognizer.js";
-import { tiltedRects, type TiltedRetrySettings } from "./tilt.js";
+import { outlineRect, tiltedRects, type TiltedRetrySettings } from "./tilt.js";
 
 /** Among boxes whose look reaches tau, one that overlaps a better one by this much is dropped. */
 export const ACCEPTED_NMS_IOU = 0.3;
@@ -124,6 +124,11 @@ export interface ScoredProposal {
    *  are that rectangle's look and `orientation` is the look it was embedded at. Absent when the
    *  retry was not tried. */
   tilted?: TiltedEvidence;
+  /** With rotated outlines asked for, on a face whose score reaches tau: the card's outline in
+   *  the frame's pixels (`outlineRect`), centered on the box, `angle` its tilt in degrees; the
+   *  box's own rectangle when the tilt is under a degree or cannot be solved exactly. It decides
+   *  nothing. Absent otherwise. */
+  outline?: Rect;
 }
 
 /** What the tilted retry did with one face (Python: `TiltedOutcome.to_json`). */
@@ -230,6 +235,9 @@ export function keepAfterNms(
  * at the face's chosen look, and the passing one with the highest score names the face, the
  * earlier scale on equal scores. The tracker still pools the cosine looks (`base`). When the
  * retry throws, the frame is answered as without it and the error is returned (`tiltedError`).
+ *
+ * With `rotatedOutlines`, every proposal whose score reaches tau carries its card's `outline`,
+ * from the same crop; nothing else changes.
  */
 export async function recognizeFrame(
   frame: Frame,
@@ -239,6 +247,7 @@ export async function recognizeFrame(
   minCropPx: number = DEFAULT_MIN_CROP_PX,
   stage: GeometricStage | null = null,
   tilted: TiltedRun | null = null,
+  rotatedOutlines = false,
 ): Promise<ScoredFrame> {
   const contract = recognizer.preprocessing;
   const rule = recognizer.rule;
@@ -253,7 +262,7 @@ export async function recognizeFrame(
     if (width < minCropPx || height < minCropPx) continue;
     tensors.push(toContractTensor(rgba, width, height, contract));
     kept.push(face);
-    if (stage || tilted) crops.push(crop);
+    if (stage || tilted || rotatedOutlines) crops.push(crop);
   }
   if (kept.length === 0) return { proposals: [], kept: [], retried: 0, embeddings: 0, ...(stage ? { geometricMs: 0 } : {}), ...(tilted ? { tiltedMs: 0 } : {}) };
 
@@ -392,6 +401,20 @@ export async function recognizeFrame(
     }
   }
 
+  // The outlines, once per face, for the faces some look takes past tau.
+  const outlines = new Map<number, Rect>();
+  const outlineOf = (i: number): Rect => {
+    let rect = outlines.get(i);
+    if (rect === undefined) {
+      const { aabb } = kept[i]!;
+      const crop = crops[i]!;
+      const { tilt, w, h } = outlineRect({ data: crop.rgba, width: crop.width, height: crop.height }, aabb.width, aabb.height);
+      rect = { cx: aabb.x + aabb.width / 2, cy: aabb.y + aabb.height / 2, w, h, angle: tilt };
+      outlines.set(i, rect);
+    }
+    return rect;
+  };
+
   const proposalsOf = (fused: boolean): ScoredProposal[] => {
     const scored: ScoredProposal[] = [];
     for (let i = 0; i < kept.length; i++) {
@@ -424,6 +447,7 @@ export async function recognizeFrame(
         embedding,
         ...(fusedLook ? { geometric: fusedLook.geometric } : {}),
         ...(tiltedLook ? { tilted: tiltedLook.evidence } : {}),
+        ...(rotatedOutlines && tauPassed ? { outline: outlineOf(i) } : {}),
       });
     }
     return scored;

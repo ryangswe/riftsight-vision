@@ -117,6 +117,9 @@ export interface SessionCoreOptions {
   maxOtherBoxes?: number;
   /** The geometric stage was asked for: its status starts as "loading" (null otherwise). */
   geometric?: boolean;
+  /** True: named cards follow their outline on every frame (`SessionOptions.rotatedOutlines`).
+   *  Default false. */
+  rotatedOutlines?: boolean;
 }
 
 /** What `status().loading` becomes on a release-progress reply: the reply's phase while the
@@ -150,6 +153,7 @@ export class SessionCore {
   private readonly mode: SessionMode;
   private readonly hold: ShownHold | null;
   private readonly maxOtherBoxes: number;
+  private readonly rotatedOutlines: boolean;
   private readonly hitTest: typeof hoverAt;
 
   private readonly st: SessionStatus;
@@ -178,6 +182,7 @@ export class SessionCore {
     this.mode = options.mode ?? "pointer";
     this.hold = options.hold ?? null;
     this.maxOtherBoxes = options.maxOtherBoxes ?? MAX_OTHER_BOXES;
+    this.rotatedOutlines = options.rotatedOutlines === true;
     this.hitTest = deps.hoverAt ?? hoverAt;
     this.scheduler = new FrameScheduler(cadenceMs(null, this.mode), CONFIRM_FRAMES, this.mode, analyzeIntervalMs(null));
     this.st = {
@@ -268,7 +273,7 @@ export class SessionCore {
     sent.analyzing = true;
     const envelope: FrameEnvelope = { requestId: sent.requestId, mediaTimeSec: mediaTime, generation: sent.generation, videoKey: sent.videoKey };
     try {
-      this.deps.toWorker({ kind: "frame", bitmap, videoTimeSec: mediaTime, envelope }, [bitmap]);
+      this.deps.toWorker({ kind: "frame", bitmap, videoTimeSec: mediaTime, envelope, ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}) }, [bitmap]);
     } catch (error) {
       // Not transferred, so still ours: close it, and ask again as for a look given up on.
       bitmap.close();

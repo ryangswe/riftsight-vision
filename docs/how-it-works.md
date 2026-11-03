@@ -433,6 +433,18 @@ reads a tilt of +0.5 degree: the votes are counted in one-degree bins centered o
 The threshold search (`cardvision calibrate`) refuses a release with the retry, because the
 retry needs the frame and the search works on looks alone.
 
+### The outline of a tilted card
+
+A detector box is axis-aligned, so an outline drawn from it, or a hit test against it, takes in
+the table around a card that sits at an angle. `outline_rect` (browser: `outlineRect`) gives the
+card's own rectangle from the same crop, for hover outlines and hit tests that follow tilted cards:
+the tilt estimate and the rectangle solve above, centered on the box, at scale 1. It is the box
+itself when the tilt is under `OUTLINE_MIN_TILT`, 1 degree (an upright card reads a fraction of a
+degree, which is noise), and when the solve is not exact (the card-aspect prior: near 45 degrees,
+or a box no tilted card fits). It needs no release block and decides nothing: no answer, no accept
+and no box changes. The browser runtime computes it only when asked (`rotatedOutlines`), once for
+each face whose look reaches tau, and a named card is then drawn and hit-tested by it.
+
 ## 9. The hover rule
 
 Module: `cardvision/evaluate/hover.py`.

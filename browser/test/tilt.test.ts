@@ -18,10 +18,22 @@ import type { FrameResult, TiltedStatus, WorkerReply } from "../src/messages.js"
 import { Pipeline } from "../src/pipeline.js";
 import type { GeometricStage } from "../src/geometric/stage.js";
 import { rotateTensor90, toContractTensor } from "../src/preprocess.js";
-import { nmsPreOrder, recognizeFrame, tiltedOrder } from "../src/recognition.js";
+import { cropRgba, nmsPreOrder, recognizeFrame, tiltedOrder } from "../src/recognition.js";
 import { EmbeddingRecognizer } from "../src/recognizer.js";
 import { parseRelease } from "../src/release.js";
-import { DEFAULT_TILTED_RETRY, estimateTilt, fold, rectFromAabb, roundHalfEven, sampleRect, tiltedRects } from "../src/tilt.js";
+import { toLayerCards } from "../src/scene.js";
+import {
+  DEFAULT_TILTED_RETRY,
+  estimateTilt,
+  fold,
+  OUTLINE_MIN_TILT,
+  outlineFromTilt,
+  outlineRect,
+  rectFromAabb,
+  roundHalfEven,
+  sampleRect,
+  tiltedRects,
+} from "../src/tilt.js";
 import { createWorkerHost } from "../src/worker-host.js";
 import { contract, FIXTURES, sha, syntheticRgba } from "./support.js";
 
@@ -104,6 +116,51 @@ describe("the estimate, the solve and the sampler give the Python package's answ
   it("folds, and rounds sides as Python does", () => {
     expect([0, 44.9, 45, 45.1, -45, 90, 135].map(fold).map((v) => +v.toFixed(9))).toEqual([0, 44.9, 45, -44.9, 45, 0, 45]);
     expect([0.5, 1.5, 2.5, 2.4999, -0.5, 3.5000001].map(roundHalfEven)).toEqual([0, 2, 2, 2, 0, 4]);
+  });
+});
+
+describe("the outline", () => {
+  it("gives the Python package's outline for every case, exactly", () => {
+    for (const item of TILT.outlines as any[]) {
+      expect(outlineFromTilt(item.tilt, item.width, item.height), JSON.stringify(item)).toEqual(item.outline);
+    }
+  });
+
+  it("is the box under 1 degree, at a prior solve and for a box no tilted card fits; the solve otherwise", () => {
+    expect(OUTLINE_MIN_TILT).toBe(1);
+    const box = (width: number, height: number) => ({ tilt: 0, w: width, h: height });
+    for (const tilt of [0, 0.5, 0.999, -0.999]) expect(outlineFromTilt(tilt, 100, 140)).toEqual(box(100, 140));
+    for (const tilt of [1, -1, 1.001]) {
+      const { w, h, how } = rectFromAabb(100, 140, tilt);
+      expect(how).toBe("exact");
+      expect(outlineFromTilt(tilt, 100, 140)).toEqual({ tilt, w, h });
+    }
+    expect(rectFromAabb(130, 130, 40).how).toBe("prior");
+    expect(outlineFromTilt(40, 130, 130)).toEqual(box(130, 130));
+    // A square box at 0 degrees: the solve alone would resize it to a card's shape.
+    expect(rectFromAabb(150, 150, 0).how).toBe("prior");
+    expect(outlineFromTilt(0, 150, 150)).toEqual(box(150, 150));
+  });
+
+  it.each(TILT.cards as any[])("follows a synthetic card turned by $theta degrees, or keeps its box", (card: any) => {
+    const crop = tiltCard(card.theta);
+    const outline = outlineRect(crop, crop.width, crop.height);
+    expect(outline).toEqual(outlineFromTilt(card.estimate, crop.width, crop.height));
+    if (Math.abs(card.estimate) < OUTLINE_MIN_TILT) {
+      expect(outline).toEqual({ tilt: 0, w: crop.width, h: crop.height });
+    } else if (outline.tilt !== 0) {
+      // The solved sides come back to the card's own, within the estimate's fraction of a degree.
+      expect(Math.abs(Math.min(outline.w, outline.h) / TILT.card.width - 1)).toBeLessThan(0.05);
+      expect(Math.abs(Math.max(outline.w, outline.h) / TILT.card.height - 1)).toBeLessThan(0.05);
+    }
+  });
+
+  it("is cheap enough for every shown face", () => {
+    const crop = tiltCard(7);
+    const t0 = performance.now();
+    for (let i = 0; i < 50; i++) outlineRect(crop, crop.width, crop.height);
+    // Under a millisecond a face on a laptop; the bound only catches a slip.
+    expect((performance.now() - t0) / 50).toBeLessThan(20);
   });
 });
 
@@ -345,6 +402,72 @@ describe("the pipeline and the worker", () => {
     expect([skipped.boxes[0]!.face!.accepted, skipped.boxes[0]!.face!.tilted, skipped.timings.tiltedMs]).toEqual([false, undefined, undefined]);
   });
 
+  it("rotated outlines: a named tilted card follows its outline; off, nothing changes", async () => {
+    const plain = makePipeline();
+    const off = makePipeline();
+    const on = makePipeline();
+    const a = await plain.pipeline.analyze(plain.frame);
+    const b = await off.pipeline.analyze(off.frame, undefined, { rotatedOutlines: false });
+    // The retry's time is measured with the real clock: everything else is the same.
+    const untimed = ({ timings: _t, ...rest }: typeof a) => rest;
+    expect(untimed(b)).toEqual(untimed(a));
+    expect(a.hover.cards[0]).toMatchObject({ name: "Card", rotation: 0 });
+    expect([a.hover.cards[0]!.localWidth, a.hover.cards[0]!.localHeight]).toEqual([a.hover.cards[0]!.bounds.width, a.hover.cards[0]!.bounds.height]);
+
+    const c = await on.pipeline.analyze(on.frame, undefined, { rotatedOutlines: true });
+    const card = c.hover.cards[0]!;
+    const { aabb } = tiltedCardFrame(8);
+    const crop = cropRgba(on.frame, aabb);
+    const outline = outlineRect({ data: crop.rgba, width: crop.width, height: crop.height }, aabb.width, aabb.height);
+    expect(outline.tilt).toBeGreaterThan(6);
+    expect(card.name).toBe("Card");
+    expect(card.bounds).toEqual(a.hover.cards[0]!.bounds);
+    expect(card.rotation).toBeCloseTo(outline.tilt, 9);
+    expect(card.localWidth).toBeCloseTo(outline.w / on.frame.width, 9);
+    expect(card.localHeight).toBeCloseTo(outline.h / on.frame.height, 9);
+    // The card is 100 x 140 turned by 8 degrees: the outline's sides come back to it.
+    expect(Math.abs(outline.w - 100)).toBeLessThan(6);
+    expect(Math.abs(outline.h - 140)).toBeLessThan(6);
+    // Everything else is as without the outlines.
+    expect(c.boxes).toEqual(a.boxes);
+
+    // A card that is not named keeps its box's rectangle even when it carries an outline.
+    const item = { instanceId: "x", aabb, rect: rectOf(aabb), outline: { cx: 1, cy: 1, w: 50, h: 70, angle: 12 } };
+    const ctx = { frameWidth: on.frame.width, frameHeight: on.frame.height, names: new Map([["CARD-1", "Card"]]) };
+    expect(toLayerCards([{ ...item, identity: null }, { ...item, identity: "NOT-IN-CATALOG" }], ctx).map((x) => [x.name, x.rotation, x.localWidth])).toEqual([
+      [null, 0, aabb.width / on.frame.width],
+      [null, 0, aabb.width / on.frame.width],
+    ]);
+    expect(toLayerCards([{ ...item, identity: "CARD-1" }], ctx)[0]).toMatchObject({ name: "Card", rotation: 12, localWidth: 50 / on.frame.width });
+
+  });
+
+  it("rotated outlines: the tracker's cards follow the outline too once they show", async () => {
+    // A stand-in that names every crop the card, so the tracker gets the tilted face.
+    const { frame, aabb } = tiltedCardFrame(12);
+    const always: BatchEmbedder = { embedBatch: async (_data: Float32Array, n: number) => new Float32Array(Array.from({ length: n }, () => [1, 0]).flat()) } as unknown as BatchEmbedder;
+    const pipeline = new Pipeline({
+      detector: { lastTimings: null, propose: async () => [face(aabb)] } as unknown as FrameDetector,
+      embedder: always,
+      bank: { ids: ["CARD-1", "OTHER-1"], matrix: new Float32Array([1, 0, 0, 1]), dim: 2, version: 1, model: "fake", preprocessing: "full128", tau: null },
+      names: new Map([["CARD-1", "Card"], ["OTHER-1", "Other"]]),
+      accept: { tau: 0.99, delta: 0.05, rotationRetry: true },
+      // With the retry on (it finds nothing to retry here), the tracker pools the cosine looks
+      // (`base`): their outline is the one the tracks carry.
+      tiltedRetry: SETTINGS,
+      now: () => 0,
+    });
+    const crop = cropRgba(frame, aabb);
+    const outline = outlineRect({ data: crop.rgba, width: crop.width, height: crop.height }, aabb.width, aabb.height);
+    expect(outline.tilt).toBeGreaterThan(1);
+    let analysis = await pipeline.analyze(frame, 0, { rotatedOutlines: true });
+    for (let i = 1; i < 6 && !analysis.tracks.shown; i++) analysis = await pipeline.analyze(frame, i * 0.1, { rotatedOutlines: true });
+    expect(analysis.tracks.shown).toBe(true);
+    expect(analysis.tracks.cards[0]).toMatchObject({ name: "Card" });
+    expect(analysis.tracks.cards[0]!.rotation).toBeCloseTo(outline.tilt, 9);
+    expect(analysis.hover.cards[0]!.rotation).toBeCloseTo(outline.tilt, 9);
+  });
+
   function host(failOn: number | null, watchdog?: GeometricWatchdog) {
     const replies: WorkerReply[] = [];
     const { pipeline, frame } = makePipeline(failOn);
@@ -383,6 +506,8 @@ describe("the pipeline and the worker", () => {
     expect((await send()).analysis!.boxes[0]!.face!.accepted).toBe(true);
     expect((await send({ tilted: false })).analysis!.boxes[0]!.face!.accepted).toBe(false);
     expect((await send({ focus: { x: 1, y: 1 } })).analysis!.boxes[0]!.face!.accepted).toBe(true);
+    expect((await send()).analysis!.hover.cards[0]!.rotation).toBe(0);
+    expect((await send({ rotatedOutlines: true })).analysis!.hover.cards[0]!.rotation).toBeGreaterThan(6);
   });
 
   it("a failure during a frame turns the retry off for the session, once", async () => {

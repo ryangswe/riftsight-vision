@@ -9,6 +9,35 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.10.0rc1] - 2026-11-03
+
+**Outlines of tilted cards**, for hover outlines and hit tests that follow a card that sits at an
+angle. Off by default: without the new option nothing changes. No model, release document,
+answer, accept rule or box changes, and the contract's `PROTOCOL_VERSION` stays 1.
+
+### Added
+
+- `outline_rect(crop, width, height)` and `outline_from_tilt(tilt, width, height)` in
+  `cardvision.recognize`, and `outlineRect`, `outlineFromTilt` and `OUTLINE_MIN_TILT` in the
+  browser runtime: a card's outline `(tilt, w, h)` in pixels from the shipped crop of its detector
+  box, from the tilted retry's tilt estimate and rectangle solve at scale 1. It is the box itself
+  under 1 degree and when the solve is not exact. Fixtures in the contract's `tilt` section
+  (`outlines`) hold both sides to the same answers.
+- The browser session's `rotatedOutlines` option (also `Pipeline.analyze`'s and a worker frame
+  request's): each named card in `hover` and `tracks` takes its outline's `rotation`,
+  `localWidth` and `localHeight`; `bounds` stays the box. Cards not named, upright cards and
+  sides that cannot be solved exactly keep their box
+  ([browser/README.md](browser/README.md#outlines-of-tilted-cards)).
+
+### Changed
+
+- Store uploads (experimental): the workflow template's upload job does not run on a private
+  repository (`!github.event.repository.private`). Its approval is the `store` environment's
+  required reviewer, which GitHub offers on private repositories only under GitHub Enterprise;
+  without one a release tag would upload unapproved. A private repository keeps the build job and
+  uploads its checked packages by hand or locally
+  ([docs/store-uploads.md](docs/store-uploads.md#a-private-repository)).
+
 ## [0.9.1] - 2026-11-03
 
 A dry run of store uploads on a real extension release found two gaps; the release now passes as
@@ -1161,7 +1190,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0rc1...HEAD
+[0.10.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0rc1
 [0.9.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0
 [0.9.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...v0.9.0rc4

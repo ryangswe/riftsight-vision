@@ -134,6 +134,9 @@ export type WorkerRequest =
       /** A point in the analyzed frame's pixels, such as the pointer: the tilted retry takes the
        *  faces whose box holds it first. */
       focus?: { x: number; y: number } | null;
+      /** True: named cards on this frame follow their outline (pipeline.ts `AnalyzeOptions`).
+       *  Default false. */
+      rotatedOutlines?: boolean;
     };
 
 /** A frame result's `error` when the frame arrived while another was still being analyzed. */

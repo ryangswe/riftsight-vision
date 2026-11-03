@@ -109,7 +109,13 @@ jobs:
   upload:
     name: Upload (after approval)
     needs: build
-    if: github.event_name == 'push' || inputs.upload
+    # The approval is the `store` environment's required reviewer, which GitHub offers on public
+    # repositories, and on private ones only under GitHub Enterprise. On a private repository
+    # without it the environment has no reviewer and a tag would upload unapproved, so the job
+    # does not run there: upload the build job's packages yourself (docs/store-uploads.md, "A
+    # private repository"). Remove `&& !github.event.repository.private` only on a private
+    # repository under GitHub Enterprise whose `store` environment has its required reviewer.
+    if: (github.event_name == 'push' || inputs.upload) && !github.event.repository.private
     runs-on: ubuntu-latest
     environment: store
     # One upload at a time: a second Chrome upload would cancel the first one's review.

@@ -79,6 +79,10 @@ export interface SessionOptions {
   /** False turns the geometric watchdog off (default: on). Meant for measuring the stage, not
    *  for showing cards: with it off, a slow stage is never turned off. */
   geometricWatchdog?: boolean;
+  /** True: each named card's `rotation`, `localWidth` and `localHeight` follow the card when it
+   *  sits at an angle (tilt.ts `outlineRect`), for outlines and hit tests that follow tilted
+   *  cards; `bounds` stays the detector's box. Default false: every card is its box, as before. */
+  rotatedOutlines?: boolean;
   /** Called whenever the status or what would be shown may have changed. */
   onUpdate?: () => void;
 }
@@ -283,6 +287,7 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     loadRequest,
     now,
     ...(options.mode ? { mode: options.mode } : {}),
+    ...(options.rotatedOutlines ? { rotatedOutlines: true } : {}),
     capture,
     // The max-age rule, the staleness rule and a look's date read the video's time when they
     // run, as 0.5 did: a paused video reports no frame, and its time is still known.
