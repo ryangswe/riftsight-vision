@@ -201,7 +201,8 @@ def test_a_mostly_hidden_or_tiny_card_is_an_ignore_region(hand):
         assert box.ignore == (found["visible"] < 0.5 or found["short"] < 20)
     for found in hand.faces + hand.backs:
         corners = [(x / 1920, y / 1080) for x, y in found["corners"]]
-        assert list(boxes[str(found["id"])].quad) == pytest.approx(corners)
+        # One approx per corner: pytest 9.2 refuses approx() on a list of pairs.
+        assert list(boxes[str(found["id"])].quad) == [pytest.approx(corner) for corner in corners]
     # Nothing that is not a card has a box.
     assert sum(found["kind"] not in ("face", "back") for found in hand.scene["objects"]) == 5
     assert account.role is None and account.read == 1
