@@ -1,0 +1,5 @@
+{
+  "chrome": { "publisherId": "00000000-0000-0000-0000-000000000000", "itemId": "abcdefghijklmnopabcdefghijklmnop" },
+  "firefox": { "addon": "example-addon" },
+  "deny": ["EXAMPLE_CDN_SECRET", "publish-release"]
+}

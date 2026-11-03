@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "chrome": { "submit": "auto", "publish": "default" },
+  "firefox": {
+    "releaseNotes": { "en-US": "1.0.0/amo-release-notes.en-US.md" },
+    "approvalNotes": "1.0.0/amo-approval-notes.md"
+  },
+  "permissionsChanged": false,
+  "before": [{ "url": "https://cdn.example.org/data/details-1.json", "why": "the details file this version reads" }]
+}

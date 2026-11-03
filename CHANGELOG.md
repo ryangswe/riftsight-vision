@@ -9,6 +9,28 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-03
+
+The browser runtime's **layout registration**, for a product that already knows the board from
+another source, as release candidates 0.9.0rc1 to 0.9.0rc4 built it (listed below), unchanged:
+where the board sits in the picture, when the placement can be trusted, the aspect prior and its
+pooled correction, and a placement that returns after a stretch without card faces only when the
+picture confirms it ([browser/README.md](browser/README.md#layout-registration)). New in this
+release: **store uploads from a workflow**, below. No model, release document or recognizer
+decision changes, and the contract's `PROTOCOL_VERSION` stays 1.
+
+### Added
+
+- `browser/dist/node/store-upload.mjs` and the workflow template
+  `browser/templates/store-release.yml`: an extension release uploaded to the Chrome Web Store
+  (API v2) and addons.mozilla.org (API v5) from a workflow, after the store account's holder approves it
+  on the run page ([docs/store-uploads.md](docs/store-uploads.md)). `check`, the build job's step
+  with no store access, refuses a version mismatch, a permission change not acknowledged, a
+  "before upload" address that is not live, and a workflow that names a CDN credential. `upload`
+  checks every store first (a Chrome submission pending review or a Firefox version awaiting
+  review stops it before anything is sent), then uploads the packages the build job checked,
+  with the Firefox source archive and notes. Experimental.
+
 ## [0.9.0rc4] - 2026-11-02
 
 Layout registration brings a placement back after a stretch without card faces only when the
@@ -1114,7 +1136,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc4...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0
 [0.9.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...v0.9.0rc4
 [0.9.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc2...v0.9.0rc3
 [0.9.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc1...v0.9.0rc2

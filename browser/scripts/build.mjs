@@ -8,7 +8,7 @@
 //   dist/compute-session.js, dist/page-capture.js  experimental entries an extension vendors
 //                        (src/compute-session.ts, src/page-capture-entry.ts): no ONNX Runtime,
 //                        no WebAssembly, no OpenCV; test/bundle-purity.test.ts checks it
-//   dist/node/verify-release.mjs, dist/node/package-zip.mjs  Node tools for an extension's release
+//   dist/node/verify-release.mjs, package-zip.mjs, store-upload.mjs  Node tools for an extension's release
 //                        scripts (node/): check a release folder or URL with the runtime above,
 //                        and write the store or release-page zip; platform node, ONNX Runtime external
 //   dist/ort-wasm-*      ONNX Runtime Web's WebAssembly files and their loaders, copied from
@@ -49,7 +49,11 @@ await build({
 // Node tools for a product's release scripts. ONNX Runtime Web is left out of the bundles, as in
 // scripts/agreement.mjs; verify-release imports the built cardvision.js beside it at run time.
 await build({
-  entryPoints: { "verify-release": join(root, "node/verify-release.ts"), "package-zip": join(root, "node/package-zip.ts") },
+  entryPoints: {
+    "verify-release": join(root, "node/verify-release.ts"),
+    "package-zip": join(root, "node/package-zip.ts"),
+    "store-upload": join(root, "node/store-upload.ts"),
+  },
   outdir: join(dist, "node"),
   outExtension: { ".js": ".mjs" },
   bundle: true,

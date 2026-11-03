@@ -60,8 +60,10 @@ a minor release** (0.X.0), not only at 1.0. The changelog names each change.
 - **The remote-release module:** the exports of `browser/src/remote/`, built to
   `dist/remote-release.js` (not part of `browser/src/index.ts`), and the settings contract it
   implements, [remote-releases.md](remote-releases.md).
-- **The Node tools** `dist/node/verify-release.mjs` and `dist/node/package-zip.mjs`: their
-  arguments, their output and their exit codes.
+- **The Node tools** `dist/node/verify-release.mjs`, `dist/node/package-zip.mjs` and
+  `dist/node/store-upload.mjs`: their arguments, their output and their exit codes; and the
+  store-upload files (`store/store.config.json`, `store/permissions.json`, the release files) and
+  the workflow template ([store-uploads.md](store-uploads.md)).
 - **`cardvision cdn`**, its subcommands and flags, and the format of `cdn.config.json`
   ([cdn.md](cdn.md)).
 - **`cardvision refresh`**, its steps and flags, and the rule schema `refresh-rule/1`
