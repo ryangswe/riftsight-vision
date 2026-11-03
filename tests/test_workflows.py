@@ -330,9 +330,9 @@ def test_the_pages_workflow_tests_first_and_deploys_with_the_least_permissions()
     # A push to main and a run by hand; never a pull request.
     assert "on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n\n" in text and "pull_request" not in text
     assert [line.strip() for line in text.splitlines() if line.strip().startswith("uses: ") or line.startswith("      - uses: ")] == [
-        "- uses: actions/checkout@v7", "- uses: actions/setup-node@v7", "- uses: actions/setup-python@v7",
-        "- uses: actions/upload-pages-artifact@v5",
-        "uses: actions/deploy-pages@v5"]
+        f"- uses: {CHECKOUT}", f"- uses: {SETUP_NODE}", f"- uses: {SETUP_PYTHON}",
+        f"- uses: {UPLOAD_PAGES}",
+        f"uses: {DEPLOY_PAGES}"]
     # Read-only at the top; Pages read for the check; Pages write and the OIDC token for the deploy job only.
     lines = text.splitlines()
     granted = []
@@ -404,6 +404,22 @@ QUICKSTART_WSL = ("Let the user run sudo, as the user Ubuntu asks for on its fir
                   "Prepare Ubuntu with the quickstart's blocks for Windows", "Clone the repository into the Linux home",
                   "Run the beginner path as the documents write it, and open the demo from Windows")
 SETUP_WSL = "Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4"
+CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
+SETUP_NODE = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0"
+SETUP_PYTHON = "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0"
+UPLOAD_PAGES = "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0"
+DEPLOY_PAGES = "actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1"
+
+
+def test_every_workflow_step_is_pinned_to_a_full_commit_with_its_version_beside_it():
+    """A tag or a branch can be moved to other code after review; a full commit cannot. Dependabot
+    keeps the pins current and the comment says which release each is."""
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "uses: " not in line or line.lstrip().startswith("#"):
+                continue
+            target = line.split("uses: ", 1)[1]
+            assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40} # v\d+(\.\d+){1,2}", target), f"{path.name}: {target}"
 
 
 def test_the_quickstart_workflow_runs_the_documents_beginner_path_on_linux_and_in_wsl():
@@ -430,13 +446,8 @@ def test_the_quickstart_workflow_runs_the_documents_beginner_path_on_linux_and_i
     assert "          distribution: Ubuntu-24.04\n          wsl-version: 2\n" in text
     assert "    defaults:\n      run:\n        shell: wsl-bash {0}\n" in text
     used = [line.strip() for line in text.splitlines() if "uses: " in line]
-    assert used == ["- uses: actions/checkout@v7", "- uses: actions/setup-node@v7",
-                    "- uses: actions/checkout@v7", f"uses: {SETUP_WSL} # v7.2.0", f"uses: {SETUP_WSL} # v7.2.0"]
-    # An action that is not GitHub's own is pinned to a full commit, never to a tag or a branch.
-    for line in used:
-        action = line.split("uses: ", 1)[1].split(" ", 1)[0]
-        if not action.startswith("actions/"):
-            assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", action), action
+    assert used == [f"- uses: {CHECKOUT}", f"- uses: {SETUP_NODE}",
+                    f"- uses: {CHECKOUT}", f"uses: {SETUP_WSL} # v7.2.0", f"uses: {SETUP_WSL} # v7.2.0"]
     # The second set-up runs only when the first failed, with the same inputs.
     assert f"      - id: wsl\n        continue-on-error: true\n        uses: {SETUP_WSL} # v7.2.0\n" in text
     first, second = text.split(f"uses: {SETUP_WSL} # v7.2.0\n")[1:]

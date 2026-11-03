@@ -104,15 +104,19 @@ Before anything in the public surface is removed or changed incompatibly:
 Security fixes are the exception: they ship as soon as they are ready, and the changelog says
 what changed.
 
-Support for a Python version ends when that version reaches its end of life upstream, or when a
-security fix needs a newer one, whichever comes first. The changelog says so in the release that
-ends it.
-
 ## Supported versions
 
-- **Python: 3.11 or later; CI tests 3.11 and 3.12.** Newer versions may work but are not tested.
-  Python 3.10 is not supported from v0.2.0: it reaches its end of life in October 2026, and the
-  image library's security fixes need 3.11.
+- **Python: 3.11, 3.12 and 3.13.** CI tests each one on every pull request, with the pinned
+  versions in the lock files. A supported version is one CI tests; others may work but are not
+  promised.
+  - **A new Python version joins** once the pinned NumPy and ONNX Runtime publish builds for it and
+    the tests pass on it. Python 3.14 waits for the pinned ONNX Runtime: a newer ONNX Runtime
+    changes what the browser runtime is measured against, so moving to it is its own change.
+  - **A version leaves** when it reaches its end of life upstream (3.11 in October 2027), or
+    earlier only when a security fix needs a newer one. The changelog's Deprecated section names it
+    at least one release before the release that drops it. Python 3.10 left in v0.2.0.
+- **Dependencies:** the lower bounds in `pyproject.toml` are the oldest versions supported, and
+  the lock files pin the versions CI tests. Raising a lower bound is a change the changelog names.
 - **Browsers:** the browser runtime has been run in Chrome and Firefox (see
   [browser/README.md](../browser/README.md)). It uses WebGPU where the browser offers it and
   WebAssembly otherwise. Other browsers may work but are not checked.

@@ -13,6 +13,13 @@ license = "Apache-2.0"
 # NOTICE refers the reader to PROVENANCE.md and TRADEMARK.md, so both travel with it.
 license-files = ["LICENSE", "LICENSE-DATA", "NOTICE", "PROVENANCE.md", "TRADEMARK.md"]
 requires-python = ">=3.11"
+# The versions CI tests (docs/stability.md, "Supported versions").
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "numpy>=1.24",
     "onnxruntime>=1.17",

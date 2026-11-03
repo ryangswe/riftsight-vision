@@ -10,7 +10,8 @@
   <a href="https://github.com/ryangswe/riftsight-vision/actions/workflows/browser.yml"><img alt="Browser runtime tests" src="https://img.shields.io/github/actions/workflow/status/ryangswe/riftsight-vision/browser.yml?branch=main&label=browser%20runtime&labelColor=2b2540"></a>
   <a href="LICENSE"><img alt="Code and weights: Apache-2.0" src="https://img.shields.io/badge/code-Apache--2.0-3b82f6?labelColor=2b2540"></a>
   <a href="LICENSE-DATA"><img alt="Labels: CC BY 4.0" src="https://img.shields.io/badge/labels-CC%20BY%204.0-0ea5e9?labelColor=2b2540"></a>
-  <a href="pyproject.toml"><img alt="Python 3.11 or later" src="https://img.shields.io/badge/python-3.11%2B-a78bfa?logo=python&logoColor=white&labelColor=2b2540"></a>
+  <a href="docs/stability.md#supported-versions"><img alt="Python 3.11 to 3.13" src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-a78bfa?logo=python&logoColor=white&labelColor=2b2540"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/ryangswe/riftsight-vision"><img alt="OpenSSF Scorecard" src="https://api.scorecard.dev/projects/github.com/ryangswe/riftsight-vision/badge"></a>
   <a href="https://ryangswe.github.io/riftsight-vision/"><img alt="Demo: try it in your browser" src="https://img.shields.io/badge/demo-try%20it%20in%20your%20browser-c026d3?labelColor=2b2540"></a>
 </p>
 
@@ -47,13 +48,13 @@ wrong. The [model card](docs/model-card.md#evaluation) has the figures by source
 ## Install
 
 The command-line tools are on PyPI as `cardvision`: `python -m pip install cardvision`, in a
-virtual environment with Python 3.11 or later. The toy walkthrough, the examples and `browser/`
+virtual environment with Python 3.11, 3.12 or 3.13. The toy walkthrough, the examples and `browser/`
 are not in the package, so the Quickstart below uses a checkout of this repository.
 
 ## Quickstart
 
 This runs the whole pipeline on a toy game drawn from colored shapes: no card art, no video,
-no download beyond the Python packages. You need Python 3.11 or later (macOS, Linux, or Ubuntu
+no download beyond the Python packages. You need Python 3.11, 3.12 or 3.13 (macOS, Linux, or Ubuntu
 under WSL 2 on Windows), and Node 22 or later for the browser part. Paste this into the terminal:
 
 ```

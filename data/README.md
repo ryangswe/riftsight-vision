@@ -71,7 +71,7 @@ not change that. Videos are fetched one at a time, never in parallel, with a pau
 them, and each downloaded file is deleted once its frames have been read.
 
 The `download` extra brings the downloader and `certifi`, a bundle of CA certificates. It needs
-Python 3.11 or later, like the rest of the package.
+Python 3.11, 3.12 or 3.13, like the rest of the package.
 
 **If the first download fails with `CERTIFICATE_VERIFY_FAILED`**, your Python has no CA
 certificates of its own. The macOS installer from python.org ships none. Nothing reached the

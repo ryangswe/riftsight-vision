@@ -9,7 +9,7 @@ and a card recognizer, and to make the held-out labels you measure them on.
 **Video:** [Label frames with the labeling tool](https://www.youtube.com/watch?v=eL0gChfpS_w) labels the toy game's frames
 with it.
 
-It is a small Python server and one web page. It needs Python 3.11 or later and a browser,
+It is a small Python server and one web page. It needs Python 3.11, 3.12 or 3.13 and a browser,
 nothing else: no package to install, no build step, no account, and no network. The server
 listens on `127.0.0.1` only and never opens a connection itself. Every label is a line of JSON
 in a folder you choose.
