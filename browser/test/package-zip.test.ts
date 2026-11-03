@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // node/package-zip.ts: the zip an extension's package step writes. A Chrome Web Store build has
-// manifest.json at the zip's top level (the store refuses a zip that nests it); a release-page
+// manifest.json at the zip's top level, the layout the store documents; a release-page
 // build keeps one folder for "Load unpacked". Made-up files only. The writing tests need the
 // `zip` and `unzip` programs and skip, saying so, where they are missing.
 

@@ -28,6 +28,19 @@ import { DEFAULT_DEPS, type Deps, main, runCheck } from "../node/store-upload.js
 
 const TEMPLATES = join(fileURLToPath(new URL(".", import.meta.url)), "..", "templates");
 
+// The real-zip test needs the `zip` and `unzip` programs, and skips, saying so, where they are
+// missing (as test/package-zip.test.ts does).
+function hasTool(name: string): boolean {
+  try {
+    execFileSync("which", [name], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const MISSING_ZIP_TOOLS = ["zip", "unzip"].filter((tool) => !hasTool(tool));
+if (MISSING_ZIP_TOOLS.length > 0) console.warn(`store-upload: the real-zip test is skipped, the ${MISSING_ZIP_TOOLS.join(" and ")} program is not on the PATH`);
+
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -297,7 +310,7 @@ describe("the pieces", () => {
     expect(manifestEntry(["ext/", "ext/manifest.json", "__MACOSX/", "__MACOSX/ext/._manifest.json"])).toBe("ext/manifest.json");
   });
 
-  it("reads the manifest of a real zip, at its root or in its one folder", () => {
+  it.skipIf(MISSING_ZIP_TOOLS.length > 0)("reads the manifest of a real zip, at its root or in its one folder", () => {
     const dir = mkdtempSync(join(tmpdir(), "store-upload-test-"));
     dirs.push(dir);
     const make = (name: string, folder: string): string => {
