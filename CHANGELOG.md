@@ -9,6 +9,32 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.9.0rc3] - 2026-11-02
+
+Layout registration learns a source's small stretch. A capture can show a picture a few percent
+taller or wider than its pixels; within the aspect prior's tolerance, 0.9.0rc2 placed such a
+board in the bare proportions, a few pixels off at its far edge. The registration now pools a
+correction from its verified fits and places the board as the picture shows it. A stretch
+beyond the tolerance still does not confirm, and without the aspect prior nothing changes. No
+model, release document or recognizer decision changes, and the contract's `PROTOCOL_VERSION`
+stays 1.
+
+### Added
+
+- A verified fit under the aspect prior reports `boardRatio`: the per-axis refit's sy / sx over
+  its inliers, divided by the aspect-implied ratio.
+- `fitFrame` and `fitFrameDetail` take a fifth argument, `ratioScale` (1 by default): the
+  refit uses the aspect-implied ratio times it. The test of each proposal and the board test
+  still judge against the bare ratio. With the aspect prior, a value that is not a positive
+  number makes no placement; without it, the argument is ignored.
+- `LayoutRegistration` pools the correction: the median `boardRatio` of the last
+  `RATIO_POOL_SIZE` (15) verified fits of the generation, clamped to 1 ± `scaleRatioTol`, and 1
+  until two are pooled. The stretch belongs to the source, so the pool outlives layout changes
+  and starts again only on `reset` and `eligibilityLost`. Whenever it changes, the confirmed
+  placement and the run's latest fit are refit with it from the correspondences they were made
+  from; nothing else changes until the next analysis. The verdict's `diagnostics.ratioScale` is
+  the correction in force.
+
 ## [0.9.0rc2] - 2026-11-01
 
 Layout registration gains an optional **aspect prior**, for a product that knows its layout's
@@ -1069,7 +1095,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc2...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...HEAD
+[0.9.0rc3]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc2...v0.9.0rc3
 [0.9.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc1...v0.9.0rc2
 [0.9.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0rc1
 [0.8.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.7.0...v0.8.0

@@ -48,11 +48,22 @@
 // (an ambiguous frame reports 11 there too, since it changes nothing).
 // The clock the host passes must stop while the video is paused, so the hold and the
 // freshness pause too.
+//
+// With the aspect prior, the registration pools a correction to the layout's proportions: the
+// median `boardRatio` of the last `RATIO_POOL_SIZE` frame-verified fits of the generation,
+// clamped to 1 ± `scaleRatioTol`, and 1 until two are pooled. Each fit's refit uses it. The
+// stretch belongs to the source, so the pool outlives layout changes and empties only on
+// `reset` and `eligibilityLost`. Whenever the correction changes, the confirmed placement and
+// the run's latest fit are refit with it from
+// the correspondences they were made from, so that every compatibility test compares
+// placements made with the same correction. That refit moves placements only: the state, the
+// row, the timers and the run length are the analysis's alone.
 
 import {
   compatible,
+  type Correspondence,
   correspondences,
-  fitFrame,
+  fitFrameDetail,
   type FitParams,
   type FrameFitOutcome,
   iou,
@@ -61,6 +72,7 @@ import {
   layoutExtent,
   type Observation,
   project,
+  refitAspect,
   type Region,
   toRegion,
   type Transform,
@@ -191,6 +203,9 @@ export interface Verdict {
     runLength: number;
     monitorShare: number | null;
     row: Row;
+    /** The correction to the layout's proportions in force after this event (1 without the
+     *  aspect prior, or until two verified fits are pooled). */
+    ratioScale: number;
   };
 }
 
@@ -224,10 +239,28 @@ export function suppressedInstances(
   return layout.cards.map((c) => c.instance).filter((id) => out.has(id));
 }
 
+/** Frame-verified fits whose board ratio the correction pools. */
+export const RATIO_POOL_SIZE = 15;
+
+/** What a placement under the aspect prior was made from, to refit it with a new correction. */
+interface Basis {
+  correspondences: Correspondence[];
+  /** The aspect-implied ratio. */
+  ratio: number;
+  frameAspect: number;
+}
+
 interface Run {
   latest: Transform;
   capturedAtMs: number;
   length: number;
+  basis: Basis | null;
+}
+
+function median(values: readonly number[]): number {
+  const v = [...values].sort((a, b) => a - b);
+  const m = v.length >> 1;
+  return v.length % 2 === 1 ? v[m]! : (v[m - 1]! + v[m]!) / 2;
 }
 
 export class LayoutRegistration {
@@ -241,6 +274,10 @@ export class LayoutRegistration {
   private verifiedThisGen = false;
   private run: Run | null = null;
   private confirmed: Transform | null = null;
+  private confirmedBasis: Basis | null = null;
+  private ratioPool: number[] = [];
+  /** The correction the kept placements (confirmed, run's latest) were last made with. */
+  private appliedScale = 1;
   private holdStart: number | null = null;
   private lastAnalysisAt: number | null = null;
   private zeroStreak = 0;
@@ -314,8 +351,19 @@ export class LayoutRegistration {
     if (expiredFirst) this.expire();
 
     const prev = this.stateValue;
-    const fit = fitFrame(input.observations, input.layout, this.fitParams, input.frameAspect);
+    const scaleBefore = this.ratioScale();
+    const detail = fitFrameDetail(input.observations, input.layout, this.fitParams, input.frameAspect, scaleBefore);
+    const fit = detail.outcome;
     this.lastFrame = fit;
+    let basis: Basis | null = null;
+    if (fit.kind === "verified" && fit.boardRatio !== undefined) {
+      // The winner's supporters: what the refit was made from, whatever the correction.
+      basis = {
+        correspondences: detail.support[detail.winner]!.map((j) => detail.correspondences[j]!),
+        ratio: input.frameAspect! / input.layout!.aspect!,
+        frameAspect: input.frameAspect!,
+      };
+    }
     const step = this.monitor.observe({
       windowIdentities: input.windowIdentities,
       accepted: input.observations.map((o) => o.identity),
@@ -339,6 +387,7 @@ export class LayoutRegistration {
         latest: verified.transform,
         capturedAtMs: input.capturedAtMs,
         length: extends_ ? this.run!.length + 1 : 1,
+        basis,
       };
     }
 
@@ -348,6 +397,7 @@ export class LayoutRegistration {
       this.run = nextRun;
       this.stateValue = "mismatch";
       this.confirmed = null;
+      this.confirmedBasis = null;
       this.holdStart = null;
       this.contradicted = true;
     } else if (prev === "mismatch" && step.event === "recover") {
@@ -356,9 +406,10 @@ export class LayoutRegistration {
       this.stateValue = "unverified";
     } else if (incompatible) {
       row = 5;
-      this.run = { latest: verified!.transform, capturedAtMs: input.capturedAtMs, length: 1 };
+      this.run = { latest: verified!.transform, capturedAtMs: input.capturedAtMs, length: 1, basis };
       this.stateValue = "contradicted";
       this.confirmed = null;
+      this.confirmedBasis = null;
       this.holdStart = null;
       this.contradicted = true;
       this.verifiedThisGen = true;
@@ -366,6 +417,7 @@ export class LayoutRegistration {
       row = 6;
       this.stateValue = "contradicted";
       this.confirmed = null;
+      this.confirmedBasis = null;
       this.holdStart = null;
       this.contradicted = true;
       this.verifiedThisGen = true;
@@ -384,6 +436,7 @@ export class LayoutRegistration {
       this.run = nextRun;
       this.stateValue = "verified";
       this.confirmed = verified.transform;
+      this.confirmedBasis = basis;
       this.contradicted = false;
       this.holdStart = nowMs;
       this.verifiedThisGen = true;
@@ -405,6 +458,13 @@ export class LayoutRegistration {
       }
       if (fit.kind === "ambiguous" && row !== 11) row = 8;
     }
+
+    // Pool this fit's board ratio; if the correction changed, refit the placements kept.
+    if (fit.kind === "verified" && fit.boardRatio !== undefined) {
+      this.ratioPool.push(fit.boardRatio);
+      if (this.ratioPool.length > RATIO_POOL_SIZE) this.ratioPool.shift();
+    }
+    this.applyScale(this.ratioScale());
 
     if ((this.stateValue === "verified" || this.stateValue === "held") && this.confirmed && input.layout) {
       this.suppressed = suppressedInstances(
@@ -431,9 +491,30 @@ export class LayoutRegistration {
     return holdOut || stale;
   }
 
+  /**
+   * Make the kept placements (confirmed, the run's latest) with this correction, from the
+   * correspondences they were made from. It only moves placements: no state, row, timer or run
+   * length changes here.
+   */
+  private applyScale(scale: number): void {
+    if (scale === this.appliedScale) return;
+    const again = (b: Basis | null): Transform | null => (b ? refitAspect(b.correspondences, b.ratio * scale, b.frameAspect) : null);
+    if (this.confirmed) this.confirmed = again(this.confirmedBasis) ?? this.confirmed;
+    if (this.run) this.run.latest = again(this.run.basis) ?? this.run.latest;
+    this.appliedScale = scale;
+  }
+
+  /** The correction to the layout's proportions the next refit uses. */
+  private ratioScale(): number {
+    if (this.ratioPool.length < 2) return 1;
+    const tol = this.fitParams.scaleRatioTol;
+    return Math.min(1 + tol, Math.max(1 - tol, median(this.ratioPool)));
+  }
+
   private expire(): void {
     this.stateValue = this.monitor.tripped ? "mismatch" : "unverified";
     this.confirmed = null;
+    this.confirmedBasis = null;
     this.holdStart = null;
     this.suppressed = [];
   }
@@ -443,6 +524,9 @@ export class LayoutRegistration {
     this.verifiedThisGen = false;
     this.run = null;
     this.confirmed = null;
+    this.confirmedBasis = null;
+    this.ratioPool = [];
+    this.appliedScale = 1;
     this.holdStart = null;
     this.lastAnalysisAt = null;
     this.zeroStreak = 0;
@@ -481,6 +565,7 @@ export class LayoutRegistration {
         runLength: this.run?.length ?? 0,
         monitorShare: this.monitor.share,
         row,
+        ratioScale: this.ratioScale(),
       },
     };
     if (display === "fitted") out.region = toRegion(this.confirmed!);

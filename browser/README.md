@@ -1343,6 +1343,21 @@ keeps the layout's proportions: sy / sx = frameAspect / aspect.
 - When both are given, one that is not a positive number makes no placement (`degenerate`).
   Without either one, nothing changes.
 
+**A source that stretches a little.** A capture can show a window a few percent taller or wider
+than its pixels, within the tolerance; a placement in the bare proportions is then a few pixels
+off at the board's far edge. The registration pools a correction: the median board ratio (the
+per-axis refit's sy / sx over the inliers, divided by the aspect-implied ratio, reported as
+`boardRatio` on a verified fit) of the last 15 verified fits of the generation, clamped to 1 ±
+`scaleRatioTol`, and 1 until two are pooled. Each refit uses the ratio times it (`fitFrame`'s
+fifth argument, `ratioScale`); the test of each proposal and the board test still judge against
+the bare ratio, so a stretch beyond the tolerance still does not confirm. The stretch belongs to
+the source, so the pool outlives layout changes (a layout key may change with every board state)
+and empties only on `reset` and `eligibilityLost`, where a new source starts. Whenever the
+correction changes, the confirmed placement and the run's latest fit are refit with it from the
+correspondences they were made from, so that a change of correction never reads as a
+contradiction. This only moves those placements: no state, row, timer or run length changes
+until the next analysis. The verdict's `diagnostics.ratioScale` is the correction in force.
+
 One proposal comes from one card's box, so the tolerance must cover the detector's error on a
 card's proportions at the smallest card size the product handles, in width and height both: a
 2 px error in the height of a 60 px card is already 3.3 %.

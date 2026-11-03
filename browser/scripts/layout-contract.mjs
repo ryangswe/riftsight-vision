@@ -69,7 +69,9 @@ const DIALOG = {
 const L6_ASPECT = { ...L6, key: "six-aspect", aspect: 16 / 9 };
 /** The same cards drawn at 4:3. */
 const L6_4X3 = { ...L6, key: "six-4x3", aspect: 4 / 3 };
-const LAYOUTS = { six: L6, eight: L8, dialog: DIALOG, "six-aspect": L6_ASPECT, "six-4x3": L6_4X3 };
+/** The same layout under another key: the pooled correction starts again. */
+const L6_ASPECT_B = { ...L6, key: "six-aspect-b", aspect: 16 / 9 };
+const LAYOUTS = { six: L6, eight: L8, dialog: DIALOG, "six-aspect": L6_ASPECT, "six-4x3": L6_4X3, "six-aspect-b": L6_ASPECT_B };
 /** The frames of the aspect cases: 1920 × 1080. */
 const FRAME_ASPECT = 16 / 9;
 
@@ -84,6 +86,12 @@ const T_SECOND = { sx: 0.6, sy: 0.6, tx: 0.35, ty: 0.1 };
 const T_TALL = { sx: 0.6, sy: 0.6 * 1.048, tx: 0.2, ty: 0.1 };
 /** T stretched 2 % down: within the 3 % tolerance. */
 const T_SLIGHT = { sx: 0.6, sy: 0.6 * 1.02, tx: 0.2, ty: 0.1 };
+/** A capture 5 % taller than its pixels: beyond the 3 % tolerance. */
+const T_FIVE = { sx: 0.6, sy: 0.6 * 1.05, tx: 0.2, ty: 0.1 };
+/** A full-frame board in a capture 4.5 % taller (within a 0.05 tolerance): the placement in
+ *  proportion is about 14 px from it, beyond the 0.01 compatibility tolerance (10.8 px). */
+const T_BIG = { sx: 1, sy: 1.045, tx: 0, ty: 0 };
+const toRegionOf = (t) => ({ x: t.tx, y: t.ty, width: t.sx, height: t.sy });
 /** A 4:3 layout in a 16:9 frame, in proportion: sy / sx = (16/9) / (4/3) = 4/3. */
 const T_PROP = { sx: 0.45, sy: 0.6, tx: 0.3, ty: 0.1 };
 
@@ -153,6 +161,24 @@ function freeFit(observations, layout) {
 function scatteredCards(ids) {
   const spots = [box(0.02, 0.03, 0.06, 0.08), box(0.62, 0.11, 0.09, 0.12), box(0.31, 0.6, 0.045, 0.06), box(0.83, 0.52, 0.105, 0.14)];
   return ids.map((identity, i) => ({ identity, bounds: spots[i] }));
+}
+
+/** `placed`, with each box edge moved by up to `px` pixels of a 1920 × 1080 frame, from a fixed
+ *  pseudo-random sequence (`seed` picks the frame). */
+function noisy(layout, t, seed, px = 1) {
+  let state = seed * 7919 + 17;
+  const next = () => {
+    state = (state * 1103515245 + 12345) % 2147483648;
+    return (state / 2147483648) * 2 - 1;
+  };
+  return placed(layout, t).map((o) => {
+    const dx0 = (next() * px) / 1920;
+    const dx1 = (next() * px) / 1920;
+    const dy0 = (next() * px) / 1080;
+    const dy1 = (next() * px) / 1080;
+    const b = o.bounds;
+    return { ...o, bounds: { x: b.x + dx0, y: b.y + dy0, w: b.w + dx1 - dx0, h: b.h + dy1 - dy0 } };
+  });
 }
 
 /** Observations of a layout's cards placed by `t` (identified cards only). */
@@ -449,6 +475,46 @@ const fits = [
     frameAspect: FRAME_ASPECT,
     observations: [...placed(L6, T, ["a", "b", "c", "d"]), ...placed(L6, T_SECOND, ["e", "f"])],
     expect: { kind: "ambiguous", n: 6, inliers: ["a", "b", "c", "d"], runnerUp: ["e", "f"], transform: T },
+  },
+  {
+    name: "pooled proportion: the refit uses the ratio times ratioScale, and reports the board ratio",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    ratioScale: 1.02,
+    observations: placed(L6, T_SLIGHT),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: T_SLIGHT, boardRatio: 1.02 },
+  },
+  {
+    name: "pooled proportion: a ratioScale at the tolerance does not let the 31 px drift through",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    ratioScale: 1.03,
+    observations: drifted(),
+    expect: { kind: "insufficient", reason: "aspect", n: 6, inliers: 5 },
+  },
+  {
+    name: "pooled proportion: a ratioScale at the tolerance does not let a 5 % stretch through",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    ratioScale: 1.03,
+    observations: placed(L6, T_FIVE),
+    expect: { kind: "insufficient", reason: "aspect", n: 6, inliers: 0 },
+  },
+  {
+    name: "pooled proportion: without the aspect prior, ratioScale is ignored and no board ratio is reported",
+    layout: "six",
+    frameAspect: FRAME_ASPECT,
+    ratioScale: 0,
+    observations: placed(L6, T_TALL),
+    expect: { kind: "verified", n: 6, inliers: SIX_IDS, transform: T_TALL, boardRatio: null },
+  },
+  {
+    name: "pooled proportion: a ratioScale that is not positive makes no placement",
+    layout: "six-aspect",
+    frameAspect: FRAME_ASPECT,
+    ratioScale: 0,
+    observations: placed(L6, T),
+    expect: { kind: "insufficient", reason: "degenerate", n: 6, inliers: 0 },
   },
   {
     name: "an aspect that is not positive makes no placement",
@@ -1105,6 +1171,155 @@ const traces = [
       A(3000, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("verified", "fitted", false, 9) }),
       A(6000, MIXED_DISAGREE, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
       A(9000, MIXED_DISAGREE, { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("contradicted", "vision", true, 6) }),
+    ],
+  },
+  {
+    name: "pooled proportion: a 2 % stretch confirms, and once two fits are pooled the placement is the picture's",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("unverified", "today", false, 12), ratioScale: 1 } }),
+      // Confirmed at the bare ratio, then refit with the pooled 1.02 from the same inliers.
+      A(3000, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1.02, region: toRegionOf(T_SLIGHT) } }),
+      A(6000, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1.02, region: toRegionOf(T_SLIGHT) } }),
+    ],
+  },
+  {
+    name: "pooled proportion: a 2 % stretch seen with 1 px of box noise is placed within 2 px once pooled",
+    steps: [
+      reset(0),
+      ...[0, 1, 2, 3, 4, 5, 6, 7].map((k) =>
+        A(3000 * k, noisy(L6, T_SLIGHT, k + 1), {
+          layout: "six-aspect",
+          frameAspect: FRAME_ASPECT,
+          ...(k >= 2 ? { expect: { ...v("verified", "fitted", false, 9), regionError: { layout: "six-aspect", truth: T_SLIGHT, maxPx: 2 } } } : {}),
+        }),
+      ),
+    ],
+  },
+  {
+    name: "pooled proportion: a 5 % stretch never verifies, and nothing is pooled",
+    steps: [
+      reset(0),
+      ...[0, 3000, 6000, 9000].map((at) =>
+        A(at, placed(L6, T_FIVE), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("unverified", "today", false, 12), frameReason: "aspect", ratioScale: 1 } }),
+      ),
+    ],
+  },
+  {
+    name: "pooled proportion: the 31 px drift never verifies",
+    steps: [
+      reset(0),
+      ...[0, 3000, 6000].map((at) =>
+        A(at, drifted(), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("unverified", "today", false, 12), frameReason: "aspect" } }),
+      ),
+    ],
+  },
+  {
+    name: "pooled proportion: a correction pooled right after a confirmation does not contradict it",
+    config: { scaleRatioTol: 0.05 },
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1.045, region: toRegionOf(T_BIG) } }),
+      // Fit with 1.045, compared with the confirmed placement refit with 1.045: compatible.
+      A(6000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("verified", "fitted", false, 9) }),
+    ],
+  },
+  {
+    name: "pooled proportion: a correction pooled in the middle of a run does not break it",
+    config: { scaleRatioTol: 0.05, confirmFits: 3 },
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("unverified", "today", false, 12), runLength: 2, ratioScale: 1.045 } }),
+      A(6000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), runLength: 3 } }),
+    ],
+  },
+  {
+    // Sixteen fits of a 2 % stretch, then the capture is fixed: after eight fits in proportion
+    // the median of the last 15 is 1 again (all of them it would still be 1.02).
+    name: "pooled proportion: the correction follows a capture that changes (the last 15 fits)",
+    steps: [
+      reset(0),
+      ...Array.from({ length: 16 }, (_, k) => A(3000 * k, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT })),
+      ...Array.from({ length: 8 }, (_, k) =>
+        A(3000 * (16 + k), placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT, ...(k === 7 ? { expect: { ...v("verified", "fitted", false, 9), ratioScale: 1, region: toRegionOf(T) } } : {}) }),
+      ),
+    ],
+  },
+  {
+    name: "pooled proportion: a new layout key keeps the correction (it belongs to the source)",
+    config: { scaleRatioTol: 0.05 },
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1.045 } }),
+      A(6000, placed(L6, T_BIG), { layout: "six-aspect-b", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1.045, region: toRegionOf(T_BIG) } }),
+    ],
+  },
+  {
+    name: "pooled proportion: a change of correction moves placements only: no row, timer or run length",
+    config: { scaleRatioTol: 0.05 },
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_BIG), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), runLength: 2, ratioScale: 1.045, region: toRegionOf(T_BIG) } }),
+      tick(3500, { ...v("verified", "fitted", false, 0), runLength: 2, ratioScale: 1.045 }),
+      // Analyses that do not confirm: held, the run unchanged, the hold counted from 3000.
+      ...[6000, 9000, 12_000, 15_000, 18_000, 21_000, 24_000, 27_000, 30_000].map((at) =>
+        A(at, placed(L6, T_BIG, ["a", "b"]), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("held", "fitted", false, 10), runLength: 2, ratioScale: 1.045 } }),
+      ),
+      tick(33_000, v("unverified", "today", false, 11)),
+    ],
+  },
+  {
+    // Confirmed at 3000 from a 2 % stretch and a picture in proportion (correction 1.01). At
+    // 21 000 a verified fit too long after the run's last to extend it keeps the page held and
+    // moves the median to 1.02: the placement shown is refit, and the hold still runs out 30 s
+    // after the confirmation.
+    name: "pooled proportion: a refit in the middle of a hold does not restart it",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1.01 } }),
+      ...[6000, 9000, 12_000, 15_000, 18_000].map((at) =>
+        A(at, placed(L6, T, ["a", "b"]), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
+      ),
+      A(21_000, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ...v("held", "fitted", false, 10), runLength: 1, ratioScale: 1.02 } }),
+      ...[24_000, 27_000, 30_000].map((at) =>
+        A(at, placed(L6, T, ["a", "b"]), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: v("held", "fitted", false, 10) }),
+      ),
+      tick(33_000, v("unverified", "today", false, 11)),
+    ],
+  },
+  {
+    name: "pooled proportion: without the layout's aspect nothing is pooled",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_TALL), { frameAspect: FRAME_ASPECT, expect: { ratioScale: 1 } }),
+      A(3000, placed(L6, T_TALL), { frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1, region: toRegionOf(T_TALL) } }),
+      A(6000, placed(L6, T_TALL), { frameAspect: FRAME_ASPECT, expect: { ...v("verified", "fitted", false, 9), ratioScale: 1 } }),
+    ],
+  },
+  {
+    name: "pooled proportion: fits under a new layout key join the same pool",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ratioScale: 1.02 } }),
+      // 1.02, 1.02, 1: the median stays 1.02; with a fourth at 1, it is 1.01.
+      A(6000, placed(L6, T), { layout: "six-aspect-b", frameAspect: FRAME_ASPECT, expect: { ratioScale: 1.02 } }),
+      A(9000, placed(L6, T), { layout: "six-aspect-b", frameAspect: FRAME_ASPECT, expect: { ratioScale: 1.01 } }),
+    ],
+  },
+  {
+    name: "pooled proportion: a new generation starts the pool again",
+    steps: [
+      reset(0),
+      A(0, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT }),
+      A(3000, placed(L6, T_SLIGHT), { layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ratioScale: 1.02 } }),
+      reset(4000, 2, { ...v("unverified", "today", false, 2), ratioScale: 1 }),
+      A(6000, placed(L6, T_SLIGHT), { generation: 2, layout: "six-aspect", frameAspect: FRAME_ASPECT, expect: { ratioScale: 1 } }),
     ],
   },
   {
