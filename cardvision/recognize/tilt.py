@@ -67,6 +67,10 @@ TILT_MIN_SIDE = 8
 EXACT_MIN_DEN = 0.35
 EXACT_ASPECT = (0.55, 0.90)
 
+# The outline (``outline_rect``) stays the detector's box below this tilt, in degrees: an upright
+# card reads a fraction of a degree (exactly +0.5 when perfectly axis-aligned), which is noise.
+OUTLINE_MIN_TILT = 1.0
+
 DEFAULT_SCALES = (0.95, 1.0, 1.05)
 DEFAULT_MAX_FACES_PER_FRAME = 8
 DEFAULT_BUDGET_MS = 1500
@@ -216,6 +220,29 @@ def tilted_rects(frame: np.ndarray, box: Sequence[float], crop: np.ndarray,
     w, h, _ = rect_from_aabb(width, height, tilt)
     cx, cy = x + width / 2, y + height / 2
     return tilt, [sample_rect(frame, cx, cy, w * scale, h * scale, tilt) for scale in scales]
+
+
+def outline_from_tilt(tilt: float, width: float, height: float) -> tuple[float, float, float]:
+    """The outline ``(tilt, w, h)`` of a card whose detector box is ``width`` x ``height`` and whose
+    estimated tilt is ``tilt`` degrees: the rectangle ``rect_from_aabb`` solves, centered on the box
+    and turned by the tilt, or the box itself, ``(0.0, width, height)``, when the tilt is under
+    ``OUTLINE_MIN_TILT`` in size or the solve is not exact (the card-aspect prior, near 45 degrees,
+    or a box no tilted card fits). ``w`` runs along the tilted top edge.
+    """
+    if abs(tilt) < OUTLINE_MIN_TILT:
+        return 0.0, float(width), float(height)
+    w, h, how = rect_from_aabb(width, height, tilt)
+    if how != "exact":
+        return 0.0, float(width), float(height)
+    return float(tilt), w, h
+
+
+def outline_rect(crop: np.ndarray, width: float, height: float) -> tuple[float, float, float]:
+    """The outline ``(tilt, w, h)`` of the card in a detector box ``width`` x ``height`` pixels,
+    from ``crop``, the shipped crop that box gave (``crop_truncated``): ``outline_from_tilt`` of its
+    ``estimate_tilt``. For drawing and hit-testing a card that sits at an angle; it decides nothing.
+    """
+    return outline_from_tilt(estimate_tilt(crop), width, height)
 
 
 @dataclass(frozen=True)

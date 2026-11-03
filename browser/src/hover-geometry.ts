@@ -18,8 +18,10 @@ export interface NormalizedBounds {
  * One card of a layer, in fractions of the frame.
  *
  * `bounds` is the card's axis-aligned box. `localWidth` and `localHeight` are the card's own
- * size before any turn, and `rotation` its tilt in degrees, in (-45, 45]. The detector's boxes
- * are axis-aligned, so for them the tilt is 0 and the local size equals the box's size.
+ * size before any turn, and `rotation` its tilt in degrees, in (-45, 45], positive clockwise on
+ * screen. The detector's boxes are axis-aligned, so for them the tilt is 0 and the local size
+ * equals the box's size; with rotated outlines a named card takes its outline's (tilt.ts
+ * `outlineRect`), and `bounds` stays the box.
  * `cardId` and `name` are set only for a card that is named; a card that was detected and not
  * named carries neither, so nothing can be shown for it by mistake.
  */

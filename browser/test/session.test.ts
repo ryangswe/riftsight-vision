@@ -211,11 +211,12 @@ let clock = 0;
 let updates = 0;
 let session: Session | null = null;
 
-function start(element: FakeElement, options: { mode?: "pointer" | "always-on"; geometric?: boolean } = {}): Session {
+function start(element: FakeElement, options: { mode?: "pointer" | "always-on"; geometric?: boolean; rotatedOutlines?: boolean } = {}): Session {
   session = createSession(element as unknown as FrameSource, {
     releaseUrl: "release.json",
     workerUrl: "https://example.test/worker.js",
     ...(options.mode ? { mode: options.mode } : {}),
+    ...(options.rotatedOutlines !== undefined ? { rotatedOutlines: options.rotatedOutlines } : {}),
     ...(options.geometric ? { geometricUrl: "geometric/settings.json" } : {}),
     onUpdate: () => {
       updates += 1;
@@ -359,6 +360,19 @@ describe("at() in client pixels", () => {
 
   // The same picture in a 960 x 720 box: contain leaves 90 px bars above and below (the picture
   // is 960 x 540 at top 50 + 90 = 140). The card is at left 340, top 140 + 135 = 275, 120 x 135.
+  it("asks the worker for rotated outlines on each frame only when the session's option is on", async () => {
+    for (const rotatedOutlines of [true, false, undefined]) {
+      const video = new FakeVideo();
+      start(video, rotatedOutlines === undefined ? {} : { rotatedOutlines });
+      worker().reply(loaded);
+      await move(video, 400, 250);
+      const look = worker().frames().at(-1)!;
+      if (rotatedOutlines) expect(look.rotatedOutlines).toBe(true);
+      else expect("rotatedOutlines" in look).toBe(false);
+      session?.stop();
+    }
+  });
+
   it("with letterbox bars", async () => {
     const video = new FakeVideo();
     video.rect = { left: 100, top: 50, width: 960, height: 720 };

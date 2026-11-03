@@ -247,6 +247,8 @@ describe("the pieces", () => {
     const config = JSON.parse(readFileSync(join(TEMPLATES, "store/store.config.json"), "utf-8")) as { deny: string[] };
     expect(denyFindings(text, config.deny)).toEqual([]);
     expect(text).toMatch(/\n {2}upload:\n(?:.*\n)*? {4}needs: build\n(?:.*\n)*? {4}environment: store\n/);
+    // No upload from a private repository, where GitHub gives the environment no reviewer.
+    expect(text).toMatch(/\n {4}if: \(github\.event_name == 'push' \|\| inputs\.upload\) && !github\.event\.repository\.private\n/);
     expect(text).toMatch(/tags: \["v\*"\]/);
     expect(text).toMatch(/\n {2}TAG_PREFIX: v\n/);
     expect(text).toMatch(/--tag-prefix "\$TAG_PREFIX"/);

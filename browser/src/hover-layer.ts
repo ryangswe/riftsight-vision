@@ -52,6 +52,8 @@ export interface HoverEntry {
   proposal: number;
   aabb: AABB;
   rect: Rect;
+  /** The card's outline when rotated outlines are on (`ScoredProposal.outline`). */
+  outline?: Rect;
   /** The card id to show, or null: the box takes part and shows nothing. */
   identity: string | null;
   /** The proposal's score. */
@@ -61,7 +63,7 @@ export interface HoverEntry {
 }
 
 type HoverFrame = Pick<ScoredFrame, "kept"> & {
-  proposals: ReadonlyArray<Pick<ScoredProposal, "aabb" | "rect" | "score" | "detectorScore" | "accepted" | "displayId">>;
+  proposals: ReadonlyArray<Pick<ScoredProposal, "aabb" | "rect" | "score" | "detectorScore" | "accepted" | "displayId" | "outline">>;
 };
 
 function area(b: AABB): number {
@@ -101,6 +103,7 @@ export function selectHoverLayer(frame: HoverFrame, selection: HoverSelection = 
       proposal: i,
       aabb: p.aabb,
       rect: p.rect,
+      ...(p.outline ? { outline: p.outline } : {}),
       identity: p.accepted ? p.displayId : null,
       score: p.score,
       zIndex: rank + 1,
@@ -163,7 +166,7 @@ export function hoverEntriesToCards(
   boxIndexOf: (proposal: number) => number = (proposal) => proposal,
 ): LayerCard[] {
   const cards = toLayerCards(
-    entries.map((e, i) => ({ instanceId: ids[i]!, aabb: e.aabb, rect: e.rect, identity: e.identity })),
+    entries.map((e, i) => ({ instanceId: ids[i]!, aabb: e.aabb, rect: e.rect, ...(e.outline ? { outline: e.outline } : {}), identity: e.identity })),
     ctx,
   );
   return cards.map((card, i) => ({ ...card, zIndex: entries[i]!.zIndex, boxIndex: boxIndexOf(entries[i]!.proposal) }));

@@ -9,6 +9,32 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- `outline_rect(crop, width, height)` and `outline_from_tilt(tilt, width, height)` in
+  `cardvision.recognize`, and `outlineRect`, `outlineFromTilt` and `OUTLINE_MIN_TILT` in the
+  browser runtime: a card's outline `(tilt, w, h)` in pixels from the shipped crop of its detector
+  box, from the tilted retry's tilt estimate and rectangle solve at scale 1. It is the box itself
+  under 1 degree and when the solve is not exact. Fixtures in the contract's `tilt` section
+  (`outlines`) hold both sides to the same answers.
+- The browser session's `rotatedOutlines` option (also `Pipeline.analyze`'s and a worker frame
+  request's): each named card in `hover` and `tracks` takes its outline's `rotation`,
+  `localWidth` and `localHeight`; `bounds` stays the box. Cards not named, upright cards and
+  sides that cannot be solved exactly keep their box
+  ([browser/README.md](browser/README.md#outlines-of-tilted-cards)).
+
+### Changed
+
+- Store uploads (experimental): the workflow template's upload job does not run on a private
+  repository (`!github.event.repository.private`). Its approval is the `store` environment's
+  required reviewer, which GitHub offers on private repositories only under GitHub Enterprise;
+  without one a release tag would upload unapproved. A private repository keeps the build job and
+  uploads its checked packages by hand or locally
+  ([docs/store-uploads.md](docs/store-uploads.md#a-private-repository)).
+- Releases come in batches: changes collect on `main` and go out together when they add up to
+  something worth installing, and a release candidate comes first only for a release that breaks
+  the public surface or changes behavior people rely on ([RELEASING.md](RELEASING.md)).
+
 ## [0.9.1] - 2026-11-03
 
 A dry run of store uploads on a real extension release found two gaps; the release now passes as

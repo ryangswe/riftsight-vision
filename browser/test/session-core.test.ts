@@ -209,6 +209,18 @@ describe("HostSession", () => {
     expect(toWorker[0]!.transfer).toEqual([b]);
   });
 
+  it("asks the worker for rotated outlines on every frame when the session does", () => {
+    session = new HostLike(
+      { now: () => clock, toWorker: (request, transfer) => toWorker.push({ request, transfer }), toContent: (m) => toContent.push(m), hoverAt: hit as never },
+      { hold: SHOWN_HOLD, rotatedOutlines: true },
+    );
+    ready();
+    session.fromContent({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1.5, touch: false });
+    const b = bitmap();
+    session.fromContent({ kind: "frame", requestId: 1, bitmap: b, mediaTime: 1.5 });
+    expect(toWorker[0]!.request).toEqual({ kind: "frame", bitmap: b, videoTimeSec: 1.5, envelope: { requestId: 1, mediaTimeSec: 1.5, generation: 0, videoKey: "source-0" }, rotatedOutlines: true });
+  });
+
   it("closes a picture it did not ask for", () => {
     ready();
     const b = bitmap();

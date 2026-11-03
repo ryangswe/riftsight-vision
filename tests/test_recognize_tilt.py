@@ -19,12 +19,14 @@ from cardvision.recognize import (
     TiltedRetry,
     crop_truncated,
     estimate_tilt,
+    outline_from_tilt,
+    outline_rect,
     parse_tilted_retry,
     rect_from_aabb,
     sample_rect,
     tilted_retry_errors,
 )
-from cardvision.recognize.tilt import fold, tilted_rects
+from cardvision.recognize.tilt import OUTLINE_MIN_TILT, fold, tilted_rects
 
 CENTER = 150.5
 
@@ -106,6 +108,26 @@ def test_an_axis_aligned_card_reads_half_a_degree_and_a_tiny_or_flat_crop_reads_
     assert estimate_tilt(card_image(0)) == pytest.approx(0.5, abs=1e-9)  # the bins are centered on half degrees
     assert estimate_tilt(np.zeros((40, 7, 3), np.uint8)) == 0.0  # under 8 px a side
     assert estimate_tilt(np.full((40, 40, 3), 90, np.uint8)) == 0.0  # no edge at all
+
+
+def test_the_outline_is_the_box_under_a_degree_at_a_prior_solve_and_for_an_unlikely_box():
+    assert OUTLINE_MIN_TILT == 1.0
+    for tilt in (0.0, 0.5, 0.999, -0.999):
+        assert outline_from_tilt(tilt, 100.0, 140.0) == (0.0, 100.0, 140.0)
+    for tilt in (1.0, -1.0, 1.001):
+        w, h, how = rect_from_aabb(100.0, 140.0, tilt)
+        assert how == "exact" and outline_from_tilt(tilt, 100.0, 140.0) == (tilt, w, h)
+    assert outline_from_tilt(40.0, 130.0, 130.0) == (0.0, 130.0, 130.0)  # the prior: near 45 degrees
+    assert outline_from_tilt(0.0, 150.0, 150.0) == (0.0, 150.0, 150.0)  # the solve alone would resize it
+
+
+def test_the_outline_of_a_card_follows_it_and_an_upright_card_keeps_its_box():
+    upright = card_image(0)  # reads +0.5 degrees
+    assert outline_rect(upright, upright.shape[1], upright.shape[0]) == (0.0, upright.shape[1], upright.shape[0])
+    tilted = card_image(12)
+    tilt, w, h = outline_rect(tilted, tilted.shape[1], tilted.shape[0])
+    assert tilt == pytest.approx(estimate_tilt(tilted)) and abs(tilt) >= 1.0
+    assert (w, h) == pytest.approx(rect_from_aabb(tilted.shape[1], tilted.shape[0], tilt)[:2])
 
 
 def test_a_quarter_turn_is_folded_away():

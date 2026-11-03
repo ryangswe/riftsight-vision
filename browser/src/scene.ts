@@ -13,6 +13,8 @@ export interface SceneItem {
   instanceId: string;
   aabb: AABB;
   rect: Rect;
+  /** The card's outline (rotated outlines): a named card is placed by it in place of `rect`. */
+  outline?: Rect;
   /** The card id to show, or null: detected, not named. */
   identity: string | null;
 }
@@ -31,7 +33,10 @@ function clamp01(n: number): number {
 export function toLayerCards(items: readonly SceneItem[], ctx: SceneContext): LayerCard[] {
   const { frameWidth: fw, frameHeight: fh, names } = ctx;
   return items.map((item) => {
-    const { aabb, rect } = item;
+    const { aabb } = item;
+    const name = item.identity ? names.get(item.identity) : undefined;
+    // A named card follows its outline when it has one; every other card keeps its box's rect.
+    const rect = name !== undefined && item.outline ? item.outline : item.rect;
     const card: LayerCard = {
       instanceId: item.instanceId,
       bounds: {
@@ -49,12 +54,9 @@ export function toLayerCards(items: readonly SceneItem[], ctx: SceneContext): La
       cardId: null,
       name: null,
     };
-    if (item.identity) {
-      const name = names.get(item.identity);
-      if (name !== undefined) {
-        card.cardId = item.identity;
-        card.name = name;
-      }
+    if (item.identity && name !== undefined) {
+      card.cardId = item.identity;
+      card.name = name;
     }
     return card;
   });

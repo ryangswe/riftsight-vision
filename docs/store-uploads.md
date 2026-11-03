@@ -4,7 +4,8 @@
 
 An extension built on this toolkit can upload each release to the Chrome Web Store and to
 addons.mozilla.org (AMO) from a GitHub workflow. The person who owns the store accounts keeps
-the decision: the upload runs only after they approve it on the run's page. The tool is
+the decision: the upload runs only after they approve it on the run's page. That approval needs
+a public repository, or GitHub Enterprise ([a private repository](#a-private-repository)). The tool is
 `browser/dist/node/store-upload.mjs`, vendored with the other Node tools ([extension.md](extension.md)),
 and the workflow to copy is [`browser/templates/store-release.yml`](../browser/templates/store-release.yml).
 It is [experimental](stability.md#experimental).
@@ -117,6 +118,27 @@ Nothing secret is in a repository or passes through a chat. In the product's rep
 
 Set the environment's required reviewer to the store account's holder and its deployment policy
 to the release tags (`v*`, or the product's `TAG_PREFIX` followed by `*`).
+
+## A private repository
+
+The approval is the `store` environment's required reviewer. GitHub offers required reviewers on
+public repositories under every plan, and on private ones only under GitHub Enterprise; on GitHub
+Free, environment secrets too are for public repositories only. On a private repository without
+Enterprise the environment would have no reviewer, so the template's upload job does not run
+there (`!github.event.repository.private`), and nothing in this page's setup should be done for it.
+
+Such a product keeps the build job: on the release tag it builds the packages, runs every check
+and keeps the packages with their `hashes.json` as the run's artifact. The account holder then
+uploads that artifact, either by hand in the two dashboards or from their own machine with the
+same tool and their own credentials in their shell:
+
+```bash
+node store-upload.mjs upload --config store/store.config.json --release store/releases/<version>.json --targets chrome,firefox --hashes hashes.json --chrome-zip chrome.zip --firefox-zip firefox.zip --firefox-source firefox-source.zip
+```
+
+`upload` checks the packages against `hashes.json` and both stores before sending anything, as
+in the workflow. `CWS_ACCESS_TOKEN` is then an access token for an account the publisher has
+added in the Chrome Web Store dashboard.
 
 ## What it never does
 

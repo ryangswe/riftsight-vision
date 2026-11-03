@@ -89,7 +89,17 @@ export type { FrameEnvelope, FrameResult, ReleaseProgress, ReleaseStatus, Tilted
 export { boxAverageRgb, PREPROCESSING, type PreprocessingContract, rotateTensor90, toContractTensor } from "./preprocess.js";
 export { EXECUTION_PROVIDERS, type ExecutionProvider } from "./providers.js";
 export { chooseLook, cropRgba, lookAccepted, recognizeFrame, type ScoredFrame, type ScoredProposal, type TiltedEvidence, type TiltedRun, tiltedOrder } from "./recognition.js";
-export { DEFAULT_TILTED_RETRY, estimateTilt, rectFromAabb, sampleRect, tiltedRects, type TiltedRetrySettings } from "./tilt.js";
+export {
+  DEFAULT_TILTED_RETRY,
+  estimateTilt,
+  OUTLINE_MIN_TILT,
+  outlineFromTilt,
+  outlineRect,
+  rectFromAabb,
+  sampleRect,
+  tiltedRects,
+  type TiltedRetrySettings,
+} from "./tilt.js";
 export { type AcceptRule, DEFAULT_ACCEPT, EmbeddingRecognizer, type ScoredMatch } from "./recognizer.js";
 export { type CatalogCard, loadReleaseData, parseRelease, type ReleaseData, type VisionRelease } from "./release.js";
 export { resizeBilinearRgb } from "./resize.js";

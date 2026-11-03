@@ -975,6 +975,7 @@ permission for cross-origin use).
 | `geometricUrl` | URL of the geometric stage's settings file, to verify candidates with it ("The geometric stage", below). Off without it. |
 | `geometricManifestSha256` | The SHA-256 the packed index's `manifest.json` must have; another manifest turns the stage off. |
 | `geometricWatchdog` | `false` turns the stage's watchdog off (default on). For measuring the stage only: a slow stage is then never turned off. |
+| `rotatedOutlines` | `true`: each named card follows its outline when it sits at an angle ("Outlines of tilted cards", below). Default `false`: every card is its box, as before. |
 | `onUpdate` | Called whenever the status or what would be shown may have changed. |
 
 | Method | Returns |
@@ -1059,6 +1060,22 @@ status shows it as `tilted`. A worker that is restarted loads the release again,
 on. The default budget, 1500 ms, is a backstop; a product that analyzes at a steady pace sets
 its own from measured `tiltedMs` ([choosing a budget](../docs/how-it-works.md#the-tilted-retry)). The scoring page turns the watchdog off and stops a run when the retry fails.
 
+### Outlines of tilted cards
+
+With `rotatedOutlines` (the session's option, `Pipeline.analyze(frame, time, { rotatedOutlines:
+true })`, or a worker frame request's field of the same name), each named card in `hover` and
+`tracks` follows its card's outline ([how it works](../docs/how-it-works.md#the-outline-of-a-tilted-card)):
+`rotation` is its tilt in degrees in (-45, 45], positive clockwise on screen, as CSS
+`rotate()` turns, and `localWidth` and `localHeight` are its own sides in fractions of the frame;
+`bounds` stays the detector's box, with the same center. `hoverAt` under the selection the frame
+was analyzed with, and the card quad (`computeCardQuad`), then follow the tilted card; `hoverAt`
+under another selection rebuilds the cards from the boxes, without outlines. The session's
+`at()` and its hold still give and test the card's box (`box`, `frameBox`). A card that is upright (under 1 degree), whose
+sides cannot be solved exactly, or that is not named keeps its box: rotation 0 and the box's
+size. No answer, accept or box changes, and off is exactly as before. The
+outline costs one tilt estimate per face whose look reaches tau, on the crop the face already
+has. `outlineRect(crop, boxWidth, boxHeight)` gives it for any shipped crop.
+
 ## What is in it
 
 | Module (`src/`) | What it does | Python counterpart |
@@ -1069,7 +1086,7 @@ its own from measured `tiltedMs` ([choosing a budget](../docs/how-it-works.md#th
 | `preprocess.ts` | The `full128` crop contract and quarter turns | `cardvision/core/preprocess.py` |
 | `bank.ts`, `identity.ts` | The bank file, and the identity groups under the rule the catalog states | `cardvision/core/bank.py`, `cardvision/core/catalog.py` |
 | `recognizer.ts`, `recognition.ts` | Best match and margin; the accept rule; the rotation retry; suppression | `cardvision/recognize/` |
-| `tilt.ts` | The tilted retry: the tilt estimate, the straightened rectangles; off unless the release's `tiltedRetry` block turns it on | `cardvision/recognize/tilt.py` |
+| `tilt.ts` | The tilted retry: the tilt estimate, the straightened rectangles; off unless the release's `tiltedRetry` block turns it on. The outline of a tilted card (`outlineRect`) | `cardvision/recognize/tilt.py` |
 | `hover-layer.ts`, `hover-geometry.ts`, `scene.ts` | The three hover selections and the hit test | `cardvision/evaluate/hover.py` |
 | `tracker.ts`, `temporal-gate.ts` | Tracks with pooled identities; when the track layer is shown | none: the Python command judges each frame alone |
 | `cadence.ts`, `frame-scheduler.ts` | When a frame is analyzed: fast around pointer activity, slow while a tooltip shows, idle otherwise; the staleness rule; the `"layout"` mode's probe | none |

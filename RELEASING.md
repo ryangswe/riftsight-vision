@@ -5,22 +5,38 @@
 One maintainer cuts releases. A pull request is not a release: `main` can take a change and wait
 for the soak below before a version goes out. `docs/stability.md` says what a version promises.
 
+## When to release
+
+A release is for the people who install the toolkit from the Python package index, so each one
+should be worth their reading the changelog.
+
+- **Changes collect on `main`** under the changelog's Unreleased heading. A release goes out when
+  they add up to something a user can use, such as a finished feature or a set of related ones,
+  usually no more often than every few weeks. Work that is closely related, or done one piece
+  after another over a few days, goes out together.
+- **Products built on the toolkit do not wait for a release.** They copy what they need from a
+  merged commit on `main` and pin it by the full commit and each file's SHA-256, as they would a
+  tag.
+- **A fix for a bug that affects people installing from the index** goes out as a patch release
+  when it is ready.
+
 ## Minor releases (0.X.0)
 
-1. Move the Unreleased entries of `CHANGELOG.md` under the new version and its date. Name each
-   break and its migration. Bump `version` in `pyproject.toml`.
-2. Tag `vX.Y.0rcN` and publish it as a GitHub pre-release.
-3. At least one product built on the toolkit builds and runs on the release candidate.
-4. Wait for no regression for 7 days or one product release, whichever comes first. A fix
-   restarts at step 2 with the next `rcN`.
-5. Tag `vX.Y.0` and publish the GitHub release with the changelog section as its notes.
-6. Upload it to the Python package index: Actions, Publish, Run workflow from the tag `vX.Y.0`
+1. Move the Unreleased entries of `CHANGELOG.md` under the new version and its date, grouped by
+   what a user can now do. Name each break and its migration. Bump `version` in
+   `pyproject.toml`.
+2. **Only for a release that breaks the public surface or changes behavior people rely on:** tag
+   `vX.Y.0rc1`, publish it as a GitHub pre-release and upload it to the index; at least one
+   product builds and runs on it; wait for no regression for 7 days or one product release,
+   whichever comes first. A fix gets the next `rcN`. Any other release goes straight to step 3.
+3. Tag `vX.Y.0` and publish the GitHub release with the changelog section as its notes.
+4. Upload it to the Python package index: Actions, Publish, Run workflow from the tag `vX.Y.0`
    with the target `pypi`, then approve the upload. The workflow checks that the tag matches the
    version in `pyproject.toml`. A version uploaded there can never be replaced.
 
 ## Patch and docs-only releases
 
-They skip the release candidate: steps 1, 5 and 6 only. A patch never breaks the public surface.
+Steps 1, 3 and 4. A patch never breaks the public surface.
 
 ## A release with new weights
 
