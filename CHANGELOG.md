@@ -9,12 +9,6 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
-## [0.10.0rc1] - 2026-11-03
-
-**Outlines of tilted cards**, for hover outlines and hit tests that follow a card that sits at an
-angle. Off by default: without the new option nothing changes. No model, release document,
-answer, accept rule or box changes, and the contract's `PROTOCOL_VERSION` stays 1.
-
 ### Added
 
 - `outline_rect(crop, width, height)` and `outline_from_tilt(tilt, width, height)` in
@@ -37,6 +31,9 @@ answer, accept rule or box changes, and the contract's `PROTOCOL_VERSION` stays 
   without one a release tag would upload unapproved. A private repository keeps the build job and
   uploads its checked packages by hand or locally
   ([docs/store-uploads.md](docs/store-uploads.md#a-private-repository)).
+- Releases come in batches: changes collect on `main` and go out together when they add up to
+  something worth installing, and a release candidate comes first only for a release that breaks
+  the public surface or changes behavior people rely on ([RELEASING.md](RELEASING.md)).
 
 ## [0.9.1] - 2026-11-03
 
@@ -1190,8 +1187,7 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0rc1...HEAD
-[0.10.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0rc1
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...HEAD
 [0.9.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0
 [0.9.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...v0.9.0rc4

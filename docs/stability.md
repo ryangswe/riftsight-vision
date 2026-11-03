@@ -88,10 +88,12 @@ Everything else may change in any release:
 - **Before 1.0, a minor version (0.X.0) may break the public surface.** When it does,
   [CHANGELOG.md](../CHANGELOG.md) names each break and how to migrate.
 - **A patch version (0.x.Y) never breaks it.**
-- **Each minor version is first tagged as a release candidate** (for example `v0.2.0rc1`).
+- **Releases come in batches.** Changes collect on `main` and go out together when they add up to
+  something worth installing. A minor version is first tagged as a release candidate (for example
+  `v0.2.0rc1`) only when it breaks the public surface or changes behavior you rely on.
   [RELEASING.md](../RELEASING.md) has the steps.
-- **Pin a version** (`pip install cardvision==X.Y.Z`, `pip install` from a tag, or a release's
-  files by its release id) if you build on this, and read the changelog before you move.
+- **Pin a version** (`pip install cardvision==X.Y.Z`, `pip install` from a tag or a commit, or a
+  release's files by its release id) if you build on this, and read the changelog before you move.
 
 ## Deprecation
 
