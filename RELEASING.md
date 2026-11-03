@@ -19,6 +19,9 @@ should be worth their reading the changelog.
   tag.
 - **A fix for a bug that affects people installing from the index** goes out as a patch release
   when it is ready.
+- **The next release has a milestone** on GitHub, named for its version. A pull request meant for
+  it goes in the milestone when it is opened or merged, so the milestone shows what the release
+  will hold. The release goes out once nothing in it is open.
 
 ## Minor releases (0.X.0)
 
@@ -45,6 +48,8 @@ Publish its measured numbers beside the previous release's, and make sure
 
 ## Checks before any tag
 
+- Nothing in the release's milestone is open; close the milestone once the release is out, and
+  open one for the next.
 - CI is green on `main`, and `python -m pytest -n auto --dist loadfile` passes.
 - `CHANGELOG.md` has a section for the version in `pyproject.toml`
   (`tests/test_release_process.py` checks this).

@@ -33,7 +33,12 @@ break the public surface; this file names each break and how to migrate.
   ([docs/store-uploads.md](docs/store-uploads.md#a-private-repository)).
 - Releases come in batches: changes collect on `main` and go out together when they add up to
   something worth installing, and a release candidate comes first only for a release that breaks
-  the public surface or changes behavior people rely on ([RELEASING.md](RELEASING.md)).
+  the public surface or changes behavior people rely on ([RELEASING.md](RELEASING.md)). The next
+  release's GitHub milestone shows what it will hold.
+- Python 3.13 is supported and tested in CI, beside 3.11 and 3.12. A written policy says when a
+  Python version joins and leaves ([docs/stability.md](docs/stability.md#supported-versions)).
+- Every GitHub Actions step is pinned to a full commit, and an OpenSSF Scorecard check runs
+  weekly (its badge is in the README).
 
 ## [0.9.1] - 2026-11-03
 

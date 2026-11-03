@@ -8,8 +8,8 @@ Run every command from the repository's root, in a POSIX shell: macOS or Linux, 
 
 ## S1. Install
 
-Check `python3 --version` first: the toolkit needs Python 3.11 or later. If it is older, find a newer
-one (`python3.12 --version`, `python3.11 --version`) and use it for the first line; if there is none,
+Check `python3 --version` first: the toolkit needs Python 3.11, 3.12 or 3.13. If it is another
+version, find a supported one (`python3.12 --version`, `python3.13 --version`, `python3.11 --version`) and use it for the first line; if there is none,
 tell the person and ask before installing one (`brew install python@3.12` on macOS).
 
 ```
@@ -21,7 +21,7 @@ cardvision --version
 ```
 
 - **Expect:** `cardvision 0.9.1`.
-- **If it fails:** check `python3 --version` is 3.11 or later. If a pinned version has no
+- **If it fails:** check `python3 --version` is 3.11, 3.12 or 3.13. If a pinned version has no
   build for this machine, use `python -m pip install -e ".[dev]"` in place of the two install
   lines and tell the person the lock file was not used. (This fallback was not run when this
   file was checked.)

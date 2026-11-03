@@ -95,7 +95,7 @@ flowchart TD
 | What | For |
 | --- | --- |
 | macOS, Linux, or Ubuntu under WSL 2 on Windows | Everything. A native Windows shell is not supported ([quickstart](quickstart.md), "Which computer?") |
-| Python 3.11 or later | Everything |
+| Python 3.11, 3.12 or 3.13 | Everything |
 | Node 22 or later. On macOS: the installer from <https://nodejs.org>, or `brew install node` | The demo page, and an extension |
 | A GPU | Train only. Nothing before it needs one |
 
