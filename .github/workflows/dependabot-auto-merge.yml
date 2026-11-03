@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependabot auto-merge (approved by the owner on 2026-11-02). A Dependabot pull request is queued
+# for GitHub's auto-merge only when every dependency it updates passes a rule below:
+#   - pip, the lock files at the top: pytest, pytest-xdist and their own dependencies (pluggy,
+#     iniconfig, execnet, Pygments). The lock files do not mark test tools apart (Dependabot calls
+#     every pinned package "production"), so this list names them;
+#   - npm, browser/package.json: a devDependency named @types/*, @webgpu/types, typescript,
+#     vitest or @vitest/* (types and test tools: none of them is in the published runtime);
+# and the update is a patch, or a minor update of a package at 1.0 or later (below 1.0 a minor
+# update may break, so it waits). GitHub then squash-merges it once the branch's required checks
+# pass; a red check leaves it open. Everything else waits for the owner: numpy, torch, onnxruntime and every other runtime or training package, esbuild, GitHub Actions,
+# security updates in other folders, and every major update.
+#
+# fetch-metadata also checks that the last commit is Dependabot's own, signed one, so a push by
+# anyone else to the branch fails this job, and auto-merge is then turned off. A merge made with
+# this workflow's token starts no other workflow (GitHub's rule for its own token), so the push
+# workflows on main run again at the next merge by a person.
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    name: Queue low-risk dependency updates
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'ryangswe/riftsight-vision'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - id: decide
+        name: Check every update against the rules
+        env:
+          UPDATES: ${{ steps.metadata.outputs.updated-dependencies-json }}
+          RULES: >-
+            [{"ecosystem": "pip", "directory": "/", "devOnly": false, "names": ["pytest", "pytest-xdist", "pluggy", "iniconfig", "execnet", "pygments"]}, {"ecosystem": "npm_and_yarn", "directory": "/browser", "devOnly": true, "names": ["@types/*", "@webgpu/types", "typescript", "vitest", "@vitest/*"]}]
+        run: |
+          echo "$UPDATES" | jq -r '.[] | "\(.packageEcosystem) \(.directory) \(.dependencyName) \(.prevVersion) -> \(.newVersion) (\(.dependencyType), \(.updateType))"'
+          if echo "$UPDATES" | jq -e --argjson rules "$RULES" '
+            def glob($p; $s): ($p | ascii_downcase) as $p | ($s | ascii_downcase) as $s
+              | if ($p | endswith("*")) then ($s | startswith($p[:-1])) else $s == $p end;
+            def small: .updateType == "version-update:semver-patch"
+              or (.updateType == "version-update:semver-minor" and ((.prevVersion // "") | test("^v?0\\.") | not));
+            def passes($r): .packageEcosystem == $r.ecosystem and .directory == $r.directory
+              and ((.prevVersion // "") != "") and small
+              and (($r.devOnly | not) or .dependencyType == "direct:development")
+              and (.dependencyName as $n | any($r.names[]; glob(.; $n)));
+            length > 0 and all(.[]; . as $u | any($rules[]; . as $r | $u | passes($r)))' > /dev/null; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"; echo "Every update passes: queuing auto-merge."
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"; echo "Not every update passes: this one waits for the owner."
+          fi
+      - name: Queue auto-merge (squash)
+        if: steps.decide.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Turn auto-merge off for anything else
+        if: always() && steps.decide.outputs.eligible != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --disable-auto "$PR_URL" || true

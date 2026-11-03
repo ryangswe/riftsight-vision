@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Dependency updates: one grouped pull request a month per ecosystem. Each one goes through the
-# same checks as any other pull request, and a person reads it before merging.
+# same checks as any other pull request. A person reads it before merging, except the small
+# updates of test tools and types that .github/workflows/dependabot-auto-merge.yml queues for
+# auto-merge once the required checks pass. The groups named *-checks hold those tools, so
+# they arrive apart from everything else (a major update of one still goes to the main group).
 #
 # A few updates are held because they change what the tools produce, and each needs its own
 # change with a re-measurement, not a routine bump:
@@ -18,6 +21,9 @@ updates:
     schedule:
       interval: monthly
     groups:
+      python-checks:
+        patterns: ["pytest", "pytest-xdist", "pluggy", "iniconfig", "execnet", "Pygments"]
+        update-types: [minor, patch]
       python-dependencies:
         patterns: ["*"]
     ignore:
@@ -32,6 +38,10 @@ updates:
     schedule:
       interval: monthly
     groups:
+      npm-checks:
+        dependency-type: development
+        patterns: ["@types/*", "@webgpu/types", "typescript", "vitest", "@vitest/*"]
+        update-types: [minor, patch]
       npm-dependencies:
         patterns: ["*"]
     ignore:
