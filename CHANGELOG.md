@@ -39,6 +39,10 @@ break the public surface; this file names each break and how to migrate.
   Python version joins and leaves ([docs/stability.md](docs/stability.md#supported-versions)).
 - Every GitHub Actions step is pinned to a full commit, and an OpenSSF Scorecard check runs
   weekly (its badge is in the README).
+- `requirements-lock.txt` carries the SHA-256 of every file of each pinned version, so
+  `pip install -r requirements-lock.txt` checks what it downloads. The publish workflow installs
+  its build tools from `requirements-publish.txt`, pinned the same way, in place of the newest
+  `build` and `twine`.
 
 ## [0.9.1] - 2026-11-03
 
