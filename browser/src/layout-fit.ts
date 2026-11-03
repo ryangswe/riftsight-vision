@@ -29,6 +29,12 @@
 //      its inliers must keep the layout's proportions within `scaleRatioTol` too, or the frame
 //      is `aspect`. This judges the whole board, which one card's noise cannot carry, and also
 //      catches rows that drift apart while each card keeps its shape.
+//
+//      A source may stretch the picture a little, within the tolerance (a capture that shows a
+//      window a few percent taller than its pixels). The refit can then use the ratio times a
+//      correction `ratioScale` that the caller pools from earlier frames (layout-state.ts pools
+//      the verified frames' `boardRatio`); the per-hypothesis test and the board test still
+//      judge against the bare ratio.
 //   4. The frame is `verified` with enough inliers (`fitMinInliers`, and two thirds of all
 //      correspondences, tested in integers) spread far enough over the layout (`minSpan` of its extent on each
 //      axis). Two coherent names fit any scale and offset exactly, so three distinct
@@ -101,6 +107,9 @@ export type FrameFitOutcome =
       minIoU: number;
       /** The inliers' layout-center range on each axis, in layout units. */
       span: [number, number];
+      /** With the aspect prior: the per-axis refit's sy / sx over the inliers, divided by the
+       *  aspect-implied ratio (1 for a picture in proportion). */
+      boardRatio?: number;
     }
   | { kind: "ambiguous"; transform: Transform; inliers: string[]; runnerUp: string[]; n: number }
   | { kind: "insufficient"; reason: InsufficientReason; n: number; inliers: number }
@@ -418,14 +427,17 @@ export interface FitDetail {
  * Fit one frame. See the file comment for the steps.
  * @param frameAspect The analyzed frame's width / height in pixels; with the layout's `aspect`,
  *   it turns on the aspect prior.
+ * @param ratioScale With the aspect prior: the refit uses the aspect-implied ratio times this
+ *   (1 by default). A value that is not a positive number makes no placement.
  */
 export function fitFrame(
   observations: readonly Observation[],
   layout: Layout | null,
   params: FitParams,
   frameAspect?: number,
+  ratioScale = 1,
 ): FrameFitOutcome {
-  return fitFrameDetail(observations, layout, params, frameAspect).outcome;
+  return fitFrameDetail(observations, layout, params, frameAspect, ratioScale).outcome;
 }
 
 export function fitFrameDetail(
@@ -433,6 +445,7 @@ export function fitFrameDetail(
   layout: Layout | null,
   params: FitParams,
   frameAspect?: number,
+  ratioScale = 1,
 ): FitDetail {
   if (layout === null) {
     return { outcome: { kind: "no-layout" }, correspondences: [], support: [], winner: -1, aspectRejected: [] };
@@ -448,7 +461,9 @@ export function fitFrameDetail(
     aspectRejected,
   });
   const ratio = aspectRatio(layout, frameAspect);
-  if (ratio !== null && Number.isNaN(ratio)) return insufficient("degenerate", 0);
+  if (ratio !== null && (Number.isNaN(ratio) || !(Number.isFinite(ratioScale) && ratioScale > 0))) {
+    return insufficient("degenerate", 0);
+  }
 
   const offAspect = (t: Transform): boolean => ratio !== null && Math.abs(t.sy / t.sx / ratio - 1) > params.scaleRatioTol;
   const supportOf = (h: Transform): number[] => {
@@ -511,7 +526,7 @@ export function fitFrameDetail(
   }
 
   const candidates = support[winner]!.map((j) => cs[j]!);
-  const t = ratio === null ? refit(candidates) : refitAspect(candidates, ratio, frameAspect!);
+  const t = ratio === null ? refit(candidates) : refitAspect(candidates, ratio * ratioScale, frameAspect!);
   if (!t) return insufficient("degenerate", 0, support, winner);
 
   // Re-test under the refit; no second refit.
@@ -565,12 +580,14 @@ export function fitFrameDetail(
     return insufficient("span", inliers.length, support, winner);
   }
   // The board's proportions: the per-axis refit over the inliers must keep them too.
+  let boardRatio: number | undefined;
   if (ratio !== null) {
     const free = refit(inlierIdx.map((j) => cs[j]!));
     if (!free || offAspect(free)) return insufficient("aspect", inliers.length, support, winner);
+    boardRatio = free.sy / free.sx / ratio;
   }
   return {
-    outcome: { kind: "verified", transform: t, inliers, n, minIoU, span },
+    outcome: { kind: "verified", transform: t, inliers, n, minIoU, span, ...(boardRatio !== undefined ? { boardRatio } : {}) },
     correspondences: cs,
     support,
     winner,

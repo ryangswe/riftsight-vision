@@ -55,6 +55,8 @@ interface Step {
     n: number;
     transform: Transform;
     monitorShare: number | null;
+    ratioScale: number;
+    regionError: { layout: string; truth: Transform; maxPx: number };
   }>;
 }
 
@@ -93,6 +95,14 @@ function check(machine: LayoutRegistration, step: Step, result: Verdict | null, 
     if (want.monitorShare === null) expect(v.diagnostics.monitorShare, `${where}: monitorShare`).toBeNull();
     else expect(Math.abs(v.diagnostics.monitorShare! - want.monitorShare), `${where}: monitorShare`).toBeLessThanOrEqual(TOL);
   }
+  if (want.ratioScale !== undefined) expect(Math.abs(v.diagnostics.ratioScale - want.ratioScale), `${where}: ratioScale`).toBeLessThanOrEqual(TOL);
+  if (want.regionError !== undefined) {
+    const e = want.regionError as { layout: string; truth: Transform; maxPx: number };
+    const r = v.region!;
+    const placedT = { sx: r.width, sy: r.height, tx: r.x, ty: r.y };
+    const px = fitError(placedT, e.truth, layoutExtent(layoutOf(e.layout)!)!, 1920, 1080);
+    expect(px, `${where}: far-edge error`).toBeLessThanOrEqual(e.maxPx);
+  }
   if (want.region !== undefined) {
     const r = v.region!;
     const w = want.region as Record<string, number>;
@@ -117,7 +127,7 @@ describe("G1, G2: frame fits", () => {
   const params = { ...LAYOUT_FIT_DEFAULTS, fitMinIoU: contract.config.fitMinIoU, minSpan: contract.config.minSpan };
   for (const c of contract.fits) {
     it(c.name, () => {
-      const detail = fitFrameDetail(c.observations as Observation[], layoutOf(c.layout), { ...params, ...(c.config ?? {}) }, c.frameAspect);
+      const detail = fitFrameDetail(c.observations as Observation[], layoutOf(c.layout), { ...params, ...(c.config ?? {}) }, c.frameAspect, c.ratioScale);
       const out = detail.outcome;
       if (c.expect.aspectRejected) {
         expect(detail.aspectRejected.map((i) => detail.correspondences[i]!.identity)).toEqual(c.expect.aspectRejected);
@@ -134,6 +144,8 @@ describe("G1, G2: frame fits", () => {
       expect(out.inliers).toEqual(want.inliers);
       if (want.transform) expectTransform(out.transform, want.transform);
       if (out.kind === "ambiguous") expect(out.runnerUp).toEqual(want.runnerUp);
+      if (out.kind === "verified" && want.boardRatio === null) expect(out.boardRatio).toBeUndefined();
+      else if (out.kind === "verified" && want.boardRatio !== undefined) expect(Math.abs(out.boardRatio! - want.boardRatio)).toBeLessThanOrEqual(TOL);
       if (out.kind === "verified") {
         if (want.minIoU !== undefined) expect(Math.abs(out.minIoU - want.minIoU)).toBeLessThanOrEqual(TOL);
         if (want.span) for (const k of [0, 1]) expect(Math.abs(out.span[k]! - want.span[k])).toBeLessThanOrEqual(TOL);

@@ -78,6 +78,7 @@ export {
   layoutConfigError,
   LayoutRegistration,
   type LayoutSource,
+  RATIO_POOL_SIZE,
   type State as LayoutState,
   suppressedInstances,
   type Verdict,
