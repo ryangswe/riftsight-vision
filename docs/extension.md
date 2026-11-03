@@ -90,8 +90,9 @@ from one tagged commit of this repository, into a folder of its own such as
 (the [two halves of a session](#the-sessions-two-halves)), `remote-release.js` (the
 [remote releases](remote-releases.md) the settings file can point to), ONNX Runtime's
 WebAssembly files (`ort-wasm-*`), OpenCV.js for the geometric stage (`opencv.mjs`,
-`opencv_js.wasm`, when `scripts/build-opencv.mjs` has built it), `node/verify-release.mjs` and
-`node/package-zip.mjs` (the Node tools its release and package scripts call), the license
+`opencv_js.wasm`, when `scripts/build-opencv.mjs` has built it), `node/verify-release.mjs`,
+`node/package-zip.mjs` and `node/store-upload.mjs` (the Node tools its release, package and
+[store upload](store-uploads.md) scripts call), the license
 notices (`*.LEGAL.txt`, `THIRD-PARTY-NOTICES.txt`), and the demo page (`demo/`), which an
 extension does not need. The build
 writes no TypeScript declarations. The product's own vendoring script copies the files it uses

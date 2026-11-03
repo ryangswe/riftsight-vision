@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Uploading an extension release to the Chrome Web Store and addons.mozilla.org: copy this file to
+# .github/workflows/store-release.yml in the extension's repository, and the store/ folder beside it
+# to the repository's top level. See the toolkit's docs/store-uploads.md.
+#
+# Two jobs. `build` has no store access: it builds the packages from the tag, runs the product's
+# own checks and the toolkit's `store-upload.mjs check`, and lists everything on the run page.
+# `upload` runs in the `store` environment, whose required reviewer approves it on that page; only
+# then does it get store access. It checks both stores before uploading anything.
+#
+# Pushing the tag runs both jobs. "Run workflow" on the tag (Actions page, "Use workflow from":
+# the tag) runs the build alone, or both with `upload` ticked. A run from a branch is refused. If
+# one store failed after the other succeeded, re-run the failed job: the store that already has
+# the version is skipped.
+#
+# Replace the two steps marked PRODUCT with the product's own commands. Pin every `uses:` to a
+# commit when copying. This file must name no CDN credential or pointer tool: `check` refuses it.
+
+name: Store release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Also run the upload job (off: build and check only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.ref_name }}
+  STORE_TOOL: vendor/cardvision-browser/node/store-upload.mjs
+
+jobs:
+  build:
+    name: Build and check (no store access)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only from a release tag
+        if: github.ref_type != 'tag'
+        run: |
+          echo "Run this workflow from a release tag, not from ${GITHUB_REF}." >&2
+          exit 1
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+
+      # PRODUCT: build the store packages from this commit into out/:
+      #   out/chrome.zip, out/firefox.zip, and out/firefox-source.zip when the add-on's code is
+      #   minified or generated (Mozilla's reviewers then need the source). Run the product's own
+      #   release gates here too (leak scan, source-archive round trip, release checks).
+      - name: Build the store packages
+        run: npm run store:build
+
+      - name: Lint the Firefox package
+        run: |
+          mkdir -p out/firefox && unzip -q -o out/firefox.zip -d out/firefox
+          npx --yes web-ext@8 lint --source-dir out/firefox
+
+      - name: The previous release's permissions
+        run: |
+          # The newest earlier release tag (pre-release tags such as v1.0.0-rc1 are left out).
+          prev=$(git tag --list 'v*' --sort=-v:refname --merged HEAD | grep -v -- '-' | grep -vx "$TAG" | head -1 || true)
+          if [ -n "$prev" ] && git cat-file -e "$prev:store/permissions.json" 2>/dev/null; then
+            git show "$prev:store/permissions.json" > out/previous-permissions.json
+            echo "PREVIOUS=--previous-permissions out/previous-permissions.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check the release
+        run: |
+          version="${TAG#v}"
+          source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
+          node "$STORE_TOOL" check --config store/store.config.json --release "store/releases/$version.json" \
+            --tag "$TAG" --permissions store/permissions.json $PREVIOUS \
+            --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \
+            --workflow .github/workflows/store-release.yml \
+            --hashes-out out/hashes.json --summary "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: store-packages
+          path: |
+            out/*.zip
+            out/hashes.json
+          retention-days: 30
+          if-no-files-found: error
+
+  upload:
+    name: Upload (after approval)
+    needs: build
+    if: github.event_name == 'push' || inputs.upload
+    runs-on: ubuntu-latest
+    environment: store
+    # One upload at a time: a second Chrome upload would cancel the first one's review.
+    concurrency:
+      group: store-upload
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: store-packages
+          path: out
+
+      # Option A (keyless): GitHub's identity token is exchanged for a Google access token through
+      # Workload Identity Federation. Option B: replace the two lines after `with:` by
+      # `credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}`.
+      - id: google
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.CWS_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          # Only the access token is used: no credentials file, no exported variables.
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Check both stores, then upload
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          version="${TAG#v}"
+          source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
+          node "$STORE_TOOL" upload --config store/store.config.json --release "store/releases/$version.json" \
+            --targets chrome,firefox --hashes out/hashes.json \
+            --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \
+            --summary "$GITHUB_STEP_SUMMARY"

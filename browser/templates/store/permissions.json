@@ -1,0 +1,22 @@
+{
+  "chrome": {
+    "permissions": ["storage"],
+    "optional_permissions": [],
+    "host_permissions": [],
+    "optional_host_permissions": ["https://www.example.org/*"],
+    "content_script_matches": [],
+    "web_accessible_matches": [],
+    "externally_connectable": [],
+    "data_collection": []
+  },
+  "firefox": {
+    "permissions": ["storage"],
+    "optional_permissions": [],
+    "host_permissions": [],
+    "optional_host_permissions": ["https://www.example.org/*"],
+    "content_script_matches": [],
+    "web_accessible_matches": [],
+    "externally_connectable": [],
+    "data_collection": ["required:none"]
+  }
+}
