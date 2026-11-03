@@ -19,7 +19,7 @@ contract's `PROTOCOL_VERSION` stays 1.
 ### Changed
 
 - `store-upload.mjs check` reads a Chrome package's `manifest.json` from one top-level folder
-  when the zip's root has none (the Chrome Web Store accepts both); a Firefox package still needs
+  when the zip's root has none (the Chrome Web Store dashboard accepts both); a Firefox package still needs
   it at the root, and is refused otherwise.
 - The workflow template takes the tag's prefix from `TAG_PREFIX` (`v` by default): the version,
   `--tag-prefix` and the previous release's tag follow it, so tags such as `extension-v1.2.3` work.
