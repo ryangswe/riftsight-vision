@@ -24,7 +24,7 @@
 attrs==26.1.0
 coloredlogs==15.0.1
 execnet==2.1.2
-filelock==4.2.4
+filelock==4.2.5
 flatbuffers==25.12.19
 fsspec==2026.9.0
 humanfriendly==10.0
@@ -55,7 +55,7 @@ rpds-py==2026.9.1
 safetensors==0.8.0
 sympy==1.14.0
 tabulate==0.10.0
-torch==2.14.1
-torchvision==0.29.1
+torch==2.15.0
+torchvision==0.29.2
 tqdm==4.70.1
 typing_extensions==4.16.0
