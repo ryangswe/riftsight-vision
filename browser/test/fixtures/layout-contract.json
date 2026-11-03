@@ -4864,8 +4864,8 @@
    "state": "no-faces",
    "machineState": "no-faces",
    "event": "A:insufficient",
-   "row": 10,
-   "next": "held",
+   "row": 12,
+   "next": "unverified",
    "setup": "no-faces",
    "steps": [
     {
@@ -4882,7 +4882,7 @@
       "layout": "six",
       "windowIdentities": []
      },
-     "expect": {"row":10,"state":"held"}
+     "expect": {"row":12,"state":"unverified"}
     }
    ]
   },
@@ -4916,8 +4916,8 @@
    "state": "no-faces",
    "machineState": "no-faces",
    "event": "A:zero-inliers-first",
-   "row": 10,
-   "next": "held",
+   "row": 12,
+   "next": "unverified",
    "setup": "no-faces",
    "steps": [
     {
@@ -4936,7 +4936,7 @@
       "layout": "six",
       "windowIdentities": []
      },
-     "expect": {"row":10,"state":"held"}
+     "expect": {"row":12,"state":"unverified"}
     }
    ]
   },
@@ -4944,14 +4944,14 @@
    "state": "no-faces",
    "machineState": "no-faces",
    "event": "A:zero-inliers-second",
-   "na": "n/a: not from this starting point: the first moves a no-faces page to held"
+   "na": "n/a: not from this starting point: the first ends the hold (row 12)"
   },
   {
    "state": "no-faces",
    "machineState": "no-faces",
    "event": "A:ambiguous",
    "row": 8,
-   "next": "held",
+   "next": "unverified",
    "setup": "no-faces",
    "steps": [
     {
@@ -4972,7 +4972,7 @@
       "layout": "six",
       "windowIdentities": []
      },
-     "expect": {"row":8,"state":"held"}
+     "expect": {"row":8,"state":"unverified"}
     }
    ]
   },
@@ -4996,8 +4996,8 @@
    "state": "no-faces",
    "machineState": "no-faces",
    "event": "A:no-layout",
-   "row": 10,
-   "next": "held",
+   "row": 12,
+   "next": "unverified",
    "setup": "no-faces",
    "steps": [
     {
@@ -5018,7 +5018,7 @@
       "layout": null,
       "windowIdentities": []
      },
-     "expect": {"row":10,"state":"held"}
+     "expect": {"row":12,"state":"unverified"}
     }
    ]
   },
@@ -11004,6 +11004,851 @@
       "frameAspect": 1.7777777777777777
      },
      "expect": {"state":"verified","display":"fitted","contradicted":false,"row":9}
+    }
+   ]
+  },
+  {
+   "name": "no-faces, then a frame with faces and no layout: the hold ends (row 12, today)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": null,
+      "windowIdentities": []
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    },
+    {
+     "op": "analyze",
+     "now": 12000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 12000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.32999999999999996,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.54,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.768,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.36,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.5700000000000001,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.78,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    }
+   ]
+  },
+  {
+   "name": "no-faces, then an insufficient frame: the hold ends (row 12)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 2,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    }
+   ]
+  },
+  {
+   "name": "no-faces, then a zero-inlier frame: the hold ends (row 12)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 4,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.02,"y":0.03,"w":0.05,"h":0.07}},
+       {"identity":"b","bounds":{"x":0.62,"y":0.11,"w":0.09,"h":0.05}},
+       {"identity":"c","bounds":{"x":0.31,"y":0.71,"w":0.04,"h":0.11}},
+       {"identity":"d","bounds":{"x":0.83,"y":0.52,"w":0.07,"h":0.13}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    }
+   ]
+  },
+  {
+   "name": "no-faces, then an ambiguous frame: the hold ends (reported as row 8)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.62,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.83,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":8}
+    }
+   ]
+  },
+  {
+   "name": "no-faces, then a verified compatible frame that does not complete a run: held, the hold not restarted",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {"generation":1,"capturedAtMs":9000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 12000,
+     "input": {"generation":1,"capturedAtMs":12000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 15000,
+     "input": {"generation":1,"capturedAtMs":15000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 19000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 19000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10,"runLength":1}
+    },
+    {
+     "op": "analyze",
+     "now": 22000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 22000,
+      "faces": 2,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10}
+    },
+    {
+     "op": "analyze",
+     "now": 25000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 25000,
+      "faces": 2,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 28000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 28000,
+      "faces": 2,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 31000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 31000,
+      "faces": 2,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"held","display":"fitted","contradicted":false,"row":10}
+    },
+    {"op":"tick","now":33000,"expect":{"state":"unverified","display":"today","contradicted":false,"row":11}}
+   ]
+  },
+  {
+   "name": "no-faces ended by a frame with faces stops the hold: a later no-faces page outlives the old hold",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 2,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    },
+    {
+     "op": "analyze",
+     "now": 12000,
+     "input": {"generation":1,"capturedAtMs":12000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 15000,
+     "input": {"generation":1,"capturedAtMs":15000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 18000,
+     "input": {"generation":1,"capturedAtMs":18000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 21000,
+     "input": {"generation":1,"capturedAtMs":21000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 24000,
+     "input": {"generation":1,"capturedAtMs":24000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 27000,
+     "input": {"generation":1,"capturedAtMs":27000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 30000,
+     "input": {"generation":1,"capturedAtMs":30000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {"op":"tick","now":33500,"expect":{"state":"no-faces","display":"hidden","contradicted":false,"row":0}}
+   ]
+  },
+  {
+   "name": "no-faces, then a frame without faces and without a layout: the hold ends (row 12)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {"generation":1,"capturedAtMs":9000,"faces":0,"observations":[],"layout":null,"windowIdentities":[]},
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12}
+    },
+    {
+     "op": "analyze",
+     "now": 12000,
+     "input": {"generation":1,"capturedAtMs":12000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]},
+     "expect": {"state":"no-faces","display":"hidden","contradicted":false,"row":7}
+    }
+   ]
+  },
+  {
+   "name": "no-faces, then a verified compatible frame within the window: it completes the run (row 9)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"verified","display":"fitted","contradicted":false,"row":9}
+    }
+   ]
+  },
+  {
+   "name": "no-faces, then a verified incompatible frame: contradicted (row 5)",
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.23,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.44,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.6679999999999999,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.26,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.47000000000000003,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.6799999999999999,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {"generation":1,"capturedAtMs":6000,"faces":0,"observations":[],"layout":"six","windowIdentities":[]}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.32999999999999996,"y":0.16,"w":0.072,"h":0.096}},
+       {"identity":"b","bounds":{"x":0.54,"y":0.14800000000000002,"w":0.072,"h":0.096}},
+       {"identity":"c","bounds":{"x":0.768,"y":0.172,"w":0.072,"h":0.096}},
+       {"identity":"d","bounds":{"x":0.36,"y":0.52,"w":0.072,"h":0.096}},
+       {"identity":"e","bounds":{"x":0.5700000000000001,"y":0.532,"w":0.072,"h":0.096}},
+       {"identity":"f","bounds":{"x":0.78,"y":0.508,"w":0.072,"h":0.096}}
+      ],
+      "layout": "six",
+      "windowIdentities": []
+     },
+     "expect": {"state":"contradicted","display":"vision","contradicted":true,"row":5}
+    }
+   ]
+  },
+  {
+   "name": "no-faces ended by an insufficient frame keeps the pooled correction (the generation is the same)",
+   "config": {"scaleRatioTol":0.05},
+   "steps": [
+    {"op":"reset","generation":1,"now":0},
+    {
+     "op": "analyze",
+     "now": 0,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 0,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.05,"y":0.1045,"w":0.12,"h":0.1672}},
+       {"identity":"b","bounds":{"x":0.4,"y":0.0836,"w":0.12,"h":0.1672}},
+       {"identity":"c","bounds":{"x":0.78,"y":0.12539999999999998,"w":0.12,"h":0.1672}},
+       {"identity":"d","bounds":{"x":0.1,"y":0.7314999999999999,"w":0.12,"h":0.1672}},
+       {"identity":"e","bounds":{"x":0.45,"y":0.7524,"w":0.12,"h":0.1672}},
+       {"identity":"f","bounds":{"x":0.8,"y":0.7106,"w":0.12,"h":0.1672}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     }
+    },
+    {
+     "op": "analyze",
+     "now": 3000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 3000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.05,"y":0.1045,"w":0.12,"h":0.1672}},
+       {"identity":"b","bounds":{"x":0.4,"y":0.0836,"w":0.12,"h":0.1672}},
+       {"identity":"c","bounds":{"x":0.78,"y":0.12539999999999998,"w":0.12,"h":0.1672}},
+       {"identity":"d","bounds":{"x":0.1,"y":0.7314999999999999,"w":0.12,"h":0.1672}},
+       {"identity":"e","bounds":{"x":0.45,"y":0.7524,"w":0.12,"h":0.1672}},
+       {"identity":"f","bounds":{"x":0.8,"y":0.7106,"w":0.12,"h":0.1672}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"verified","display":"fitted","contradicted":false,"row":9,"ratioScale":1.045}
+    },
+    {
+     "op": "analyze",
+     "now": 6000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 6000,
+      "faces": 0,
+      "observations": [],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"no-faces","display":"hidden","contradicted":false,"row":7}
+    },
+    {
+     "op": "analyze",
+     "now": 9000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 9000,
+      "faces": 2,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.05,"y":0.1045,"w":0.12,"h":0.1672}},
+       {"identity":"b","bounds":{"x":0.4,"y":0.0836,"w":0.12,"h":0.1672}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {"state":"unverified","display":"today","contradicted":false,"row":12,"ratioScale":1.045}
+    },
+    {
+     "op": "analyze",
+     "now": 12000,
+     "input": {
+      "generation": 1,
+      "capturedAtMs": 12000,
+      "faces": 6,
+      "observations": [
+       {"identity":"a","bounds":{"x":0.05,"y":0.1045,"w":0.12,"h":0.1672}},
+       {"identity":"b","bounds":{"x":0.4,"y":0.0836,"w":0.12,"h":0.1672}},
+       {"identity":"c","bounds":{"x":0.78,"y":0.12539999999999998,"w":0.12,"h":0.1672}},
+       {"identity":"d","bounds":{"x":0.1,"y":0.7314999999999999,"w":0.12,"h":0.1672}},
+       {"identity":"e","bounds":{"x":0.45,"y":0.7524,"w":0.12,"h":0.1672}},
+       {"identity":"f","bounds":{"x":0.8,"y":0.7106,"w":0.12,"h":0.1672}}
+      ],
+      "layout": "six-aspect",
+      "windowIdentities": [],
+      "frameAspect": 1.7777777777777777
+     },
+     "expect": {
+      "state": "verified",
+      "display": "fitted",
+      "contradicted": false,
+      "row": 9,
+      "runLength": 3,
+      "ratioScale": 1.045,
+      "region": {"x":0,"y":0,"width":1,"height":1.045}
+     }
     }
    ]
   },

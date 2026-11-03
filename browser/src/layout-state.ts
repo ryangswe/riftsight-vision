@@ -33,8 +33,9 @@
 //      been verified in this generation, not in mismatch  -> no-faces      hidden
 //   8  an ambiguous fit                                   -> as 10 or 12, the run unchanged
 //   9  a verified fit completes the run                   -> verified      fitted
-//  10  otherwise, after verified, held or no-faces, while
-//      the hold lasts                                     -> held          fitted
+//  10  otherwise, after verified or held, while the hold
+//      lasts; after no-faces, only for a verified fit
+//      (compatible, as row 5 did not apply)               -> held          fitted
 //  11  (a timer) the hold or the freshness ran out        -> unverified    today / vision
 //  12  otherwise                                          -> unverified    today / vision
 //   0  a timer with nothing to withdraw, or an analysis while off: no change
@@ -43,9 +44,13 @@
 // so that row 4 can still end it; a `mismatch` page shown a frame without faces stays in
 // `mismatch` (it draws nothing there either). When row 9 clears a trip, the monitor forgets the
 // identities behind it. The hold runs only while a placement is confirmed: rows 3, 5, 6 and
-// 11 stop it. An analysis that arrives after the hold or the freshness ran out, with no timer
-// in between, first applies row 11; it reports 11 unless its own row changes something more
-// (an ambiguous frame reports 11 there too, since it changes nothing).
+// 11 stop it, and so does row 12 after `no-faces`. While no faces show, the picture can change
+// unobserved (a break screen, a rescale), so a placement returns from `no-faces` only on a
+// verified fit compatible with it: row 10, which keeps the hold's clock, or row 9, which
+// confirms afresh as always. Any other analysis ends the hold. The clock keeps running while
+// the page is hidden. An analysis that arrives after the hold or the freshness ran out, with no
+// timer in between, first applies row 11; it reports 11 unless its own row changes something
+// more (an ambiguous frame reports 11 there too, since it changes nothing).
 // The clock the host passes must stop while the video is paused, so the hold and the
 // freshness pause too.
 //
@@ -444,7 +449,7 @@ export class LayoutRegistration {
     } else {
       this.run = nextRun;
       const holding =
-        (prev === "verified" || prev === "held" || prev === "no-faces") &&
+        (prev === "verified" || prev === "held" || (prev === "no-faces" && verified !== null)) &&
         this.confirmed !== null &&
         this.holdStart !== null &&
         nowMs - this.holdStart < this.config.holdMs;
@@ -455,6 +460,12 @@ export class LayoutRegistration {
       } else {
         row = expiredFirst ? 11 : 12;
         this.stateValue = this.monitor.tripped ? "mismatch" : "unverified";
+        if (prev === "no-faces") {
+          // The picture may have changed while hidden: the placement does not come back.
+          this.confirmed = null;
+          this.confirmedBasis = null;
+          this.holdStart = null;
+        }
       }
       if (fit.kind === "ambiguous" && row !== 11) row = 8;
     }
