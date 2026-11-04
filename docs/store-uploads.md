@@ -146,7 +146,11 @@ On that machine the credentials are files, not a token:
    products under different publishers need one service account each, and the publisher adds it
    in the Chrome Web Store dashboard (Account). `upload` mints the access token from the key
    itself (a signed request to `https://oauth2.googleapis.com/token`; the key file's own
-   `token_uri` is not followed).
+   `token_uri` is not followed). With more than one publisher, give each key file its own name
+   (`chrome-<publisher>.json`) so that one never replaces another, and point each product's env
+   file at its own. Chrome answering `HTTP 403` with `PERMISSION_DENIED` after the token was minted
+   means the key's service account is not the one on that publisher's Account page: most often,
+   another publisher's key.
 2. **The env file.** Keep the credentials in one file of `KEY=VALUE` lines, outside every
    repository:
 
