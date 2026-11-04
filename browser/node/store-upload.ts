@@ -16,13 +16,18 @@
 //
 //   node store-upload.mjs upload --config … --release … --targets chrome,firefox --hashes FILE
 //        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]
+//        [--env-file FILE]
 //
 //     The upload job, after the account holder's approval. Refuses if its environment holds a CDN
 //     credential or a package differs from the hashes the build job wrote. Checks every target
 //     first (a Chrome submission pending review or staged, a Firefox version awaiting review, the
 //     "before upload" addresses) and uploads nothing if one is blocked; skips a store that already
-//     has this version, so a re-run finishes what a failed run left. Credentials come from the environment: CWS_ACCESS_TOKEN (an
-//     OAuth access token for the Chrome Web Store), AMO_JWT_ISSUER and AMO_JWT_SECRET.
+//     has this version, so a re-run finishes what a failed run left. Credentials come from the
+//     environment: CWS_ACCESS_TOKEN (an OAuth access token for the Chrome Web Store) or
+//     CWS_SERVICE_ACCOUNT_KEY_FILE (a service account's JSON key, from which it mints the token),
+//     AMO_JWT_ISSUER and AMO_JWT_SECRET. On the account holder's own machine, --env-file reads
+//     them from a file of KEY=VALUE lines; the environment wins over the file. The key file and
+//     the env file must be mode 600 or stricter (chmod 600).
 //
 // Exit codes: 0 done, 1 a check or a store refused, 2 a usage error.
 
@@ -52,6 +57,7 @@ import {
   surfaceChanges,
 } from "./store-checks.js";
 import { chromeDecision, type ChromeItem, chromePublish, chromeStatus, chromeUpload, StoreError } from "./store-chrome.js";
+import { readEnvFile, serviceAccountToken } from "./store-google.js";
 
 export interface Deps {
   env: Record<string, string | undefined>;
@@ -64,6 +70,8 @@ export interface Deps {
   /** Origins of the store APIs (tests). */
   chromeBase?: string;
   amoBase?: string;
+  /** Google's token address (tests). */
+  googleTokenUrl?: string;
 }
 
 function defaultZipManifest(zipPath: string): { path: string; manifest: Record<string, unknown> } {
@@ -237,6 +245,16 @@ function need(env: Deps["env"], name: string): string {
   return v;
 }
 
+/** The Chrome Web Store token: CWS_ACCESS_TOKEN, or one minted from CWS_SERVICE_ACCOUNT_KEY_FILE. */
+async function chromeToken(deps: Deps): Promise<string> {
+  const token = deps.env.CWS_ACCESS_TOKEN;
+  const keyFile = deps.env.CWS_SERVICE_ACCOUNT_KEY_FILE;
+  if (token && keyFile) throw new StoreError("both CWS_ACCESS_TOKEN and CWS_SERVICE_ACCOUNT_KEY_FILE are set: keep one");
+  if (keyFile) return serviceAccountToken(keyFile, { fetchFn: deps.fetchFn, tokenUrl: deps.googleTokenUrl });
+  if (!token) throw new StoreError("CWS_ACCESS_TOKEN is not set, nor CWS_SERVICE_ACCOUNT_KEY_FILE");
+  return token;
+}
+
 /**
  * The upload job. Reports each step through `report` as it happens; throws a StoreError on a
  * refusal or a store error, whose message lists what had already been done.
@@ -281,7 +299,7 @@ export async function runUpload(a: UploadArgs, deps: Deps, report: (line: string
   let amo: AmoAddon | null = null;
   if (a.targets.includes("chrome")) {
     if (!config.chrome || !release.chrome || !a.chromeZip) throw new StoreError("chrome needs a config item, a release-file chrome block and --chrome-zip");
-    chrome = { ...config.chrome, accessToken: need(deps.env, "CWS_ACCESS_TOKEN"), fetchFn: deps.fetchFn, base: deps.chromeBase };
+    chrome = { ...config.chrome, accessToken: await chromeToken(deps), fetchFn: deps.fetchFn, base: deps.chromeBase };
   }
   if (a.targets.includes("firefox")) {
     if (!config.firefox || !a.firefoxZip) throw new StoreError("firefox needs a config item and --firefox-zip");
@@ -370,7 +388,8 @@ const USAGE = `usage:
        --workflow FILE [--workflow FILE…] [--lint REPORT [--lint-baseline FILE]]
        [--hashes-out FILE] [--summary FILE]
   node store-upload.mjs upload --config FILE --release FILE --targets chrome,firefox --hashes FILE
-       [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]`;
+       [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]
+       [--env-file FILE]`;
 
 export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<number> {
   const [command, ...rest] = argv;
@@ -400,6 +419,7 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
         targets: { type: "string" },
         "precheck-only": { type: "boolean", default: false },
         summary: { type: "string" },
+        "env-file": { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     });
@@ -413,6 +433,7 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
       if (values.summary) appendFileSync(values.summary, `${lines.join("\n")}\n`);
     };
     if (command === "check") {
+      if (values["env-file"]) throw new Usage("--env-file is for upload: check uses no credentials");
       if (!values.tag || !values.permissions || !values.workflow?.length) throw new Usage("check needs --tag, --permissions and --workflow");
       const res = await runCheck(
         {
@@ -438,6 +459,8 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
     }
     if (command === "upload") {
       if (!values.hashes || !values.targets) throw new Usage("upload needs --hashes and --targets");
+      // The environment wins over the file.
+      if (values["env-file"]) deps = { ...deps, env: { ...readEnvFile(values["env-file"]), ...deps.env } };
       const targets = values.targets.split(",").map((t) => t.trim()).filter(Boolean);
       for (const t of targets) if (t !== "chrome" && t !== "firefox") throw new Usage(`unknown target ${t}`);
       const report = (line: string): void => {

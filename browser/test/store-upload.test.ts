@@ -3,8 +3,8 @@
 // here reaches the network. Made-up ids, packages and addresses only.
 
 import { execFileSync } from "node:child_process";
-import { createHmac } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHmac, generateKeyPairSync, verify } from "node:crypto";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { amoJwt } from "../node/store-amo.js";
 import { chromeDecision } from "../node/store-chrome.js";
+import { CWS_SCOPE, GOOGLE_TOKEN_URL, serviceAccountToken } from "../node/store-google.js";
 import {
   DENY_PATTERNS,
   denyFindings,
@@ -687,5 +688,213 @@ describe("upload (the approved job)", () => {
     expect(await main(["--help"], deps(fakeStores().fetchFn, {}, log))).toBe(0);
     expect(await main([], deps(fakeStores().fetchFn, {}, log))).toBe(2);
     expect(await main(["nope", "--config", "a", "--release", "b"], deps(fakeStores().fetchFn, {}, log))).toBe(2);
+  });
+});
+
+describe("upload from the account holder's machine (a key file, an env file)", () => {
+  const TOKEN_URL = "https://token.test/token";
+  const MINTED = "minted-access-token-7f3a";
+  const SHELL_DUMMY = "dummy-set-in-the-shell";
+  const AMO_DUMMY = "amo-dummy-from-file-91c2";
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const PEM = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const EMAIL = "uploader@example.com";
+
+  /** A key file in `dir`, mode 0600 unless given. `token_uri` points elsewhere: it must not be followed. */
+  function keyFile(dir: string, content?: string, mode = 0o600): string {
+    const path = join(dir, "cws-key.json");
+    writeFileSync(path, content ?? JSON.stringify({ type: "service_account", client_email: EMAIL, private_key: PEM, token_uri: "https://elsewhere.test/token" }));
+    chmodSync(path, mode);
+    return path;
+  }
+
+  function envFile(dir: string, text: string, mode = 0o600): string {
+    const path = join(dir, "store.env");
+    writeFileSync(path, text);
+    chmodSync(path, mode);
+    return path;
+  }
+
+  /** A token reply; a function body gets the signed request, to echo it back. */
+  type Reply = { status: number; body: unknown | ((jwt: string) => unknown) };
+
+  /** The fake stores behind a fake token address, which checks the signed request it is sent. */
+  function withToken(stores: ReturnType<typeof fakeStores>, reply?: Reply, tokenUrl = TOKEN_URL) {
+    const assertions: string[] = [];
+    // A failed check in here would only surface as "could not be reached": kept to assert on.
+    const errors: unknown[] = [];
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === tokenUrl) try {
+        stores.calls.push({ method: init?.method ?? "GET", url, body: init?.body, headers: {} });
+        const form = new URLSearchParams(String(init?.body));
+        expect(form.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
+        const jwt = form.get("assertion")!;
+        assertions.push(jwt);
+        const [h, p, sig] = jwt.split(".");
+        expect(JSON.parse(Buffer.from(h!, "base64url").toString())).toEqual({ alg: "RS256", typ: "JWT" });
+        const claims = JSON.parse(Buffer.from(p!, "base64url").toString()) as Record<string, unknown>;
+        expect(claims).toMatchObject({ iss: EMAIL, scope: CWS_SCOPE, aud: tokenUrl });
+        expect((claims.exp as number) - (claims.iat as number)).toBe(3600);
+        expect(verify("sha256", Buffer.from(`${h}.${p}`), publicKey, Buffer.from(sig!, "base64url"))).toBe(true);
+        const r = reply ?? { status: 200, body: { access_token: MINTED, expires_in: 3599, token_type: "Bearer" } };
+        const replyBody = typeof r.body === "function" ? r.body(jwt) : r.body;
+        return new Response(JSON.stringify(replyBody), { status: r.status, headers: { "Content-Type": "application/json" } });
+      } catch (error) {
+        errors.push(error);
+        throw error;
+      }
+      return stores.fetchFn(input, init);
+    }) as typeof fetch;
+    return { calls: stores.calls, fetchFn, assertions, errors };
+  }
+
+  function localDeps(fetchFn: typeof fetch, env: Record<string, string | undefined>, log: string[]): Deps {
+    const d = deps(fetchFn, {}, log, ["CWS_ACCESS_TOKEN", "AMO_JWT_ISSUER", "AMO_JWT_SECRET"]);
+    return { ...d, env: { ...d.env, ...env }, googleTokenUrl: TOKEN_URL };
+  }
+
+  /** Everything a run showed: its log and its summary file. */
+  function shown(log: string[], summary: string): string {
+    return `${log.join("\n")}\n${existsSync(summary) ? readFileSync(summary, "utf-8") : ""}`;
+  }
+
+  function expectNoSecret(text: string, assertions: string[]): void {
+    expect(text).not.toMatch(/could not be reached/);
+    expect(text).not.toContain("PRIVATE KEY");
+    // Whole lines, and the 10 characters JSON.parse quotes from a file it cannot read.
+    for (const line of PEM.split("\n").filter((l) => l.length > 20)) {
+      expect(text).not.toContain(line);
+      expect(text).not.toContain(line.slice(0, 10));
+    }
+    expect(text).not.toContain(MINTED);
+    expect(text).not.toContain(AMO_DUMMY);
+    for (const a of assertions) {
+      expect(text).not.toContain(a);
+      expect(text).not.toContain(a.split(".")[2]!);
+    }
+  }
+
+  it("mints the Chrome token from a service-account key file, at Google's fixed address", async () => {
+    const dir = await checked();
+    const stores = withToken(fakeStores());
+    const log: string[] = [];
+    const summary = join(dir, "summary.md");
+    const env = { CWS_SERVICE_ACCOUNT_KEY_FILE: keyFile(dir), AMO_JWT_ISSUER: "user:1:2", AMO_JWT_SECRET: AMO_DUMMY };
+    expect(await main(uploadArgv(dir, ["--summary", summary]), localDeps(stores.fetchFn, env, log)), log.join("\n")).toBe(0);
+    expect(stores.calls.filter((c) => c.url === TOKEN_URL)).toHaveLength(1);
+    expect(stores.calls.some((c) => c.url.startsWith("https://elsewhere.test/"))).toBe(false);
+    const chromeCalls = stores.calls.filter((c) => c.url.startsWith("https://cws.test/"));
+    expect(chromeCalls.map((c) => c.url.split(":").pop())).toEqual(expect.arrayContaining(["fetchStatus", "upload", "publish"]));
+    for (const c of chromeCalls) expect(c.headers.Authorization).toBe(`Bearer ${MINTED}`);
+    expectNoSecret(shown(log, summary), stores.assertions);
+
+    // Without a test address the request goes to Google's own.
+    const urls: string[] = [];
+    const google = (async (input: string | URL | Request, init?: RequestInit) => {
+      urls.push(String(input));
+      const jwt = new URLSearchParams(String(init?.body)).get("assertion")!;
+      expect(JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString()).aud).toBe(GOOGLE_TOKEN_URL);
+      return new Response(JSON.stringify({ access_token: MINTED }), { status: 200 });
+    }) as typeof fetch;
+    expect(await serviceAccountToken(keyFile(dir), { fetchFn: google })).toBe(MINTED);
+    expect(urls).toEqual(["https://oauth2.googleapis.com/token"]);
+
+    // And so does upload itself, when no test address is given.
+    const real = withToken(fakeStores(), undefined, GOOGLE_TOKEN_URL);
+    const log2: string[] = [];
+    const { googleTokenUrl: _unused, ...noTestAddress } = localDeps(real.fetchFn, env, log2);
+    expect(await main(uploadArgv(dir, ["--precheck-only"]), noTestAddress), log2.join("\n")).toBe(0);
+    expect(real.calls.filter((c) => c.url === GOOGLE_TOKEN_URL)).toHaveLength(1);
+    expect(real.calls.find((c) => c.url.startsWith("https://cws.test/"))!.headers.Authorization).toBe(`Bearer ${MINTED}`);
+  });
+
+  it("refuses a key file or an env file other users can read, before any request", async () => {
+    const dir = await checked();
+    for (const mode of [0o644, 0o640, 0o604, 0o660]) {
+      const stores = withToken(fakeStores());
+      const log: string[] = [];
+      const path = keyFile(dir, undefined, mode);
+      expect(await main(uploadArgv(dir), localDeps(stores.fetchFn, { CWS_SERVICE_ACCOUNT_KEY_FILE: path, AMO_JWT_ISSUER: "i", AMO_JWT_SECRET: "s" }, log))).toBe(1);
+      expect(log.join("\n")).toContain(`service-account key file ${path} can be read by other users (mode 0${mode.toString(8)}): run chmod 600 ${path}`);
+      expect(stores.calls).toEqual([]);
+
+      const log2: string[] = [];
+      const envPath = envFile(dir, `AMO_JWT_ISSUER=i\nAMO_JWT_SECRET=${AMO_DUMMY}\n`, mode);
+      expect(await main(uploadArgv(dir, ["--env-file", envPath]), localDeps(stores.fetchFn, { CWS_SERVICE_ACCOUNT_KEY_FILE: keyFile(dir) }, log2))).toBe(1);
+      expect(log2.join("\n")).toContain(`env file ${envPath} can be read by other users (mode 0${mode.toString(8)}): run chmod 600 ${envPath}`);
+      expect(log2.join("\n")).not.toContain(AMO_DUMMY);
+      expect(stores.calls).toEqual([]);
+    }
+    // Mode 600 is fine, and 400.
+    const stores = withToken(fakeStores());
+    const log: string[] = [];
+    expect(await main(uploadArgv(dir, ["--precheck-only"]), localDeps(stores.fetchFn, { CWS_SERVICE_ACCOUNT_KEY_FILE: keyFile(dir, undefined, 0o400), AMO_JWT_ISSUER: "i", AMO_JWT_SECRET: "s" }, log)), log.join("\n")).toBe(0);
+  });
+
+  it("never shows the key, the signed request, the token or the AMO secret, whatever fails", async () => {
+    const dir = await checked();
+    const cases: Array<{ name: string; key?: string; reply?: Reply; stores?: Parameters<typeof fakeStores>[0]; expect: RegExp }> = [
+      { name: "Google refuses", reply: { status: 400, body: (jwt: string) => ({ error: "invalid_grant", error_description: `echoing ${jwt} PLACEHOLDER` }) }, expect: /Google refused a token .*HTTP 400 \(invalid_grant\)/ },
+      { name: "Google's reply has no token", reply: { status: 200, body: { note: "nothing" } }, expect: /has no access token/ },
+      { name: "an odd error code", reply: { status: 401, body: { error: "Bad <PLACEHOLDER>" } }, expect: /HTTP 401$/m },
+      { name: "not JSON", key: `{"private_key": "${PEM.replace(/\n/g, "\\n")}`, expect: /is not JSON/ },
+      { name: "a bare key, not JSON", key: PEM.split("\n").filter((l) => !l.startsWith("-----")).join("\n"), expect: /is not JSON/ },
+      { name: "no private key", key: JSON.stringify({ client_email: EMAIL, private_key_id: "abc" }), expect: /has no client_email and private_key/ },
+      { name: "a broken private key", key: JSON.stringify({ client_email: EMAIL, private_key: `${PEM.slice(0, 200)}` }), expect: /is not a usable key/ },
+      { name: "a store call fails", stores: { publishStatus: 500 }, expect: /Chrome Web Store POST .*:publish: HTTP 500/ },
+    ];
+    for (const c of cases) {
+      const stores = withToken(fakeStores(c.stores), c.reply);
+      const log: string[] = [];
+      const summary = join(dir, `summary-${cases.indexOf(c)}.md`);
+      const envPath = envFile(dir, `AMO_JWT_ISSUER=user:1:2\nAMO_JWT_SECRET=${AMO_DUMMY}\nCWS_SERVICE_ACCOUNT_KEY_FILE=${keyFile(dir, c.key)}\n`);
+      const code = await main(uploadArgv(dir, ["--summary", summary, "--env-file", envPath]), localDeps(stores.fetchFn, {}, log));
+      const text = shown(log, summary);
+      expect(code, `${c.name}: ${text}`).toBe(1);
+      expect(text, c.name).toMatch(c.expect);
+      // A reply that echoes the signed request is not shown either.
+      expectNoSecret(text, stores.assertions);
+      expect(text).not.toContain("PLACEHOLDER");
+    }
+  });
+
+  it("reads an env file of store credentials; the environment wins; other names and two Chrome credentials are refused", async () => {
+    const dir = await checked();
+    const stores = withToken(fakeStores());
+    const log: string[] = [];
+    const envPath = envFile(dir, `# store credentials\nAMO_JWT_ISSUER=file-issuer\nAMO_JWT_SECRET=${AMO_DUMMY}\nCWS_SERVICE_ACCOUNT_KEY_FILE=${keyFile(dir)}\n`);
+    expect(await main(uploadArgv(dir, ["--precheck-only", "--env-file", envPath]), localDeps(stores.fetchFn, { AMO_JWT_ISSUER: "shell-issuer" }, log)), log.join("\n")).toBe(0);
+    const amo = stores.calls.find((c) => c.url.startsWith("https://amo.test/"))!;
+    const [h, p, sig] = amo.headers.Authorization!.replace(/^JWT /, "").split(".");
+    expect(JSON.parse(Buffer.from(p!, "base64url").toString()).iss).toBe("shell-issuer");
+    expect(sig).toBe(createHmac("sha256", AMO_DUMMY).update(`${h}.${p}`).digest("base64url"));
+    expect(stores.calls.find((c) => c.url.startsWith("https://cws.test/"))!.headers.Authorization).toBe(`Bearer ${MINTED}`);
+    expect(log.join("\n")).not.toContain(AMO_DUMMY);
+
+    for (const extra of ["CF_API_TOKEN=x", "S3_BUCKET_KEY=x", "HOME=/tmp"]) {
+      const s = withToken(fakeStores());
+      const log2: string[] = [];
+      const bad = envFile(dir, `AMO_JWT_ISSUER=i\n${extra}\n`);
+      expect(await main(uploadArgv(dir, ["--env-file", bad]), localDeps(s.fetchFn, {}, log2))).toBe(1);
+      expect(log2.join("\n")).toContain(`sets names that are not store credentials: ${extra.split("=")[0]}`);
+      expect(log2.join("\n")).not.toContain(`${extra.split("=")[0]}=x`);
+      expect(s.calls).toEqual([]);
+    }
+
+    const both = withToken(fakeStores());
+    const log3: string[] = [];
+    const twoChrome = envFile(dir, `AMO_JWT_ISSUER=i\nAMO_JWT_SECRET=s\nCWS_SERVICE_ACCOUNT_KEY_FILE=${keyFile(dir)}\n`);
+    expect(await main(uploadArgv(dir, ["--env-file", twoChrome]), localDeps(both.fetchFn, { CWS_ACCESS_TOKEN: SHELL_DUMMY }, log3))).toBe(1);
+    expect(log3.join("\n")).toMatch(/both CWS_ACCESS_TOKEN and CWS_SERVICE_ACCOUNT_KEY_FILE are set: keep one/);
+    expect(both.calls).toEqual([]);
+
+    const log4: string[] = [];
+    expect(await main(uploadArgv(dir, ["--env-file", join(dir, "missing.env")]), localDeps(both.fetchFn, {}, log4))).toBe(1);
+    expect(log4.join("\n")).toMatch(/env file .*missing.env cannot be read/);
+
+    const log5: string[] = [];
+    expect(await main(checkArgv(dir, ["--env-file", envPath]), deps(fakeStores().fetchFn, {}, log5))).toBe(2);
+    expect(log5.join("\n")).toMatch(/--env-file is for upload/);
   });
 });

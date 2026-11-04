@@ -22,6 +22,12 @@ break the public surface; this file names each break and how to migrate.
   `localWidth` and `localHeight`; `bounds` stays the box. Cards not named, upright cards and
   sides that cannot be solved exactly keep their box
   ([browser/README.md](browser/README.md#outlines-of-tilted-cards)).
+- Store uploads (experimental) from the account holder's own machine: `upload` takes
+  `CWS_SERVICE_ACCOUNT_KEY_FILE`, a service account's JSON key, in place of `CWS_ACCESS_TOKEN` and
+  mints the Chrome Web Store token itself, and `--env-file` reads the store credentials from a
+  file of `KEY=VALUE` lines (the environment wins). Both files must be mode 600 or
+  stricter; nothing printed holds a key, a token or a secret
+  ([docs/store-uploads.md](docs/store-uploads.md#a-private-repository)).
 
 ### Changed
 

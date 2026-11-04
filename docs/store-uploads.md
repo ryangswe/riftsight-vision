@@ -137,8 +137,41 @@ node store-upload.mjs upload --config store/store.config.json --release store/re
 ```
 
 `upload` checks the packages against `hashes.json` and both stores before sending anything, as
-in the workflow. `CWS_ACCESS_TOKEN` is then an access token for an account the publisher has
-added in the Chrome Web Store dashboard.
+in the workflow.
+
+On that machine the credentials are files, not a token:
+
+1. **Chrome.** In the Google Cloud project of the publisher's service account, create a JSON key
+   for it (IAM, Service accounts, Keys). Chrome allows one service account per publisher, so
+   products under different publishers need one service account each, and the publisher adds it
+   in the Chrome Web Store dashboard (Account). `upload` mints the access token from the key
+   itself (a signed request to `https://oauth2.googleapis.com/token`; the key file's own
+   `token_uri` is not followed).
+2. **The env file.** Keep the credentials in one file of `KEY=VALUE` lines, outside every
+   repository:
+
+   ```
+   AMO_JWT_ISSUER=user:…
+   AMO_JWT_SECRET=…
+   CWS_SERVICE_ACCOUNT_KEY_FILE=<the key file's full path>
+   ```
+
+   It may set only these three names and `CWS_ACCESS_TOKEN`; any other name is refused. Set
+   either `CWS_SERVICE_ACCOUNT_KEY_FILE` or `CWS_ACCESS_TOKEN`, not both.
+3. **Only you can read them.** `chmod 600` the key file and the env file: `upload` refuses either
+   when another user could read it. On Windows, keep them in the WSL home, not on a Windows
+   drive, where every file looks readable to all.
+4. **A clean environment.** `upload` refuses to run while its environment holds a CDN or object
+   store credential (a Cloudflare or Amazon object store's, `CLOUDFLARE_`, `CF_…_TOKEN` and the
+   like, or the product's `deny` words), and a shell often holds one. Start it with nothing but the env file:
+
+   ```bash
+   env -i HOME="$HOME" PATH="$PATH" node store-upload.mjs upload --env-file "$HOME/.config/store/store.env" --config store/store.config.json --release store/releases/<version>.json --targets chrome,firefox --hashes hashes.json --chrome-zip chrome.zip --firefox-zip firefox.zip --firefox-source firefox-source.zip --precheck-only
+   ```
+
+   A name set in the environment wins over the file. `--precheck-only` checks both stores and
+   uploads nothing; run it first, then the same line without it. Nothing it prints holds a key,
+   a token or a secret.
 
 ## What it never does
 
