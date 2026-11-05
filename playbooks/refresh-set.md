@@ -259,15 +259,18 @@ else the first version of the product that reads a pointer.
 ```
 cp "$UPD/live-config.json" "$UPD/config.json"
 cardvision cdn publish-release --env-file "$ENV" --release "$UPD/rel/$ID" --legal "$UPD/legal" \
-    --min-version "$MINV" --config "$UPD/config.json" --set-pointer --dry-run
+    --min-version "$MINV" --config "$UPD/config.json" --set-pointer \
+    --verdict-r "$UPD/replay/VERDICT-R.json" --verdict-n "$UPD/newcard/VERDICT-N.json" --dry-run
 ```
 
 Add `--geometric "$UPD/geometric.json" --geo-manifest-sha256 "$MANIFEST_SHA"` for the stage, a
 `--data-file` for each data file the product publishes with a release, and `--sessions` when the
-tool asks for it.
+tool asks for it. The two verdicts are the ones from steps 4 and 5: the tool refuses to move the pointer
+unless both are a PASS, not a rehearsal, under the same rule.
 
-- **Expect:** the seal, the runtimes, the remote state and the pointer it would write, exit 0.
-  For a maintainer step, show them this output and wait for OK.
+- **Expect:** the refresh gate's two lines (each verdict file with its SHA-256), the seal, the
+  runtimes, the remote state and the pointer it would write, exit 0. For a maintainer step, show
+  them this output and wait for OK. Keep the two SHA-256 lines for the update's record (Notes, 1).
 
 Then the same command without `--dry-run`, and:
 

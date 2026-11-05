@@ -196,7 +196,8 @@ def new_models(refs: dict) -> dict:
 def release_args(folder: Path, legal: Path, config: Optional[Path], **overrides) -> SimpleNamespace:
     args = dict(release=str(folder), legal=str(legal), min_version="0.3.0", max_version=None, sessions=False,
                 fix_metadata=False, dry_run=True, data_files=None, geometric=None, geo_manifest_sha256=None,
-                config=str(config) if config else None, set_pointer=False)
+                config=str(config) if config else None, set_pointer=False,
+                verdict_r=None, verdict_n=None, no_refresh_gate="a test release" if config else None)
     args.update(overrides)
     return SimpleNamespace(**args)
 

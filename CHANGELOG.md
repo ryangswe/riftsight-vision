@@ -49,6 +49,28 @@ break the public surface; this file names each break and how to migrate.
   `pip install -r requirements-lock.txt` checks what it downloads. The publish workflow installs
   its build tools from `requirements-publish.txt`, pinned the same way, in place of the newest
   `build` and `twine`.
+- **Breaking:** `cardvision cdn publish-release` checks the refresh verdicts before it moves a
+  pointer. A run with `--config` needs `--verdict-r VERDICT-R.json --verdict-n VERDICT-N.json`
+  (each a PASS of its own gate, with `rehearsal` present and false, under the same rule) or
+  `--no-refresh-gate "REASON"` for a release that is not a gated card refresh, such as a first
+  release or new models. Otherwise it refuses before anything is fetched or written, a dry run
+  included. The log names each verdict file with its SHA-256. Before, it read neither file, so a
+  failed or rehearsal candidate could be published with the pointer moved. To migrate, add the two
+  verdicts from the card-update playbook's steps 4 and 5 to the release command (step 6.5), or
+  `--no-refresh-gate` with the reason. `publish-release` without `--config` and
+  `publish --config` are unchanged: `publish --config` with a new pointer (meant for a rollback)
+  is not gated.
+
+### Fixed
+
+- `cardvision cdn publish-release` reads the release index (`vision/releases/index.json`, the
+  tool's own record) before it uploads anything. An index that cannot be read, for any reason but
+  "no such key", or that is not a JSON object with a `releases` object, refuses the run with
+  nothing written. Before, any failed read started a fresh index, which then replaced every
+  earlier entry. A run after a crash that finds every file already uploaded now adds the release
+  to the index; before, the index was written only when something was uploaded. In the library,
+  `write_release_index` called without the index read first now raises `Refused` on such a read,
+  where it started a fresh index.
 
 ## [0.9.1] - 2026-11-03
 
