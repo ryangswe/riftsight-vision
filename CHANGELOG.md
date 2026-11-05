@@ -50,6 +50,16 @@ break the public surface; this file names each break and how to migrate.
   its build tools from `requirements-publish.txt`, pinned the same way, in place of the newest
   `build` and `twine`.
 
+### Fixed
+
+- The browser session turns recognition off for good when the bundled release fails to load,
+  whether its worker stops before loading or answers that the release did not load (the first
+  worker's or the restarted one's). The worker is ended, so its runtime's memory goes with it, and
+  `WorkerSession.stopped` is true; the status stays "failed" with the same error. Before, the
+  session stayed on with a failed core: the driver kept ticking it, an extension's compute frame
+  kept passing it frames, and after a failed load the worker was never ended. A remote release
+  that fails still falls back to the bundled one, as before.
+
 ## [0.9.1] - 2026-11-03
 
 A dry run of store uploads on a real extension release found two gaps; the release now passes as

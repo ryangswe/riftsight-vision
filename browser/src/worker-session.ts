@@ -8,6 +8,9 @@
 //     a new worker loads the bundled release once, without the geometric stage (`plainLoad`); a
 //     second stop turns recognition off ("the recognition worker stopped"). A worker that cannot
 //     even be made turns it off at once.
+//   - When the bundled release fails to load, by either worker, recognition is off for good too:
+//     the worker is ended, so its runtime's memory goes with it, and the session is stopped. The
+//     core keeps its failed status and error, which the host still reports.
 //   - Messages and errors from a worker that was replaced are ignored.
 //
 // With `chooseRelease` (remote/choose.ts) the page may run a remote release
@@ -97,7 +100,8 @@ export interface WorkerSessionEnv {
 export interface WorkerSession {
   /** Null only while `chooseRelease` decides. */
   readonly core: SessionCore | null;
-  /** Recognition is off for good: the restart was used up, a worker could not be made, or `stop`. */
+  /** Recognition is off for good: the bundled release failed to load, the restart was used up, a
+   *  worker could not be made, or `stop`. The core's status says why. */
   readonly stopped: boolean;
   readonly restarts: number;
   readonly release: ReleaseInEffect;
@@ -154,7 +158,19 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       if (core.status().state !== "loading") return;
       if (trying && !onRemoteStatus(reply)) return;
     }
+    // The bundled release did not load (a remote one falls back above, and never gets here): off
+    // before the core publishes its failed status, so a host that reads `stopped` then sees it.
+    if (reply.kind === "release-status" && !reply.ok) turnOff();
     core.fromWorker(reply);
+  };
+
+  /** Recognition is off for good: the worker is ended and the session stopped. The caller then
+   *  fails the core, which keeps its status and error. */
+  const turnOff = (): void => {
+    stopped = true;
+    trying = null;
+    worker?.terminate();
+    worker = null;
   };
 
   /** The worker's verdict on a remote release. True: pass it on to the core. */
@@ -210,6 +226,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     }
     worker?.terminate();
     if (state === "loading" && restarts === 0) {
+      turnOff();
       core.workerStopped({ error: `the worker did not start (${reason})` });
       return;
     }

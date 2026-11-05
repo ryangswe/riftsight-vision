@@ -265,6 +265,10 @@ leaving does not.
   geometric stage (`plainLoad`).
 - If the restarted worker stops too, the session fails ("the recognition worker stopped").
 - A worker that cannot even be made fails it at once ("the recognition worker could not start").
+- A bundled release that does not load (the worker stops before loading, or answers that the
+  release did not load, the restarted worker included) turns recognition off for good: the
+  worker is ended, `stopped` is true, and the status stays `failed` with the reason. The compute
+  frame then closes the pictures it is sent and still answers `hello` with that status.
 - Messages and errors from a worker that was replaced are ignored.
 
 With `chooseRelease`, the frame may load a remote release, and `createWorkerSession` applies
