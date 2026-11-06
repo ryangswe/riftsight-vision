@@ -498,7 +498,7 @@ def run_try(args: argparse.Namespace) -> int:
                                             write_report)
 
     cards, images, video, out = _check_inputs(args)
-    replaced = _check_out(out, args.overwrite)
+    _check_out(out, args.overwrite)     # refuse early; _put_in_place checks again before the move
     try:
         sampling, facts = plan_sampling(video, args.every, args.max_frames)
     except (ValueError, OSError) as error:

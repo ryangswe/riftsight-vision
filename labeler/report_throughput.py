@@ -505,7 +505,6 @@ def main() -> None:
         for m, s in sorted(r["byMode"].items()):
             extra = ""
             if m == "box":
-                pc = s["placedByClick"]
                 rate = "—" if s["correctionRate"] is None else f"{100 * s['correctionRate']:.1f} %"
                 extra = f"; backs {s['backs']}, ignored {s['ignored']}; correction rate on drawn boxes {rate}"
                 other = {o: v for o, v in s["correctionsByOrigin"].items() if o not in ("drawn", "snap", "default-box")}

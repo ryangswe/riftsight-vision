@@ -504,4 +504,4 @@ function isEntry(): boolean {
   }
 }
 
-if (isEntry()) main(process.argv.slice(2)).then((code) => process.exit(code));
+if (isEntry()) process.exit(await main(process.argv.slice(2)));

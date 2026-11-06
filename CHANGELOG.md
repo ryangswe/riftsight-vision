@@ -31,6 +31,9 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- CI now lints for bug patterns only. Python code is checked with ruff (rules in `pyproject.toml`,
+  version pinned in `requirements-lint.txt`), and the browser runtime with oxlint's type-aware rules
+  (`npm run lint`, `browser/.oxlintrc.json`). No behavior changes.
 - Store uploads (experimental): the workflow template's upload job does not run on a private
   repository (`!github.event.repository.private`). Its approval is the `store` environment's
   required reviewer, which GitHub offers on private repositories only under GitHub Enterprise;

@@ -301,10 +301,10 @@ def test_the_lock_files_agree_with_each_other_and_with_the_package():
     assert f"python -m {YOLOX_INSTALL}" in text and YOLOX_REVISION in text
 
 
-def test_the_base_lock_and_the_publish_tools_are_pinned_by_hash():
+def test_the_base_lock_and_the_publish_and_lint_tools_are_pinned_by_hash():
     """pip checks every downloaded file against these hashes; with hashes in a file it asks for one
     on every pin, so a pin without one would fail the install rather than go unchecked."""
-    for name in ("requirements-lock.txt", "requirements-publish.txt"):
+    for name in ("requirements-lock.txt", "requirements-publish.txt", "requirements-lint.txt"):
         text = (ROOT / name).read_text(encoding="utf-8")
         body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
         pins = [chunk for chunk in body.replace(" \\\n", " ").splitlines() if chunk.strip()]
@@ -312,6 +312,8 @@ def test_the_base_lock_and_the_publish_tools_are_pinned_by_hash():
     publish = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
     assert "python -m pip install --require-hashes -r requirements-publish.txt" in publish
     assert "pip install --upgrade" not in publish
+    tests = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    assert "python -m pip install --require-hashes -r requirements-lint.txt" in tests
 
 
 def test_the_dev_extra_can_run_every_test_that_needs_no_pytorch():

@@ -347,7 +347,6 @@ def quad_measures(corners, frame_h=None, source_h=None, card_aspect: float = CAR
     width = (top + bottom) / 2.0
     height = (left + right) / 2.0
     short = min(width, height)
-    long_ = max(width, height)
     mid_top = ((q[0][0] + q[1][0]) / 2.0, (q[0][1] + q[1][1]) / 2.0)
     mid_bot = ((q[3][0] + q[2][0]) / 2.0, (q[3][1] + q[2][1]) / 2.0)
     ux, uy = mid_top[0] - mid_bot[0], mid_top[1] - mid_bot[1]
