@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // A session core and its workers: the worker's lifecycle (one restart after loading, without the
 // geometric stage), and a remote release (docs/remote-releases.md, rules 10 to 12, 2.4 and 4).
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AnalysisWidth } from "../src/capture.js";
 import { DRIVER_TICK_MS } from "../src/frame-scheduler.js";
@@ -723,5 +723,77 @@ describe("mediaTimeNow", () => {
     // Nothing reported: the live time alone moves the picture past hoverMaxAgeMs (2000).
     live = 4;
     expect(h.session.core!.analysis()).toBeNull();
+  });
+});
+
+describe("a bundled release that fails to load", () => {
+  it("ends the worker and stops the session when the worker fails before loading", () => {
+    const { session, out } = harness();
+    out.workers[0]!.fail("no wasm");
+    expect(out.workers[0]!.terminated).toBe(true);
+    expect(session.stopped).toBe(true);
+    expect(session.core!.status()).toMatchObject({ state: "failed", error: "the worker did not start (no wasm)" });
+    expect(out.workers).toHaveLength(1);
+  });
+
+  it("ends the worker and stops the session when the worker cannot load the release", () => {
+    const { session, out } = harness();
+    out.workers[0]!.reply(statusFail("the bank did not load"));
+    expect(out.workers[0]!.terminated).toBe(true);
+    expect(session.stopped).toBe(true);
+    expect(session.core!.status()).toMatchObject({ state: "failed", error: "the bank did not load" });
+    expect(out.workers).toHaveLength(1);
+  });
+
+  it("ends the restarted worker and stops the session when it cannot load the release", () => {
+    const h = harness();
+    loaded(h.out.workers[0]!);
+    h.out.workers[0]!.fail("first");
+    h.out.workers[1]!.reply(statusFail("the bank did not load"));
+    expect(h.out.workers[1]!.terminated).toBe(true);
+    expect(h.session.stopped).toBe(true);
+    expect(h.session.restarts).toBe(1);
+    expect(h.session.core!.status()).toMatchObject({ state: "failed", error: "the bank did not load" });
+    expect(h.out.workers).toHaveLength(2);
+  });
+
+  it("no longer drives the core after the failure", () => {
+    const { session, out, clock } = harness();
+    out.workers[0]!.reply(statusFail("the bank did not load"));
+    session.core!.pointer(0.2, 0.5, 1);
+    // The driver's ticks no longer reach the core: no picture asked for, no status published.
+    const tick = vi.spyOn(session.core!, "tick");
+    const statuses = out.statuses.length;
+    for (let i = 0; i < 5; i += 1) {
+      clock.now += 1_000;
+      session.tick();
+    }
+    expect(tick).not.toHaveBeenCalled();
+    out.workers[0]!.reply(statusOk("r"));
+    expect(out.captures).toHaveLength(0);
+    expect(session.core!.status()).toMatchObject({ state: "failed", error: "the bank did not load" });
+    expect(out.statuses.length).toBe(statuses);
+  });
+
+  it("is stopped already when its failed status is published", () => {
+    for (const fail of [(w: FakeWorker) => w.fail("no wasm"), (w: FakeWorker) => w.reply(statusFail("the bank did not load"))]) {
+      const seen: Array<[string, boolean]> = [];
+      let session: ReturnType<typeof harness>["session"] | null = null;
+      const h = harness({ onStatus: (s) => void seen.push([s.state, session?.stopped ?? false]) });
+      session = h.session;
+      fail(h.out.workers[0]!);
+      expect(seen.at(-1)).toEqual(["failed", true]);
+    }
+  });
+
+  it("still falls back to the bundled release when a remote one fails, without stopping", async () => {
+    const h = await setup(remoteChoice());
+    h.out.workers[0]!.reply(statusFail("the bank did not load"));
+    expect(h.out.workers[0]!.terminated).toBe(true);
+    expect(h.session.stopped).toBe(false);
+    expect(h.out.workers).toHaveLength(2);
+    expect(isBundled(h.out.workers[1]!)).toBe(true);
+    loaded(h.out.workers[1]!);
+    expect(h.session.core!.status().state).toBe("ready");
   });
 });

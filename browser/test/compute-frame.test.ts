@@ -682,3 +682,33 @@ describe("status bounds", () => {
     expect(protocol.parseComputeOut(status)).toMatchObject({ kind: "status", error: status.error });
   });
 });
+
+describe("a bundled release that fails to load", () => {
+  const hello = () => tag({ kind: "hello", version: PROTOCOL_VERSION });
+
+  for (const [how, fail, error] of [
+    ["the worker fails before loading", (w: FakeWorker) => w.fail("no wasm"), "the worker did not start (no wasm)"],
+    ["the worker cannot load the release", (w: FakeWorker) => w.reply(statusFail("the bank did not load")), "the bank did not load"],
+  ] as const) {
+    it(`ends the worker and stays off when ${how}; hello still tells why`, () => {
+      const t = setup();
+      fail(t.workers[0]!);
+      expect(t.workers[0]!.terminated).toBe(true);
+      expect(t.frame!.stopped).toBe(true);
+      const before = t.toParent.length;
+      t.send(hello());
+      expect(t.toParent.slice(before).map((m) => m.message)).toEqual([
+        readyOf(t.frame!.instance),
+        tag({ kind: "status", state: "failed", error, backend: null }),
+        tag({ kind: "shown", card: null }),
+      ]);
+      // Frames no longer reach the core; their pictures are closed.
+      const frame = vi.spyOn(t.frame!.core!, "frame");
+      const bitmap = new FakeBitmap();
+      t.send(tag({ kind: "frame", requestId: 1, bitmap, mediaTime: 0 }));
+      expect(bitmap.closed).toBe(true);
+      expect(frame).not.toHaveBeenCalled();
+      expect(t.workers).toHaveLength(1);
+    });
+  }
+});
