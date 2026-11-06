@@ -12,7 +12,8 @@ pages, settings file and remote releases on its own Cloudflare R2 bucket.
     cardvision cdn verify-geo  --dir PACKED --expect-sha256 SHA
     cardvision cdn publish-release --release DIR --min-version X [--max-version Y] [--legal DIR]
                    [--geometric FILE --geo-manifest-sha256 SHA] [--data-file F]
-                   [--config F [--set-pointer]] [--sessions] [--fix-metadata] [--dry-run]
+                   [--config F [--set-pointer] (--verdict-r F --verdict-n F | --no-refresh-gate REASON)]
+                   [--sessions] [--fix-metadata] [--dry-run]
     cardvision cdn verify-release-live [--candidate ID | --config-url U] [--expect-id ID] [--sessions]
 
 Each takes ``--cdn-config FILE``, the product's ``cdn/cdn.config.json`` (``cardvision.cdn.config``;
@@ -73,6 +74,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--geo-manifest-sha256", help="publish-release: the SHA-256 of that index's manifest")
     parser.add_argument("--set-pointer", action="store_true",
                         help="publish-release: write the pointer (and the data files' entries) into --config first")
+    parser.add_argument("--verdict-r", help="publish-release with --config: the update's VERDICT-R.json (cardvision refresh "
+                                            "verdict replay); it must be a PASS that is not a rehearsal")
+    parser.add_argument("--verdict-n", help="publish-release with --config: the update's VERDICT-N.json (cardvision refresh "
+                                            "verdict newcard), under the same rule")
+    parser.add_argument("--no-refresh-gate", metavar="REASON",
+                        help="publish-release with --config, in place of the verdicts: why this release is not a gated card "
+                             "refresh (a first release, new models); logged")
     parser.add_argument("--sessions", action="store_true", help="also start the ONNX Runtime sessions in Node (a new model)")
     parser.add_argument("--candidate", help="verify-release-live: a release id on the CDN, without a pointer")
     parser.add_argument("--config-url", help="verify-release-live: read the pointer from this config.json")

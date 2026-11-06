@@ -181,14 +181,42 @@ def upload_release(s3, bucket: str, lr: LocalRelease, todo: list[ReleaseFile], l
     return 0
 
 
-def write_release_index(product: CdnConfig, s3, bucket: str, lr: LocalRelease, log: Callable[[str], None] = print) -> None:
-    """The tool's own record of what was published (not part of the contract)."""
+def read_release_index(product: CdnConfig, s3, bucket: str) -> dict:
+    """The tool's own record of what was published (not part of the contract), as it is on the
+    bucket. Read before anything is uploaded. A fresh record only when there is none yet: any
+    other failure to read it refuses the run, since a fresh record would replace every entry."""
     key = product.releases_index_key
     try:
-        idx = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
-    except Exception:
-        idx = {"schemaVersion": 1, "releases": {}}
-    idx.setdefault("releases", {})[lr.id] = {"publishedAt": _config.utc_now(), "bytes": {f.key.rsplit("/", 1)[1]: len(f.data) for f in lr.pinned}}
+        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except Exception as e:  # botocore's NoSuchKey; anything else is a real error
+        code = str(getattr(e, "response", {}).get("Error", {}).get("Code", ""))
+        if code in ("404", "NoSuchKey", "NotFound"):
+            return {"schemaVersion": 1, "releases": {}}
+        raise Refused(f"{key}: the release index could not be read ({type(e).__name__}: {e}); nothing written") from e
+    try:
+        idx = json.loads(body)
+    except ValueError as e:
+        raise Refused(f"{key}: the release index is not valid JSON ({e}); nothing written") from e
+    if not isinstance(idx, dict) or not isinstance(idx.get("releases", {}), dict):
+        raise Refused(f"{key}: the release index is not an object with a releases object; nothing written")
+    return idx
+
+
+def write_release_index(product: CdnConfig, s3, bucket: str, lr: LocalRelease, log: Callable[[str], None] = print, *,
+                        idx: Optional[dict] = None, uploaded: bool = True) -> None:
+    """Record this release in `idx`, the index read before the uploads (`read_release_index`; read
+    now when not given): when files were uploaded (`--fix-metadata` included, which sets a new
+    publishedAt), or when the index does not list it yet (a run after a crash that found every file
+    already there). When nothing was uploaded and it is listed, the index is left as it is. Two runs
+    for different releases at once can drop each other's entry; a later run of that release, with
+    nothing to upload, adds it back."""
+    key = product.releases_index_key
+    if idx is None:
+        idx = read_release_index(product, s3, bucket)
+    releases = idx.setdefault("releases", {})
+    if not uploaded and lr.id in releases:
+        return
+    releases[lr.id] = {"publishedAt": _config.utc_now(), "bytes": {f.key.rsplit("/", 1)[1]: len(f.data) for f in lr.pinned}}
     s3.put_object(Bucket=bucket, Key=key, Body=json.dumps(idx, indent=1).encode(),
                   ContentType="application/json", CacheControl=INDEX_CACHE)
     log(f"index: {key} written")

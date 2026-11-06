@@ -6,12 +6,13 @@ is written (a dry run too): a config's release pointer must verify live (``point
 every data file it names must be published by this run or already live with those bytes
 (``data_file_gate``).
 
-``publish-release``: every check first (the local seal, the runtime table, the models against what
-installs run and ``--sessions``, the runtime's own check in Node, the geometric settings and its
-index on the CDN, the data files, the config it would write, the data-file gate, the remote state
-through the S3 API); then the folder (pinned and legal files, geometric.json, release.json last),
-the release index, a live verification of the folder, the data files, config.json last and
-``verify``. A dry run makes every check and writes nothing.
+``publish-release``: every check first (the local seal; with --config, the refresh gate: both
+refresh verdicts, or the reason there are none (``refresh_gate``); the runtime table, the models
+against what installs run and ``--sessions``, the runtime's own check in Node, the geometric settings and
+its index on the CDN, the data files, the config it would write, the data-file gate, the remote
+state through the S3 API, the release index); then the folder (pinned and legal files,
+geometric.json, release.json last), the release index, a live verification of the folder, the data
+files, config.json last and ``verify``. A dry run makes every check and writes nothing.
 
 Both runs that check a release folder live (``publish-release``, and ``publish --config`` with a
 pointer that is not the live one) refuse at once when ``_EXTENSION_IDS`` is not set, a dry run
@@ -25,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
@@ -38,6 +40,7 @@ from cardvision.cdn.release import (
     load_local_release,
     load_runtimes,
     pointer_block,
+    read_release_index,
     remote_state,
     runtime_problems,
     upload_release,
@@ -169,12 +172,68 @@ def data_file_gate(product: CdnConfig, public_base: str, cfg_bytes: Optional[byt
     return None
 
 
+VERDICT_GATES = (("R", "verdict_r", "--verdict-r"), ("N", "verdict_n", "--verdict-n"))
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def refresh_gate(args, log: Callable[[str], None] = print) -> None:
+    """A run that moves the pointer (--config) needs the update's two refresh verdicts
+    (``cardvision refresh verdict``), each a PASS that is not a rehearsal, judged under one rule;
+    or ``--no-refresh-gate`` with the reason this release is not a gated card refresh. Refuses
+    otherwise, before anything is read from the network or written, a dry run included. A verdict
+    does not name the candidate it judged, so the log names each file with its SHA-256: which
+    files allowed the move can be checked afterwards."""
+    reason = getattr(args, "no_refresh_gate", None)
+    paths = {gate: getattr(args, attr, None) for gate, attr, _ in VERDICT_GATES}
+    if reason is not None:
+        if any(path is not None for path in paths.values()):
+            raise Refused("--no-refresh-gate and --verdict-r/--verdict-n: pass the verdicts, or the reason there are none")
+        if not reason.strip():
+            raise Refused("--no-refresh-gate needs the reason this release is not a gated card refresh")
+        if any(not ch.isprintable() for ch in reason):
+            raise Refused("--no-refresh-gate: the reason is one line of printable text (it is logged)")
+        log(f"refresh gate: none, {reason.strip()}")
+        return
+    missing = [flag for gate, _, flag in VERDICT_GATES if not paths[gate]]
+    if missing:
+        raise Refused(f"moving the pointer (--config) needs the refresh verdicts: {' and '.join(missing)} missing "
+                      "(VERDICT-R.json and VERDICT-N.json from cardvision refresh verdict); or --no-refresh-gate "
+                      "\"<reason>\" for a release that is not a gated card refresh")
+    seen = {}
+    for gate, _, flag in VERDICT_GATES:
+        path = Path(paths[gate])
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            raise Refused(f"{flag} {path}: cannot be read ({e.strerror or e})") from e
+        try:
+            doc = json.loads(data)
+        except (ValueError, RecursionError) as e:
+            raise Refused(f"{flag} {path}: not a verdict file (not JSON)") from e
+        if not isinstance(doc, dict) or doc.get("gate") != gate:
+            got = doc.get("gate") if isinstance(doc, dict) else None
+            raise Refused(f"{flag} {path}: not a gate {gate} verdict (gate {got!r})")
+        if doc.get("verdict") != "PASS":
+            raise Refused(f"{flag} {path}: {doc.get('verdict')!r}, not PASS")
+        if "rehearsal" not in doc:
+            raise Refused(f"{flag} {path}: no rehearsal field, so it cannot be told from a rehearsal")
+        if doc["rehearsal"] is not False:
+            raise Refused(f"{flag} {path}: a rehearsal verdict (rehearsal {doc['rehearsal']!r})")
+        if not isinstance(doc.get("rule"), str) or not SHA256_RE.fullmatch(doc["rule"]):
+            raise Refused(f"{flag} {path}: no rule SHA-256")
+        seen[gate] = (path, doc["rule"], hashlib.sha256(data).hexdigest())
+    if seen["R"][1] != seen["N"][1]:
+        raise Refused(f"the verdicts were judged under different rules: R {seen['R'][1]}, N {seen['N'][1]}")
+    for gate, (path, rule, sha) in seen.items():
+        log(f"refresh gate: {gate} PASS under rule {rule}, {path} sha256 {sha}")
+
+
 def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=None, node: Optional[NodeCheck] = None,
                     log: Callable[[str], None] = print, get: Optional[Get] = None, runtimes: Optional[dict] = None,
                     verify_after=None) -> int:
     """publish-release. `args` carries release, legal, min_version, max_version, sessions,
-    fix_metadata, dry_run, config, set_pointer, and optionally data_files (paths), geometric and
-    geo_manifest_sha256. Returns 0 or 1; a refusal raises Refused before anything is written."""
+    fix_metadata, dry_run, config, set_pointer, and optionally data_files (paths), geometric,
+    geo_manifest_sha256, and verdict_r, verdict_n or no_refresh_gate (``refresh_gate``). Returns 0 or 1; a refusal raises Refused before anything is written."""
     if verify_live is None:
         missing = missing_extension_ids(product, "publish-release")
         if missing:
@@ -185,6 +244,10 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
     min_v, max_v = args.min_version, args.max_version
     if not min_v or not VERSION_RE.match(min_v) or (max_v and not VERSION_RE.match(max_v)):
         raise Refused("--min-version x.y.z is required (and --max-version, when given, is x.y.z)")
+    if args.config:
+        refresh_gate(args, log)
+    elif getattr(args, "no_refresh_gate", None) is not None or any(getattr(args, a, None) for _, a, _ in VERDICT_GATES):
+        log("refresh gate: not needed, no --config (the pointer does not move); the verdict options are not read")
     runtimes = runtimes if runtimes is not None else load_runtimes(product)
     problems = runtime_problems(lr.doc, min_v, max_v, runtimes, product.runtimes_label)
     if problems:
@@ -222,6 +285,7 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
     s3 = s3 or r2_client(t)
     files = lr.pinned + lr.legal + ([lr.geometric] if lr.geometric else []) + [lr.doc_file]
     todo, there = remote_state(s3, t.bucket, files, args.fix_metadata)
+    index = read_release_index(product, s3, t.bucket)
     log(f"remote: {len(todo)} to upload, {len(there)} already there")
     for f in todo:
         log(f"  upload {f.key} ({len(f.data)} bytes)")
@@ -234,8 +298,7 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
         return 0
     if upload_release(s3, t.bucket, lr, todo, log):
         return 1
-    if todo:
-        write_release_index(product, s3, t.bucket, lr, log)
+    write_release_index(product, s3, t.bucket, lr, log, idx=index, uploaded=bool(todo))
     live = verify_live or (lambda *a, **k: verify_release_live(product, *a, **k))
     if live(t.public_base, candidate=lr.id, expect_sha=block["sha256"], sessions=args.sessions,
             expect_files={f.key.rsplit("/", 1)[1]: f.sha256 for f in lr.legal}, geometric=block.get("geometric")):

@@ -228,7 +228,8 @@ and wrong metadata refuses it too, unless `--fix-metadata`, which rewrites the m
 ### publish-release
 
 ```
-cardvision cdn publish-release --env-file .env --release RELEASE_DIR --min-version 1.2.0 --config cdn/config.json --set-pointer --dry-run
+cardvision cdn publish-release --env-file .env --release RELEASE_DIR --min-version 1.2.0 --config cdn/config.json --set-pointer \
+    --verdict-r UPDATE/replay/VERDICT-R.json --verdict-n UPDATE/newcard/VERDICT-N.json --dry-run
 ```
 
 `RELEASE_DIR` is a release folder named after its id (`cardvision build-release`). Every check
@@ -237,24 +238,37 @@ runs first, a dry run included:
 1. **The seal:** the document is at most 262144 bytes, its id is the folder's name, every
    pinned file is a flat name with its size and SHA-256, and `releases.legalDir` (or `--legal`)
    holds `LICENSE`, `NOTICE` and `PROVENANCE.md`, with the release id on `NOTICE`'s first line.
-2. **The runtimes:** every version in [the runtime table](#the-runtime-table) that the pointer
+2. **The refresh gate,** whenever the run would write `config.json` (`--config`, which moves the
+   pointer): `--verdict-r` and `--verdict-n` name the update's two verdict files
+   (`cardvision refresh verdict`, [the card-update playbook](../playbooks/refresh-set.md)). Each
+   must be a PASS of its own gate, with `rehearsal` present and false, and both must name the
+   same rule SHA-256. A release that is not a gated card refresh, such as a first release or one
+   with new models, passes `--no-refresh-gate "REASON"` instead; the reason must not be empty and
+   is logged. A verdict does not name the candidate it judged, so the log names each verdict file
+   with its SHA-256, for the update's record. Without `--config` there is no gate.
+3. **The runtimes:** every version in [the runtime table](#the-runtime-table) that the pointer
    reaches runs the release's ONNX Runtime major.minor.
-3. **The models:** when the detector or the recognizer differs from what installs run now (the
+4. **The models:** when the detector or the recognizer differs from what installs run now (the
    live pointer's release, else each reached version's bundled one), `--sessions` is required.
-4. **The runtime's own check,** in Node: the vendored `verify-release.mjs --dir`, with
+5. **The runtime's own check,** in Node: the vendored `verify-release.mjs --dir`, with
    `--sessions` starting both ONNX Runtime sessions.
-5. **The geometric stage** (`--geometric FILE --geo-manifest-sha256 SHA`): the index is already
+6. **The geometric stage** (`--geometric FILE --geo-manifest-sha256 SHA`): the index is already
    on the host (`publish-geo` first), in a folder of one layout, with that manifest SHA-256,
    bound to the release's bank, with a row for every bank card. Without `--geometric`, installs
    run the release with the stage off.
-6. **The settings file** it would write (`--config`, with `--set-pointer` to write the pointer
+7. **The settings file** it would write (`--config`, with `--set-pointer` to write the pointer
    and the data files' entries into it) passes the contract.
-7. **The data files** it names are published by this run or already live with those bytes.
-8. **The remote state,** through the S3 API only, so that no 404 is cached at the edge: a key
+8. **The data files** it names are published by this run or already live with those bytes.
+9. **The remote state,** through the S3 API only, so that no 404 is cached at the edge: a key
    that holds other bytes refuses the whole run. A folder is never overwritten.
+10. **The release index,** `vision/releases/index.json`, the tool's own record of what it
+   published: read now, so that one that cannot be read (an error other than "no such key", or
+   not a JSON object with a `releases` object) refuses the run with nothing written. When there
+   is none yet, a new one is started.
 
 Then, without `--dry-run`: the pinned and legal files, `geometric.json`, `release.json` last in
-the folder (each checked by HEAD); `vision/releases/index.json`; a live check of the folder
+the folder (each checked by HEAD); the release index, when this run uploaded files or the index
+does not list the release yet (a run after a crash that found every file there); a live check of the folder
 (`verify-release-live`); the data files; `config.json` last; and `verify`. Without `--config`
 the folder is published and the pointer does not move.
 
@@ -277,6 +291,9 @@ JSON. With a geometric pointer it also checks `geometric.json` and its index's b
   bucket or the public base holds one of `forbiddenWords`.
 - **The settings file** is checked against the contract before it goes out, and its `primary`
   must be on `_PUBLIC_BASE`. No template may point at another project.
+- **The refresh gate** guards `publish-release --config` only. `publish --config` with a
+  pointer that is not the live one is checked live (it must load), but not gated by the
+  verdicts: it is meant for a rollback to a release that was live before.
 - **A pointer only moves to a folder that verifies live.** `publish --config` with a `release`
   field checks it live first, unless it is the live pointer already (so an emergency
   `namesOnly` never waits). A rollback is checked the same way.
