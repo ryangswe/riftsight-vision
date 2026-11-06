@@ -100,6 +100,16 @@ include = ["cardvision*"]
 "cardvision.train_detector" = ["default.toml"]
 "cardvision.train_recognizer" = ["default.toml"]
 
+[tool.ruff.lint]
+# These are bug-finding rules only, and style is not checked. requirements-lint.txt pins ruff, and
+# ruff skips the files git ignores. F is pyflakes (undefined or redefined names, unused local
+# variables, broken format strings and similar), without its unused-import and empty f-string
+# rules. PLE finds code that fails at run time, ASYNC finds blocking calls and other mistakes in
+# async code, and RUF006 finds an asyncio task whose result is dropped. Four ASYNC rules that give
+# advice rather than find bugs are left out.
+select = ["F", "PLE", "ASYNC", "RUF006"]
+ignore = ["F401", "F541", "ASYNC109", "ASYNC110", "ASYNC115", "ASYNC116"]
+
 [tool.pytest.ini_options]
 # The labeling tool is a separate standard-library program with a unittest suite of its own
 # ("python -m unittest discover -s labeler"); pytest runs that suite too.

@@ -441,7 +441,6 @@ def draw_campfire(s: Canvas, card_id: str, color, box, scale: float) -> None:
     for hx, hr, tone in ((0.15, 0.6, 0.55), (0.85, 0.66, 0.45), (0.5, 0.52, 0.65)):
         s.circle(x0 + ww * hx, y1 + wh * hr * 0.62, wh * hr, shade(mix(color, night, 0.45), tone))
     cx, ground = x0 + ww * 0.5, y0 + wh * 0.84
-    fire = (255, 150, 60)
     glow = (255, 118, 40)
     for r, t in ((0.5, 0.9), (0.38, 0.82), (0.27, 0.72)):  # the glow, warmer toward the fire
         s.circle(cx, ground - wh * 0.16, wh * r, mix(glow, night, t))

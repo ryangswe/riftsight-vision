@@ -96,7 +96,7 @@ ask them to paste a password or a token into the chat.
 6. **Run the validator on every label manifest you touch:**
    `cardvision validate-manifest FILE --catalog CATALOG` (add `--sources FILE` when the game has
    a sources file, and `--contribution` for labels being offered).
-7. **Before you propose a code change,** run `python -m pytest` and make sure it passes. New files in `cardvision/`, `tests/`,
+7. **Before you propose a code change,** run `python -m pytest` and `python -m ruff check .` and make sure both pass. New files in `cardvision/`, `tests/`,
    `labeler/`, `examples/`, `games/`, `data/`, `browser/`, `docs/`, `playbooks/`, `.github/` and
    at the top level start with the license line (`SPDX-License-Identifier: Apache-2.0` as a
    comment of that file type); JSON and CSV files are the exception.

@@ -40,7 +40,7 @@ npm run build
 Among other lines, you should see something like:
 
 ```
-added 58 packages, and audited 59 packages in 4s
+added 63 packages, and audited 64 packages in 4s
  Test Files  N passed (N)
       Tests  N passed | 6 skipped (N)
 dist/cardvision.js 902 KB, dist/worker.js 920 KB, dist/demo/demo.js 44 KB, dist/demo/score.js 30 KB, 8 ONNX Runtime files copied
@@ -57,8 +57,9 @@ scripts not yet covered by allowScripts` (esbuild, fsevents, protobufjs; npm 11)
 `npm notice` that a new major version of npm is available: both are harmless. Times and sizes
 may differ a little on your machine.
 
-`npm test` type-checks (TypeScript, strict) and runs the tests with vitest. `npm run build`
-bundles with esbuild into `dist/`, which is not kept in the repository:
+`npm test` type-checks (TypeScript, strict) and runs the tests with vitest. `npm run lint` finds
+unhandled promises and switches that miss a case (the rules are in `.oxlintrc.json`); CI runs it
+too. `npm run build` bundles with esbuild into `dist/`, which is not kept in the repository:
 
 | File | What it is |
 | --- | --- |

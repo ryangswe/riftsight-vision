@@ -4,6 +4,7 @@
 # Python package give the same answers on the toy game (tests/test_browser_agreement.py), with
 # the fixtures both sides are pinned to (tests/test_browser_fixtures.py). No browser is started:
 # the TypeScript pipeline runs under Node, on ONNX Runtime Web's WebAssembly backend.
+# Before the tests, the type-aware lint (npm run lint, browser/.oxlintrc.json) runs.
 name: Browser runtime
 
 on:
@@ -31,6 +32,9 @@ jobs:
       - name: Install the browser runtime's locked dependencies
         working-directory: browser
         run: npm ci
+      - name: Lint for unhandled promises and missed switch cases
+        working-directory: browser
+        run: npm run lint
       - name: Type-check and run the browser runtime's tests
         working-directory: browser
         run: npm test
