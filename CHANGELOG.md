@@ -9,6 +9,16 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.10.0rc1] - 2026-11-09
+
+A release candidate, because one change breaks the public surface: `cardvision cdn
+publish-release --config` now checks the refresh verdicts before it moves a pointer (under Changed,
+with how to migrate). Also in this release: outlines of tilted cards, store uploads from the
+account holder's own machine, two fixes (the release index, and a bundled release that fails to
+load), and project practices (bug-pattern lint in CI, Python 3.13, hash-pinned installs, pinned
+workflow steps). No model, release document or recognizer decision changes, and the contract's
+`PROTOCOL_VERSION` stays 1.
+
 ### Added
 
 - `outline_rect(crop, width, height)` and `outline_from_tilt(tilt, width, height)` in
@@ -31,6 +41,17 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- **Breaking:** `cardvision cdn publish-release` checks the refresh verdicts before it moves a
+  pointer. A run with `--config` needs `--verdict-r VERDICT-R.json --verdict-n VERDICT-N.json`
+  (each a PASS of its own gate, with `rehearsal` present and false, under the same rule) or
+  `--no-refresh-gate "REASON"` for a release that is not a gated card refresh, such as a first
+  release or new models. Otherwise it refuses before anything is fetched or written, a dry run
+  included. The log names each verdict file with its SHA-256. Before, it read neither file, so a
+  failed or rehearsal candidate could be published with the pointer moved. To migrate, add the two
+  verdicts from the card-update playbook's steps 4 and 5 to the release command (step 6.5), or
+  `--no-refresh-gate` with the reason. `publish-release` without `--config` and
+  `publish --config` are unchanged: `publish --config` with a new pointer (meant for a rollback)
+  is not gated.
 - CI now lints for bug patterns only. Python code is checked with ruff (rules in `pyproject.toml`,
   version pinned in `requirements-lint.txt`), and the browser runtime with oxlint's type-aware rules
   (`npm run lint`, `browser/.oxlintrc.json`). No behavior changes.
@@ -52,17 +73,9 @@ break the public surface; this file names each break and how to migrate.
   `pip install -r requirements-lock.txt` checks what it downloads. The publish workflow installs
   its build tools from `requirements-publish.txt`, pinned the same way, in place of the newest
   `build` and `twine`.
-- **Breaking:** `cardvision cdn publish-release` checks the refresh verdicts before it moves a
-  pointer. A run with `--config` needs `--verdict-r VERDICT-R.json --verdict-n VERDICT-N.json`
-  (each a PASS of its own gate, with `rehearsal` present and false, under the same rule) or
-  `--no-refresh-gate "REASON"` for a release that is not a gated card refresh, such as a first
-  release or new models. Otherwise it refuses before anything is fetched or written, a dry run
-  included. The log names each verdict file with its SHA-256. Before, it read neither file, so a
-  failed or rehearsal candidate could be published with the pointer moved. To migrate, add the two
-  verdicts from the card-update playbook's steps 4 and 5 to the release command (step 6.5), or
-  `--no-refresh-gate` with the reason. `publish-release` without `--config` and
-  `publish --config` are unchanged: `publish --config` with a new pointer (meant for a rollback)
-  is not gated.
+- The languages recipe ([docs/languages.md](docs/languages.md)): the browser's languages are the
+  default, and an extension may offer a card language setting over them; `viewerLanguage` takes
+  the choice and walks the whole of `navigator.languages`.
 
 ### Fixed
 
@@ -74,9 +87,6 @@ break the public surface; this file names each break and how to migrate.
   to the index; before, the index was written only when something was uploaded. In the library,
   `write_release_index` called without the index read first now raises `Refused` on such a read,
   where it started a fresh index.
-
-### Fixed
-
 - The browser session turns recognition off for good when the bundled release fails to load,
   whether its worker stops before loading or answers that the release did not load (the first
   worker's or the restarted one's). The worker is ended, so its runtime's memory goes with it, and
@@ -1237,7 +1247,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0rc1...HEAD
+[0.10.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0rc1
 [0.9.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0
 [0.9.0rc4]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0rc3...v0.9.0rc4
