@@ -34,20 +34,34 @@ pictures.
   database can show a field differently from the printed card (a type line split into an icon
   and a word, for example): compare against what is printed, and note which fields the check
   covered.
-- **The language comes from the browser.** There is no setting. Take the first entry of
-  `navigator.languages`, keep its base subtag, and fall back to the catalog's language when that
-  language isn't offered:
+- **The browser's languages are the default, and a setting may override them.** Offer a card
+  language choice: Automatic (the default), the catalog's language, then each offered language.
+  Name each one in its own language (`new Intl.DisplayNames([code], { type: "language" }).of(code)`),
+  so that a language added later appears with no new version. Automatic walks the whole of
+  `navigator.languages`, not only its first entry, and takes the first one whose base subtag is
+  the catalog's language or an offered translation. A stored choice that the settings file no
+  longer offers follows the browser until it is offered again; keep the stored choice. The card
+  language is separate from the extension's own interface, which follows the browser.
 
   ```ts
-  function viewerLanguage(offered: readonly string[], fallback = "en"): string {
-    const first = (navigator.languages || []).find((l) => l) || navigator.language || fallback;
-    const base = first.toLowerCase().split(/[-_]/)[0];
-    return offered.includes(base) ? base : fallback;
+  function viewerLanguage(
+    offered: readonly string[],
+    choice = "auto",
+    languages: readonly string[] = navigator.languages?.length ? navigator.languages : [navigator.language],
+    catalog = "en",
+  ): string {
+    if (choice !== "auto" && (choice === catalog || offered.includes(choice))) return choice;
+    for (const l of languages) {
+      const base = (l || "").toLowerCase().split(/[-_]/)[0];
+      if (base === catalog || offered.includes(base)) return base;
+    }
+    return catalog;
   }
   ```
 
-  `"fr-CA"` gives `fr`. It works the same in Chrome and Firefox. The catalog's own language is
-  never one of the offered translations.
+  With French offered: `["fr-CA"]` gives `fr`, `["ja", "fr"]` gives `fr`, and `["en-US", "fr"]`
+  gives `en`, the catalog's language, because it comes first. It works the same in Chrome and
+  Firefox. The catalog's own language is never one of the offered translations.
 - **Credit every source** in the extension's notices and store listing. If a source's license
   is share-alike, keep its data in its own files with that license named inside them, apart
   from the extension's code. Read the publisher's terms for its pictures and text before you
