@@ -1,0 +1,14 @@
+{
+  "about": "Eight rests on the toy table that the toy release's demo writes (table.png). x and y are fractions of the picture; expect is the card id the toy release names there.",
+  "warmUpCycles": 3,
+  "rests": [
+    { "x": 0.125, "y": 0.27, "expect": "TOY-001" },
+    { "x": 0.38, "y": 0.21, "expect": "TOY-003" },
+    { "x": 0.64, "y": 0.27, "expect": "TOY-007" },
+    { "x": 0.86, "y": 0.27, "expect": "TOY-011" },
+    { "x": 0.16, "y": 0.7, "expect": "TOY-017" },
+    { "x": 0.125, "y": 0.27, "expect": "TOY-001" },
+    { "x": 0.86, "y": 0.27, "expect": "TOY-011" },
+    { "x": 0.38, "y": 0.21, "expect": "TOY-003" }
+  ]
+}

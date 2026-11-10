@@ -9,6 +9,15 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- `npm run user-wait` in `browser/` measures how long a viewer waits for the right name: it plays
+  a clip in a headless Chrome with the built runtime, rests the pointer where a script says, and
+  reports per rest the time until `session.atPointer()` returns the expected card, with the median
+  and 90th percentile. The slowdown (a Chrome CPU throttle on the page, plus a wrapper that slows
+  the analysis worker) is emulated and the report gives the factors it measured. It needs
+  `puppeteer-core`, which is not a dependency, and changes nothing under `src/`.
+
 ## [0.10.1] - 2026-11-10
 
 0.10.0's outlines of tilted cards reached the hit test but not the shown card, so a caller could
