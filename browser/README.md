@@ -1134,7 +1134,9 @@ Before each, the harness waits `pauseMs` (default 1000) and then moves the point
 move; that move is when the pointer comes to rest. `leaveAfterMs` moves the pointer away again
 that long after, if no name has shown by then. `limitMs` sets the wait limit for that rest
 (default `--limit`, 10000 ms). `atSec`, for a video clip, seeks the clip to that time first, so
-the rest meets a new picture.
+the rest meets a new picture. The local server answers range requests, so a seek can land past
+what the browser has buffered. The clip plays on from there, so keep each picture on screen for
+longer than the rest's wait limit.
 
 **Warm-up.** `warmUpCycles` (default 3) first moves the pointer a little over the first rest
 until that many frames beyond the first have been analyzed, unthrottled, so the models' first

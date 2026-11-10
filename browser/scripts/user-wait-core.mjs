@@ -134,6 +134,33 @@ export function createRequestGuard(origin) {
 }
 
 /**
+ * The byte range a `Range` request header asks of a file of `size` bytes, for the local server.
+ * Without range answers a browser can seek a video only inside what it has buffered, and a seek
+ * past that lands at the start with no error. One range only (`bytes=a-b`, `bytes=a-` or the
+ * last `bytes=-n`): `null` means send the whole file (no header, or one this does not read, such
+ * as several ranges), `"unsatisfiable"` means answer 416.
+ */
+export function byteRange(header, size) {
+  if (typeof header !== "string") return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (m[1] === "" && m[2] === "")) return null;
+  let start;
+  let end;
+  if (m[1] === "") {
+    const suffix = Number(m[2]);
+    if (suffix === 0) return "unsatisfiable";
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] === "" ? size - 1 : Math.min(Number(m[2]), size - 1);
+    if (m[2] !== "" && Number(m[2]) < start) return null;
+  }
+  if (start >= size) return "unsatisfiable";
+  return { start, end };
+}
+
+/**
  * Whether the browser runs natively. `machine` is Node's `process.arch` ("arm64" or "x64"),
  * `binary` the architectures found in the Chrome file, `page` what the page's
  * `navigator.userAgentData` says it runs as (`architecture`: "arm" or "x86"). A binary running
