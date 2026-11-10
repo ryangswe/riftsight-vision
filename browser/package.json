@@ -17,7 +17,8 @@
     "build:pages": "node scripts/build-pages.mjs",
     "preview:pages": "node scripts/pages-preview.mjs",
     "agreement": "node scripts/agreement.mjs",
-    "test:webgpu": "node scripts/webgpu-test.mjs"
+    "test:webgpu": "node scripts/webgpu-test.mjs",
+    "user-wait": "node scripts/build.mjs && node scripts/user-wait.mjs"
   },
   "dependencies": {
     "onnxruntime-web": "1.29.0"

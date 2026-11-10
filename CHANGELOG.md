@@ -19,6 +19,16 @@ break the public surface; this file names each break and how to migrate.
 - `cardvision refresh verdict newcard` on a folder for a candidate with no new cards (an empty
   `catalog.json` from `refresh subset --new-vs`, no scenes) ends INVALID with the note
   `no new cards: gate N has nothing to judge`, instead of `unreadable input`.
+- `npm run user-wait` in `browser/` measures how long a viewer waits for the right name: it plays
+  a clip in a headless Chrome with the built runtime, rests the pointer where a script says, and
+  reports per rest the time until `session.atPointer()` returns the expected card, with the median
+  and 90th percentile. The slowdown (a Chrome CPU throttle on the page, plus a wrapper that slows
+  the analysis worker, corrected for the throttle's own effect on the worker's speed) is emulated
+  and the report gives the factors it measured. `--scenes` swaps the cards on a toy table just
+  before each rest, so a rest waits for a new analysis, and each line says how many ran. Runs are
+  warm by default (3 analysis cycles); `--cold` measures a cold first hover. It needs
+  `puppeteer-core`, which is not a dependency (install it with `--prefix` and name that folder
+  in `PUPPETEER_CORE_DIR`), and changes nothing under `src/`.
 
 ## [0.10.1] - 2026-11-10
 

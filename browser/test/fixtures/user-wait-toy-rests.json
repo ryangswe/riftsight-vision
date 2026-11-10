@@ -1,0 +1,54 @@
+{
+  "about": "Eight rests on the toy tables of user-wait-toy-scenes.json (run with --scenes and --art). Each rest first switches the scene, so the card under the pointer is not the one the last analysis saw. x and y are fractions of the picture; expect is the card id the toy release names there.",
+  "warmUpCycles": 3,
+  "rests": [
+    {
+      "x": 0.125,
+      "y": 0.27,
+      "expect": "TOY-002",
+      "scene": "B"
+    },
+    {
+      "x": 0.38,
+      "y": 0.21,
+      "expect": "TOY-009",
+      "scene": "C"
+    },
+    {
+      "x": 0.64,
+      "y": 0.27,
+      "expect": "TOY-007",
+      "scene": "A"
+    },
+    {
+      "x": 0.86,
+      "y": 0.27,
+      "expect": "TOY-008",
+      "scene": "B"
+    },
+    {
+      "x": 0.125,
+      "y": 0.27,
+      "expect": "TOY-005",
+      "scene": "C"
+    },
+    {
+      "x": 0.38,
+      "y": 0.21,
+      "expect": "TOY-003",
+      "scene": "A"
+    },
+    {
+      "x": 0.64,
+      "y": 0.27,
+      "expect": "TOY-006",
+      "scene": "B"
+    },
+    {
+      "x": 0.86,
+      "y": 0.27,
+      "expect": "TOY-013",
+      "scene": "C"
+    }
+  ]
+}
