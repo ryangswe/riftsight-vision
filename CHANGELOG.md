@@ -9,6 +9,15 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Fixed
+
+- With `rotatedOutlines`, the shown card now carries its outline: `session.at()`, `atPointer()`,
+  the session core's shown card and the compute frame's `shown` message (`ShownCard`) add
+  optional `rotation`, `localWidth` and `localHeight` when the card is turned, so a caller can
+  draw the outline the hit test uses instead of the upright box. Upright cards and sessions
+  without the option carry none of them, and a content-side parser drops a malformed outline and
+  keeps the card. `PROTOCOL_VERSION` stays 1, and 0.10.0's parser ignores the fields.
+
 ## [0.10.0] - 2026-11-10
 
 `cardvision cdn publish-release --config` checks the **refresh verdicts** before it moves a

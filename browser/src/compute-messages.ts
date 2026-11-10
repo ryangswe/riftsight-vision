@@ -29,6 +29,13 @@ export interface ShownCard {
   /** The other cards of the same analysis (at most `MAX_OTHER_BOXES`), so that a tooltip can be
    *  placed off them. */
   others?: FractionBox[];
+  /** The card's outline when it is turned (session option `rotatedOutlines`): its tilt in
+   *  degrees in (-45, 45], positive clockwise like CSS `rotate()`, and its own sides in fractions
+   *  of the picture, about the center of `box` (the same fields as a hover card, so
+   *  `computeCardQuad` takes them). All three or none; absent for an upright card. */
+  rotation?: number;
+  localWidth?: number;
+  localHeight?: number;
 }
 
 /** The two-frame contract's version. A content script and a compute frame work together only
@@ -126,6 +133,14 @@ function parseBox(v: unknown): FractionBox | null {
   return isNum(b.x) && isNum(b.y) && isNum(b.width) && isNum(b.height) && b.width > 0 && b.height > 0
     ? { x: b.x, y: b.y, width: b.width, height: b.height }
     : null;
+}
+
+/** The outline fields of a shown card, all three valid or none: a malformed or partial outline
+ *  is dropped and the card shows upright, never hidden. */
+function parseOutline(c: Raw): Pick<ShownCard, "rotation" | "localWidth" | "localHeight"> {
+  const { rotation, localWidth, localHeight } = c;
+  const side = (v: unknown): v is number => isNum(v) && v > 0 && v <= 1;
+  return isNum(rotation) && rotation > -45 && rotation <= 45 && side(localWidth) && side(localHeight) ? { rotation, localWidth, localHeight } : {};
 }
 
 /** The fields of the contract's messages, both directions: a tag may not be one of them. */
@@ -229,7 +244,7 @@ export function computeProtocol(tag = "cardvision"): ComputeProtocol {
         if (!(c && isText(c.cardId) && isText(c.name) && box)) return null;
         const others = Array.isArray(c.others) ? c.others.slice(0, MAX_OTHER_BOXES).map(parseBox).filter((b): b is FractionBox => b !== null) : [];
         const releaseId = typeof c.releaseId === "string" && RELEASE_ID.test(c.releaseId) ? c.releaseId : undefined;
-        return { kind: "shown", card: { cardId: c.cardId, name: c.name, ...(releaseId ? { releaseId } : {}), box, others } };
+        return { kind: "shown", card: { cardId: c.cardId, name: c.name, ...(releaseId ? { releaseId } : {}), box, others, ...parseOutline(c) } };
       }
       default:
         return null;

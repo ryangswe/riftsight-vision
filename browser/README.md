@@ -1071,7 +1071,15 @@ true })`, or a worker frame request's field of the same name), each named card i
 `bounds` stays the detector's box, with the same center. `hoverAt` under the selection the frame
 was analyzed with, and the card quad (`computeCardQuad`), then follow the tilted card; `hoverAt`
 under another selection rebuilds the cards from the boxes, without outlines. The session's
-`at()` and its hold still give and test the card's box (`box`, `frameBox`). A card that is upright (under 1 degree), whose
+hold still tests the card's box. The shown card, as `session.at()` and `atPointer()` give it and
+as an extension's compute frame posts it (`ShownCard`), carries the hovered card's outline when
+the card is turned: `rotation`, `localWidth` and `localHeight`, with the same meaning as on a
+hover card, about the center of `box` (`frameBox` stays the box in pixels). So `computeCardQuad`
+takes the shown card directly to draw what the hit test uses. The three are all present or all
+absent: a card that is upright, or any card with the option off, has none (never `rotation: 0`).
+A content-side parser drops a malformed or partial outline (rotation outside (-45, 45], a side
+outside (0, 1], or fewer than three fields) and keeps the card, so it shows upright; a parser from
+0.10.0 ignores the fields. `PROTOCOL_VERSION` stays 1. A card that is upright (under 1 degree), whose
 sides cannot be solved exactly, or that is not named keeps its box: rotation 0 and the box's
 size. No answer, accept or box changes, and off is exactly as before. The
 outline costs one tilt estimate per face whose look reaches tau, on the crop the face already

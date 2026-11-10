@@ -43,6 +43,7 @@ import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
 import { hoverAt } from "./hover-at.js";
+import type { LayerCard } from "./hover-geometry.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { SessionStatus } from "./session.js";
 import { CONFIRM_FRAMES } from "./temporal-gate.js";
@@ -60,6 +61,12 @@ export interface Shown {
   /** The boxes of the other cards of the same analysis, in fractions, for placing a tooltip off
    *  them (at most `maxOtherBoxes`). */
   others: FractionBox[];
+  /** The card's outline when it is turned (session option `rotatedOutlines`): its tilt in
+   *  degrees in (-45, 45], positive clockwise like CSS `rotate()`, and its own sides in fractions
+   *  of the picture, about the center of `box`. All three or none; absent for an upright card. */
+  rotation?: number;
+  localWidth?: number;
+  localHeight?: number;
 }
 
 /** The shown card's hold: how long it survives analyses that do not see it at the pointer. */
@@ -127,6 +134,14 @@ export interface SessionCoreOptions {
  *  stopped, so a reply that arrives late changes nothing. */
 export function progressUpdate(state: SessionStatus["state"], reply: ReleaseProgress): SessionStatus["loading"] | undefined {
   return state === "loading" ? { phase: reply.phase, bytes: reply.bytes } : undefined;
+}
+
+/** The hovered card's outline, only when the card is turned: an upright card (or one without an
+ *  outline) gives nothing, never `rotation: 0`. */
+function turnedOutline(card: LayerCard | null): { rotation: number; localWidth: number; localHeight: number } | Record<string, never> {
+  if (!card || !Number.isFinite(card.rotation) || card.rotation === 0) return {};
+  const { rotation, localWidth, localHeight } = card;
+  return rotation > -45 && rotation <= 45 && localWidth > 0 && localWidth <= 1 && localHeight > 0 && localHeight <= 1 ? { rotation, localWidth, localHeight } : {};
 }
 
 /** The boxes of an analysis's named and unnamed hover cards other than `box`, in fractions. */
@@ -491,7 +506,7 @@ export class SessionCore {
     if (!hit.box || hit.cardId === null || hit.name === null) return null;
     const box = { x: hit.box.x / width, y: hit.box.y / height, width: hit.box.width / width, height: hit.box.height / height };
     const frameBox = { x: hit.box.x, y: hit.box.y, width: hit.box.width, height: hit.box.height };
-    return { cardId: hit.cardId, name: hit.name, box, frameBox, others: neighborBoxes(result.analysis, box, this.maxOtherBoxes) };
+    return { cardId: hit.cardId, name: hit.name, box, frameBox, others: neighborBoxes(result.analysis, box, this.maxOtherBoxes), ...turnedOutline(hit.card) };
   }
 
   /** The card at the pointer in the newest result that may still be shown; null for nothing, or
