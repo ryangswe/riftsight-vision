@@ -257,7 +257,8 @@ runs first, a dry run included:
    error, a timeout, not JSON, bytes off the pin), or no live pointer at all, refuses the run;
    it never counts as "no new cards". This check needs the live release, so unlike the checks
    above it runs after the live state is read and before anything is written, a dry run
-   included. `--verdict-n` alone is still refused.
+   included. `--verdict-n` alone is still refused. New cards that all lack art leave gate N
+   with nothing to judge, yet count as new here, so that update uses `--no-refresh-gate`.
 3. **The runtimes:** every version in [the runtime table](#the-runtime-table) that the pointer
    reaches runs the release's ONNX Runtime major.minor.
 4. **The models:** when the detector or the recognizer differs from what installs run now (the

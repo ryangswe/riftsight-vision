@@ -409,3 +409,49 @@ def test_verdict_n_alone_stays_refused_and_both_verdicts_never_read_the_live_cat
     run(setup, with_args(setup, dry_run=True), FakeS3(),
         get=lambda url, **k: asked.append(url) or no_pointer(url, **k))
     assert not any("catalog" in u for u in asked)
+
+
+R_ONLY_BAD = [
+    ("R INVALID", {"verdict": "INVALID"}, "VERDICT-R.json: 'INVALID', not PASS"),
+    ("R with no rehearsal field", {"rehearsal": None}, "VERDICT-R.json: no rehearsal field"),
+]
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("name,over,reason", R_ONLY_BAD, ids=[b[0] for b in R_ONLY_BAD])
+def test_r_alone_refuses_an_invalid_r_and_one_with_no_rehearsal_field(setup, name, over, reason, dry_run):
+    verdict(setup.tmp / "replay", "R", **over)
+    s3 = FakeS3()
+    asked = []
+    with pytest.raises(Refused, match=reason):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=lambda *a, **k: asked.append(a) or no_pointer(*a, **k))
+    assert untouched(setup, s3) and not asked
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_r_alone_refuses_a_verdict_file_that_is_missing_or_not_json(setup, dry_run):
+    (setup.tmp / "junk.json").write_text("{not json")
+    for path, reason in ((setup.tmp / "nowhere.json", "--verdict-r .*nowhere.json: cannot be read"),
+                         (setup.tmp / "junk.json", "--verdict-r .*junk.json: not a verdict file")):
+        s3 = FakeS3()
+        asked = []
+        with pytest.raises(Refused, match=reason):
+            run(setup, r_only(setup, dry_run=dry_run, verdict_r=str(path)), s3,
+                get=lambda *a, **k: asked.append(a) or no_pointer(*a, **k))
+        assert untouched(setup, s3) and not asked
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_r_alone_with_a_live_release_document_off_the_pointers_sha_is_refused(setup, dry_run):
+    candidate_catalog(setup, ["TOY-001"])
+    real = live_cdn(setup, ["TOY-001"])
+
+    def other_document(url, **k):
+        status, headers, body = real(url, **k)
+        if url.split("?")[0].endswith(f"{LIVE_ID}/release.json"):
+            body = body + b" "
+        return status, headers, body
+    s3 = FakeS3()
+    with pytest.raises(Refused, match="release.json does not match the pointer's sha256.*nothing written"):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=other_document)
+    assert untouched(setup, s3)

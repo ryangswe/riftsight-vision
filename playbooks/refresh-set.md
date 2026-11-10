@@ -216,6 +216,10 @@ and, in step 6.5, pass only `--verdict-r`: `publish-release` compares the candid
 with the live release's itself, and accepts R alone only when no card id is new (renames and
 other edits are fine). If it finds a new id it refuses and asks for `--verdict-n`.
 
+If every new card lacks art, `refresh subset` also writes an empty catalog and gate N says "no
+new cards", but `publish-release` still counts those ids as new and asks for `--verdict-n`,
+which gate N cannot give. Such an update goes out with `--no-refresh-gate "<reason>"`.
+
 **Outcomes, both gates.** INVALID: repair the input the verdict names and run again; it is
 neither a FAIL nor a retry. FAIL: write down one remedy first (for example, leave the new cards
 behind the counted events out of the bank: their catalog art set to `null`, then steps 2.4 to 5 again),
