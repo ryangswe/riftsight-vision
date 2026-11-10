@@ -1,0 +1,102 @@
+{
+ "about": "Three toy tables for the toy release: the cards sit in the same five slots (its detector is a stand-in that returns the same boxes for any picture), so a scene changes which card is in a slot. Scene A is the table of the toy demo's table.png. Cards are the toy game's images (CARD.png in --art); x and y are pixels of the 1280 x 768 table; turns are quarter turns counter-clockwise.",
+ "start": "A",
+ "scenes": {
+  "A": [
+   {
+    "card": "TOY-001",
+    "x": 40,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-003",
+    "x": 320,
+    "y": 40,
+    "turns": 1
+   },
+   {
+    "card": "TOY-007",
+    "x": 700,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-011",
+    "x": 980,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-017",
+    "x": 40,
+    "y": 420,
+    "turns": 0
+   }
+  ],
+  "B": [
+   {
+    "card": "TOY-002",
+    "x": 40,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-004",
+    "x": 320,
+    "y": 40,
+    "turns": 1
+   },
+   {
+    "card": "TOY-006",
+    "x": 700,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-008",
+    "x": 980,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-018",
+    "x": 40,
+    "y": 420,
+    "turns": 0
+   }
+  ],
+  "C": [
+   {
+    "card": "TOY-005",
+    "x": 40,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-009",
+    "x": 320,
+    "y": 40,
+    "turns": 1
+   },
+   {
+    "card": "TOY-010",
+    "x": 700,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-013",
+    "x": 980,
+    "y": 40,
+    "turns": 0
+   },
+   {
+    "card": "TOY-018",
+    "x": 40,
+    "y": 420,
+    "turns": 0
+   }
+  ]
+ }
+}

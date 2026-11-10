@@ -15,8 +15,11 @@ break the public surface; this file names each break and how to migrate.
   a clip in a headless Chrome with the built runtime, rests the pointer where a script says, and
   reports per rest the time until `session.atPointer()` returns the expected card, with the median
   and 90th percentile. The slowdown (a Chrome CPU throttle on the page, plus a wrapper that slows
-  the analysis worker) is emulated and the report gives the factors it measured. It needs
-  `puppeteer-core`, which is not a dependency, and changes nothing under `src/`.
+  the analysis worker, corrected for the throttle's own effect on the worker's speed) is emulated
+  and the report gives the factors it measured. `--scenes` swaps the cards on a toy table just
+  before each rest, so a rest waits for a new analysis, and each line says how many ran. It needs
+  `puppeteer-core`, which is not a dependency (install it with `--prefix` and name that folder
+  in `PUPPETEER_CORE_DIR`), and changes nothing under `src/`.
 
 ## [0.10.1] - 2026-11-10
 

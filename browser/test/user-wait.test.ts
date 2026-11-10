@@ -21,6 +21,11 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   requestAllowed: (url: string, origin: string) => boolean;
   createRequestGuard: (origin: string) => { violations: string[]; handle: (request: FakeRequest) => unknown };
   architectureNote: (input: { machine: string; binary: string[]; page: { architecture: string | null } | null }) => Record<string, unknown>;
+  scenesProblem: (spec: unknown, rests?: { scene?: string }[]) => string | null;
+  describeRest: (scored: Record<string, unknown>, extra?: { scene?: string | null; framesStart?: number | null; framesEnd?: number | null; readings?: { t: number; cardId: string | null }[] }) => Record<string, unknown>;
+  answeredWithoutNewAnalysis: (lines: Record<string, unknown>[]) => number[];
+  correction: (baseline: number | null, throttled: number | null) => number;
+  emulatedTime: (rawMs: number, rate: number, c: number) => { reportedMs: number; holdMs: number };
   DEFAULT_LIMIT_MS: number;
   DEFAULT_READY_TIMEOUT_MS: number;
 };
@@ -119,6 +124,66 @@ describe("the rest script", () => {
     expect(core.restScriptProblem({})).toMatch(/needs a `rests` list/);
     expect(core.restScriptProblem({ rests: [{ x: 0.5, y: 2, expect: "A" }] })).toMatch(/rest 1 needs/);
     expect(core.restScriptProblem({ rests: [{ x: 0.5, y: 0.5, expect: "A", leaveAfterMs: "soon" }] })).toMatch(/leaveAfterMs/);
+  });
+});
+
+describe("a rest after a scene change", () => {
+  const scored = (waitMs: number, first: string) => scoreRest({ expect: "B", readings: [{ t: 5, cardId: first }, { t: waitMs, cardId: "B" }] });
+
+  it("records the scene, the analyses between the rest and the answer, and the first card shown", () => {
+    const line = core.describeRest(scored(1200, "A"), { scene: "B", framesStart: 7, framesEnd: 9, readings: [{ t: 5, cardId: "A" }, { t: 1200, cardId: "B" }] });
+    expect(line).toMatchObject({ answered: true, wrongFirst: true, waitMs: 1200, scene: "B", analysesBetween: 2, firstShown: "A" });
+  });
+
+  it("has no count when the frames were not counted, and no first card when nothing showed", () => {
+    expect(core.describeRest(scoreRest({ expect: "B", readings: [] }), { readings: [] })).toMatchObject({ scene: null, analysesBetween: null, firstShown: null });
+  });
+
+  it("finds an answer that came with no new analysis, from scripted frame counts", () => {
+    const lines = [
+      { index: 1, ...core.describeRest(scored(1200, "A"), { framesStart: 3, framesEnd: 4, readings: [{ t: 5, cardId: "A" }] }) },
+      { index: 2, ...core.describeRest(scored(9, "B"), { framesStart: 4, framesEnd: 4, readings: [{ t: 9, cardId: "B" }] }) },
+      { index: 3, ...core.describeRest(scoreRest({ expect: "B", readings: [] }), { framesStart: 4, framesEnd: 4 }) },
+    ];
+    expect(core.answeredWithoutNewAnalysis(lines)).toEqual([2]);
+    expect(lines[0]).toMatchObject({ analysesBetween: 1 });
+  });
+
+  it("accepts the toy scenes, whose names the toy rests use, and says what is wrong with others", () => {
+    const spec = JSON.parse(readFileSync(fileOf("test/fixtures/user-wait-toy-scenes.json"), "utf-8")) as { scenes: Record<string, unknown[]> };
+    const toy = JSON.parse(readFileSync(fileOf("test/fixtures/user-wait-toy-rests.json"), "utf-8")) as { rests: { scene: string }[] };
+    expect(core.scenesProblem(spec, toy.rests)).toBeNull();
+    expect(toy.rests.map((rest) => rest.scene)).toEqual(["B", "C", "A", "B", "C", "A", "B", "C"]);
+    expect(core.scenesProblem({}, [])).toMatch(/needs a `scenes` object/);
+    expect(core.scenesProblem({ scenes: { A: [{ card: "../x", x: 0, y: 0 }] } })).toMatch(/scene A, card 1 needs/);
+    expect(core.scenesProblem(spec, [{ scene: "Z" }])).toMatch(/rest 1 names a scene/);
+  });
+});
+
+describe("the correction of the throttle's effect on the worker", () => {
+  it("is the unthrottled raw time over the throttled one, and 1 when either is missing", () => {
+    expect(core.correction(29, 16)).toBeCloseTo(1.813, 3);
+    expect(core.correction(null, 16)).toBe(1);
+    expect(core.correction(29, null)).toBe(1);
+    expect(core.correction(0, 16)).toBe(1);
+  });
+
+  it("reports rate x c x the raw time and holds the reply for the difference, never less than 0", () => {
+    const { reportedMs, holdMs } = core.emulatedTime(16, 6, core.correction(29, 16));
+    expect(reportedMs).toBeCloseTo(174, 0);
+    expect(holdMs).toBeCloseTo(reportedMs - 16, 6);
+    expect(core.emulatedTime(30, 1, 0.5)).toEqual({ reportedMs: 15, holdMs: 0 });
+  });
+
+  it("keeps a frame that costs more than the others costing more, as the raw time does", () => {
+    const c = core.correction(29, 16);
+    expect(core.emulatedTime(32, 6, c).reportedMs / core.emulatedTime(16, 6, c).reportedMs).toBe(2);
+  });
+
+  it("makes 6x six times the 1x figure when the raw time is the baseline's", () => {
+    const one = core.emulatedTime(29, 1, 1).reportedMs;
+    const six = core.emulatedTime(16, 6, core.correction(29, 16)).reportedMs;
+    expect(six / one).toBeCloseTo(6, 2);
   });
 });
 

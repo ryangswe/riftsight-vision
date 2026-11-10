@@ -1093,20 +1093,24 @@ records the time from the pointer coming to rest until `session.atPointer()` ret
 id the script expects. It reports numbers; it is not a pass or fail check. The tooltip a page
 draws is not timed: only the session's answer is.
 
-It needs a Chrome (Chrome for Testing works) and the package `puppeteer-core`, which is not a
-dependency of this folder:
+It needs a Chrome built for your computer (Chrome for Testing works) and the package
+`puppeteer-core`, which is not a dependency of this folder. Install it outside this folder, so
+that `npm run lint` does not read its types, and name that folder with `PUPPETEER_CORE_DIR`:
 
 ```
-npm install --no-save puppeteer-core
-npm run user-wait -- --chrome "$CHROME" --release RELEASE_FOLDER --clip CLIP --rests RESTS.json --throttle 4 --out report.json
+export PUPPETEER_CORE_DIR=/tmp/puppeteer-core
+npm install --no-save --prefix "$PUPPETEER_CORE_DIR" puppeteer-core
 ```
 
-The toy game's table is the clip the toolkit ships a rest script for. Write the toy folder from
-the repository's root, then run it from here:
+(Without `PUPPETEER_CORE_DIR` the script uses `npm install --no-save puppeteer-core` in this
+folder, and then lint should run before that install.) The toy game is the clip the toolkit
+ships scripts for. Write the toy folder from the repository's root, then run from here:
 
 ```
 python tests/test_browser_fixtures.py --demo /tmp/toy
-npm run user-wait -- --chrome "$CHROME" --release /tmp/toy/release --clip /tmp/toy/table.png --rests test/fixtures/user-wait-toy-rests.json
+npm run user-wait -- --chrome "$CHROME" --release /tmp/toy/release --clip /tmp/toy/table.png \
+  --scenes test/fixtures/user-wait-toy-scenes.json --art /tmp/toy/art \
+  --rests test/fixtures/user-wait-toy-rests.json --throttle 4 --out report.json
 ```
 
 **Your own clip and rests.** Footage stays in your own repository; nothing here holds a video.
@@ -1126,22 +1130,40 @@ rest script is JSON:
 Before each, the harness waits `pauseMs` (default 1000) and then moves the pointer there in one
 move; that move is when the pointer comes to rest. `leaveAfterMs` moves the pointer away again
 that long after, if no name has shown by then. `limitMs` sets the wait limit for that rest
-(default `--limit`, 10000 ms). `warmUpCycles` (default 0) first moves the pointer a little over
-the first rest until that many frames have been analyzed, so the models' first runs are not in the
-numbers; without it the session starts cold, as a viewer's first hover does. The analysis time
-per cycle counts the frames analyzed after the warm-up.
+(default `--limit`, 10000 ms). `atSec`, for a video clip, seeks the clip to that time first, so
+the rest meets a new picture.
+
+**Warm-up.** `warmUpCycles` (default 3) first moves the pointer a little over the first rest
+until that many frames beyond the first have been analyzed, unthrottled, so the models' first
+runs are not in the numbers; those cycles also give the baseline below. `--cold` (or
+`"warmUpCycles": 0`) skips it: the session starts cold, as a viewer's first hover does, and the
+correction below is not measured. The analysis time per cycle counts the frames analyzed after
+the warm-up.
+
+**Scenes.** A rest on a picture that has not changed is answered from an analysis that finished
+before it began, so its wait times the hit test, not recognition. With `--scenes FILE --art
+FOLDER` the image clip gets cards drawn over it, and a rest's `"scene": "B"` switches to that
+scene just before the pointer moves, so the card under the pointer is one the last analysis has
+not seen. The file is JSON: `{ "start": "A", "scenes": { "A": [ { "card": "TOY-001", "x": 40, "y":
+40, "turns": 0 } ] } }`. `card` names `FOLDER/CARD.png`, `x` and `y` are pixels of the clip, `turns`
+are quarter turns counter-clockwise. The toy release's detector is a stand-in that returns the
+same boxes for any picture, so the toy scenes put different cards in the same five slots; a
+release with a real detector can move cards too.
 
 **Scoring.** Each line of the report is one rest.
 - The expected card shows: `answered: true` and `waitMs`. If another card showed before it,
-  `wrongFirst: true` and the wait runs until the right one.
+  `wrongFirst: true` and the wait runs until the right one; `firstShown` is the first card that
+  showed.
 - It never shows within the limit: `answered: false`, and `waitMs` is the limit. A miss stays in
   the median and the 90th percentile.
 - The pointer moves again before any name shows: `leftBeforeAnswer: true`, `waitMs: null`. It is
   counted apart: neither a wait nor a miss.
+- `analysesBetween` is how many frames the session analyzed from the rest to its end. After a
+  scene change, an answered rest has at least one.
 
 The summary has the median and nearest-rank 90th percentile over the answered and missed rests,
 and the counts. `analysis` is the median analysis time per cycle (`lastWorkerMs`) and round trip
-the session reported.
+the session reported, with the raw median, the baseline and correction below.
 
 **The slowdown is emulated.** Chrome's CPU throttle (`Emulation.setCPUThrottlingRate`) slows the
 page's main thread but never a worker, and the analysis runs in a worker. So `--throttle N` does
@@ -1150,10 +1172,19 @@ two things:
   fixed loop in the page without and with the throttle, and reports the ratio as
   `profile.slowdown.page.measured`;
 - the analysis worker is loaded through a wrapper the harness serves (the built worker itself is
-  unchanged). After each frame, the wrapper holds the reply for (N - 1) times the time the
-  analysis took and reports `workerMs` multiplied by N, which the session shows as
-  `lastWorkerMs`. The factor it really applied (held time over analysis time) is
-  `profile.slowdown.worker.measured`. Only that one number in the frame result changes.
+  unchanged). After each frame, the wrapper reports `workerMs` (which the session shows as
+  `lastWorkerMs`) as N x c x the time the analysis really took, and holds the reply for the
+  difference. Only that one number in the frame result changes, so a frame that costs more still
+  shows as costing more.
+
+`c` is there because of a measured side effect: while the page is throttled, the worker's own
+analysis runs faster (on one computer the same frames took about 16 ms throttled against about 29
+ms unthrottled), so scaling the throttled time alone under-reports a slow computer. After the
+warm-up the harness takes the raw analysis time unthrottled (`analysis.baselineRawMs`), throttles
+the page, takes it again (`analysis.throttledRawMs`) and sets `c` to their ratio
+(`analysis.correction`). With `--cold` there is no baseline: `c` is 1 and the report says so.
+`profile.slowdown.worker.measured`, the time the wrapper took per frame over c times the raw
+time, should be about N.
 
 This stands in for a slower computer; it does not reproduce one (memory, caches and the page's
 contention with the worker are not slowed together). WebGPU is off (`--disable-gpu`, and the
@@ -1170,9 +1201,11 @@ changes every number). Use a Chrome built for your machine.
 **Requests.** The page is served from this machine (127.0.0.1) and nothing else. A request to any
 other URL is blocked and fails the run (exit 1) with that URL.
 
-**In CI**, a run needs the built `dist/` (`npm run build`), `npm install --no-save puppeteer-core`,
-a Chrome binary named by `CHROME`, Python with this repository's requirements to write the toy
-folder, and a few minutes per run on the toy clip. It prints a report and asserts nothing.
+**In CI**, run `npm run lint` before installing `puppeteer-core`, or install it with `--prefix`
+into another folder as above. A run needs the built `dist/` (`npm run build`), `puppeteer-core`
+with `PUPPETEER_CORE_DIR` set, a Chrome binary named by `CHROME` that is built for the runner's
+architecture, Python with this repository's requirements to write the toy folder, and a few
+minutes per run on the toy clip. It prints a report and asserts nothing.
 
 ## What is in it
 

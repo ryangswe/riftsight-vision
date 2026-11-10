@@ -144,3 +144,53 @@ export function architectureNote({ machine, binary, page }) {
   const seen = page?.architecture ?? null;
   return { machineArch: machine, binaryArch: binary, pageArch: seen, translated: seen === null ? null : seen !== wanted };
 }
+
+/** The error text of a scenes file that is not one, or null. The format is in README.md. */
+export function scenesProblem(spec, rests = []) {
+  if (spec === null || typeof spec !== "object" || spec.scenes === null || typeof spec.scenes !== "object" || Array.isArray(spec.scenes)) return "needs a `scenes` object";
+  const names = Object.keys(spec.scenes);
+  if (names.length === 0) return "needs at least one scene";
+  for (const name of names) {
+    const cards = spec.scenes[name];
+    if (!Array.isArray(cards) || cards.length === 0) return `scene ${name} needs a list of cards`;
+    for (const [at, card] of cards.entries()) {
+      const bad = !card || typeof card.card !== "string" || !/^[A-Za-z0-9._-]+$/.test(card.card) || typeof card.x !== "number" || typeof card.y !== "number" || (card.turns !== undefined && ![0, 1, 2, 3].includes(card.turns));
+      if (bad) return `scene ${name}, card ${at + 1} needs \`card\` (an image name without its extension), \`x\`, \`y\` (pixels) and optionally \`turns\` (0 to 3)`;
+    }
+  }
+  if (spec.start !== undefined && !names.includes(spec.start)) return `start names no scene (${spec.start})`;
+  for (const [at, rest] of rests.entries()) if (rest.scene !== undefined && !names.includes(rest.scene)) return `rest ${at + 1} names a scene that the scenes file does not have (${rest.scene})`;
+  return null;
+}
+
+/**
+ * A scored rest with what a scene change makes worth knowing: the scene, how many frames the
+ * session analyzed from the rest to the end of it (`analysesBetween`; null when not counted) and
+ * the first card it showed (`firstShown`; with `wrongFirst` it tells a stale answer).
+ */
+export function describeRest(scored, { scene = null, framesStart = null, framesEnd = null, readings = [] } = {}) {
+  const first = readings.find((reading) => reading.cardId !== null && reading.cardId !== undefined);
+  const counted = typeof framesStart === "number" && typeof framesEnd === "number";
+  return { ...scored, scene, analysesBetween: counted ? Math.max(0, framesEnd - framesStart) : null, firstShown: first ? first.cardId : null };
+}
+
+/** The numbers (1-based) of the rests that were answered with no analysis since the rest began. */
+export function answeredWithoutNewAnalysis(lines) {
+  return lines.filter((line) => line.answered && line.analysesBetween === 0).map((line) => line.index);
+}
+
+/**
+ * The correction for the page throttle's side effect on the worker. With the page throttled, the
+ * worker's own analysis runs faster (measured: the same work, 29 ms against 16 ms). `baseline`
+ * is the median raw analysis time with the page unthrottled, `throttled` the same with it
+ * throttled; the correction is their ratio (1 when either is missing, so nothing is corrected).
+ */
+export function correction(baseline, throttled) {
+  return typeof baseline === "number" && typeof throttled === "number" && baseline > 0 && throttled > 0 ? Math.round((baseline / throttled) * 1000) / 1000 : 1;
+}
+
+/** What the wrapper reports and holds for one frame: `rate` x `c` x the raw time, held for the rest of it. */
+export function emulatedTime(rawMs, rate, c) {
+  const reportedMs = rate * c * rawMs;
+  return { reportedMs, holdMs: Math.max(0, reportedMs - rawMs) };
+}
