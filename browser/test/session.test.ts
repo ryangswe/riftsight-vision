@@ -358,6 +358,23 @@ describe("at() in client pixels", () => {
     expect(s.at(461, 250)).toBeNull();
   });
 
+  it("carries a turned card's outline, and none for an upright one", async () => {
+    const upright = await showing();
+    expect(Object.keys(upright.s.at(400, 250)!).sort()).toEqual(["box", "cardId", "frameBox", "name"]);
+    upright.s.stop();
+    // The same card, turned 12 degrees with sides of its own, in the next session's analysis.
+    const video = new FakeVideo();
+    const s = start(video, { rotatedOutlines: true });
+    worker().reply(loaded);
+    await move(video, 400, 250);
+    const turned = analysisWith([CARD]);
+    Object.assign(turned.hover.cards[0]!, { rotation: 12, localWidth: 0.125, localHeight: 0.25 });
+    worker().reply(resultFor(worker().frames().at(-1)!, { analysis: turned }));
+    const outline = { rotation: 12, localWidth: 0.125, localHeight: 0.25 };
+    expect(s.at(400, 250)).toMatchObject(outline);
+    expect(s.atPointer()).toMatchObject(outline);
+  });
+
   // The same picture in a 960 x 720 box: contain leaves 90 px bars above and below (the picture
   // is 960 x 540 at top 50 + 90 = 140). The card is at left 340, top 140 + 135 = 275, 120 x 135.
   it("asks the worker for rotated outlines on each frame only when the session's option is on", async () => {

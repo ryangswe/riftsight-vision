@@ -9,6 +9,24 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-10
+
+0.10.0's outlines of tilted cards reached the hit test but not the shown card, so a caller could
+only draw the upright box around a turned hover area. This release adds the outline to the shown
+card. Nothing in the public surface breaks: the new fields are optional, and the contract's
+`PROTOCOL_VERSION` stays 1. No model, release document or recognizer decision changes.
+
+### Fixed
+
+- With `rotatedOutlines`, the shown card now carries its outline: `session.at()`, `atPointer()`,
+  the session core's shown card and the compute frame's `shown` message (`ShownCard`) add
+  optional `rotation`, `localWidth` and `localHeight` when the card is turned, so a caller can
+  draw the outline the hit test uses instead of the upright box. Upright cards and sessions
+  without the option carry none of them, and a content-side parser drops a malformed outline and
+  keeps the card. `PROTOCOL_VERSION` stays 1, and 0.10.0's parser ignores the fields.
+- A shown card is reported again when only its outline changes (the same card and box, turned
+  or upright), so a drawn outline follows the card.
+
 ## [0.10.0] - 2026-11-10
 
 `cardvision cdn publish-release --config` checks the **refresh verdicts** before it moves a
@@ -1260,7 +1278,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0
 [0.10.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0rc1
 [0.9.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...v0.9.1

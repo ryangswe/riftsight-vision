@@ -135,6 +135,9 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
           ...(release.source === "remote" && release.id !== null ? { releaseId: release.id } : {}),
           box: { ...shown.box },
           others: shown.others.map((b) => ({ ...b })),
+          ...(shown.rotation !== undefined && shown.localWidth !== undefined && shown.localHeight !== undefined
+            ? { rotation: shown.rotation, localWidth: shown.localWidth, localHeight: shown.localHeight }
+            : {}),
         }
       : null;
     postShown(card);

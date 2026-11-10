@@ -95,6 +95,12 @@ export interface Shown {
   box: ClientBox;
   /** The card's box in pixels of the analyzed frame. */
   frameBox: AABB;
+  /** With `rotatedOutlines`, for a turned card: its tilt in degrees in (-45, 45], positive
+   *  clockwise like CSS `rotate()`, and its own sides in fractions of the picture, about the
+   *  center of `box`. All three or none; absent for an upright card. */
+  rotation?: number;
+  localWidth?: number;
+  localHeight?: number;
 }
 
 export interface SessionStatus {
@@ -327,6 +333,9 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
         height: hit.box.height * picture.height,
       },
       frameBox: hit.frameBox,
+      ...(hit.rotation !== undefined && hit.localWidth !== undefined && hit.localHeight !== undefined
+        ? { rotation: hit.rotation, localWidth: hit.localWidth, localHeight: hit.localHeight }
+        : {}),
     };
   };
   let pointer: { x: number; y: number } | null = null;
