@@ -67,6 +67,7 @@ export function summarize(lines) {
     missed: lines.filter((line) => !line.answered && !line.leftBeforeAnswer).length,
     wrongFirst: lines.filter((line) => line.wrongFirst).length,
     leftBeforeAnswer: lines.filter((line) => line.leftBeforeAnswer).length,
+    answeredFromOldAnalysis: answeredWithoutNewAnalysis(lines).length,
     medianMs: median(timed),
     p90Ms: percentile(timed, 90),
   };
@@ -172,6 +173,26 @@ export function describeRest(scored, { scene = null, framesStart = null, framesE
   const first = readings.find((reading) => reading.cardId !== null && reading.cardId !== undefined);
   const counted = typeof framesStart === "number" && typeof framesEnd === "number";
   return { ...scored, scene, analysesBetween: counted ? Math.max(0, framesEnd - framesStart) : null, firstShown: first ? first.cardId : null };
+}
+
+/**
+ * Warnings for a scenes file and a rest script that are valid but may not make a rest wait for a
+ * new analysis: a rest whose expected card already sits at the same place in the scene before it
+ * (the previous rest's scene, or the start scene for the first) can be answered from an old one.
+ */
+export function scenesWarnings(spec, rests = []) {
+  const names = Object.keys(spec.scenes);
+  let before = spec.start ?? names[0];
+  const warnings = [];
+  for (const [at, rest] of rests.entries()) {
+    const now = rest.scene ?? before;
+    const placed = (scene) => (spec.scenes[scene] ?? []).find((card) => card.card === rest.expect);
+    const was = placed(before);
+    const is = placed(now);
+    if (was && is && was.x === is.x && was.y === is.y && (was.turns ?? 0) === (is.turns ?? 0)) warnings.push(`rest ${at + 1} expects ${rest.expect}, which is already there in scene ${before}: it can be answered from an old analysis`);
+    before = now;
+  }
+  return warnings;
 }
 
 /** The numbers (1-based) of the rests that were answered with no analysis since the rest began. */

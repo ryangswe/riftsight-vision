@@ -17,7 +17,8 @@ break the public surface; this file names each break and how to migrate.
   and 90th percentile. The slowdown (a Chrome CPU throttle on the page, plus a wrapper that slows
   the analysis worker, corrected for the throttle's own effect on the worker's speed) is emulated
   and the report gives the factors it measured. `--scenes` swaps the cards on a toy table just
-  before each rest, so a rest waits for a new analysis, and each line says how many ran. It needs
+  before each rest, so a rest waits for a new analysis, and each line says how many ran. Runs are
+  warm by default (3 analysis cycles); `--cold` measures a cold first hover. It needs
   `puppeteer-core`, which is not a dependency (install it with `--prefix` and name that folder
   in `PUPPETEER_CORE_DIR`), and changes nothing under `src/`.
 

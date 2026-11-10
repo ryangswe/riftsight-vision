@@ -1099,11 +1099,14 @@ that `npm run lint` does not read its types, and name that folder with `PUPPETEE
 
 ```
 export PUPPETEER_CORE_DIR=/tmp/puppeteer-core
-npm install --no-save --prefix "$PUPPETEER_CORE_DIR" puppeteer-core
+npm install --no-save --prefix "$PUPPETEER_CORE_DIR" puppeteer-core@25.17.0
 ```
 
-(Without `PUPPETEER_CORE_DIR` the script uses `npm install --no-save puppeteer-core` in this
-folder, and then lint should run before that install.) The toy game is the clip the toolkit
+The harness was tested with puppeteer-core 25.17.0; change the version deliberately, and run the
+toy clip again when you do.
+
+(Without `PUPPETEER_CORE_DIR` the script uses `npm install --no-save puppeteer-core@25.17.0` in
+this folder, and then lint should run before that install.) The toy game is the clip the toolkit
 ships scripts for. Write the toy folder from the repository's root, then run from here:
 
 ```
@@ -1137,8 +1140,10 @@ the rest meets a new picture.
 until that many frames beyond the first have been analyzed, unthrottled, so the models' first
 runs are not in the numbers; those cycles also give the baseline below. `--cold` (or
 `"warmUpCycles": 0`) skips it: the session starts cold, as a viewer's first hover does, and the
-correction below is not measured. The analysis time per cycle counts the frames analyzed after
-the warm-up.
+correction below is not measured. A `--cold` run's analysis time is not corrected (c = 1) and
+reads lower than a warm run's, so compare warm runs with warm runs and cold with cold. The
+profile has `warmUpCycles` and `correctionMeasured` too. The analysis time per cycle counts the
+frames analyzed after the warm-up.
 
 **Scenes.** A rest on a picture that has not changed is answered from an analysis that finished
 before it began, so its wait times the hit test, not recognition. With `--scenes FILE --art
@@ -1159,7 +1164,10 @@ release with a real detector can move cards too.
 - The pointer moves again before any name shows: `leftBeforeAnswer: true`, `waitMs: null`. It is
   counted apart: neither a wait nor a miss.
 - `analysesBetween` is how many frames the session analyzed from the rest to its end. After a
-  scene change, an answered rest has at least one.
+  scene change, an answered rest has at least one. The summary counts the answered rests with
+  none as `answeredFromOldAnalysis`: such a rest timed the hover lookup, not recognition. The
+  harness also warns (and does not refuse) when a rest's card is already in that place in the
+  scene before it, since that rest can be answered from an old analysis.
 
 The summary has the median and nearest-rank 90th percentile over the answered and missed rests,
 and the counts. `analysis` is the median analysis time per cycle (`lastWorkerMs`) and round trip

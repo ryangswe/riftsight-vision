@@ -27,7 +27,7 @@
 // Chrome is driven with the package puppeteer-core, which is not a dependency of this folder:
 //   npm install --no-save --prefix "$PUPPETEER_CORE_DIR" puppeteer-core
 // (found there when PUPPETEER_CORE_DIR is set, so that browser/node_modules, which the linter
-// reads, stays without it; otherwise `npm install --no-save puppeteer-core` in this folder).
+// reads, stays without it; otherwise `npm install --no-save puppeteer-core@25.17.0` in this folder).
 // Name a Chrome with --chrome PATH or CHROME=PATH (Chrome for Testing works). The page is served
 // from this machine (127.0.0.1); any other request fails the run, with its URL. The clip is an
 // image or a video file; an image is drawn on a canvas and played as a 15 frames a second
@@ -42,7 +42,7 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
-import { architectureNote, buildReport, correction, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scoreRest } from "./user-wait-core.mjs";
+import { architectureNote, buildReport, correction, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
 
 const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests FILE [--throttle N]
                             [--limit MS] [--out FILE] [--chrome PATH] [--headed]
@@ -103,6 +103,8 @@ if (sceneSpec !== null) {
   const sceneProblem = scenesProblem(sceneSpec, script.rests);
   if (sceneProblem) usageError(`--scenes ${given.scenes}: ${sceneProblem}`);
 }
+const warnings = sceneSpec === null ? [] : scenesWarnings(sceneSpec, script.rests);
+for (const warning of warnings) console.error(`warning: ${warning}`);
 const chrome = given.chrome ?? process.env.CHROME;
 if (!chrome) usageError("Name a Chrome with --chrome PATH or CHROME=PATH (Chrome for Testing works).");
 /** puppeteer-core from PUPPETEER_CORE_DIR when that is set, otherwise from this folder. */
@@ -123,7 +125,7 @@ async function loadPuppeteer() {
 }
 const puppeteer = await loadPuppeteer();
 if (puppeteer === null) {
-  console.error('Needs the package puppeteer-core: npm install --no-save puppeteer-core (or, with PUPPETEER_CORE_DIR set, npm install --no-save --prefix "$PUPPETEER_CORE_DIR" puppeteer-core)');
+  console.error('Needs the package puppeteer-core: npm install --no-save puppeteer-core@25.17.0 (or, with PUPPETEER_CORE_DIR set, npm install --no-save --prefix "$PUPPETEER_CORE_DIR" puppeteer-core@25.17.0)');
   process.exit(2);
 }
 const dist = fileURLToPath(new URL("../dist/", import.meta.url));
@@ -504,6 +506,9 @@ try {
         version: await browser.version(),
         ...architectureNote({ machine: process.arch, binary: binaryArchitectures(chrome), page: await tab.evaluate(() => window.harness.architecture()) }),
       },
+      warmUpCycles,
+      correctionMeasured: !cold,
+      warnings,
       readyMs: opened.readyMs,
       readyTimeoutMs,
       toolkitCommit,

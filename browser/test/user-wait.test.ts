@@ -23,6 +23,7 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   architectureNote: (input: { machine: string; binary: string[]; page: { architecture: string | null } | null }) => Record<string, unknown>;
   scenesProblem: (spec: unknown, rests?: { scene?: string }[]) => string | null;
   describeRest: (scored: Record<string, unknown>, extra?: { scene?: string | null; framesStart?: number | null; framesEnd?: number | null; readings?: { t: number; cardId: string | null }[] }) => Record<string, unknown>;
+  scenesWarnings: (spec: unknown, rests?: { scene?: string; expect: string }[]) => string[];
   answeredWithoutNewAnalysis: (lines: Record<string, unknown>[]) => number[];
   correction: (baseline: number | null, throttled: number | null) => number;
   emulatedTime: (rawMs: number, rate: number, c: number) => { reportedMs: number; holdMs: number };
@@ -79,7 +80,7 @@ describe("the summary", () => {
 
   it("keeps a miss in the median at the limit, and counts a departure apart", () => {
     const summary = summarize([answered(100), answered(200), answered(300), miss, left]);
-    expect(summary).toEqual({ rests: 5, answered: 3, missed: 1, wrongFirst: 0, leftBeforeAnswer: 1, medianMs: 250, p90Ms: LIMIT });
+    expect(summary).toEqual({ rests: 5, answered: 3, missed: 1, wrongFirst: 0, leftBeforeAnswer: 1, answeredFromOldAnalysis: 0, medianMs: 250, p90Ms: LIMIT });
   });
 
   it("uses the nearest-rank 90th percentile", () => {
@@ -147,6 +148,26 @@ describe("a rest after a scene change", () => {
     ];
     expect(core.answeredWithoutNewAnalysis(lines)).toEqual([2]);
     expect(lines[0]).toMatchObject({ analysesBetween: 1 });
+  });
+
+  it("counts the answered rests that had no new analysis in the summary", () => {
+    const old = { index: 1, ...core.describeRest(scored(9, "B"), { framesStart: 4, framesEnd: 4 }) };
+    const fresh = { index: 2, ...core.describeRest(scored(1200, "A"), { framesStart: 4, framesEnd: 5 }) };
+    const missed = { index: 3, ...core.describeRest(scoreRest({ expect: "B", readings: [] }), { framesStart: 4, framesEnd: 4 }) };
+    expect(summarize([old, fresh, missed])).toMatchObject({ answered: 2, answeredFromOldAnalysis: 1 });
+  });
+
+  it("warns, and does not refuse, when a rest's card is already there in the scene before", () => {
+    const spec = { start: "A", scenes: { A: [{ card: "X", x: 0, y: 0 }, { card: "Y", x: 9, y: 9 }], B: [{ card: "X", x: 0, y: 0 }, { card: "Z", x: 9, y: 9 }] } };
+    const rests = [{ scene: "B", expect: "X" }, { scene: "B", expect: "Z" }, { scene: "A", expect: "Y" }];
+    expect(core.scenesProblem(spec, rests)).toBeNull();
+    expect(core.scenesWarnings(spec, rests)).toEqual([
+      "rest 1 expects X, which is already there in scene A: it can be answered from an old analysis",
+      "rest 2 expects Z, which is already there in scene B: it can be answered from an old analysis",
+    ]);
+    const toy = JSON.parse(readFileSync(fileOf("test/fixtures/user-wait-toy-scenes.json"), "utf-8")) as { scenes: unknown };
+    const toyRests = JSON.parse(readFileSync(fileOf("test/fixtures/user-wait-toy-rests.json"), "utf-8")) as { rests: { scene: string; expect: string }[] };
+    expect(core.scenesWarnings(toy, toyRests.rests)).toEqual([]);
   });
 
   it("accepts the toy scenes, whose names the toy rests use, and says what is wrong with others", () => {
