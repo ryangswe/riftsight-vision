@@ -19,6 +19,7 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   buildReport: (input: { profile: object; lines: Record<string, unknown>[]; analysis: object }) => { profile: object; rests: unknown[]; summary: Record<string, unknown>; analysis: object };
   restScriptProblem: (script: unknown) => string | null;
   requestAllowed: (url: string, origin: string) => boolean;
+  byteRange: (header: string | undefined, size: number) => { start: number; end: number } | "unsatisfiable" | null;
   createRequestGuard: (origin: string) => { violations: string[]; handle: (request: FakeRequest) => unknown };
   architectureNote: (input: { machine: string; binary: string[]; page: { architecture: string | null } | null }) => Record<string, unknown>;
   scenesProblem: (spec: unknown, rests?: { scene?: string }[]) => string | null;
@@ -256,5 +257,26 @@ describe("the script", () => {
     expect(run("--verbose").status).toBe(2);
     expect(run("--verbose").stderr).toMatch(/^unknown option --verbose/);
     expect(run().stderr).toContain("--release is required");
+  });
+});
+
+describe("byteRange: the local server answers range requests, so a video can seek past what it buffered", () => {
+  const size = 1000;
+  it("reads the three single-range forms", () => {
+    expect(core.byteRange("bytes=0-99", size)).toEqual({ start: 0, end: 99 });
+    expect(core.byteRange("bytes=500-", size)).toEqual({ start: 500, end: 999 });
+    expect(core.byteRange("bytes=-100", size)).toEqual({ start: 900, end: 999 });
+  });
+  it("clips an end past the file and a suffix longer than the file", () => {
+    expect(core.byteRange("bytes=900-5000", size)).toEqual({ start: 900, end: 999 });
+    expect(core.byteRange("bytes=-5000", size)).toEqual({ start: 0, end: 999 });
+  });
+  it("answers 416 for a start past the end or an empty suffix", () => {
+    expect(core.byteRange("bytes=1000-", size)).toBe("unsatisfiable");
+    expect(core.byteRange("bytes=2000-3000", size)).toBe("unsatisfiable");
+    expect(core.byteRange("bytes=-0", size)).toBe("unsatisfiable");
+  });
+  it("sends the whole file for no header or one it does not read", () => {
+    for (const header of [undefined, "", "bytes=-", "bytes=0-99,200-299", "items=0-9", "bytes=99-0"]) expect(core.byteRange(header, size), String(header)).toBeNull();
   });
 });

@@ -42,7 +42,7 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
-import { architectureNote, buildReport, correction, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
+import { architectureNote, buildReport, byteRange, correction, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
 
 const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests FILE [--throttle N]
                             [--limit MS] [--out FILE] [--chrome PATH] [--headed]
@@ -359,7 +359,15 @@ const server = createServer((request, response) => {
   else if (path.startsWith("/art/") && given.art) file = inside(given.art, path.slice("/art/".length));
   else if (path.startsWith("/lib/")) file = inside(dist, path.slice("/lib/".length));
   if (!file || !existsSync(file) || !statSync(file).isFile()) return response.writeHead(404).end("not found\n");
-  response.writeHead(200, { "content-type": TYPES[extname(file).toLowerCase()] ?? "application/octet-stream", "content-length": statSync(file).size, "cache-control": "no-store" });
+  const size = statSync(file).size;
+  const headers = { "content-type": TYPES[extname(file).toLowerCase()] ?? "application/octet-stream", "accept-ranges": "bytes", "cache-control": "no-store" };
+  const range = byteRange(request.headers.range, size);
+  if (range === "unsatisfiable") return response.writeHead(416, { ...headers, "content-range": `bytes */${size}` }).end();
+  if (range) {
+    response.writeHead(206, { ...headers, "content-length": range.end - range.start + 1, "content-range": `bytes ${range.start}-${range.end}/${size}` });
+    return createReadStream(file, { start: range.start, end: range.end }).pipe(response);
+  }
+  response.writeHead(200, { ...headers, "content-length": size });
   createReadStream(file).pipe(response);
 });
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
