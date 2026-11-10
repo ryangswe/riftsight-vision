@@ -75,9 +75,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--set-pointer", action="store_true",
                         help="publish-release: write the pointer (and the data files' entries) into --config first")
     parser.add_argument("--verdict-r", help="publish-release with --config: the update's VERDICT-R.json (cardvision refresh "
-                                            "verdict replay); it must be a PASS that is not a rehearsal")
+                                            "verdict replay); it must be a PASS that is not a rehearsal. Without --verdict-n it is "
+                                            "accepted only when the candidate's catalog has no card id the live release's "
+                                            "catalog lacks (checked after the live release is read, before any write)")
     parser.add_argument("--verdict-n", help="publish-release with --config: the update's VERDICT-N.json (cardvision refresh "
-                                            "verdict newcard), under the same rule")
+                                            "verdict newcard), under the same rule; needed when the release adds cards")
     parser.add_argument("--no-refresh-gate", metavar="REASON",
                         help="publish-release with --config, in place of the verdicts: why this release is not a gated card "
                              "refresh (a first release, new models); logged")

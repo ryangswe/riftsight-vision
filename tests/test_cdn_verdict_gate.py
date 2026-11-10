@@ -284,3 +284,174 @@ def test_the_command_line_reaches_the_gate_by_those_names():
     args = parser.parse_args(["publish-release", "--release", "r", "--config", "c.json", "--no-refresh-gate", "new models"])
     assert (args.verdict_r, args.verdict_n, args.no_refresh_gate) == (None, None, "new models")
     assert parser.parse_args(["publish-release", "--no-refresh-gate", ""]).no_refresh_gate == ""
+
+
+# ------------------------------------------------------- gate R alone: no new cards against the live release
+LIVE_ID = "f" * 16
+
+
+def catalog_bytes(ids, names=None) -> bytes:
+    names = names or {}
+    return json.dumps({"game": "toy", "cards": [{"id": i, "name": names.get(i, i.lower())} for i in ids]}).encode()
+
+
+def candidate_catalog(s, ids, names=None) -> None:
+    """Give the candidate release folder a real catalog (and re-pin it in release.json)."""
+    data = catalog_bytes(ids, names)
+    (s.folder / "catalog.json").write_bytes(data)
+    doc = json.loads((s.folder / "release.json").read_text())
+    doc["catalog"] = {"path": "catalog.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+    (s.folder / "release.json").write_text(json.dumps(doc))
+
+
+def live_cdn(s, ids, *, names=None, catalog_status=200, catalog_body=None, catalog_pin=None):
+    """A public CDN whose pointer names a release with the catalog `ids`; returns the `get` function."""
+    cat = catalog_body if catalog_body is not None else catalog_bytes(ids, names)
+    doc = json.dumps({"id": LIVE_ID, "detector": s.refs["detector"], "recognizer": s.refs["recognizer"],
+                      "catalog": {"path": "catalog.json", "sha256": catalog_pin or hashlib.sha256(cat).hexdigest(),
+                                  "bytes": len(cat)}}).encode()
+    pointer = {"id": LIVE_ID, "path": f"vision/releases/{LIVE_ID}/release.json", "sha256": hashlib.sha256(doc).hexdigest(),
+               "minimumExtensionVersion": "0.3.0"}
+    store = {CONFIG_KEY: (200, {}, json.dumps({**EXAMPLE_SETTINGS, "release": pointer}).encode()),
+             pointer["path"]: (200, {}, doc),
+             f"vision/releases/{LIVE_ID}/catalog.json": (catalog_status, {}, cat)}
+    from support_cdn import store_get
+    return store_get(store)
+
+
+def r_only(s, **k):
+    return with_args(s, verdict_n=None, **k)
+
+
+def test_r_alone_publishes_like_both_verdicts_when_the_candidate_adds_no_card(setup):
+    ids = ["TOY-001", "TOY-002"]
+    candidate_catalog(setup, ids, names={"TOY-001": "renamed"})  # a rename is not a new card
+    get = live_cdn(setup, ids)
+    lines: list[str] = []
+    alone, both = FakeS3(), FakeS3()
+    assert run(setup, r_only(setup, dry_run=False), alone, log=lines.append, get=get) == 0
+    setup.cfg_file.write_text(json.dumps(EXAMPLE_SETTINGS))
+    assert run(setup, with_args(setup, dry_run=False), both, get=get) == 0
+    assert alone.put_keys == both.put_keys and alone.put_keys[-1] == CONFIG_KEY
+    assert alone.objects[CONFIG_KEY]["Body"] == both.objects[CONFIG_KEY]["Body"]
+    sha = hashlib.sha256(setup.r.read_bytes()).hexdigest()
+    assert f"refresh gate: R PASS under rule {RULE}, {setup.r} sha256 {sha}" in lines
+    assert f"refresh gate: N not needed: 0 new cards against the live release {LIVE_ID}" in lines
+    assert not any("refresh gate: N PASS" in line for line in lines)
+
+
+def test_r_alone_with_fewer_cards_than_live_is_still_no_new_card(setup):
+    candidate_catalog(setup, ["TOY-001"])
+    assert run(setup, r_only(setup, dry_run=True), FakeS3(), get=live_cdn(setup, ["TOY-001", "TOY-002"])) == 0
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_r_alone_is_refused_when_the_candidate_adds_a_card(setup, dry_run):
+    candidate_catalog(setup, ["TOY-001", "TOY-002", "TOY-003", "TOY-004"])
+    s3 = FakeS3()
+    with pytest.raises(Refused, match=r"adds 2 new card id\(s\).*e\.g\. TOY-003.*--verdict-n") as e:
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=live_cdn(setup, ["TOY-001", "TOY-002"]))
+    assert "nothing written" in str(e.value) and untouched(setup, s3)
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("name,gate,over,reason", [b for b in BAD if b[1] == "R" and b[0] != "rules differ"],
+                         ids=[b[0] for b in BAD if b[1] == "R" and b[0] != "rules differ"])
+def test_r_alone_still_needs_a_good_r(setup, name, gate, over, reason, dry_run):
+    verdict(setup.tmp / "replay", "R", **over)
+    s3 = FakeS3()
+    asked = []
+    with pytest.raises(Refused, match=reason):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=lambda *a, **k: asked.append(a) or no_pointer(*a, **k))
+    assert untouched(setup, s3) and not asked
+
+
+UNREADABLE = [
+    ("live catalog 503", dict(catalog_status=503), r"catalog cannot be read \(HTTP 503\)"),
+    ("live catalog not JSON", dict(catalog_body=b"{nope"), "catalog cannot be read as cards"),
+    ("live catalog without cards", dict(catalog_body=b"{}"), "catalog cannot be read as cards"),
+    ("live catalog off its pin", dict(catalog_pin="0" * 64), "does not match its pin"),
+]
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("name,kw,reason", UNREADABLE, ids=[u[0] for u in UNREADABLE])
+def test_r_alone_with_an_unreadable_live_catalog_is_refused_never_no_new_cards(setup, name, kw, reason, dry_run):
+    candidate_catalog(setup, ["TOY-001"])
+    s3 = FakeS3()
+    with pytest.raises(Refused, match=reason):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=live_cdn(setup, ["TOY-001"], **kw))
+    assert untouched(setup, s3)
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_r_alone_with_a_timeout_or_no_live_pointer_is_refused(setup, dry_run):
+    candidate_catalog(setup, ["TOY-001"])
+    real = live_cdn(setup, ["TOY-001"])
+
+    def timeout(url, **k):
+        if url.split("?")[0].endswith("/catalog.json"):
+            raise TimeoutError("timed out")
+        return real(url, **k)
+    s3 = FakeS3()
+    with pytest.raises(Refused, match="catalog cannot be read .TimeoutError"):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=timeout)
+    assert untouched(setup, s3)
+    with pytest.raises(Refused, match="--verdict-n missing"):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=no_pointer)
+    assert untouched(setup, s3)
+
+
+def test_verdict_n_alone_stays_refused_and_both_verdicts_never_read_the_live_catalog(setup):
+    with pytest.raises(Refused, match="--verdict-r missing"):
+        run(setup, with_args(setup, verdict_r=None), FakeS3(), get=live_cdn(setup, ["TOY-001"]))
+    asked = []
+    run(setup, with_args(setup, dry_run=True), FakeS3(),
+        get=lambda url, **k: asked.append(url) or no_pointer(url, **k))
+    assert not any("catalog" in u for u in asked)
+
+
+R_ONLY_BAD = [
+    ("R INVALID", {"verdict": "INVALID"}, "VERDICT-R.json: 'INVALID', not PASS"),
+    ("R with no rehearsal field", {"rehearsal": None}, "VERDICT-R.json: no rehearsal field"),
+]
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("name,over,reason", R_ONLY_BAD, ids=[b[0] for b in R_ONLY_BAD])
+def test_r_alone_refuses_an_invalid_r_and_one_with_no_rehearsal_field(setup, name, over, reason, dry_run):
+    verdict(setup.tmp / "replay", "R", **over)
+    s3 = FakeS3()
+    asked = []
+    with pytest.raises(Refused, match=reason):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=lambda *a, **k: asked.append(a) or no_pointer(*a, **k))
+    assert untouched(setup, s3) and not asked
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_r_alone_refuses_a_verdict_file_that_is_missing_or_not_json(setup, dry_run):
+    (setup.tmp / "junk.json").write_text("{not json")
+    for path, reason in ((setup.tmp / "nowhere.json", "--verdict-r .*nowhere.json: cannot be read"),
+                         (setup.tmp / "junk.json", "--verdict-r .*junk.json: not a verdict file")):
+        s3 = FakeS3()
+        asked = []
+        with pytest.raises(Refused, match=reason):
+            run(setup, r_only(setup, dry_run=dry_run, verdict_r=str(path)), s3,
+                get=lambda *a, **k: asked.append(a) or no_pointer(*a, **k))
+        assert untouched(setup, s3) and not asked
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_r_alone_with_a_live_release_document_off_the_pointers_sha_is_refused(setup, dry_run):
+    candidate_catalog(setup, ["TOY-001"])
+    real = live_cdn(setup, ["TOY-001"])
+
+    def other_document(url, **k):
+        status, headers, body = real(url, **k)
+        if url.split("?")[0].endswith(f"{LIVE_ID}/release.json"):
+            body = body + b" "
+        return status, headers, body
+    s3 = FakeS3()
+    with pytest.raises(Refused, match="release.json does not match the pointer's sha256.*nothing written"):
+        run(setup, r_only(setup, dry_run=dry_run), s3, get=other_document)
+    assert untouched(setup, s3)

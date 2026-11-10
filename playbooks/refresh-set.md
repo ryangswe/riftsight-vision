@@ -209,6 +209,17 @@ catalog, which is what installs show on these cards today. With arms, each run's
 
 - **Expect:** `"verdict": "PASS"`, exit 0.
 
+**An update with no new cards** (for example, only official renames): `refresh subset` writes
+an empty catalog and there is nothing to draw, so `refresh verdict newcard` on the folder ends
+INVALID with the note `no new cards: gate N has nothing to judge`. That is expected. Skip gate N
+and, in step 6.5, pass only `--verdict-r`: `publish-release` compares the candidate's catalog
+with the live release's itself, and accepts R alone only when no card id is new (renames and
+other edits are fine). If it finds a new id it refuses and asks for `--verdict-n`.
+
+If every new card lacks art, `refresh subset` also writes an empty catalog and gate N says "no
+new cards", but `publish-release` still counts those ids as new and asks for `--verdict-n`,
+which gate N cannot give. Such an update goes out with `--no-refresh-gate "<reason>"`.
+
 **Outcomes, both gates.** INVALID: repair the input the verdict names and run again; it is
 neither a FAIL nor a retry. FAIL: write down one remedy first (for example, leave the new cards
 behind the counted events out of the bank: their catalog art set to `null`, then steps 2.4 to 5 again),
@@ -266,7 +277,8 @@ cardvision cdn publish-release --env-file "$ENV" --release "$UPD/rel/$ID" --lega
 Add `--geometric "$UPD/geometric.json" --geo-manifest-sha256 "$MANIFEST_SHA"` for the stage, a
 `--data-file` for each data file the product publishes with a release, and `--sessions` when the
 tool asks for it. The two verdicts are the ones from steps 4 and 5: the tool refuses to move the pointer
-unless both are a PASS, not a rehearsal, under the same rule.
+unless both are a PASS, not a rehearsal, under the same rule. For an update with no new cards
+(step 5), leave out `--verdict-n`; the tool checks that no card id is new before it writes anything.
 
 - **Expect:** the refresh gate's two lines (each verdict file with its SHA-256), the seal, the
   runtimes, the remote state and the pointer it would write, exit 0. For a maintainer step, show

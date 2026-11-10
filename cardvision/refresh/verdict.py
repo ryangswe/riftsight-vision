@@ -322,12 +322,25 @@ def reference_dir(p: Mapping[str, Any], rule: str | Path | None, reference: str 
     return path
 
 
+def _no_new_cards(d: Path) -> bool:
+    """True when the folder's ``catalog.json`` (what ``refresh subset --new-vs`` wrote) lists no
+    cards: the candidate adds none, so no scenes could be drawn. Any other state is False."""
+    try:
+        cards = _read(d / "catalog.json")["cards"]
+    except (OSError, LookupError, TypeError, ValueError):
+        return False
+    return cards == []
+
+
 def gate_n(p: Mapping[str, Any], d: str | Path, rule: str | Path | None = None,
            reference: str | Path | None = None) -> tuple[str, list[str], dict[str, Any]]:
     """Gate N on a new-card folder: ``(verdict, notes, detail)``."""
     d = Path(d)
     q = p["newcard"]
     rows, notes, verdict = {}, [], "PASS"
+    if not (d / "scenes" / "manifest.json").exists() and _no_new_cards(d):
+        return "INVALID", ["no new cards: gate N has nothing to judge (the subset catalog is empty, so no scenes were "
+                           "drawn); gate R alone can allow the publish when the tool finds no new card ids"], rows
     man = _read(d / "scenes" / "manifest.json")
     if man.get("seed") != q["seed"] or man.get("scenes") != q["scenes"]:
         return "INVALID", [f"scenes seed/count {man.get('seed')}/{man.get('scenes')}, rule {q['seed']}/{q['scenes']}"], rows
