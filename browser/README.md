@@ -976,6 +976,7 @@ permission for cross-origin use).
 | `geometricUrl` | URL of the geometric stage's settings file, to verify candidates with it ("The geometric stage", below). Off without it. |
 | `geometricManifestSha256` | The SHA-256 the packed index's `manifest.json` must have; another manifest turns the stage off. |
 | `geometricWatchdog` | `false` turns the stage's watchdog off (default on). For measuring the stage only: a slow stage is then never turned off. |
+| `measuredPacing` | `true` or `{ share }`: pace analysis from the measured analysis time ("Measured pacing", below). Default off: the fixed rates. |
 | `rotatedOutlines` | `true`: each named card follows its outline when it sits at an angle ("Outlines of tilted cards", below). Default `false`: every card is its box, as before. |
 | `onUpdate` | Called whenever the status or what would be shown may have changed. |
 
@@ -1085,6 +1086,29 @@ size. No answer, accept or box changes, and off is exactly as before. The
 outline costs one tilt estimate per face whose look reaches tau, on the crop the face already
 has. `outlineRect(crop, boxWidth, boxHeight)` gives it for any shipped crop.
 
+## Measured pacing
+
+By default a session analyzes at fixed rates: every 500 ms while the pointer is active on WebGPU
+(1000 ms on WebAssembly), and every 1000 ms (2000 ms) otherwise, whatever the computer. With
+`measuredPacing: true` the wait between cadence analyses comes from how long recent analyses took
+(each reply's `workerMs`), so a slow computer spends less of its time on those analyses.
+
+- The wait is the median of the last 5 measured analyses divided by a share, 0.25 by default.
+  Pass `measuredPacing: { share: 0.5 }` to change it. A share outside (0, 1], or a value that is
+  neither a boolean nor an object, throws.
+- It is never shorter than the fixed rate for the mode and backend. It is at most 4000 ms while
+  the pointer is active, 8000 ms in `"always-on"` mode, and, while the pointer rests on a showing
+  tooltip, at most the release's `hover.maxAgeMs` plus 5000 ms less one driver tick (6750 ms by
+  default), so the resting state cannot end before the next analysis is due.
+- Until 3 analyses have been measured, the fixed rate applies.
+- The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
+- The session learns within its own run and stores nothing.
+
+For example, analyses of 900 ms on WebAssembly give a wait of 900 / 0.25 = 3600 ms. The user-wait
+harness takes `--measured-pacing` (and `--share`) to turn the option on ("Measuring the wait"); its
+report records the setting and the share of the run's time spent analyzing. Runs with pacing on and
+off both analyze 5 frames at the emulated speed before the rests begin.
+
 ## Measuring the wait
 
 How long does a viewer wait for the right name? `npm run user-wait` plays a clip in a headless
@@ -1192,7 +1216,12 @@ analysis runs faster (on one computer the same frames took about 16 ms throttled
 ms unthrottled), so scaling the throttled time alone under-reports a slow computer. After the
 warm-up the harness takes the raw analysis time unthrottled (`analysis.baselineRawMs`), throttles
 the page, takes it again (`analysis.throttledRawMs`) and sets `c` to their ratio
-(`analysis.correction`). With `--cold` there is no baseline: `c` is 1 and the report says so.
+(`analysis.correction`, with `analysis.correctionSource` "measured"). With `--cold` there is no baseline: `c` is 1 and the report says so.
+`--correction C` uses the `c` you give (above 0) and skips the throttled measurement
+(`correctionSource` "given", `profile.correctionMeasured` false). To compare a run with
+`--measured-pacing` against one without it, measure `c` in the run without it and pass it to the
+run with it: `c` measured while the pacer spaces the analyses can differ, and the two runs would
+then emulate different computers. A run with pacing on and `c` measured warns about this.
 `profile.slowdown.worker.measured`, the time the wrapper took per frame over c times the raw
 time, should be about N.
 

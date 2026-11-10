@@ -42,10 +42,13 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
-import { architectureNote, buildReport, byteRange, correction, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
+import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
+
+// Analyses at the emulated speed before the rests begin, in a run with pacing on or off alike.
+const PACER_SETTLE_ANALYSES = 5;
 
 const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests FILE [--throttle N]
-                            [--limit MS] [--out FILE] [--chrome PATH] [--headed]
+                            [--limit MS] [--out FILE] [--chrome PATH] [--headed] [--measured-pacing [--share S]]
 
   --release FOLDER  a release folder (a release document and the files it pins)
   --clip FILE       an image or a video file to play
@@ -56,6 +59,13 @@ const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests 
                     time it took is in the profile (readyMs) and in no rest's wait
   --scenes FILE     scenes drawn over the clip (an image): README.md, "Measuring the wait". Needs --art
   --art FOLDER      the card images the scenes draw, named CARD.png; served at /art/
+  --measured-pacing  run the session with the measuredPacing option on (default off). Both kinds of run
+                    first analyze ${PACER_SETTLE_ANALYSES} frames at the emulated speed, so a paced run's rests begin after its pacer has
+                    measured slowed analyses; the report says so (analysis.pacerSettle)
+  --share S         with --measured-pacing: the share of time analysis may take, above 0 and at most 1 (default 0.25)
+  --correction C    use this correction c (a number above 0) and skip measuring it. For an on/off comparison
+                    of --measured-pacing, measure c in the off run (analysis.correction) and pass it to the
+                    on run, so both emulate the same computer. Not with --cold
   --cold            no warm-up and no correction of the throttle's effect on the worker
   --out FILE        also write the report here
   --chrome PATH     the Chrome to drive (or CHROME in the environment)
@@ -67,8 +77,8 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(USAGE);
   process.exit(0);
 }
-const flags = new Set(["--headed", "--cold"]);
-const known = new Set(["--release", "--clip", "--rests", "--throttle", "--limit", "--ready-timeout", "--scenes", "--art", "--out", "--chrome"]);
+const flags = new Set(["--headed", "--cold", "--measured-pacing"]);
+const known = new Set(["--release", "--clip", "--rests", "--throttle", "--limit", "--ready-timeout", "--scenes", "--art", "--out", "--chrome", "--share", "--correction"]);
 const given = {};
 for (let at = 0; at < args.length; at += 1) {
   const name = args[at];
@@ -82,6 +92,15 @@ function usageError(problem) {
 }
 for (const name of ["release", "clip", "rests"]) if (given[name] === undefined) usageError(`--${name} is required`);
 const rate = Number(given.throttle ?? 4);
+const pacing = { on: given["measured-pacing"] === true, share: given["measured-pacing"] === true ? Number(given.share ?? 0.25) : null };
+if (given.share !== undefined && !pacing.on) usageError("--share needs --measured-pacing");
+if (pacing.on && !(pacing.share > 0 && pacing.share <= 1)) usageError(`--share ${given.share}: not a number above 0 and at most 1`);
+const givenCorrection = given.correction === undefined ? undefined : Number(given.correction);
+if (givenCorrection !== undefined) {
+  const problem = correctionProblem(givenCorrection);
+  if (problem) usageError(`--correction ${given.correction}: ${problem}`);
+  if (given.cold) usageError("--correction cannot be used with --cold");
+}
 const limitMs = Number(given.limit ?? DEFAULT_LIMIT_MS);
 const readyTimeoutMs = Number(given["ready-timeout"] ?? DEFAULT_READY_TIMEOUT_MS);
 if (!(readyTimeoutMs > 0)) usageError(`--ready-timeout ${given["ready-timeout"]}: not a number of ms`);
@@ -182,6 +201,7 @@ const PAGE_JS = `
 import { createSession } from "/lib/cardvision.js";
 const video = document.getElementById("v");
 const IS_IMAGE = ${JSON.stringify(isImage)};
+const MEASURED_PACING = ${JSON.stringify(pacing.on ? { share: pacing.share } : null)};
 const SCENES = ${JSON.stringify(sceneSpec === null ? null : sceneSpec.scenes)};
 let scene = ${JSON.stringify(sceneSpec === null ? null : (sceneSpec.start ?? Object.keys(sceneSpec.scenes)[0]))};
 let session = null;
@@ -262,6 +282,7 @@ async function open(rate, readyTimeoutMs) {
     wasmPaths: location.origin + "/lib/",
     providers: ["wasm"],
     mode: "pointer",
+    ...(MEASURED_PACING ? { measuredPacing: MEASURED_PACING } : {}),
   });
   setInterval(() => {
     const s = session.status();
@@ -457,23 +478,32 @@ try {
   let baselineRawMs = null;
   let throttledRawMs = null;
   let c = 1;
+  if (!cold && givenCorrection === undefined && pacing.on) {
+    const warning = "the correction was measured with pacing on, which spaces analyses and can change it; for an on/off comparison pass --correction from the off run";
+    warnings.push(warning);
+    console.error(`warning: ${warning}`);
+  }
   if (!cold) {
     // Unthrottled: the first analysis (the models' first run) is dropped from the baseline.
     baselineRawMs = median((await jitter(warmUpCycles + 1)).slice(1));
     await cdp.send("Emulation.setCPUThrottlingRate", { rate });
     slowed = await calibrations();
-    if (rate > 1) {
+    if (givenCorrection !== undefined) {
+      c = chooseCorrection(givenCorrection, null, null).c;
+    } else if (rate > 1) {
       throttledRawMs = median(await jitter(Math.max(3, warmUpCycles)));
-      c = correction(baselineRawMs, throttledRawMs);
+      c = chooseCorrection(undefined, baselineRawMs, throttledRawMs).c;
     } else {
       throttledRawMs = baselineRawMs;
     }
     await tab.evaluate((r, k) => window.harness.control(r, k), rate, c);
     await new Promise((done) => setTimeout(done, 1500));
-    await tab.evaluate(() => window.harness.reset());
-  } else {
-    await tab.evaluate(() => window.harness.reset());
   }
+  // The same in both kinds of run: analyses at the emulated speed before the rests begin, so a
+  // paced run's pacer has measured slowed analyses (the warm-up ones were not slowed).
+  await jitter(PACER_SETTLE_ANALYSES);
+  await tab.evaluate(() => window.harness.reset());
+  const runBegan = Date.now();
 
   const lines = [];
   for (const [index, rest] of script.rests.entries()) {
@@ -491,6 +521,7 @@ try {
     lines.push({ index: index + 1, x: rest.x, y: rest.y, ...describeRest(scored, { scene: rest.scene ?? null, framesStart: measured.framesStart, framesEnd: measured.framesEnd, readings: measured.readings }) });
   }
 
+  const wallMs = Date.now() - runBegan;
   const cycles = await tab.evaluate(() => window.harness.cycles());
   const held = await tab.evaluate(() => window.harness.worker());
   const raw = held.map((h) => h.rawMs);
@@ -508,6 +539,7 @@ try {
           frames: held.length,
         },
       },
+      measuredPacing: pacing,
       backendAsked: "wasm",
       backend: opened.backend,
       chrome: {
@@ -515,7 +547,7 @@ try {
         ...architectureNote({ machine: process.arch, binary: binaryArchitectures(chrome), page: await tab.evaluate(() => window.harness.architecture()) }),
       },
       warmUpCycles,
-      correctionMeasured: !cold,
+      correctionMeasured: !cold && givenCorrection === undefined,
       warnings,
       readyMs: opened.readyMs,
       readyTimeoutMs,
@@ -529,13 +561,16 @@ try {
     lines,
     analysis: {
       ...cycleSummary(cycles),
+      ...analysisShare(held.map((h) => h.reportedMs), wallMs),
+      pacerSettle: { analyses: PACER_SETTLE_ANALYSES, note: "before the rests begin, in runs with pacing on and off alike" },
       medianRawMs: median(raw),
       baselineRawMs,
       throttledRawMs,
       correction: c,
-      correctionMeasured: !cold,
+      correctionSource: givenCorrection !== undefined ? "given" : "measured",
+      correctionMeasured: !cold && givenCorrection === undefined,
       warmUpCycles,
-      note: cold ? "cold run: no warm-up, and the page throttle's effect on the worker was not measured (correction 1)" : "baseline and throttled raw analysis times measured after the warm-up",
+      note: cold ? "cold run: no warm-up, and the page throttle's effect on the worker was not measured (correction 1)" : givenCorrection !== undefined ? "the correction was given (--correction); the throttled raw time was not measured" : "baseline and throttled raw analysis times measured after the warm-up",
     },
   });
   const json = JSON.stringify(report, null, 2);

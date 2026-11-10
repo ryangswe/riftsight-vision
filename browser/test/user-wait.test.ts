@@ -26,6 +26,9 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   describeRest: (scored: Record<string, unknown>, extra?: { scene?: string | null; framesStart?: number | null; framesEnd?: number | null; readings?: { t: number; cardId: string | null }[] }) => Record<string, unknown>;
   scenesWarnings: (spec: unknown, rests?: { scene?: string; expect: string }[]) => string[];
   answeredWithoutNewAnalysis: (lines: Record<string, unknown>[]) => number[];
+  analysisShare: (reportedMs: number[], wallMs: number) => Record<string, unknown>;
+  chooseCorrection: (given: number | undefined | null, baseline: number | null, throttled: number | null) => { c: number; source: string };
+  correctionProblem: (value: number) => string | null;
   correction: (baseline: number | null, throttled: number | null) => number;
   emulatedTime: (rawMs: number, rate: number, c: number) => { reportedMs: number; holdMs: number };
   DEFAULT_LIMIT_MS: number;
@@ -112,9 +115,28 @@ describe("the report", () => {
     expect(report.analysis).toEqual({ cycles: 2, medianWorkerMs: 20, medianRoundTripMs: 26 });
   });
 
+  it("gives the share of the run's wall time spent analyzing, and carries the pacing profile", () => {
+    expect(core.analysisShare([900, 1100, 1000], 12_000)).toEqual({ runWallMs: 12_000, runAnalyses: 3, runAnalyzedMs: 3000, analyzingShare: 0.25 });
+    expect(core.analysisShare([], 0)).toMatchObject({ runAnalyses: 0, analyzingShare: null });
+    const profile = { measuredPacing: { on: true, share: 0.25 } };
+    expect(core.buildReport({ profile, lines: [], analysis: core.analysisShare([1], 4) }).profile).toEqual(profile);
+  });
+
   it("reads a slowdown as the slowed calibration over the unslowed one", () => {
     expect(core.measuredFactor([100, 102, 98], [610, 590, 600])).toBe(6);
     expect(core.measuredFactor([], [1])).toBeNull();
+  });
+});
+
+describe("the correction", () => {
+  it("uses the one given, else the measured ratio", () => {
+    expect(core.chooseCorrection(1.06, null, null)).toEqual({ c: 1.06, source: "given" });
+    expect(core.chooseCorrection(undefined, 300, 200)).toEqual({ c: 1.5, source: "measured" });
+    expect(core.chooseCorrection(undefined, null, null)).toEqual({ c: 1, source: "measured" });
+  });
+  it("accepts only a number above 0", () => {
+    expect(core.correctionProblem(1.06)).toBeNull();
+    for (const bad of [0, -1, Number.NaN, Infinity]) expect(core.correctionProblem(bad)).not.toBeNull();
   });
 });
 

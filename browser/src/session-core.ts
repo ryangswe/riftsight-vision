@@ -38,7 +38,7 @@
 
 import type { AABB } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
-import { analyzeIntervalMs, cadenceMs, type SessionMode } from "./cadence.js";
+import { analyzeIntervalMs, cadenceMs, MeasuredPacer, type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
@@ -127,6 +127,9 @@ export interface SessionCoreOptions {
   /** True: named cards follow their outline on every frame (`SessionOptions.rotatedOutlines`).
    *  Default false. */
   rotatedOutlines?: boolean;
+  /** Pace analysis from the measured analysis time (`SessionOptions.measuredPacing`). Off when
+   *  absent. */
+  measuredPacing?: MeasuredPacingOption;
 }
 
 /** What `status().loading` becomes on a release-progress reply: the reply's phase while the
@@ -170,6 +173,7 @@ export class SessionCore {
   private readonly maxOtherBoxes: number;
   private readonly rotatedOutlines: boolean;
   private readonly hitTest: typeof hoverAt;
+  private readonly pacer: MeasuredPacer | null;
 
   private readonly st: SessionStatus;
   private cardList: ReleaseStatus["cards"] = [];
@@ -199,6 +203,8 @@ export class SessionCore {
     this.maxOtherBoxes = options.maxOtherBoxes ?? MAX_OTHER_BOXES;
     this.rotatedOutlines = options.rotatedOutlines === true;
     this.hitTest = deps.hoverAt ?? hoverAt;
+    const share = resolveMeasuredPacing(options.measuredPacing);
+    this.pacer = share === null ? null : new MeasuredPacer(share);
     this.scheduler = new FrameScheduler(cadenceMs(null, this.mode), CONFIRM_FRAMES, this.mode, analyzeIntervalMs(null));
     this.st = {
       state: "loading", error: null, release: null, backend: null, schedule: "idle", frames: 0,
@@ -343,8 +349,7 @@ export class SessionCore {
           this.st.backend = reply.release.recognizer.ep;
           this.maxAgeMs = reply.release.hoverMaxAgeMs;
           this.analysisWidth = { ...reply.release.analysisWidth };
-          this.scheduler.setIntervalMs(cadenceMs(this.st.backend, this.mode));
-          this.scheduler.setReadingIntervalMs(analyzeIntervalMs(this.st.backend));
+          this.applyCadence();
           this.scheduler.framePresented();
         }
         this.publish();
@@ -355,6 +360,14 @@ export class SessionCore {
       default:
         return;
     }
+  }
+
+  /** Arm the scheduler with the cadence for the backend: today's fixed rates, or the measured
+   *  ones with `measuredPacing`. */
+  private applyCadence(): void {
+    const ep = this.st.backend;
+    this.scheduler.setIntervalMs(this.pacer ? this.pacer.intervalMs(ep, this.mode) : cadenceMs(ep, this.mode));
+    this.scheduler.setReadingIntervalMs(this.pacer ? this.pacer.readingMs(ep, this.maxAgeMs) : analyzeIntervalMs(ep));
   }
 
   private onFrameResult(reply: FrameResult): void {
@@ -380,6 +393,10 @@ export class SessionCore {
     this.st.lastRoundTripMs = +(now - sent.sentAt).toFixed(2);
     if (reply.analysis) {
       this.analyzedSinceLoad = true;
+      if (this.pacer) {
+        this.pacer.record(reply.workerMs);
+        this.applyCadence();
+      }
       this.scheduler.lookAnswered();
       this.st.frames += 1;
       this.result = { analysis: reply.analysis, videoTimeSec: reply.videoTimeSec };
