@@ -9,6 +9,19 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-10
+
+`cardvision cdn publish-release --config` checks the **refresh verdicts** before it moves a
+pointer, and it keeps the release index; the browser runtime gives **outlines of tilted cards**;
+and store uploads run from the **account holder's own machine**. It is release candidate
+0.10.0rc1, listed below it, unchanged. A product published a card update with that candidate,
+with no regression. The one break, and how to migrate, are under 0.10.0rc1's Changed. No model,
+release document or recognizer decision changes, and the contract's `PROTOCOL_VERSION` stays 1.
+
+### Changed
+
+- The version only: apart from the version and this section, nothing differs from 0.10.0rc1.
+
 ## [0.10.0rc1] - 2026-11-09
 
 A release candidate, because one change breaks the public surface: `cardvision cdn
@@ -1247,7 +1260,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0
 [0.10.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0rc1
 [0.9.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.8.0...v0.9.0
