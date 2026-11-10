@@ -50,7 +50,7 @@ jobs:
           python-version: "3.12"
       - name: Install the Python package, for the toy game
         run: |
-          python -m pip install -r requirements-lock.txt
+          python -m pip install --require-hashes -r requirements-lock.txt
           python -m pip install --no-deps -e .
       - name: Write the toy game (stand-in models, colored-shape cards, the example table)
         run: python tests/test_browser_fixtures.py --demo "${RUNNER_TEMP}/toy"
