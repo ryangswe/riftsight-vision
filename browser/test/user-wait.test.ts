@@ -30,6 +30,7 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   chooseCorrection: (given: number | undefined | null, baseline: number | null, throttled: number | null) => { c: number; source: string };
   correctionProblem: (value: number) => string | null;
   correction: (baseline: number | null, throttled: number | null) => number;
+  settleAnalyses: (cold: boolean, count: number) => number;
   emulatedTime: (rawMs: number, rate: number, c: number) => { reportedMs: number; holdMs: number };
   DEFAULT_LIMIT_MS: number;
   DEFAULT_READY_TIMEOUT_MS: number;
@@ -300,5 +301,12 @@ describe("byteRange: the local server answers range requests, so a video can see
   });
   it("sends the whole file for no header or one it does not read", () => {
     for (const header of [undefined, "", "bytes=-", "bytes=0-99,200-299", "items=0-9", "bytes=99-0"]) expect(core.byteRange(header, size), String(header)).toBeNull();
+  });
+});
+
+describe("settleAnalyses: a cold run has no settle analyses before its first rest", () => {
+  it("settles a warm run and never a cold one", () => {
+    expect(core.settleAnalyses(false, 5)).toBe(5);
+    expect(core.settleAnalyses(true, 5)).toBe(0);
   });
 });

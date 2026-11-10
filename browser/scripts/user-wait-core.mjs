@@ -259,6 +259,15 @@ export function correctionProblem(value) {
   return Number.isFinite(value) && value > 0 ? null : "not a number above 0";
 }
 
+/**
+ * How many analyses at the emulated speed run before the rests: `count` in a warm run, so a paced
+ * run's pacer has measured slowed analyses; none in a cold run, whose first rest must meet the
+ * models' first analysis.
+ */
+export function settleAnalyses(cold, count) {
+  return cold ? 0 : count;
+}
+
 /** What the wrapper reports and holds for one frame: `rate` x `c` x the raw time, held for the rest of it. */
 export function emulatedTime(rawMs, rate, c) {
   const reportedMs = rate * c * rawMs;

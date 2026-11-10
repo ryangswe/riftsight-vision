@@ -1106,8 +1106,9 @@ By default a session analyzes at fixed rates: every 500 ms while the pointer is 
 
 For example, analyses of 900 ms on WebAssembly give a wait of 900 / 0.25 = 3600 ms. The user-wait
 harness takes `--measured-pacing` (and `--share`) to turn the option on ("Measuring the wait"); its
-report records the setting and the share of the run's time spent analyzing. Runs with pacing on and
-off both analyze 5 frames at the emulated speed before the rests begin.
+report records the setting and the share of the run's time spent analyzing. Warm runs with pacing on
+and off both analyze 5 frames at the emulated speed before the rests begin; a `--cold` run does
+not, so its first rest meets the models' first analysis.
 
 ## Measuring the wait
 
