@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeProtocol, type ShownCard } from "../src/compute-messages.js";
 import { startComputeFrame, type ComputeFrameEnv } from "../src/compute-frame.js";
 import type { LayerCard } from "../src/hover-geometry.js";
-import type { ReleaseStatus, WorkerReply } from "../src/messages.js";
+import { SessionCore, type Shown } from "../src/session-core.js";
+import type { ReleaseStatus, WorkerReply, WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
 import type { WorkerLike } from "../src/worker-session.js";
 import { computeProtocol as oldProtocol } from "./fixtures/compute-messages-0.10.0.js";
@@ -46,6 +47,8 @@ const analysisOf = (c: LayerCard): FrameAnalysis =>
 const TURN = { rotation: 12, localWidth: 0.15, localHeight: 0.5 };
 
 function run(c: LayerCard) {
+  const clock = { now: 1_000 };
+  let moves = 0;
   const posted: Array<Record<string, unknown>> = [];
   const worker: WorkerLike & { sent: Array<Record<string, unknown>> } = {
     sent: [],
@@ -70,7 +73,7 @@ function run(c: LayerCard) {
     protocol,
     createWorker: () => worker,
     loadRequest: { kind: "load", releaseUrl: "r.json", wasmPaths: "w/" },
-    now: () => 1_000,
+    now: () => clock.now,
   };
   const frame = startComputeFrame(env)!;
   const reply = (data: unknown) => worker.onmessage?.({ data } as MessageEvent<WorkerReply>);
@@ -83,13 +86,25 @@ function run(c: LayerCard) {
       accept: { tau: 0.68, delta: 0.06 }, hoverSelection: "accepted-nms", hoverMaxAgeMs: 2000, analysisWidth: { min: 720, max: 1920 }, ortWeb: "1.29.0",
     } as unknown as NonNullable<ReleaseStatus["release"]>,
   });
-  send(tag({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1, touch: false }));
-  const capture = posted.filter((m) => m.kind === "capture").pop() as { requestId: number };
-  send(tag({ kind: "frame", requestId: capture.requestId, bitmap: new FakeBitmap(), mediaTime: 1 }));
-  const request = worker.sent.at(-1) as { envelope: unknown };
-  reply({ kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysisOf(c) });
+  /** The pointer on the card, a picture taken, and an analysis holding `next` back. */
+  const step = (next: LayerCard) => {
+    const before = posted.filter((m) => m.kind === "capture").length;
+    // The scheduler asks for a picture after a pointer move over a stale one; move until it does.
+    for (let i = 0; i < 4 && posted.filter((m) => m.kind === "capture").length === before; i += 1) {
+      clock.now += 5_000;
+      moves += 1;
+      send(tag({ kind: "pointer", x: 0.2 + moves * 0.001, y: 0.5, mediaTime: moves, touch: false }));
+      send(tag({ kind: "presented", mediaTime: moves }));
+    }
+    const capture = posted.filter((m) => m.kind === "capture").pop() as { requestId: number };
+    expect(posted.filter((m) => m.kind === "capture")).toHaveLength(before + 1);
+    send(tag({ kind: "frame", requestId: capture.requestId, bitmap: new FakeBitmap(), mediaTime: moves }));
+    const request = worker.sent.at(-1) as { envelope: unknown };
+    reply({ kind: "frame-result", envelope: request.envelope, videoTimeSec: moves, width: 1000, height: 500, workerMs: 5, analysis: analysisOf(next) });
+  };
+  step(c);
   const shown = posted.filter((m) => m.kind === "shown").pop()!;
-  return { frame, shown };
+  return { frame, shown, step, shownMessages: () => posted.filter((m) => m.kind === "shown") };
 }
 
 describe("the shown card's outline", () => {
@@ -145,5 +160,71 @@ describe("the shown card's outline", () => {
     const old = oldProtocol("example");
     const message = old.tag({ kind: "shown", card: { ...base, others: [] } });
     expect(protocol.parseComputeOut(message)).toStrictEqual(upright);
+  });
+
+  it("row 7: a change of outline at the same box is reported again, in both directions; no change is not", () => {
+    const upright = card(null);
+    const t = run(upright);
+    const outlines = () => t.shownMessages().map((m) => (m.card as ShownCard | null)?.rotation);
+    expect(outlines()).toEqual([undefined]);
+    t.step(upright);
+    expect(outlines()).toEqual([undefined]);
+    t.step(card(TURN));
+    expect(outlines()).toEqual([undefined, 12]);
+    t.step(card(TURN));
+    expect(outlines()).toEqual([undefined, 12]);
+    t.step(card({ ...TURN, rotation: -7 }));
+    expect(outlines()).toEqual([undefined, 12, -7]);
+    t.step(upright);
+    expect(outlines()).toEqual([undefined, 12, -7, undefined]);
+    const last = t.shownMessages().at(-1)!.card as ShownCard;
+    expect(Object.keys(last).sort()).toEqual(["box", "cardId", "name", "others"]);
+  });
+
+  it("row 7: SessionCore calls onShown once per outline change", () => {
+    let turn: LayerCard = card(null);
+    let now = 1_000;
+    const calls: Array<Shown | null> = [];
+    const requests: WorkerRequest[] = [];
+    const captures: number[] = [];
+    const core = new SessionCore({
+      now: () => now,
+      toWorker: (r) => requests.push(r),
+      capture: (id) => captures.push(id),
+      onShown: (c) => calls.push(c),
+      hoverAt: ((_: unknown, x: number, y: number) =>
+        x >= 100 && x <= 300 && y >= 100 && y <= 400
+          ? { card: turn, boxIndex: 0, box: { x: 100, y: 100, width: 200, height: 300 }, cardId: "T-001", name: "Card One" }
+          : { card: null, boxIndex: null, box: null, cardId: null, name: null }) as never,
+    });
+    core.fromWorker({
+      kind: "release-status", ok: true, error: null, cards: [],
+      release: {
+        id: "r0", game: "toy-game", locale: "en", detector: { version: "d", ep: "wasm" }, recognizer: { version: "r", ep: "wasm" },
+        bankCards: 1, catalogCards: 1, identityLevel: "name", decode: { threshold: 0.3, nmsIou: 0.45, maxProposals: 80, minCropPx: 24 },
+        accept: { tau: 0.68, delta: 0.06 }, hoverSelection: "accepted-nms", hoverMaxAgeMs: 2000, analysisWidth: { min: 720, max: 1920 }, ortWeb: "1.29.0",
+      } as unknown as NonNullable<ReleaseStatus["release"]>,
+    });
+    const step = (next: LayerCard) => {
+      turn = next;
+      now += 5_000;
+      core.pointer(0.2, 0.5, 1);
+      core.frame(captures.at(-1)!, new FakeBitmap() as unknown as ImageBitmap, 1);
+      const r = requests.at(-1) as Extract<WorkerRequest, { kind: "frame" }>;
+      core.fromWorker({ kind: "frame-result", envelope: r.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysisOf(next) });
+    };
+    step(card(null));
+    const n = calls.length;
+    expect(calls.at(-1)).not.toHaveProperty("rotation");
+    step(card(null));
+    expect(calls).toHaveLength(n);
+    step(card(TURN));
+    expect(calls).toHaveLength(n + 1);
+    expect(calls.at(-1)).toMatchObject(TURN);
+    step(card(TURN));
+    expect(calls).toHaveLength(n + 1);
+    step(card(null));
+    expect(calls).toHaveLength(n + 2);
+    expect(calls.at(-1)).not.toHaveProperty("rotation");
   });
 });

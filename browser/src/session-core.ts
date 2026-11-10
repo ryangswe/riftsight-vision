@@ -584,10 +584,10 @@ export class SessionCore {
     this.publishStatus();
   }
 
-  /** Report what is shown when it changed (the card, or its box). */
+  /** Report what is shown when it changed (the card, its box, or its outline). */
   private publishShown(): void {
     const card = this.shown();
-    const key = card ? `${card.cardId}|${card.box.x}|${card.box.y}|${card.box.width}|${card.box.height}` : "null";
+    const key = card ? `${card.cardId}|${card.box.x}|${card.box.y}|${card.box.width}|${card.box.height}|${card.rotation ?? ""}|${card.localWidth ?? ""}|${card.localHeight ?? ""}` : "null";
     if (key === this.lastShownKey) return;
     this.lastShownKey = key;
     this.deps.onShown?.(card);
