@@ -9,6 +9,12 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Fixed
+
+- `npm run user-wait --cold` measures a cold first hover again: 0.11.0 ran its 5 settle analyses
+  before the rests in every run, cold ones too, so the models had analyzed before the first rest.
+  Only warm runs settle now, and the report's `analysis.pacerSettle` gives 0 for a cold run.
+
 ## [0.11.0] - 2026-11-10
 
 A card update with no new cards can now be published on the replay verdict alone, and the

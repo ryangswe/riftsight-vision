@@ -42,7 +42,7 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
-import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
+import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, settleAnalyses, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
 
 // Analyses at the emulated speed before the rests begin, in a run with pacing on or off alike.
 const PACER_SETTLE_ANALYSES = 5;
@@ -59,8 +59,8 @@ const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests 
                     time it took is in the profile (readyMs) and in no rest's wait
   --scenes FILE     scenes drawn over the clip (an image): README.md, "Measuring the wait". Needs --art
   --art FOLDER      the card images the scenes draw, named CARD.png; served at /art/
-  --measured-pacing  run the session with the measuredPacing option on (default off). Both kinds of run
-                    first analyze ${PACER_SETTLE_ANALYSES} frames at the emulated speed, so a paced run's rests begin after its pacer has
+  --measured-pacing  run the session with the measuredPacing option on (default off). Warm runs, paced
+                    or not, first analyze ${PACER_SETTLE_ANALYSES} frames at the emulated speed, so a paced run's rests begin after its pacer has
                     measured slowed analyses; the report says so (analysis.pacerSettle)
   --share S         with --measured-pacing: the share of time analysis may take, above 0 and at most 1 (default 0.25)
   --correction C    use this correction c (a number above 0) and skip measuring it. For an on/off comparison
@@ -499,9 +499,11 @@ try {
     await tab.evaluate((r, k) => window.harness.control(r, k), rate, c);
     await new Promise((done) => setTimeout(done, 1500));
   }
-  // The same in both kinds of run: analyses at the emulated speed before the rests begin, so a
-  // paced run's pacer has measured slowed analyses (the warm-up ones were not slowed).
-  await jitter(PACER_SETTLE_ANALYSES);
+  // Warm runs, paced or not: analyses at the emulated speed before the rests begin, so a paced
+  // run's pacer has measured slowed analyses (the warm-up ones were not slowed). A cold run has
+  // none: its first rest meets the models' first analysis.
+  const settle = settleAnalyses(cold, PACER_SETTLE_ANALYSES);
+  if (settle > 0) await jitter(settle);
   await tab.evaluate(() => window.harness.reset());
   const runBegan = Date.now();
 
@@ -562,7 +564,7 @@ try {
     analysis: {
       ...cycleSummary(cycles),
       ...analysisShare(held.map((h) => h.reportedMs), wallMs),
-      pacerSettle: { analyses: PACER_SETTLE_ANALYSES, note: "before the rests begin, in runs with pacing on and off alike" },
+      pacerSettle: { analyses: settle, note: cold ? "none: a cold run's first rest meets the models' first analysis" : "before the rests begin, in warm runs with pacing on and off alike" },
       medianRawMs: median(raw),
       baselineRawMs,
       throttledRawMs,
