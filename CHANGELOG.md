@@ -9,19 +9,17 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-10
+
+A card update with no new cards can now be published on the replay verdict alone, and the
+browser runtime can pace its analysis from the time analyses take on the computer it runs on.
+A new harness in `browser/` measures how long a viewer waits for the right name, which is how
+the pacing was judged. Nothing in the public surface breaks: both new options are off unless
+asked for, and the contract's `PROTOCOL_VERSION` stays 1. No model, release document or
+recognizer decision changes.
+
 ### Added
 
-- Session option `measuredPacing` (`true` or `{ share }`, off by default) paces the wait between
-  cadence analyses from the measured analysis time: the median of the last 5 analyses' `workerMs`
-  divided by the share (default 0.25), never shorter than the fixed rate for the mode and
-  backend. It is at most 4000 ms while the pointer is active, 8000 ms in always-on mode, and
-  `hover.maxAgeMs` + 5000 ms - 250 ms (6750 ms by default) while the pointer rests on a tooltip.
-  The fixed rate applies until 3 analyses have been measured; the repeats of a still picture are
-  unchanged. Learned within the session and never stored. `npm run user-wait` takes
-  `--measured-pacing` and `--share`, records them in the report with the share of the run's time
-  spent analyzing, and starts the rests after 5 analyses at the emulated speed in every run.
-  `--correction C` reuses a measured correction, so a paced run and an unpaced one emulate the
-  same computer (a correction measured with pacing on can differ, and the run warns).
 - `cardvision cdn publish-release --config` accepts `--verdict-r` alone for a card update with no
   new cards (for example, only official renames), where gate N has nothing to judge. The tool
   decides, not the operator: after it reads the live release and before it writes anything, it
@@ -36,10 +34,22 @@ break the public surface; this file names each break and how to migrate.
   and 90th percentile. The slowdown (a Chrome CPU throttle on the page, plus a wrapper that slows
   the analysis worker, corrected for the throttle's own effect on the worker's speed) is emulated
   and the report gives the factors it measured. `--scenes` swaps the cards on a toy table just
-  before each rest, so a rest waits for a new analysis, and each line says how many ran. Runs are
-  warm by default (3 analysis cycles); `--cold` measures a cold first hover. It needs
-  `puppeteer-core`, which is not a dependency (install it with `--prefix` and name that folder
-  in `PUPPETEER_CORE_DIR`), and changes nothing under `src/`.
+  before each rest, so a rest waits for a new analysis, and each line says how many ran; on a
+  video clip a rest's `atSec` seeks to a new picture (the local server answers range requests,
+  so a seek can land past what the browser has buffered). Runs are warm by default (3 analysis
+  cycles); `--cold` measures a cold first hover. It needs `puppeteer-core`, which is not a
+  dependency (install it with `--prefix` and name that folder in `PUPPETEER_CORE_DIR`).
+- Session option `measuredPacing` (`true` or `{ share }`, off by default) paces the wait between
+  cadence analyses from the measured analysis time: the median of the last 5 analyses' `workerMs`
+  divided by the share (default 0.25), never shorter than the fixed rate for the mode and
+  backend. It is at most 4000 ms while the pointer is active, 8000 ms in always-on mode, and
+  `hover.maxAgeMs` + 5000 ms - 250 ms (6750 ms by default) while the pointer rests on a tooltip.
+  The fixed rate applies until 3 analyses have been measured; the repeats of a still picture are
+  unchanged. Learned within the session and never stored. `npm run user-wait` takes
+  `--measured-pacing` and `--share`, records them in the report with the share of the run's time
+  spent analyzing, and starts the rests after 5 analyses at the emulated speed in every run.
+  `--correction C` reuses a measured correction, so a paced run and an unpaced one emulate the
+  same computer (a correction measured with pacing on can differ, and the run warns).
 
 ## [0.10.1] - 2026-11-10
 
@@ -1310,7 +1320,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0
 [0.10.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0rc1
