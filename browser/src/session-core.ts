@@ -367,7 +367,7 @@ export class SessionCore {
   private applyCadence(): void {
     const ep = this.st.backend;
     this.scheduler.setIntervalMs(this.pacer ? this.pacer.intervalMs(ep, this.mode) : cadenceMs(ep, this.mode));
-    this.scheduler.setReadingIntervalMs(this.pacer ? this.pacer.slowMs(ep) : analyzeIntervalMs(ep));
+    this.scheduler.setReadingIntervalMs(this.pacer ? this.pacer.readingMs(ep, this.maxAgeMs) : analyzeIntervalMs(ep));
   }
 
   private onFrameResult(reply: FrameResult): void {

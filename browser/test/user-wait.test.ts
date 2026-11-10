@@ -26,6 +26,7 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   describeRest: (scored: Record<string, unknown>, extra?: { scene?: string | null; framesStart?: number | null; framesEnd?: number | null; readings?: { t: number; cardId: string | null }[] }) => Record<string, unknown>;
   scenesWarnings: (spec: unknown, rests?: { scene?: string; expect: string }[]) => string[];
   answeredWithoutNewAnalysis: (lines: Record<string, unknown>[]) => number[];
+  analysisShare: (reportedMs: number[], wallMs: number) => Record<string, unknown>;
   correction: (baseline: number | null, throttled: number | null) => number;
   emulatedTime: (rawMs: number, rate: number, c: number) => { reportedMs: number; holdMs: number };
   DEFAULT_LIMIT_MS: number;
@@ -110,6 +111,13 @@ describe("the report", () => {
     expect(report.profile).toBe(profile);
     expect(report.summary).toMatchObject({ rests: 1, answered: 1, medianMs: 5, p90Ms: 5 });
     expect(report.analysis).toEqual({ cycles: 2, medianWorkerMs: 20, medianRoundTripMs: 26 });
+  });
+
+  it("gives the share of the run's wall time spent analyzing, and carries the pacing profile", () => {
+    expect(core.analysisShare([900, 1100, 1000], 12_000)).toEqual({ runWallMs: 12_000, runAnalyses: 3, runAnalyzedMs: 3000, analyzingShare: 0.25 });
+    expect(core.analysisShare([], 0)).toMatchObject({ runAnalyses: 0, analyzingShare: null });
+    const profile = { measuredPacing: { on: true, share: 0.25 } };
+    expect(core.buildReport({ profile, lines: [], analysis: core.analysisShare([1], 4) }).profile).toEqual(profile);
   });
 
   it("reads a slowdown as the slowed calibration over the unslowed one", () => {

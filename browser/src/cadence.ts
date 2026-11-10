@@ -21,6 +21,7 @@
 // from the time recent analyses took on this device, so a slow device spends a bounded share of
 // its time on analysis. See `pacedIntervalMs`.
 
+import { DRIVER_TICK_MS, READING_LINGER_MS } from "./frame-scheduler.js";
 import type { ExecutionProvider } from "./providers.js";
 
 export type AnalysisMode = "pointer" | "always-on" | "layout";
@@ -63,8 +64,15 @@ export function isSlowDevice(ep: ExecutionProvider | null): boolean {
 export const MEASURED_PACING_SHARE = 0.25;
 /** Measured pacing: the longest wait while the pointer is active. */
 export const MEASURED_PACING_ACTIVE_CEILING_MS = 4_000;
-/** Measured pacing: the longest wait otherwise. */
+/** Measured pacing: the longest wait in always-on mode. */
 export const MEASURED_PACING_SLOW_CEILING_MS = 8_000;
+
+/** Measured pacing: the longest wait while the pointer rests ("reading"). A name stops showing
+ *  `hoverMaxAgeMs` after its frame and the reading state ends `READING_LINGER_MS` after that, so a
+ *  longer wait would never come due and analysis would stop until the pointer moved. */
+export function readingCeilingMs(hoverMaxAgeMs: number): number {
+  return hoverMaxAgeMs + READING_LINGER_MS - DRIVER_TICK_MS;
+}
 /** Measured pacing: analyses measured before the measured wait applies. */
 export const MEASURED_PACING_MIN_SAMPLES = 3;
 /** Measured pacing: how many of the latest analyses the median is taken over. */
@@ -77,6 +85,9 @@ export type MeasuredPacingOption = boolean | { share?: number };
 /** The share the option asks for, or null when pacing is off. Throws on a share outside (0, 1]. */
 export function resolveMeasuredPacing(option: MeasuredPacingOption | undefined): number | null {
   if (option === undefined || option === false) return null;
+  if (option !== true && (typeof option !== "object" || option === null)) {
+    throw new RangeError("measuredPacing must be a boolean or an object with a share");
+  }
   const share = option === true ? MEASURED_PACING_SHARE : (option.share ?? MEASURED_PACING_SHARE);
   if (!(share > 0 && share <= 1)) throw new RangeError("measuredPacing.share must be above 0 and at most 1");
   return share;
@@ -93,8 +104,8 @@ function recentMedian(timesMs: readonly number[]): number {
  * The wait between analyses under measured pacing.
  * @param fixedMs Today's fixed interval for the mode and backend: the wait is never shorter, and
  *   it is the wait until `MEASURED_PACING_MIN_SAMPLES` analyses have been measured.
- * @param ceilingMs The longest wait (`MEASURED_PACING_ACTIVE_CEILING_MS` while the pointer is
- *   active, `MEASURED_PACING_SLOW_CEILING_MS` otherwise).
+ * @param ceilingMs The longest wait: `MEASURED_PACING_ACTIVE_CEILING_MS` while the pointer is
+ *   active, `readingCeilingMs` while it rests, `MEASURED_PACING_SLOW_CEILING_MS` in always-on mode.
  * @param timesMs Measured analysis times, oldest first.
  * @param share The share of time analysis may take.
  */
@@ -121,12 +132,17 @@ export class MeasuredPacer {
     return mode === "always-on" ? this.slowMs(ep) : this.activeMs(ep);
   }
 
+  /** The wait while the pointer rests on a showing tooltip, capped by `readingCeilingMs`. */
+  readingMs(ep: ExecutionProvider | null, hoverMaxAgeMs: number): number {
+    return pacedIntervalMs(analyzeIntervalMs(ep), readingCeilingMs(hoverMaxAgeMs), this.times, this.share);
+  }
+
   /** The wait while the pointer is active. */
   activeMs(ep: ExecutionProvider | null): number {
     return pacedIntervalMs(activeAnalyzeIntervalMs(ep), MEASURED_PACING_ACTIVE_CEILING_MS, this.times, this.share);
   }
 
-  /** The wait otherwise (a resting pointer on a showing tooltip, always-on). */
+  /** The wait in always-on mode. */
   slowMs(ep: ExecutionProvider | null): number {
     return pacedIntervalMs(analyzeIntervalMs(ep), MEASURED_PACING_SLOW_CEILING_MS, this.times, this.share);
   }

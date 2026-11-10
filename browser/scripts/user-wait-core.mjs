@@ -78,6 +78,15 @@ export function cycleSummary(cycles) {
   return { cycles: cycles.length, medianWorkerMs: median(cycles.map((c) => c.workerMs)), medianRoundTripMs: median(cycles.map((c) => c.roundTripMs)) };
 }
 
+/**
+ * The share of the measured run's wall time spent analyzing: the summed reported analysis times
+ * (`reportedMs`, slowed and corrected as the per-cycle numbers are) over the run's wall time.
+ */
+export function analysisShare(reportedMs, wallMs) {
+  const analyzedMs = reportedMs.reduce((a, b) => a + b, 0);
+  return { runWallMs: wallMs, runAnalyses: reportedMs.length, runAnalyzedMs: round(analyzedMs), analyzingShare: wallMs > 0 ? round(analyzedMs / wallMs) : null };
+}
+
 /** The slowdown a calibration read: the slowed time over the unslowed one, each the median of its runs. */
 export function measuredFactor(baselineMs, slowedMs) {
   const base = median(baselineMs);

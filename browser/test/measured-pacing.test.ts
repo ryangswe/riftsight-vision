@@ -9,9 +9,10 @@ import {
   analyzeIntervalMs,
   MeasuredPacer,
   pacedIntervalMs,
+  readingCeilingMs,
   resolveMeasuredPacing,
 } from "../src/cadence.js";
-import type { FrameResult, ReleaseStatus, WorkerRequest } from "../src/messages.js";
+import { BUSY_ERROR, type FrameResult, type ReleaseStatus, type WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
 import { SessionCore, type SessionCoreOptions } from "../src/session-core.js";
 
@@ -48,6 +49,10 @@ describe("pacedIntervalMs", () => {
   it("takes the median of the last 5 only", () => {
     expect(pacedIntervalMs(500, ACTIVE_CEILING, [3_000, 3_000, 3_000, 100, 100, 100, 100, 100], 0.25)).toBe(500);
     expect(pacedIntervalMs(500, ACTIVE_CEILING, [100, 100, 600, 700, 800, 900], 0.5)).toBe(1_400);
+  });
+
+  it("takes the mean of the two middle values for an even count", () => {
+    expect(pacedIntervalMs(500, ACTIVE_CEILING, [200, 200, 400, 400], 0.25)).toBe(1_200);
   });
 
   it("a larger share waits less", () => {
@@ -96,6 +101,12 @@ describe("resolveMeasuredPacing", () => {
   it("refuses a share outside (0, 1]", () => {
     for (const share of [0, -0.1, 1.5, Number.NaN]) expect(() => resolveMeasuredPacing({ share })).toThrow(RangeError);
   });
+  it("refuses a value that is neither a boolean nor an object", () => {
+    for (const bad of [null, 0, 1, "yes"]) expect(() => resolveMeasuredPacing(bad as never)).toThrow(RangeError);
+  });
+  it("caps the resting wait so the reading state cannot end first", () => {
+    expect(readingCeilingMs(2_000)).toBe(6_750);
+  });
 });
 
 // ------------------------------------------------------------------ in the session core
@@ -124,8 +135,8 @@ function driven(options: SessionCoreOptions) {
   );
   core.fromWorker({ kind: "release-status", ok: true, error: null, release, cards: [] });
   /** One analysis that the worker reports as taking `workerMs`. */
-  const analyze = (workerMs: number) => {
-    clock += 10_000; // past any wait, so the next look is due
+  const analyze = (workerMs: number, over: Partial<FrameResult> = {}, jump = true) => {
+    if (jump) clock += 10_000; // past any wait, so the next look is due
     core.presented(1);
     core.tick();
     const id = captures.at(-1)!;
@@ -135,10 +146,11 @@ function driven(options: SessionCoreOptions) {
     const result: FrameResult = {
       kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs,
       analysis: { frame: { width: 1000, height: 500 }, hover: { selection: "accepted-nms", cards: [] }, boxes: [] } as unknown as FrameAnalysis,
+      ...over,
     };
     core.fromWorker(result);
   };
-  return { core, analyze, now: () => clock };
+  return { core, analyze, now: () => clock, advance: (ms: number) => { clock += ms; } };
 }
 
 describe("measured pacing in the session core", () => {
@@ -166,7 +178,83 @@ describe("measured pacing in the session core", () => {
     expect(core.scheduler.intervalInEffectMs(now())).toBe(6_000);
   });
 
+  it("a busy reply and an error reply leave the wait unchanged", () => {
+    const { core, analyze, now } = driven({ mode: "always-on", measuredPacing: true });
+    for (let i = 0; i < 3; i += 1) analyze(900);
+    const before = core.scheduler.intervalInEffectMs(now());
+    expect(before).toBe(3_600);
+    const none = { analysis: undefined } as unknown as Partial<FrameResult>;
+    analyze(0, { ...none, error: BUSY_ERROR });
+    expect(core.scheduler.intervalInEffectMs(now())).toBe(before);
+    analyze(30_000, { ...none, error: "failed" });
+    expect(core.scheduler.intervalInEffectMs(now())).toBe(before);
+  });
+
+  it("pointer mode, 2000 ms analyses on WebAssembly: 4000 ms while active", () => {
+    const { core, analyze, now, advance } = driven({ measuredPacing: true });
+    for (let i = 0; i < 3; i += 1) {
+      core.pointer(0.2 + i * 0.01, 0.5, 100 + i * 10);
+      analyze(2_000, {}, false);
+      advance(5_000);
+    }
+    expect(core.status().frames).toBe(3);
+    core.pointer(0.2, 0.5, 200);
+    expect(core.scheduler.intervalInEffectMs(now())).toBe(4_000);
+  });
+
   it("refuses a bad share", () => {
     expect(() => driven({ measuredPacing: { share: 2 } })).toThrow(RangeError);
+  });
+});
+
+describe("measured pacing with a resting pointer on a playing video", () => {
+  it("never stops analyzing: the resting wait stays inside the reading state", () => {
+    let clock = 0;
+    const starts: number[] = [];
+    const shownAt: number[] = [];
+    const waiting: Array<{ at: number; request: Extract<WorkerRequest, { kind: "frame" }> }> = [];
+    let lastRequest: WorkerRequest | null = null;
+    const core = new SessionCore(
+      {
+        now: () => clock,
+        toWorker: (r) => { lastRequest = r; },
+        capture: () => starts.push(clock),
+        onShown: (card) => { if (card) shownAt.push(clock); },
+        mediaTimeNow: () => clock / 1000,
+        hoverAt: ((_a: unknown, x: number, y: number) =>
+          x >= 100 && x <= 300 && y >= 100 && y <= 400
+            ? { card: null, boxIndex: 0, box: { x: 100, y: 100, width: 200, height: 300 }, cardId: "T-001", name: "Card One" }
+            : { card: null, boxIndex: null, box: null, cardId: null, name: null }) as never,
+      },
+      { measuredPacing: true },
+    );
+    core.fromWorker({ kind: "release-status", ok: true, error: null, release, cards: [] });
+    core.pointer(0.2, 0.5, 0);
+    let captureId = 0;
+    // A minute of a playing video; the pointer never moves again. Each analysis reports 2000 ms.
+    for (; clock <= 60_000; clock += 250) {
+      core.presented(clock / 1000);
+      if (waiting.length > 0 && waiting[0]!.at <= clock) {
+        const { request } = waiting.shift()!;
+        core.fromWorker({
+          kind: "frame-result", envelope: request.envelope, videoTimeSec: request.videoTimeSec, width: 1000, height: 500, workerMs: 2_000,
+          analysis: { frame: { width: 1000, height: 500 }, hover: { selection: "accepted-nms", cards: [] }, boxes: [{ box: [100, 100, 200, 300] }] } as unknown as FrameAnalysis,
+        });
+      }
+      core.tick();
+      if (starts.length > captureId) {
+        captureId = starts.length;
+        core.frame(captureId, { close() {} } as unknown as ImageBitmap, clock / 1000);
+        const request = lastRequest as WorkerRequest | null;
+        if (request?.kind === "frame") waiting.push({ at: clock + 1_000, request });
+      }
+    }
+    const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
+    // Analysis never stops: no gap past the cap (6750 ms) plus a driver tick, and one still ran in the last 8 s.
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(7_000);
+    expect(starts.at(-1)!).toBeGreaterThan(52_000);
+    // Past the grace period (10 s) the pointer is resting; the name keeps coming back.
+    expect(shownAt.filter((t) => t > 20_000).length).toBeGreaterThanOrEqual(3);
+    expect(shownAt.at(-1)!).toBeGreaterThan(50_000);
   });
 });

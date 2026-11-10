@@ -1090,18 +1090,24 @@ has. `outlineRect(crop, boxWidth, boxHeight)` gives it for any shipped crop.
 
 By default a session analyzes at fixed rates: every 500 ms while the pointer is active on WebGPU
 (1000 ms on WebAssembly), and every 1000 ms (2000 ms) otherwise, whatever the computer. With
-`measuredPacing: true` the wait between analyses comes from how long recent analyses took (each
-reply's `workerMs`), so a slow computer spends a bounded share of its time on analysis.
+`measuredPacing: true` the wait between cadence analyses comes from how long recent analyses took
+(each reply's `workerMs`), so a slow computer spends less of its time on those analyses.
 
 - The wait is the median of the last 5 measured analyses divided by a share, 0.25 by default.
-  Pass `measuredPacing: { share: 0.5 }` to change it; a share outside (0, 1] throws.
-- It is never shorter than the fixed rate for the mode and backend, and never longer than 4000 ms
-  while the pointer is active or 8000 ms otherwise.
+  Pass `measuredPacing: { share: 0.5 }` to change it. A share outside (0, 1], or a value that is
+  neither a boolean nor an object, throws.
+- It is never shorter than the fixed rate for the mode and backend. It is at most 4000 ms while
+  the pointer is active, 8000 ms in `"always-on"` mode, and, while the pointer rests on a showing
+  tooltip, at most the release's `hover.maxAgeMs` plus 5000 ms less one driver tick (6750 ms by
+  default), so the resting state cannot end before the next analysis is due.
 - Until 3 analyses have been measured, the fixed rate applies.
+- The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
 - The session learns within its own run and stores nothing.
 
 For example, analyses of 900 ms on WebAssembly give a wait of 900 / 0.25 = 3600 ms. The user-wait
-harness takes `--measured-pacing` to turn the option on ("Measuring the wait").
+harness takes `--measured-pacing` (and `--share`) to turn the option on ("Measuring the wait"); its
+report records the setting and the share of the run's time spent analyzing. Runs with pacing on and
+off both analyze 5 frames at the emulated speed before the rests begin.
 
 ## Measuring the wait
 

@@ -22,7 +22,7 @@
 // remote release is in effect (`release.table`) only once the worker has confirmed its id.
 
 import type { AnalysisWidth } from "./capture.js";
-import type { MeasuredPacingOption, SessionMode } from "./cadence.js";
+import { type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import type { GeometricStatus, WorkerReply, WorkerRequest } from "./messages.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { CardTable } from "./remote/card-table.js";
@@ -116,6 +116,8 @@ export interface WorkerSession {
 type RemoteChoice = Extract<RemoteReleaseChoice, { source: "remote" }>;
 
 export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
+  // Before `chooseRelease`, which builds the core later: a bad share throws here, to the caller.
+  resolveMeasuredPacing(env.measuredPacing);
   let worker: WorkerLike | null = null;
   let core: SessionCore | null = null;
   let restarts = 0;
