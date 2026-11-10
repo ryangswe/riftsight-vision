@@ -11,6 +11,14 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- `cardvision cdn publish-release --config` accepts `--verdict-r` alone for a card update with no
+  new cards (for example, only official renames), where gate N has nothing to judge. The tool
+  decides, not the operator: after it reads the live release and before it writes anything, it
+  checks that the candidate's catalog has no card id the live catalog lacks. New cards, or a live
+  catalog that cannot be read, refuse the run; `--verdict-n` alone stays refused.
+- `cardvision refresh verdict newcard` on a folder for a candidate with no new cards (an empty
+  `catalog.json` from `refresh subset --new-vs`, no scenes) ends INVALID with the note
+  `no new cards: gate N has nothing to judge`, instead of `unreadable input`.
 - `npm run user-wait` in `browser/` measures how long a viewer waits for the right name: it plays
   a clip in a headless Chrome with the built runtime, rests the pointer where a script says, and
   reports per rest the time until `session.atPointer()` returns the expected card, with the median

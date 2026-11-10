@@ -246,6 +246,19 @@ runs first, a dry run included:
    with new models, passes `--no-refresh-gate "REASON"` instead; the reason must not be empty and
    is logged. A verdict does not name the candidate it judged, so the log names each verdict file
    with its SHA-256, for the update's record. Without `--config` there is no gate.
+
+   **`--verdict-r` alone** is accepted when the update adds no cards (for example, only
+   official renames): gate N has nothing to judge then. The tool decides that, not the
+   operator: it reads the live pointer's release and its catalog, and accepts R alone only when
+   the candidate's catalog has no card id the live one lacks (renames and other edits of
+   existing cards are allowed). The log then says `N not needed: 0 new cards against the live
+   release ID`. When the candidate adds cards, the run is refused with their number, an example
+   id and a request for `--verdict-n`. A live release or catalog that cannot be read (an HTTP
+   error, a timeout, not JSON, bytes off the pin), or no live pointer at all, refuses the run;
+   it never counts as "no new cards". This check needs the live release, so unlike the checks
+   above it runs after the live state is read and before anything is written, a dry run
+   included. `--verdict-n` alone is still refused. New cards that all lack art leave gate N
+   with nothing to judge, yet count as new here, so that update uses `--no-refresh-gate`.
 3. **The runtimes:** every version in [the runtime table](#the-runtime-table) that the pointer
    reaches runs the release's ONNX Runtime major.minor.
 4. **The models:** when the detector or the recognizer differs from what installs run now (the

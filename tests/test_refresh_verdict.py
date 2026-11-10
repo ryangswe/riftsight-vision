@@ -535,3 +535,33 @@ def test_the_verdict_command(tmp_path, capsys):
     assert refresh(["verdict", "other", str(folder), "--rule", str(rule)]) == 2
     assert refresh(["verdict", "replay", str(folder)]) == 2
     assert refresh(["verdict", "replay", str(folder), "--rule", str(rule), "--base", "x"]) == 2
+
+
+def test_gate_n_on_a_folder_with_no_new_cards_says_so_and_other_missing_files_keep_their_message(tmp_path, capsys):
+    rule = newcard_rule(tmp_path, "rule")
+    # what `refresh subset --new-vs` leaves for a candidate with no new cards: an empty catalog, no scenes
+    empty = tmp_path / "no-new"
+    empty.mkdir()
+    (empty / "catalog.json").write_text(json.dumps({"game": "toy", "cards": []}), encoding="utf-8")
+    out = judge("newcard", empty, rule)
+    assert out["verdict"] == "INVALID" and out["notes"][0].startswith("no new cards: gate N has nothing to judge")
+    assert "gate R alone" in out["notes"][0] and "unreadable input" not in out["notes"][0]
+    assert refresh(["verdict", "newcard", str(empty), "--rule", str(rule)]) == 3
+    assert "no new cards: gate N has nothing to judge" in capsys.readouterr().out
+    assert json.loads((empty / "VERDICT-N.json").read_text())["notes"][0].startswith("no new cards")
+    # a folder missing its scenes for any other reason: today's message
+    others = {
+        "no catalog": None,
+        "catalog with cards": {"game": "toy", "cards": [{"id": "TOY-017", "name": "x", "art": "a.png"}]},
+        "catalog not an object": [],
+        "catalog without cards": {"game": "toy"},
+    }
+    for name, catalog in others.items():
+        folder = tmp_path / name
+        folder.mkdir()
+        if catalog is not None:
+            (folder / "catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+        out = judge("newcard", folder, rule)
+        assert out["verdict"] == "INVALID" and out["notes"][0].startswith("unreadable input: FileNotFoundError"), name
+    (empty / "catalog.json").write_text("{not json", encoding="utf-8")
+    assert judge("newcard", empty, rule)["notes"][0].startswith("unreadable input: FileNotFoundError")
