@@ -176,11 +176,14 @@ VERDICT_GATES = (("R", "verdict_r", "--verdict-r"), ("N", "verdict_n", "--verdic
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
-def refresh_gate(args, log: Callable[[str], None] = print) -> None:
+def refresh_gate(args, log: Callable[[str], None] = print) -> bool:
     """A run that moves the pointer (--config) needs the update's two refresh verdicts
     (``cardvision refresh verdict``), each a PASS that is not a rehearsal, judged under one rule;
     or ``--no-refresh-gate`` with the reason this release is not a gated card refresh. Refuses
-    otherwise, before anything is read from the network or written, a dry run included. A verdict
+    otherwise, before anything is read from the network or written, a dry run included. Gate R
+    alone is accepted too, but only when the release has no new card ids against the live one:
+    returns True then, and the caller must run ``no_new_cards_gate`` once it has read the live
+    release (it refuses before anything is written). Otherwise returns False. A verdict
     does not name the candidate it judged, so the log names each file with its SHA-256: which
     files allowed the move can be checked afterwards."""
     reason = getattr(args, "no_refresh_gate", None)
@@ -193,14 +196,17 @@ def refresh_gate(args, log: Callable[[str], None] = print) -> None:
         if any(not ch.isprintable() for ch in reason):
             raise Refused("--no-refresh-gate: the reason is one line of printable text (it is logged)")
         log(f"refresh gate: none, {reason.strip()}")
-        return
+        return False
+    r_only = bool(paths["R"]) and not paths["N"]
     missing = [flag for gate, _, flag in VERDICT_GATES if not paths[gate]]
-    if missing:
+    if missing and not r_only:
         raise Refused(f"moving the pointer (--config) needs the refresh verdicts: {' and '.join(missing)} missing "
                       "(VERDICT-R.json and VERDICT-N.json from cardvision refresh verdict); or --no-refresh-gate "
                       "\"<reason>\" for a release that is not a gated card refresh")
     seen = {}
     for gate, _, flag in VERDICT_GATES:
+        if not paths[gate]:
+            continue
         path = Path(paths[gate])
         try:
             data = path.read_bytes()
@@ -222,10 +228,70 @@ def refresh_gate(args, log: Callable[[str], None] = print) -> None:
         if not isinstance(doc.get("rule"), str) or not SHA256_RE.fullmatch(doc["rule"]):
             raise Refused(f"{flag} {path}: no rule SHA-256")
         seen[gate] = (path, doc["rule"], hashlib.sha256(data).hexdigest())
-    if seen["R"][1] != seen["N"][1]:
+    if "N" in seen and seen["R"][1] != seen["N"][1]:
         raise Refused(f"the verdicts were judged under different rules: R {seen['R'][1]}, N {seen['N'][1]}")
     for gate, (path, rule, sha) in seen.items():
         log(f"refresh gate: {gate} PASS under rule {rule}, {path} sha256 {sha}")
+    return r_only
+
+
+def _catalog_ids(body: bytes, what: str) -> set:
+    try:
+        cards = json.loads(body)["cards"]
+        ids = {c["id"] for c in cards}
+        if not isinstance(cards, list) or len(ids) != len(cards) or not all(isinstance(i, str) for i in ids):
+            raise ValueError("cards are not a list of entries with distinct string ids")
+    except (ValueError, LookupError, TypeError, RecursionError) as e:
+        raise Refused(f"{what}: the catalog cannot be read as cards ({type(e).__name__}: {e}); nothing written") from e
+    return ids
+
+
+def no_new_cards_gate(product: CdnConfig, public_base: str, lr, candidate_catalog: bytes,
+                      get: Optional[Get] = None, log: Callable[[str], None] = print) -> None:
+    """The check behind ``--verdict-r`` alone: the candidate's catalog has no card id that the live
+    release's catalog lacks (edits and renames of existing cards are allowed; gate R covers them).
+    Reads the live pointer, its release document and its catalog; refuses when any of them cannot
+    be read or does not match its pin (an unreadable live catalog is never "no new cards"), and
+    when the candidate adds cards (they need gate N, ``--verdict-n``)."""
+    get = get or product_get(product)
+
+    def fetch(path: str, what: str) -> bytes:
+        try:
+            status, _, body = get(f"{public_base}/{path}?{cache_bust()}")
+        except Exception as e:  # a timeout or a connection error is an unreadable file, not a pass
+            raise Refused(f"--verdict-r alone: {what} cannot be read ({type(e).__name__}: {e}); nothing written") from e
+        if status != 200:
+            raise Refused(f"--verdict-r alone: {what} cannot be read (HTTP {status}); nothing written")
+        return body
+
+    try:
+        rel = json.loads(fetch(CONFIG_KEY, "the live config.json")).get("release")
+    except (ValueError, AttributeError, RecursionError) as e:
+        raise Refused(f"--verdict-r alone: the live config.json is not JSON ({e}); nothing written") from e
+    if not rel or release_pointer_problems(product, rel):
+        raise Refused("moving the pointer (--config) needs the refresh verdicts: --verdict-n missing (the live config.json "
+                      "has no release to compare the catalog with, so new cards cannot be ruled out; or --no-refresh-gate "
+                      "\"<reason>\" for a release that is not a gated card refresh); nothing written")
+    doc_bytes = fetch(rel["path"], f"the live release {rel['id']}'s release.json")
+    if hashlib.sha256(doc_bytes).hexdigest() != rel["sha256"]:
+        raise Refused(f"--verdict-r alone: the live release {rel['id']}'s release.json does not match the pointer's "
+                      "sha256; nothing written")
+    try:
+        pin = json.loads(doc_bytes)["catalog"]
+        cpath, csha = pin["path"], pin["sha256"]
+        if not isinstance(cpath, str) or "/" in cpath or not isinstance(csha, str):
+            raise ValueError("catalog pin")
+    except (ValueError, LookupError, TypeError, RecursionError) as e:
+        raise Refused(f"--verdict-r alone: the live release {rel['id']} does not pin a catalog ({e}); nothing written") from e
+    body = fetch(rel["path"].rsplit("/", 1)[0] + "/" + cpath, f"the live release {rel['id']}'s catalog")
+    if hashlib.sha256(body).hexdigest() != csha:
+        raise Refused(f"--verdict-r alone: the live release {rel['id']}'s catalog does not match its pin; nothing written")
+    live_ids = _catalog_ids(body, f"live release {rel['id']}")
+    new = sorted(_catalog_ids(candidate_catalog, "the candidate release") - live_ids)
+    if new:
+        raise Refused(f"--verdict-r alone: the candidate adds {len(new)} new card id(s) against the live release "
+                      f"{rel['id']} (e.g. {new[0]}); gate N must judge them: pass --verdict-n; nothing written")
+    log(f"refresh gate: N not needed: 0 new cards against the live release {rel['id']}")
 
 
 def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=None, node: Optional[NodeCheck] = None,
@@ -244,8 +310,9 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
     min_v, max_v = args.min_version, args.max_version
     if not min_v or not VERSION_RE.match(min_v) or (max_v and not VERSION_RE.match(max_v)):
         raise Refused("--min-version x.y.z is required (and --max-version, when given, is x.y.z)")
+    r_only = False
     if args.config:
-        refresh_gate(args, log)
+        r_only = refresh_gate(args, log)
     elif getattr(args, "no_refresh_gate", None) is not None or any(getattr(args, a, None) for _, a, _ in VERDICT_GATES):
         log("refresh gate: not needed, no --config (the pointer does not move); the verdict options are not read")
     runtimes = runtimes if runtimes is not None else load_runtimes(product)
@@ -259,6 +326,9 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
     local = node(["--dir", str(Path(args.release)), "--expect-id", lr.id, *(["--sessions"] if args.sessions else [])])
     if not local.get("ok"):
         raise Refused(f"the runtime's own check refused the release: {local.get('reason')}")
+    if r_only:  # needs the live catalog, so it runs here: after the reads, before any write
+        catalog = next(f.data for f in lr.pinned if f.key.endswith("/" + lr.doc["catalog"]["path"]))
+        no_new_cards_gate(product, t.public_base, lr, catalog, get=get, log=log)
     log(f"seal: release {lr.id} ok (bank {local['bankEntries']} entries, catalog {local['catalogCards']} cards, sessions {local['sessions']})")
 
     geo_sha = None
