@@ -1216,7 +1216,12 @@ analysis runs faster (on one computer the same frames took about 16 ms throttled
 ms unthrottled), so scaling the throttled time alone under-reports a slow computer. After the
 warm-up the harness takes the raw analysis time unthrottled (`analysis.baselineRawMs`), throttles
 the page, takes it again (`analysis.throttledRawMs`) and sets `c` to their ratio
-(`analysis.correction`). With `--cold` there is no baseline: `c` is 1 and the report says so.
+(`analysis.correction`, with `analysis.correctionSource` "measured"). With `--cold` there is no baseline: `c` is 1 and the report says so.
+`--correction C` uses the `c` you give (above 0) and skips the throttled measurement
+(`correctionSource` "given", `profile.correctionMeasured` false). To compare a run with
+`--measured-pacing` against one without it, measure `c` in the run without it and pass it to the
+run with it: `c` measured while the pacer spaces the analyses can differ, and the two runs would
+then emulate different computers. A run with pacing on and `c` measured warns about this.
 `profile.slowdown.worker.measured`, the time the wrapper took per frame over c times the raw
 time, should be about N.
 

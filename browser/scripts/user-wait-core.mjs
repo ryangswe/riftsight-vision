@@ -246,6 +246,19 @@ export function correction(baseline, throttled) {
   return typeof baseline === "number" && typeof throttled === "number" && baseline > 0 && throttled > 0 ? Math.round((baseline / throttled) * 1000) / 1000 : 1;
 }
 
+/**
+ * The correction a run uses: the one given (`--correction`), else the measured ratio. `source`
+ * says which, for the report.
+ */
+export function chooseCorrection(given, baseline, throttled) {
+  return given === undefined || given === null ? { c: correction(baseline, throttled), source: "measured" } : { c: given, source: "given" };
+}
+
+/** The error text of a `--correction` value that is not a number above 0, or null. */
+export function correctionProblem(value) {
+  return Number.isFinite(value) && value > 0 ? null : "not a number above 0";
+}
+
 /** What the wrapper reports and holds for one frame: `rate` x `c` x the raw time, held for the rest of it. */
 export function emulatedTime(rawMs, rate, c) {
   const reportedMs = rate * c * rawMs;
