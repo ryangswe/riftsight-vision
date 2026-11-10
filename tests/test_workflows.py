@@ -111,7 +111,7 @@ def test_the_manifest_workflow_has_the_steps_these_tests_run():
     assert [steps[name]["if"] for name in PUSH_STEPS] == ["", "", ""]
     assert "github.event_name == 'pull_request'" in steps[OFFER_STEP]["if"]
     assert steps[PUSH_STEPS[0]]["run"] == "cardvision validate-manifest data --sources games/riftbound/sources.json\n"
-    assert steps["Install"]["run"].splitlines() == ["python -m pip install -r requirements-lock.txt",
+    assert steps["Install"]["run"].splitlines() == ["python -m pip install --require-hashes -r requirements-lock.txt",
                                                     "python -m pip install --no-deps -e ."]
 
 
@@ -321,7 +321,7 @@ def test_the_pages_workflow_tests_first_and_deploys_with_the_least_permissions()
     assert list(steps) == [*PAGES_STEPS, PAGES_CHECK]
     assert [steps[name]["run"] for name in PAGES_STEPS] == [
         "npm ci\n", "npm test\n",
-        "python -m pip install -r requirements-lock.txt\npython -m pip install --no-deps -e .\n",
+        "python -m pip install --require-hashes -r requirements-lock.txt\npython -m pip install --no-deps -e .\n",
         'python tests/test_browser_fixtures.py --demo "${RUNNER_TEMP}/toy"\n',
         'npm run build:pages -- --games toy,one-piece,local --toy "${RUNNER_TEMP}/toy"\n']
     # The games are named in the workflow: no repository variable and no secret is read.
