@@ -23,7 +23,7 @@
 //   - anything for a box that was detected and not accepted.
 
 import { type AABB } from "./boxes.js";
-import { type SessionMode } from "./cadence.js";
+import { type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import {
   type AnalysisWidth,
   captureFrame,
@@ -69,6 +69,13 @@ export interface SessionOptions {
   /** "pointer" (the default): analyze only around pointer activity. "always-on": analyze for as
    *  long as the session runs. */
   mode?: SessionMode;
+  /** Pace analysis from the time recent analyses took on this device. Default off: the fixed
+   *  rates. `true`, or `{ share }`: the wait is the median of the last 5 measured analyses
+   *  divided by the share of time analysis may take (default 0.25), never shorter than the fixed
+   *  rate, and at most 4 s while the pointer is active, 8 s otherwise. The fixed rate applies
+   *  until 3 analyses have been measured. Learned within the session, never stored. A share
+   *  outside (0, 1] throws. */
+  measuredPacing?: MeasuredPacingOption;
   /** URL of the geometric stage's settings document (it names the packed index). Optional and
    *  off by default: without it recognition is the embedding's alone. With it the stage loads
    *  after the release and joins between frames; `status().geometric` says where it is. */
@@ -157,6 +164,7 @@ const SAME_DOCUMENT: GrabDeps = { requireConnected: false, maxSide: Infinity };
  * then, and whenever nothing can be said, `at` returns null.
  */
 export function createSession(source: FrameSource, options: SessionOptions): Session {
+  resolveMeasuredPacing(options.measuredPacing);
   const video = source instanceof HTMLVideoElement ? source : null;
   const element: HTMLElement = source;
   const workerUrl = options.workerUrl ?? new URL("./worker.js", import.meta.url);
@@ -293,6 +301,7 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     loadRequest,
     now,
     ...(options.mode ? { mode: options.mode } : {}),
+    ...(options.measuredPacing ? { measuredPacing: options.measuredPacing } : {}),
     ...(options.rotatedOutlines ? { rotatedOutlines: true } : {}),
     capture,
     // The max-age rule, the staleness rule and a look's date read the video's time when they

@@ -45,7 +45,7 @@ import { inside, TYPES } from "./demo-paths.mjs";
 import { architectureNote, buildReport, byteRange, correction, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
 
 const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests FILE [--throttle N]
-                            [--limit MS] [--out FILE] [--chrome PATH] [--headed]
+                            [--limit MS] [--out FILE] [--chrome PATH] [--headed] [--measured-pacing]
 
   --release FOLDER  a release folder (a release document and the files it pins)
   --clip FILE       an image or a video file to play
@@ -56,6 +56,7 @@ const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests 
                     time it took is in the profile (readyMs) and in no rest's wait
   --scenes FILE     scenes drawn over the clip (an image): README.md, "Measuring the wait". Needs --art
   --art FOLDER      the card images the scenes draw, named CARD.png; served at /art/
+  --measured-pacing  run the session with the measuredPacing option on (default off)
   --cold            no warm-up and no correction of the throttle's effect on the worker
   --out FILE        also write the report here
   --chrome PATH     the Chrome to drive (or CHROME in the environment)
@@ -67,7 +68,7 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(USAGE);
   process.exit(0);
 }
-const flags = new Set(["--headed", "--cold"]);
+const flags = new Set(["--headed", "--cold", "--measured-pacing"]);
 const known = new Set(["--release", "--clip", "--rests", "--throttle", "--limit", "--ready-timeout", "--scenes", "--art", "--out", "--chrome"]);
 const given = {};
 for (let at = 0; at < args.length; at += 1) {
@@ -182,6 +183,7 @@ const PAGE_JS = `
 import { createSession } from "/lib/cardvision.js";
 const video = document.getElementById("v");
 const IS_IMAGE = ${JSON.stringify(isImage)};
+const MEASURED_PACING = ${JSON.stringify(given["measured-pacing"] === true)};
 const SCENES = ${JSON.stringify(sceneSpec === null ? null : sceneSpec.scenes)};
 let scene = ${JSON.stringify(sceneSpec === null ? null : (sceneSpec.start ?? Object.keys(sceneSpec.scenes)[0]))};
 let session = null;
@@ -262,6 +264,7 @@ async function open(rate, readyTimeoutMs) {
     wasmPaths: location.origin + "/lib/",
     providers: ["wasm"],
     mode: "pointer",
+    ...(MEASURED_PACING ? { measuredPacing: true } : {}),
   });
   setInterval(() => {
     const s = session.status();

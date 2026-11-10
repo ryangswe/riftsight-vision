@@ -22,7 +22,7 @@
 // remote release is in effect (`release.table`) only once the worker has confirmed its id.
 
 import type { AnalysisWidth } from "./capture.js";
-import type { SessionMode } from "./cadence.js";
+import type { MeasuredPacingOption, SessionMode } from "./cadence.js";
 import type { GeometricStatus, WorkerReply, WorkerRequest } from "./messages.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { CardTable } from "./remote/card-table.js";
@@ -68,6 +68,8 @@ export interface WorkerSessionEnv {
   /** The clock, in ms. */
   now(): number;
   mode?: SessionMode;
+  /** Measured pacing (`SessionOptions.measuredPacing`); off when absent. */
+  measuredPacing?: MeasuredPacingOption;
   /** Hold a shown card through short gaps (`SHOWN_HOLD`); off when absent. */
   hold?: ShownHold;
   /** True: named cards follow their outline (`SessionOptions.rotatedOutlines`). */
@@ -144,6 +146,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       },
       {
         ...(env.mode ? { mode: env.mode } : {}),
+        ...(env.measuredPacing ? { measuredPacing: env.measuredPacing } : {}),
         ...(env.hold ? { hold: env.hold } : {}),
         ...(env.rotatedOutlines ? { rotatedOutlines: true } : {}),
         geometric: request.geometricUrl !== undefined,

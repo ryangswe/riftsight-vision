@@ -23,7 +23,7 @@ export { type AnalyzeOptions, type BoxResult, type FaceResult, type FrameAnalysi
 
 export { type AABB, type Candidate, iou, nonMaxSuppression, type Rect } from "./boxes.js";
 export { type EmbeddingBank, parseBank } from "./bank.js";
-export { type AnalysisMode, cadenceMs, type SessionMode } from "./cadence.js";
+export { type AnalysisMode, cadenceMs, type MeasuredPacingOption, type SessionMode } from "./cadence.js";
 export { analysisSize, captureFrame, type FrameSource, MAX_ANALYSIS_WIDTH, MIN_ANALYSIS_WIDTH } from "./capture.js";
 export { type DecodeSettings, decodeDetections, DEFAULT_DECODE, validBox } from "./detector/decode.js";
 export { Detector, type DetectorSettings, type Frame, type FrameDetector } from "./detector/detector.js";

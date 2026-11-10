@@ -976,6 +976,7 @@ permission for cross-origin use).
 | `geometricUrl` | URL of the geometric stage's settings file, to verify candidates with it ("The geometric stage", below). Off without it. |
 | `geometricManifestSha256` | The SHA-256 the packed index's `manifest.json` must have; another manifest turns the stage off. |
 | `geometricWatchdog` | `false` turns the stage's watchdog off (default on). For measuring the stage only: a slow stage is then never turned off. |
+| `measuredPacing` | `true` or `{ share }`: pace analysis from the measured analysis time ("Measured pacing", below). Default off: the fixed rates. |
 | `rotatedOutlines` | `true`: each named card follows its outline when it sits at an angle ("Outlines of tilted cards", below). Default `false`: every card is its box, as before. |
 | `onUpdate` | Called whenever the status or what would be shown may have changed. |
 
@@ -1084,6 +1085,23 @@ sides cannot be solved exactly, or that is not named keeps its box: rotation 0 a
 size. No answer, accept or box changes, and off is exactly as before. The
 outline costs one tilt estimate per face whose look reaches tau, on the crop the face already
 has. `outlineRect(crop, boxWidth, boxHeight)` gives it for any shipped crop.
+
+## Measured pacing
+
+By default a session analyzes at fixed rates: every 500 ms while the pointer is active on WebGPU
+(1000 ms on WebAssembly), and every 1000 ms (2000 ms) otherwise, whatever the computer. With
+`measuredPacing: true` the wait between analyses comes from how long recent analyses took (each
+reply's `workerMs`), so a slow computer spends a bounded share of its time on analysis.
+
+- The wait is the median of the last 5 measured analyses divided by a share, 0.25 by default.
+  Pass `measuredPacing: { share: 0.5 }` to change it; a share outside (0, 1] throws.
+- It is never shorter than the fixed rate for the mode and backend, and never longer than 4000 ms
+  while the pointer is active or 8000 ms otherwise.
+- Until 3 analyses have been measured, the fixed rate applies.
+- The session learns within its own run and stores nothing.
+
+For example, analyses of 900 ms on WebAssembly give a wait of 900 / 0.25 = 3600 ms. The user-wait
+harness takes `--measured-pacing` to turn the option on ("Measuring the wait").
 
 ## Measuring the wait
 

@@ -11,6 +11,12 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Session option `measuredPacing` (`true` or `{ share }`, off by default) paces analysis from the
+  measured analysis time: the wait is the median of the last 5 analyses' `workerMs` divided by
+  the share (default 0.25), never shorter than the fixed rate for the mode and backend, and at
+  most 4000 ms while the pointer is active or 8000 ms otherwise. The fixed rate applies until 3
+  analyses have been measured. Learned within the session and never stored. `npm run user-wait`
+  takes `--measured-pacing` to turn it on.
 - `cardvision cdn publish-release --config` accepts `--verdict-r` alone for a card update with no
   new cards (for example, only official renames), where gate N has nothing to judge. The tool
   decides, not the operator: after it reads the live release and before it writes anything, it
