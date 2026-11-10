@@ -20,6 +20,8 @@ break the public surface; this file names each break and how to migrate.
   unchanged. Learned within the session and never stored. `npm run user-wait` takes
   `--measured-pacing` and `--share`, records them in the report with the share of the run's time
   spent analyzing, and starts the rests after 5 analyses at the emulated speed in every run.
+  `--correction C` reuses a measured correction, so a paced run and an unpaced one emulate the
+  same computer (a correction measured with pacing on can differ, and the run warns).
 - `cardvision cdn publish-release --config` accepts `--verdict-r` alone for a card update with no
   new cards (for example, only official renames), where gate N has nothing to judge. The tool
   decides, not the operator: after it reads the live release and before it writes anything, it

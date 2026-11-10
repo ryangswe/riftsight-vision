@@ -72,9 +72,10 @@ export interface SessionOptions {
   /** Pace analysis from the time recent analyses took on this device. Default off: the fixed
    *  rates. `true`, or `{ share }`: the wait is the median of the last 5 measured analyses
    *  divided by the share of time analysis may take (default 0.25), never shorter than the fixed
-   *  rate, and at most 4 s while the pointer is active, 8 s otherwise. The fixed rate applies
-   *  until 3 analyses have been measured. Learned within the session, never stored. A share
-   *  outside (0, 1] throws. */
+   *  rate. It is at most 4 s while the pointer is active, the release's `hover.maxAgeMs` + 4.75 s
+   *  (6.75 s by default) while the pointer rests on a tooltip, and 8 s in always-on mode. The
+   *  fixed rate applies until 3 analyses have been measured. Learned within the session, never
+   *  stored. A share outside (0, 1] throws. */
   measuredPacing?: MeasuredPacingOption;
   /** URL of the geometric stage's settings document (it names the packed index). Optional and
    *  off by default: without it recognition is the embedding's alone. With it the stage loads
