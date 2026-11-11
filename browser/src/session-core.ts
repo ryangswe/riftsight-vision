@@ -489,7 +489,9 @@ export class SessionCore {
     // analyzed nothing (busy, an error), or one already older than hover.maxAgeMs when it came
     // back (a slow analysis of a playing video), judged nothing: only hold.maxMs ends the hold.
     if (this.held && this.pointerAt && this.current() && !this.fresh()) this.held.misses += 1;
-    this.scheduler.setTooltipShowing(this.shown() !== null, now);
+    const showing = this.shown() !== null;
+    this.scheduler.setTooltipShowing(showing, now);
+    if (reply.analysis && !showing) this.scheduler.lookFoundNoCard();
     this.publish();
   }
 

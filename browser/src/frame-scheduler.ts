@@ -17,7 +17,11 @@
 //   - "fast": within `POINTER_GRACE_MS` of the last pointer activity over the picture: a move,
 //     a press or tap, or the pointer leaving. A pointer that rests on the picture is not
 //     activity; otherwise a parked pointer would keep analysis running for ever. The fast
-//     cadence applies.
+//     cadence applies, except that a pointer resting where the newest look found no card is
+//     looked at only every `EMPTY_SPOT_INTERVAL_MS` (an empty spot costs a full analysis each
+//     time and has nothing to show; a card arriving there shows up to that long, plus one
+//     analysis, later). A move over the picture, a card found at the pointer, a seek, a new
+//     source or a cut ends it; the pointer leaving the picture does not.
 //   - "reading": the grace period is over, the pointer rests on the picture, and a tooltip is
 //     showing, or was showing less than `READING_LINGER_MS` ago. Analysis continues at the slow
 //     cadence so that the tooltip keeps up with the picture. The linger lets it survive a short
@@ -70,6 +74,9 @@ export const REPEAT_INTERVAL_MS = 250;
 export const DRIVER_TICK_MS = 250;
 /** Pointer mode: analysis keeps running this long after the pointer's last activity. */
 export const POINTER_GRACE_MS = 10_000;
+/** Pointer mode: the gap between cadence looks while the pointer rests where the newest look found
+ *  no card. A longer gap from the cadence (measured pacing) still wins. */
+export const EMPTY_SPOT_INTERVAL_MS = 2_000;
 /** Pointer mode: the "reading" state outlasts the tooltip's last showing by this long. */
 export const READING_LINGER_MS = 5_000;
 /** The least the stale-frame threshold can be: a moving pointer asks for a fresh analysis when
@@ -166,6 +173,9 @@ export class FrameScheduler {
   /** The last time a showing tooltip was reported while the pointer was inside. */
   private lastTooltipAt = -Infinity;
   private lastHoverTriggerAt = -Infinity;
+  /** The newest finished look, started after the pointer's last activity, found no card at the
+   *  pointer: the slow gap applies in the "fast" state until anything new happens. */
+  private emptySpot = false;
   private lastVideoTimeSec: number | null = null;
   private discontinuitySinceLast = false;
   private lastTriggerKind: AnalysisTrigger | null = null;
@@ -231,6 +241,7 @@ export class FrameScheduler {
    *  each result. `now` is remembered as the last showing, for `READING_LINGER_MS`. */
   setTooltipShowing(showing: boolean, now: number): void {
     this.tooltipShowing = showing;
+    if (showing) this.emptySpot = false;
     if (showing && this.pointerInside) this.lastTooltipAt = now;
   }
 
@@ -252,6 +263,7 @@ export class FrameScheduler {
   /** A seek or a new source: the newest analyzed frame no longer describes the picture. */
   discontinuity(): void {
     this.discontinuitySinceLast = true;
+    this.emptySpot = false;
     // A new picture: the back-off of unanswered looks starts over, and a retry waiting for the
     // old picture is dropped. The pointer leaving resets neither, so that a pointer coming back
     // finds the retry still due, and a still busy worker is still backed off from.
@@ -265,6 +277,7 @@ export class FrameScheduler {
    *  soon as nothing is in flight, whatever the cadence (still only while analysis may run). */
   requestLook(): void {
     this.discontinuitySinceLast = true;
+    this.emptySpot = false;
     this.pending = true;
     this.repeatsLeft = 0;
     this.lookRequested = true;
@@ -284,11 +297,21 @@ export class FrameScheduler {
    * worker busy, or no reply) the retry also waits for the cadence.
    */
   lookUnanswered(now: number, opts: { prompt?: boolean } = {}): void {
+    this.emptySpot = false;
     this.repeatsLeft = 0;
     this.retryAt = now + LOOK_RETRY_MS[Math.min(this.unanswered, LOOK_RETRY_MS.length - 1)]!;
     this.retryPrompt = opts.prompt === true;
     this.lastUnansweredCapture = opts.prompt === true;
     this.unanswered += 1;
+  }
+
+  /** The newest look came back analyzed and named no card at the pointer (nothing shown, no
+   *  hold). If it started after the pointer's last activity, the pointer rests on an empty spot
+   *  and cadence looks are spaced `EMPTY_SPOT_INTERVAL_MS` apart. A look that started before a
+   *  move says nothing about where the pointer is now. Report a card found with
+   *  `setTooltipShowing(true)`, which ends it. */
+  lookFoundNoCard(): void {
+    this.emptySpot = this.lastStartedAt >= this.lastPointerAt;
   }
 
   /** A look came back analyzed: no retry is waiting, and the back-off starts over (as after
@@ -344,6 +367,7 @@ export class FrameScheduler {
   pointerMoved(now: number): void {
     this.pointerInside = true;
     this.lastPointerAt = now;
+    this.emptySpot = false;
     if ((this.unanswered > 0 || this.refused) && this.retryAt === null) {
       this.retryAt = now;
       this.retryPrompt = false;
@@ -361,6 +385,7 @@ export class FrameScheduler {
   /** A touch on the picture. Touch has no resting pointer, so a tap only opens the grace period. */
   tapped(now: number): void {
     this.lastPointerAt = now;
+    this.emptySpot = false;
   }
 
   /** Is the grace period of the last pointer activity still running? */
@@ -388,11 +413,13 @@ export class FrameScheduler {
     return this.analysisState(now) !== "idle";
   }
 
-  /** The cadence in effect: the slow reading cadence while reading, else the mode's cadence. */
+  /** The cadence in effect: the slow reading cadence while reading, `EMPTY_SPOT_INTERVAL_MS` (or
+   *  the mode's cadence if longer) while the pointer rests on an empty spot, else the mode's. */
   intervalInEffectMs(now: number): number {
     const state = this.analysisState(now);
     if (state === "probe") return this.probeIntervalMs!;
-    return state === "reading" ? this.readingIntervalMs : this.intervalMs;
+    if (state === "reading") return this.readingIntervalMs;
+    return state === "fast" && this.emptySpot ? Math.max(this.intervalMs, EMPTY_SPOT_INTERVAL_MS) : this.intervalMs;
   }
 
   /** Should the current picture be analyzed now, by the cadence or as a repeat of a still? */

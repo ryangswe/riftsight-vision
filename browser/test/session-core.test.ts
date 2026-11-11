@@ -1576,3 +1576,100 @@ describe("SessionCore: a picture the worker cannot take", () => {
     expect(captures).toHaveLength(2);
   });
 });
+
+describe("SessionCore: a pointer resting where the last look found no card", () => {
+  /** A playing video with the pointer resting at (0.2, 0.5): the pointer arrives at `clock`, then a
+   *  tick every DRIVER_TICK_MS until `untilMs` after it; each look is answered at once. Returns
+   *  the times the captures were asked for. `atTick(elapsedMs)` may change the scene or the pointer. */
+  function rest(options: SessionCoreOptions, untilMs: number, atTick: (elapsed: number, core: SessionCore, arrive: (card: NonNullable<typeof scene.card>) => void) => void = () => {}, workerMs = 5, ep: "webgpu" | "wasm" = "webgpu") {
+    let arriving: typeof scene.card = null;
+    const arrive = (card: NonNullable<typeof scene.card>): void => {
+      arriving = card;
+    };
+    const { core, out, answer } = directCore(options, { mediaTimeNow: () => clock / 1000 });
+    // The fast cadence is 500 ms on WebGPU and 1000 ms on WebAssembly.
+    core.fromWorker({ kind: "release-status", ok: true, error: null, release: { ...release, recognizer: { ...release.recognizer, ep } }, cards: [] });
+    const t0 = clock;
+    const asked = (): number[] => out.captures.map((c) => c.at - t0);
+    const seen = (): number => out.captures.length;
+    const look = (): void => {
+      const n = seen();
+      core.tick();
+      if (seen() > n) {
+        // The stand-in hit test reads the scene when it is asked, not when the picture was taken, so a
+        // card that arrived enters the scene only with the first picture taken after it.
+        if (arriving) scene.card = arriving;
+        answer(clock / 1000, { workerMs });
+      }
+    };
+    core.presented(clock / 1000);
+    core.pointer(0.2, 0.5, clock / 1000);
+    if (out.captures.length) answer(clock / 1000, { workerMs });
+    for (let e = DRIVER_TICK_MS; e <= untilMs; e += DRIVER_TICK_MS) {
+      clock = t0 + e;
+      atTick(e, core, arrive);
+      core.presented(clock / 1000);
+      look();
+    }
+    return { core, out, asked, t0 };
+  }
+
+  it("an empty spot on a playing video gets 5 looks in the 10 s grace, one every 2 s (20 at the fast rate)", () => {
+    scene.card = null;
+    const { asked } = rest({}, POINTER_GRACE_MS);
+    expect(asked()).toEqual([0, 2000, 4000, 6000, 8000]);
+  });
+
+  it("on WebAssembly the fast cadence is a second, so the looks halve: 5 against 10", () => {
+    scene.card = null;
+    const { asked } = rest({}, POINTER_GRACE_MS, () => {}, 5, "wasm");
+    expect(asked()).toEqual([0, 2000, 4000, 6000, 8000]);
+  });
+
+  it("a card that appears just after a look shows at the next look: within 2 s plus one analysis", () => {
+    // Worst case: the card arrives 250 ms after the look at 4000. The next look is at 6000, so
+    // nothing is shown by 5750 (the fast rate would have shown it at 4500), and it is shown at 6000.
+    const arrive = (e: number, _core: SessionCore, put: (card: { cardId: string; name: string }) => void): void => {
+      if (e === 4_250) put({ cardId: "T-001", name: "Card One" });
+    };
+    scene.card = null;
+    expect(rest({}, 5_750, arrive).out.shown.some((c) => c !== null)).toBe(false);
+    scene.card = null;
+    const { out } = rest({}, 6_000, arrive);
+    expect(out.shown.find((c) => c !== null)?.cardId).toBe("T-001");
+  });
+
+  it("a pointer move brings the fast rate back at once", () => {
+    scene.card = null;
+    const { core, asked } = rest({}, 2_500, (e, c) => {
+      if (e === 2_250) c.pointer(0.2, 0.5, clock / 1000);
+    });
+    // The move at 2250 is not stale-triggered (250 ms of video time); the next look is the fast
+    // cadence's, 500 ms after 2000, not the slow one's at 4000.
+    expect(asked()).toEqual([0, 2000, 2500]);
+    expect(core.scheduler.intervalInEffectMs(clock)).toBe(2000);
+  });
+
+  it("a pointer resting on a shown card keeps the fast rate", () => {
+    const { asked, out } = rest({}, POINTER_GRACE_MS - DRIVER_TICK_MS);
+    expect(asked()).toEqual(Array.from({ length: 20 }, (_, i) => i * 500));
+    expect(out.shown.at(-1)?.cardId).toBe("T-001");
+  });
+
+  it("a longer measured gap still wins", () => {
+    scene.card = null;
+    const { asked, core } = rest({ measuredPacing: true }, POINTER_GRACE_MS, () => {}, 900);
+    const gaps = asked().slice(1).map((t, i) => t - asked()[i]!);
+    expect(gaps.slice(0, 2)).toEqual([2000, 2000]);
+    expect(gaps.slice(2).every((g) => g >= 3_600)).toBe(true);
+    expect(core.scheduler.intervalInEffectMs(clock)).toBe(3_600);
+  });
+
+  it("a cut returns to the fast rate", () => {
+    scene.card = null;
+    const { asked } = rest({}, 3_500, (e, c) => {
+      if (e === 3_250) c.cut();
+    });
+    expect(asked()).toEqual([0, 2000, 3250]);
+  });
+});

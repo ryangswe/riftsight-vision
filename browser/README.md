@@ -1540,6 +1540,7 @@ another mode, because the pointer is what says which faces to verify.
   repeats a newly presented picture gets. It marks nothing stale and clears nothing shown, and it
   stops once the face is verified. It waits for the picture's repeats and any retry to finish,
   never follows a refused capture, and stops after the pointer's 10 s grace period. With the option off nothing changes.
+- **A pointer resting where the last look found no card** is looked at once every 2 s (`EMPTY_SPOT_INTERVAL_MS`) instead of at the fast rate, because each look of an empty spot costs a full analysis and has nothing to show. In the 10 s grace period that is about 5 looks, against about 20 on WebGPU with fast analyses (the fast rate is 500 ms) and 10 on WebAssembly (1000 ms). A card that arrives under the resting pointer shows up to about 1.5 s later than before on WebGPU (1 s later on WebAssembly), and at most about 2 s plus one analysis after it arrives. A move over the picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at once; the pointer leaving the picture does not, and a longer measured-pacing gap still wins. Nothing changes outside pointer mode or while a card shows.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.
 - **Browser runtime only.** The Python package's `evaluate` is unchanged.
