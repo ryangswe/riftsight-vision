@@ -43,13 +43,14 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
-import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, settleAnalyses, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, loadOnHoverProblem, loadRest, loadSummary, measuredFactor, median, restScriptProblem, runMode, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
+import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, geometricFlagsProblem, geometricGate, geometricSummary, settleAnalyses, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, loadOnHoverProblem, loadRest, loadSummary, measuredFactor, median, restScriptProblem, runMode, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
 
 // Analyses at the emulated speed before the rests begin, in a run with pacing on or off alike.
 const PACER_SETTLE_ANALYSES = 5;
 
 const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests FILE [--throttle N]
                             [--limit MS] [--out FILE] [--chrome PATH] [--headed] [--measured-pacing [--share S]]
+                            [--gpu] [--geometric FILE [--geometric-scope all|focus]]
 
   --release FOLDER  a release folder (a release document and the files it pins)
   --clip FILE       an image or a video file to play
@@ -67,6 +68,12 @@ const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests 
   --correction C    use this correction c (a number above 0) and skip measuring it. For an on/off comparison
                     of --measured-pacing, measure c in the off run (analysis.correction) and pass it to the
                     on run, so both emulate the same computer. Not with --cold
+  --gpu             keep the GPU on and let the release pick its backend (WebGPU when it can), in place of the
+                    default: no GPU, the WebAssembly backend. The report says which backend ran
+  --geometric FILE  load the geometric stage: FILE is its settings document, a path inside the release folder.
+                    Needs --gpu. The run is refused when the stage is not ready once the session is
+  --geometric-scope S  the session option geometricScope, "all" (every face the stage applies to, the default)
+                    or "focus" (only the faces at the pointer). Needs --geometric
   --cold            no warm-up and no correction of the throttle's effect on the worker
   --load-on-hover   a cold run that does not open the session before the rests: at rest 1 the pointer
                     comes to rest, the clock starts, and the session is created then, so rest 1's wait
@@ -83,8 +90,8 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(USAGE);
   process.exit(0);
 }
-const flags = new Set(["--headed", "--cold", "--measured-pacing", "--load-on-hover"]);
-const known = new Set(["--release", "--clip", "--rests", "--throttle", "--limit", "--ready-timeout", "--scenes", "--art", "--out", "--chrome", "--share", "--correction"]);
+const flags = new Set(["--headed", "--cold", "--measured-pacing", "--gpu", "--load-on-hover"]);
+const known = new Set(["--release", "--clip", "--rests", "--throttle", "--limit", "--ready-timeout", "--scenes", "--art", "--out", "--chrome", "--share", "--correction", "--geometric", "--geometric-scope"]);
 const given = {};
 for (let at = 0; at < args.length; at += 1) {
   const name = args[at];
@@ -107,6 +114,12 @@ if (givenCorrection !== undefined) {
   if (problem) usageError(`--correction ${given.correction}: ${problem}`);
   if (given.cold) usageError("--correction cannot be used with --cold");
 }
+{
+  const geometricProblem = geometricFlagsProblem({ scope: given["geometric-scope"], settings: given.geometric, gpu: given.gpu });
+  if (geometricProblem) usageError(geometricProblem);
+}
+const geometric = given.geometric === undefined ? null : { path: given.geometric, scope: given["geometric-scope"] ?? null };
+if (geometric !== null && !existsSync(join(given.release, geometric.path))) usageError(`--geometric ${geometric.path}: no such file in the release folder`);
 const loadOnHover = given["load-on-hover"] === true;
 const loadProblem = loadOnHoverProblem({ loadOnHover, correction: givenCorrection, measuredPacing: pacing.on });
 if (loadProblem) usageError(loadProblem);
@@ -226,6 +239,8 @@ const video = document.getElementById("v");
 const IS_IMAGE = ${JSON.stringify(isImage)};
 const LOAD_ON_HOVER = ${JSON.stringify(loadOnHover)};
 const MEASURED_PACING = ${JSON.stringify(pacing.on ? { share: pacing.share } : null)};
+const GPU = ${JSON.stringify(given.gpu === true)};
+const GEOMETRIC = ${JSON.stringify(geometric)};
 const SCENES = ${JSON.stringify(sceneSpec === null ? null : sceneSpec.scenes)};
 let scene = ${JSON.stringify(sceneSpec === null ? null : (sceneSpec.start ?? Object.keys(sceneSpec.scenes)[0]))};
 let session = null;
@@ -307,15 +322,17 @@ function create() {
     releaseUrl: location.origin + "/release/release.json",
     workerUrl: "/slow-worker.js?rate=" + sessionRate + "&load=" + (LOAD_ON_HOVER ? 1 : 0),
     wasmPaths: location.origin + "/lib/",
-    providers: ["wasm"],
+    ...(GPU ? {} : { providers: ["wasm"] }),
     mode: "pointer",
+    ...(GEOMETRIC ? { geometricUrl: location.origin + "/release/" + GEOMETRIC.path } : {}),
+    ...(GEOMETRIC && GEOMETRIC.scope ? { geometricScope: GEOMETRIC.scope } : {}),
     ...(MEASURED_PACING ? { measuredPacing: MEASURED_PACING } : {}),
   });
   setInterval(() => {
     const s = session.status();
     if (s.frames !== lastFrames && s.lastWorkerMs !== null) {
       lastFrames = s.frames;
-      cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs });
+      cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs, geometricMs: session.analysis()?.timings.geometricMs ?? null, verified: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).length ?? null });
     }
   }, 20);
 }
@@ -324,7 +341,10 @@ function create() {
 async function ready(readyTimeoutMs) {
   for (;;) {
     const s = session.status();
-    if (s.state === "ready") return { backend: s.backend, release: s.release?.id ?? null, readyMs: Math.round(performance.now() - createdAt) };
+    // With a stage asked for, the session is open once the stage has loaded or given up.
+    if (s.state === "ready" && !(GEOMETRIC && s.geometric && s.geometric.state === "loading")) {
+      return { backend: s.backend, release: s.release?.id ?? null, readyMs: Math.round(performance.now() - createdAt), geometric: s.geometric ?? null };
+    }
     if (performance.now() - createdAt > readyTimeoutMs) throw new Error("session not ready after " + readyTimeoutMs + " ms (state " + s.state + ")");
     if (s.state === "failed" || s.state === "stopped") throw new Error("session " + s.state + ": " + s.error);
     await new Promise((r) => setTimeout(r, 50));
@@ -479,7 +499,7 @@ const browser = await puppeteer.launch({
   headless: !given.headed,
   userDataDir: profileDir,
   defaultViewport: { width: 1300, height: 900 },
-  args: ["--disable-gpu", "--no-first-run", "--autoplay-policy=no-user-gesture-required", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"],
+  args: [...(given.gpu ? ["--enable-unsafe-webgpu"] : ["--disable-gpu"]), "--no-first-run", "--autoplay-policy=no-user-gesture-required", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"],
 });
 let code = 0;
 try {
@@ -511,9 +531,26 @@ try {
   // A cold run is throttled from the start; a warm one runs unthrottled first (the worker's
   // wrapper at rate 1, c 1) and is throttled once the baseline is known. A load-on-hover run only
   // plays the clip: its session is made at rest 1.
-  let opened = { backend: null, release: null, readyMs: null };
+  let opened = { backend: null, release: null, readyMs: null, geometric: null };
+  /** Refuse the run when the stage was asked for and the session did not bring it up; warn when
+   *  the GPU was asked for and the backend is not WebGPU. Applied once the session is ready:
+   *  here, or, in a load-on-hover run, right after rest 1's load. */
+  const checkOpened = () => {
+    if (geometric !== null) {
+      const gate = geometricGate(opened.geometric, opened.backend);
+      if (!gate.ok) throw new Error(`refused: --geometric was given and ${gate.problem}. Nothing was measured.`);
+    }
+    if (given.gpu && opened.backend !== "webgpu") {
+      const warning = `--gpu was given and the session's backend is ${opened.backend}, not webgpu`;
+      warnings.push(warning);
+      console.error(`warning: ${warning}`);
+    }
+  };
   if (loadOnHover) await tab.evaluate((r) => window.harness.play(r), rate);
-  else opened = await tab.evaluate((r, ms) => window.harness.open(r, ms), cold ? rate : 1, readyTimeoutMs);
+  else {
+    opened = await tab.evaluate((r, ms) => window.harness.open(r, ms), cold ? rate : 1, readyTimeoutMs);
+    checkOpened();
+  }
   const box = await tab.evaluate(() => window.harness.box());
   const at = (x, y) => [box.x + x * box.width, box.y + y * box.height];
   const park = [10, 885];
@@ -579,7 +616,10 @@ try {
     const described = describeRest(scored, { scene: rest.scene ?? null, framesStart: measured.framesStart, framesEnd: measured.framesEnd, readings: measured.readings });
     lines.push({ index: index + 1, x: rest.x, y: rest.y, ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
     // Later rests meet a session that is ready, as in a cold run.
-    if (loadOnHover && index === 0) opened = await tab.evaluate((ms) => window.harness.ready(ms), readyTimeoutMs);
+    if (loadOnHover && index === 0) {
+      opened = await tab.evaluate((ms) => window.harness.ready(ms), readyTimeoutMs);
+      checkOpened();
+    }
   }
 
   const wallMs = Date.now() - runBegan;
@@ -588,6 +628,12 @@ try {
   const loadMessages = await tab.evaluate(() => window.harness.loads());
   const raw = held.map((h) => h.rawMs);
   const real = held.map((h) => h.heldMs);
+  const endStatus = await tab.evaluate(() => window.harness.status());
+  if (geometric !== null && endStatus.geometric?.state !== "ready") {
+    const warning = `the geometric stage was not ready at the end of the run (${endStatus.geometric?.state}${endStatus.geometric?.reason ? `: ${endStatus.geometric.reason}` : ""}); later rests ran without it`;
+    warnings.push(warning);
+    console.error(`warning: ${warning}`);
+  }
   const report = buildReport({
     profile: {
       slowdown: {
@@ -613,8 +659,17 @@ try {
       mode: runMode({ cold, loadOnHover }),
       loadOnHover,
       measuredPacing: pacing,
-      backendAsked: "wasm",
+      backendAsked: given.gpu ? "release's choice (GPU on)" : "wasm",
       backend: opened.backend,
+      geometric: {
+        asked: geometric !== null,
+        settings: geometric?.path ?? null,
+        scope: geometric === null ? null : (geometric.scope ?? "all"),
+        scopeGiven: geometric?.scope ?? null,
+        stateAtOpen: opened.geometric?.state ?? null,
+        stateAtEnd: endStatus.geometric?.state ?? null,
+        reasonAtEnd: endStatus.geometric?.reason ?? null,
+      },
       chrome: {
         version: await browser.version(),
         ...architectureNote({ machine: process.arch, binary: binaryArchitectures(chrome), page: await tab.evaluate(() => window.harness.architecture()) }),
@@ -636,6 +691,7 @@ try {
     lines,
     analysis: {
       ...cycleSummary(cycles),
+      ...(geometric !== null ? geometricSummary(cycles) : {}),
       ...analysisShare(held.map((h) => h.reportedMs), wallMs),
       pacerSettle: { analyses: settle, note: cold ? "none: a cold run's first rest meets the models' first analysis" : "before the rests begin, in warm runs with pacing on and off alike" },
       medianRawMs: median(raw),

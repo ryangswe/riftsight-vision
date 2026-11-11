@@ -94,6 +94,51 @@ export function measuredFactor(baselineMs, slowedMs) {
   return base === null || slow === null || base <= 0 ? null : round(slow / base);
 }
 
+/** The values of `--geometric-scope`: the session option's (README.md, "Measuring the wait"). */
+export const GEOMETRIC_SCOPES = ["all", "focus"];
+
+/**
+ * The error text of the geometric flags of a run, or null. `scope` is `--geometric-scope`,
+ * `settings` is `--geometric` (the stage's settings document, a path inside the release folder)
+ * and `gpu` is `--gpu`. A scope without a stage would measure nothing, so it is refused.
+ */
+export function geometricFlagsProblem({ scope, settings, gpu }) {
+  if (scope !== undefined && !GEOMETRIC_SCOPES.includes(scope)) return `--geometric-scope ${scope}: not one of ${GEOMETRIC_SCOPES.join(", ")}`;
+  if (scope !== undefined && settings === undefined) return "--geometric-scope needs --geometric (the stage's settings document, inside the release folder)";
+  if (settings !== undefined && gpu !== true) return "--geometric needs --gpu: the stage's vote runs on WebGPU, which the default headless Chrome turns off";
+  return null;
+}
+
+/**
+ * What a session's geometric status means for a run that asked for the stage: `ok` only when it
+ * is ready, else `problem` says why the numbers would not be the stage's. `status` is
+ * `session.status().geometric` (null when no stage was asked for), `backend` the session's.
+ */
+export function geometricGate(status, backend) {
+  if (status === null || status === undefined) return { ok: false, problem: "the session reports no geometric stage" };
+  if (status.state === "ready") return { ok: true, problem: null };
+  const why = status.reason ? ` (${status.reason})` : "";
+  return { ok: false, problem: `the geometric stage is ${status.state}${why}; backend ${backend ?? "unknown"}` };
+}
+
+/**
+ * The stage's time and work over the cycles. `geometricMs` is the stage's time in an analysis
+ * and `verified` the number of faces it verified in it (faces with geometric evidence). The
+ * median time is given over all analyses that have one and over those that verified at least
+ * one crop, since in focus scope an analysis with the pointer over no face verifies none.
+ */
+export function geometricSummary(cycles) {
+  const timed = cycles.filter((c) => typeof c.geometricMs === "number");
+  const verifying = timed.filter((c) => typeof c.verified === "number" && c.verified >= 1);
+  return {
+    geometricCycles: timed.length,
+    medianGeometricMs: median(timed.map((c) => c.geometricMs)),
+    verifyingCycles: verifying.length,
+    medianGeometricMsVerifying: median(verifying.map((c) => c.geometricMs)),
+    medianCropsVerified: median(timed.filter((c) => typeof c.verified === "number").map((c) => c.verified)),
+  };
+}
+
 /** The report of a run. `profile` says how it was run; `lines` are scored rests. */
 export function buildReport({ profile, lines, analysis }) {
   return { profile, rests: lines, summary: summarize(lines), analysis };

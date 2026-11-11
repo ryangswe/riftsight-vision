@@ -11,6 +11,21 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Browser: the session option `geometricScope: "focus"` (default `"all"`) makes the geometric
+  stage verify only the faces at the pointer on each analysis: the boxes holding the pointer and
+  the boxes joined to them by overlaps the suppression acts on. A face the stage applies to and
+  did not verify is not named until an analysis verifies it. A release's tilted retry takes the
+  whole group in focus scope, with no per-frame cap. It needs `mode: "pointer"` and is
+  refused with another mode; it works in `createSession` and in the extension compute frame
+  (`startComputeFrame`) with no new message and no protocol change. With the option off nothing
+  changes and no `focus` is sent. With no stage (none set, or one removed after a failure) the
+  worker ignores the scope and the pointer, and the frame is analyzed exactly as with the option
+  off. Also in `browser/`: `npm run user-wait` takes `--gpu`,
+  `--geometric FILE` and `--geometric-scope all|focus`, and records the backend, the stage's
+  state and the crops verified per analysis in its report (also with `--load-on-hover`); the
+  scoring page has a development check, `?focusCheck`, that compares focus-scope answers with
+  full ones. See `browser/README.md`, "Verifying the faces at the
+  pointer".
 - A push to `main` that raises the version now tags it, publishes the GitHub release with the
   changelog section as its notes (a release candidate as a pre-release) and starts the Publish
   workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,

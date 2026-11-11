@@ -976,6 +976,7 @@ permission for cross-origin use).
 | `geometricUrl` | URL of the geometric stage's settings file, to verify candidates with it ("The geometric stage", below). Off without it. |
 | `geometricManifestSha256` | The SHA-256 the packed index's `manifest.json` must have; another manifest turns the stage off. |
 | `geometricWatchdog` | `false` turns the stage's watchdog off (default on). For measuring the stage only: a slow stage is then never turned off. |
+| `geometricScope` | `"all"` (default): the geometric stage verifies every face it applies to. `"focus"`: only the faces at the pointer ("Verifying the faces at the pointer", below). It needs `mode: "pointer"`; another mode throws when the session is made. Without a stage (no `geometricUrl`, or a stage that was turned off) the option does nothing: the request's scope and pointer are ignored, and the frame is analyzed, tilted retry included, exactly as with the option off. |
 | `measuredPacing` | `true` or `{ share }`: pace analysis from the measured analysis time ("Measured pacing", below). Default off: the fixed rates. |
 | `rotatedOutlines` | `true`: each named card follows its outline when it sits at an angle ("Outlines of tilted cards", below). Default `false`: every card is its box, as before. |
 | `onUpdate` | Called whenever the status or what would be shown may have changed. |
@@ -1247,9 +1248,37 @@ then emulate different computers. A run with pacing on and `c` measured warns ab
 time, should be about N.
 
 This stands in for a slower computer; it does not reproduce one (memory, caches and the page's
-contention with the worker are not slowed together). WebGPU is off (`--disable-gpu`, and the
+contention with the worker are not slowed together). By default WebGPU is off (`--disable-gpu`, and the
 session is asked for the WebAssembly provider); the profile records the backend the session
 reported, the Chrome version and the toolkit commit.
+
+**With the geometric stage.** The stage's vote needs WebGPU, so a run that measures it drops the
+default: `--gpu` keeps the GPU on (and adds `--enable-unsafe-webgpu`) and lets the release pick
+its backend, `--geometric FILE` loads the stage (FILE is its settings document, a path inside the
+`--release` folder, whose folder must hold the packed index), and `--geometric-scope all|focus`
+sets the session option of that name. Run the same clip and rest script twice, once with each
+scope, and compare the two reports:
+
+```
+npm run user-wait -- --release RELEASE --clip CLIP --rests RESTS --gpu --geometric geometric/settings.json --geometric-scope all   --out all.json
+npm run user-wait -- --release RELEASE --clip CLIP --rests RESTS --gpu --geometric geometric/settings.json --geometric-scope focus --out focus.json
+```
+
+`--geometric-scope` without `--geometric`, and `--geometric` without `--gpu`, are refused. `--load-on-hover` works with all three: the stage loads after the release in the
+session made at rest 1, rest 1 is answered by the embedding alone until it is ready (its wait does
+not include the stage), and the stage's readiness is checked right after rest 1's load, so a run
+whose stage did not come up stops before the other rests. A run
+that asked for the stage stops, measuring nothing, when the stage is not `ready` once the session
+is; a stage that went off during the run is a warning. The report's `profile.backend` is the
+backend that ran, and `profile.geometric` records `scope`, `stateAtOpen`, `stateAtEnd` and
+`reasonAtEnd`. `analysis.medianGeometricMs` is the median time of the stage over all analyses,
+`analysis.medianGeometricMsVerifying` the same over the analyses that verified at least one crop
+(`verifyingCycles` of `geometricCycles`), and `analysis.medianCropsVerified` the median number of
+crops verified per analysis (the faces with `geometric` evidence). In focus scope an analysis with
+the pointer over no face verifies none, which is why both medians are given. `analysis.medianWorkerMs`
+is the whole analysis, as for any run. The CPU
+throttle still applies to the page and, through the wrapper, to the worker's reported times, but
+not to the GPU: on a fast GPU the stage's share is understated at a high `--throttle`.
 
 **Start-up and architecture.** The wait for the session to be ready (`--ready-timeout`, default
 120000 ms, separate from the per-rest limit) is not part of any rest; the time it took is
@@ -1411,6 +1440,69 @@ carries it in `geometric.debug`. It decides nothing, and a session never asks fo
 same record the Python package writes with `cardvision evaluate hover --evidence FILE`, and
 `score/evidence.ts` writes a frame's faces and events in that command's line format, so that the
 two runtimes can be compared crop by crop: same grey image, same keypoints, same vote.
+
+### Verifying the faces at the pointer
+
+With the session option `geometricScope: "focus"` the stage verifies, on each analysis, only
+the faces at the pointer, and `"all"` (the default) leaves everything as it was. With the stage
+off, absent or removed after a failure, the option does nothing: the worker ignores the request's scope and pointer, so the frame (the tilted retry's order and cap included) is analyzed exactly as with the option off. It needs `mode: "pointer"`: `createSession`,
+`createWorkerSession`, `SessionCore` and `startComputeFrame` throw when it is combined with
+another mode, because the pointer is what says which faces to verify.
+
+- **Which faces.** The faces whose box holds the pointer, and every face joined to one of those,
+  directly or through others, by an overlap the suppression acts on (an IoU of `0.3` or more, the
+  same constant and test as the suppression). Overlapping boxes compete for the same card after
+  the stage has scored them, so the group is verified together. With the pointer over no face,
+  or no pointer, the stage does no work on that frame. How many crops this is on real footage is
+  measured in the wait harness (`analysis.medianCropsVerified`), not claimed here.
+- **The tilted retry**, when the release has one, takes every face of the group that is still
+  not accepted, with no `maxFacesPerFrame` cap, and no face outside the group. With the retry,
+  then, the kept boxes in the group and the answer at the pointer are those of `"all"` with the
+  cap raised to cover every face; without a retry, they are `"all"`'s. A release's cap can leave
+  a face unretried in `"all"` that focus scope retries, so focus can name a face a capped full
+  analysis left unnamed. `"all"` keeps its cap and its order.
+- **The pointer** is its position when the picture was asked for, in the pixels of the picture
+  that is analyzed, so the point matches the boxes. The session sends it (as `focus`, with
+  `geometricScope: "focus"`, in the frame request) only when the option is on; with the option
+  off no `focus` is sent, and the tilted retry orders faces as before.
+- **A face the stage applies to and did not verify is not named** on that analysis: it has no
+  name in the hover layer, so `atPointer()` and `at()` give nothing for it and the hover layer
+  does not draw it, until an analysis verifies it (its box then reports `face.unverified: true`).
+  The track layer works as in `"all"`: it is built from the faces that reach tau on each
+  analysis, so an unverified face adds nothing to it, but while its gate holds it can show the
+  previous frame's tracked cards again. The embedding alone never names an unverified face. A face
+  the stage does not apply to (for example, one the accept rule already accepted, with
+  `gate.belowAccept`) is named as before.
+- **`others`.** The `others` of what `atPointer()` returns hold the boxes of the other kept,
+  named cards of the analysis. Under focus scope that leaves out the boxes of nearby cards that
+  were not verified, so a tooltip placed off `others` can overlap them.
+- **No extra analysis** is asked for when the pointer moves. A card the pointer moves onto
+  shows after the next analysis, which comes sooner because each one costs less.
+- **Browser runtime only.** The Python package's `evaluate` is unchanged.
+
+A crop's result does not depend on the other crops verified with it: each crop's keypoints are
+extracted after the generator is seeded for that crop, the vote is one search whose answer for
+a crop does not depend on the others, and OpenCV's RANSAC draws from a generator of its own with
+a fixed seed (`RANSACPointSetRegistrator`) and not from the global one; the USAC methods likewise
+take their seed from their own parameters. `test/geometric-focus.test.ts` checks that a crop
+verified alone and in a batch gives the same result. To check it on real footage, in Chrome with
+OpenCV.js and WebGPU, see below.
+
+#### Checking the focus scope on your clips
+
+The scoring page (`dist/demo/score.html`, "The scoring page") has a development check. Open it
+with `?focusCheck` added to its address, for example
+`http://127.0.0.1:8770/score.html?focusCheck`, and run it as usual with the geometric stage
+(`npm run demo -- --release FOLDER --geometric FILE`). For each frame it analyzes, the page
+analyzes the same picture again once per face with the pointer on that face's center in focus
+scope, and compares, field for field and apart from timings, the faces the stage verified with
+the full analysis: the box, the candidates, inliers and evidence, the fused answer, whether the
+box is kept, and the card shown at that point. When the run ends the page adds a line,
+`focus check: N faces in M frames compared, K differ`, and up to ten faces' differences with their
+field paths; the whole report is `window.cardvisionFocusCheck` and is logged to the console
+(`copy(window.cardvisionFocusCheck)` copies it). It makes a run several times longer, and it is
+code in `score/` and the scoring page, not in `cardvision.js`, the worker or the extension
+entries. Without `?focusCheck` the page runs as before.
 
 ### The vote, on WebGPU
 

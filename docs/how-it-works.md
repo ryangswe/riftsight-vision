@@ -738,6 +738,21 @@ example turns the stage on in its browser extension by its maintainer's decision
 disclosed; [browser/README.md](../browser/README.md), "Python and the browser", has the
 detail.
 
+**Only the faces at the pointer.** In a browser session with a pointer (`geometricScope:
+"focus"`, [browser/README.md](../browser/README.md)), the stage need not run on every face of
+every analysis. It verifies the faces whose box holds the pointer and the faces linked to them by
+overlaps of the suppression's IoU (0.3) or more, so that the suppression, which runs on the
+scores after the stage, sees the same scores for the boxes that compete at the pointer as it
+does when every face is verified. The tilted retry, if a release has one, takes every
+not-yet-accepted face of that group without its per-frame cap, so the answer at the pointer is
+the one a full analysis gives with no cap. The other faces the stage applies to are left unnamed
+on that analysis instead of being named by the embedding alone; the hover layer draws nothing for
+them, and the track layer behaves as in a full analysis. The `others` boxes that come with a
+shown card are then those of the kept, named cards, which can leave out nearby cards that were
+not verified. This changes how much work one analysis does and which faces it names, not what the
+stage computes for a face; the Python package's `evaluate` still verifies every face, so replay
+results do not move.
+
 **When it helps, and when it does not.** It helps where a crop is large enough to show
 detail and the recognizer's mistakes are near misses among its first few cards. It cannot
 help a crop too small or blurred to give keypoints, or a card whose right answer is not among

@@ -38,7 +38,7 @@
 
 import type { AABB } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
-import { analyzeIntervalMs, cadenceMs, MeasuredPacer, type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
+import { analyzeIntervalMs, cadenceMs, type GeometricScope, MeasuredPacer, resolveGeometricScope, type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
@@ -127,6 +127,9 @@ export interface SessionCoreOptions {
   /** True: named cards follow their outline on every frame (`SessionOptions.rotatedOutlines`).
    *  Default false. */
   rotatedOutlines?: boolean;
+  /** "focus": each frame asks the geometric stage to verify only the faces at the pointer
+   *  (`SessionOptions.geometricScope`). Throws unless the mode is "pointer". Default "all". */
+  geometricScope?: GeometricScope;
   /** Pace analysis from the measured analysis time (`SessionOptions.measuredPacing`). Off when
    *  absent. */
   measuredPacing?: MeasuredPacingOption;
@@ -164,6 +167,8 @@ interface InFlight {
   videoKey: string;
   /** Set once the picture went to the worker. */
   analyzing: boolean;
+  /** The pointer, in fractions of the picture, when the capture was asked for. */
+  pointer: { x: number; y: number } | null;
 }
 
 export class SessionCore {
@@ -172,6 +177,7 @@ export class SessionCore {
   private readonly hold: ShownHold | null;
   private readonly maxOtherBoxes: number;
   private readonly rotatedOutlines: boolean;
+  private readonly focusScope: boolean;
   private readonly hitTest: typeof hoverAt;
   private readonly pacer: MeasuredPacer | null;
 
@@ -202,6 +208,7 @@ export class SessionCore {
     this.hold = options.hold ?? null;
     this.maxOtherBoxes = options.maxOtherBoxes ?? MAX_OTHER_BOXES;
     this.rotatedOutlines = options.rotatedOutlines === true;
+    this.focusScope = resolveGeometricScope(options.geometricScope, this.mode) === "focus";
     this.hitTest = deps.hoverAt ?? hoverAt;
     const share = resolveMeasuredPacing(options.measuredPacing);
     this.pacer = share === null ? null : new MeasuredPacer(share);
@@ -293,8 +300,21 @@ export class SessionCore {
     }
     sent.analyzing = true;
     const envelope: FrameEnvelope = { requestId: sent.requestId, mediaTimeSec: mediaTime, generation: sent.generation, videoKey: sent.videoKey };
+    // The pointer as it was when the picture was asked for, in the picture's pixels (the bitmap
+    // is already at analysis size). Sent only with the option on.
+    const focus = sent.pointer ? { x: sent.pointer.x * bitmap.width, y: sent.pointer.y * bitmap.height } : null;
     try {
-      this.deps.toWorker({ kind: "frame", bitmap, videoTimeSec: mediaTime, envelope, ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}) }, [bitmap]);
+      this.deps.toWorker(
+        {
+          kind: "frame",
+          bitmap,
+          videoTimeSec: mediaTime,
+          envelope,
+          ...(this.focusScope ? { geometricScope: "focus" as const, focus } : {}),
+          ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}),
+        },
+        [bitmap],
+      );
     } catch (error) {
       // Not transferred, so still ours: close it, and ask again as for a look given up on.
       bitmap.close();
@@ -489,7 +509,7 @@ export class SessionCore {
     if (this.st.state !== "ready" || this.inFlight) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
-    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false };
+    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null };
     this.scheduler.started(now, { videoTimeSec: this.videoTime(), ...(trigger ? { trigger } : {}) });
     this.deps.capture(requestId, { ...this.analysisWidth });
   }

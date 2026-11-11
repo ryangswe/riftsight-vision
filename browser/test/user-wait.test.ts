@@ -32,6 +32,9 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   correction: (baseline: number | null, throttled: number | null) => number;
   settleAnalyses: (cold: boolean, count: number) => number;
   emulatedTime: (rawMs: number, rate: number, c: number) => { reportedMs: number; holdMs: number };
+  geometricFlagsProblem: (flags: { scope?: string; settings?: string; gpu?: boolean }) => string | null;
+  geometricGate: (status: { state: string; reason: string | null } | null, backend: string | null) => { ok: boolean; problem: string | null };
+  geometricSummary: (cycles: { geometricMs?: number | null; verified?: number | null }[]) => Record<string, number | null>;
   loadHold: (rawLoadMs: number, rate: number, c: number) => { rawMs: number; emulatedMs: number; holdMs: number };
   runMode: (input: { cold: boolean; loadOnHover: boolean }) => string;
   loadOnHoverProblem: (input: { loadOnHover: boolean; correction?: number; measuredPacing: boolean }) => string | null;
@@ -313,6 +316,59 @@ describe("settleAnalyses: a cold run has no settle analyses before its first res
   it("settles a warm run and never a cold one", () => {
     expect(core.settleAnalyses(false, 5)).toBe(5);
     expect(core.settleAnalyses(true, 5)).toBe(0);
+  });
+});
+
+describe("the geometric flags (--gpu, --geometric, --geometric-scope)", () => {
+  const run = (...args: string[]) => spawnSync(process.execPath, [fileOf("scripts/user-wait.mjs"), ...args], { encoding: "utf-8" });
+
+  it("lists them in --help, and keeps today's default: GPU off, no stage", () => {
+    const help = run("--help").stdout;
+    for (const flag of ["--gpu", "--geometric FILE", "--geometric-scope S"]) expect(help).toContain(flag);
+    const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
+    expect(source).toContain('given.gpu ? ["--enable-unsafe-webgpu"] : ["--disable-gpu"]');
+    expect(source).toContain('...(GPU ? {} : { providers: ["wasm"] })');
+  });
+
+  it("accepts the scopes all and focus, with a stage and the GPU, and refuses the rest", () => {
+    const ok = { settings: "geometric/settings.json", gpu: true };
+    expect(core.geometricFlagsProblem({})).toBeNull();
+    expect(core.geometricFlagsProblem({ ...ok })).toBeNull();
+    for (const scope of ["all", "focus"]) expect(core.geometricFlagsProblem({ ...ok, scope })).toBeNull();
+    expect(core.geometricFlagsProblem({ ...ok, scope: "some" })).toMatch(/not one of all, focus/);
+    expect(core.geometricFlagsProblem({ scope: "focus", gpu: true })).toMatch(/needs --geometric/);
+    expect(core.geometricFlagsProblem({ settings: "g.json" })).toMatch(/needs --gpu/);
+  });
+
+  it("the script refuses a bad combination with status 2 before it starts a browser", () => {
+    const base = ["--release", ".", "--clip", fileOf("package.json"), "--rests", fileOf("package.json")];
+    const scope = run(...base, "--geometric-scope", "focus");
+    expect([scope.status, scope.stderr]).toEqual([2, expect.stringContaining("--geometric-scope needs --geometric")]);
+    const bad = run(...base, "--geometric", "g.json", "--gpu", "--geometric-scope", "some");
+    expect([bad.status, bad.stderr]).toEqual([2, expect.stringContaining("not one of all, focus")]);
+    expect(run(...base, "--geometric-scope").stderr).toContain("--geometric-scope needs a value");
+  });
+
+  it("takes --load-on-hover with the GPU and the stage: the flags are accepted, and the stage is gated at rest 1's load", () => {
+    const base = ["--release", ".", "--clip", fileOf("package.json"), "--rests", fileOf("package.json")];
+    const r = run(...base, "--load-on-hover", "--gpu", "--geometric", "package.json", "--geometric-scope", "focus");
+    // Past every flag check; it stops at the release folder, which has no release.json.
+    expect([r.status, r.stderr]).toEqual([2, expect.stringContaining("no release.json in it")]);
+    const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
+    expect(source).toMatch(/window\.harness\.ready\(ms\), readyTimeoutMs\);\s*checkOpened\(\);/);
+  });
+
+  it("calls a run usable only when the stage is ready, and says why otherwise", () => {
+    expect(core.geometricGate({ state: "ready", reason: null }, "webgpu")).toEqual({ ok: true, problem: null });
+    expect(core.geometricGate({ state: "off", reason: "no WebGPU" }, "wasm")).toEqual({ ok: false, problem: "the geometric stage is off (no WebGPU); backend wasm" });
+    expect(core.geometricGate({ state: "loading", reason: null }, "webgpu").ok).toBe(false);
+    expect(core.geometricGate(null, "wasm").ok).toBe(false);
+  });
+
+  it("summarizes the stage's time over all analyses and over those that verified a crop", () => {
+    const cycles = [{ geometricMs: 0, verified: 0 }, { geometricMs: 10, verified: 1 }, { geometricMs: 30, verified: 3 }, { geometricMs: null }, {}];
+    expect(core.geometricSummary(cycles)).toEqual({ geometricCycles: 3, medianGeometricMs: 10, verifyingCycles: 2, medianGeometricMsVerifying: 20, medianCropsVerified: 1 });
+    expect(core.geometricSummary([{}])).toEqual({ geometricCycles: 0, medianGeometricMs: null, verifyingCycles: 0, medianGeometricMsVerifying: null, medianCropsVerified: null });
   });
 });
 

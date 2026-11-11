@@ -93,6 +93,21 @@ export function resolveMeasuredPacing(option: MeasuredPacingOption | undefined):
   return share;
 }
 
+/** Which faces the geometric stage verifies: "all" (the default) or "focus", the faces at the
+ *  pointer (`SessionOptions.geometricScope`). */
+export type GeometricScope = "all" | "focus";
+
+/** The scope a session runs. Throws on a value that is not a scope, and on "focus" outside
+ *  pointer mode (it needs the pointer to say which faces to verify). */
+export function resolveGeometricScope(scope: GeometricScope | undefined, mode: AnalysisMode | undefined): GeometricScope {
+  if (scope === undefined || scope === "all") return "all";
+  if (scope !== "focus") throw new RangeError('geometricScope must be "all" or "focus"');
+  if (mode !== undefined && mode !== "pointer") {
+    throw new RangeError(`geometricScope "focus" needs pointer mode, not ${JSON.stringify(mode)}: it verifies the faces at the pointer`);
+  }
+  return "focus";
+}
+
 /** The median of the last `MEASURED_PACING_WINDOW` values. */
 function recentMedian(timesMs: readonly number[]): number {
   const sorted = timesMs.slice(-MEASURED_PACING_WINDOW).sort((a, b) => a - b);

@@ -23,7 +23,7 @@
 //   - anything for a box that was detected and not accepted.
 
 import { type AABB } from "./boxes.js";
-import { type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
+import { type GeometricScope, type MeasuredPacingOption, resolveGeometricScope, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import {
   type AnalysisWidth,
   captureFrame,
@@ -91,6 +91,12 @@ export interface SessionOptions {
    *  sits at an angle (tilt.ts `outlineRect`), for outlines and hit tests that follow tilted
    *  cards; `bounds` stays the detector's box. Default false: every card is its box, as before. */
   rotatedOutlines?: boolean;
+  /** Which faces the geometric stage verifies on each analysis. "all" (the default): every face
+   *  it applies to. "focus": only the faces at the pointer (the boxes holding it, and the ones
+   *  overlapping those enough to compete with them for the same card), and a face the stage
+   *  applies to and did not verify on that analysis is not named until one verifies it. It needs
+   *  `mode: "pointer"` (any other mode throws) and does nothing without `geometricUrl`. */
+  geometricScope?: GeometricScope;
   /** Called whenever the status or what would be shown may have changed. */
   onUpdate?: () => void;
 }
@@ -166,6 +172,7 @@ const SAME_DOCUMENT: GrabDeps = { requireConnected: false, maxSide: Infinity };
  */
 export function createSession(source: FrameSource, options: SessionOptions): Session {
   resolveMeasuredPacing(options.measuredPacing);
+  resolveGeometricScope(options.geometricScope, options.mode);
   const video = source instanceof HTMLVideoElement ? source : null;
   const element: HTMLElement = source;
   const workerUrl = options.workerUrl ?? new URL("./worker.js", import.meta.url);
@@ -304,6 +311,7 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     ...(options.mode ? { mode: options.mode } : {}),
     ...(options.measuredPacing ? { measuredPacing: options.measuredPacing } : {}),
     ...(options.rotatedOutlines ? { rotatedOutlines: true } : {}),
+    ...(options.geometricScope === "focus" ? { geometricScope: "focus" as const } : {}),
     capture,
     // The max-age rule, the staleness rule and a look's date read the video's time when they
     // run, as 0.5 did: a paused video reports no frame, and its time is still known.

@@ -211,12 +211,13 @@ let clock = 0;
 let updates = 0;
 let session: Session | null = null;
 
-function start(element: FakeElement, options: { mode?: "pointer" | "always-on"; geometric?: boolean; rotatedOutlines?: boolean } = {}): Session {
+function start(element: FakeElement, options: { mode?: "pointer" | "always-on"; geometric?: boolean; rotatedOutlines?: boolean; geometricScope?: "all" | "focus" } = {}): Session {
   session = createSession(element as unknown as FrameSource, {
     releaseUrl: "release.json",
     workerUrl: "https://example.test/worker.js",
     ...(options.mode ? { mode: options.mode } : {}),
     ...(options.rotatedOutlines !== undefined ? { rotatedOutlines: options.rotatedOutlines } : {}),
+    ...(options.geometricScope ? { geometricScope: options.geometricScope } : {}),
     ...(options.geometric ? { geometricUrl: "geometric/settings.json" } : {}),
     onUpdate: () => {
       updates += 1;
@@ -384,6 +385,24 @@ describe("at() in client pixels", () => {
       const look = worker().frames().at(-1)!;
       if (rotatedOutlines) expect(look.rotatedOutlines).toBe(true);
       else expect("rotatedOutlines" in look).toBe(false);
+      session?.stop();
+    }
+  });
+
+  it("asks the worker for the faces at the pointer on each frame only when geometricScope is focus", async () => {
+    for (const geometricScope of ["focus", "all", undefined] as const) {
+      const video = new FakeVideo();
+      start(video, { ...(geometricScope ? { geometricScope } : {}), geometric: true });
+      worker().reply(loaded);
+      await move(video, 400, 250);
+      const look = worker().frames().at(-1)!;
+      if (geometricScope === "focus") {
+        expect(look.geometricScope).toBe("focus");
+        expect(look.focus).toEqual({ x: expect.any(Number), y: expect.any(Number) });
+      } else {
+        expect("geometricScope" in look).toBe(false);
+        expect("focus" in look).toBe(false);
+      }
       session?.stop();
     }
   });

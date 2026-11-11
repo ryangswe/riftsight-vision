@@ -5,7 +5,7 @@
 // device is lost and when the watchdog trips, and a stage that loads during a frame joining
 // after it.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { rectOf } from "../src/boxes.js";
 import type { FrameDetector } from "../src/detector/detector.js";
@@ -338,5 +338,21 @@ describe("the progress of a load", () => {
     expect(progressUpdate("loading", reply)).toEqual({ phase: "preparing", bytes: null });
     expect(progressUpdate("loading", { ...reply, phase: "downloading", bytes: 12 })).toEqual({ phase: "downloading", bytes: 12 });
     for (const state of ["ready", "failed", "stopped"] as const) expect(progressUpdate(state, reply), state).toBeUndefined();
+  });
+});
+
+describe("the frame request's geometric scope", () => {
+  const request = (extra: object) => ({ kind: "frame" as const, bitmap: { width: 200, height: 150, close() {} } as ImageBitmap, videoTimeSec: 0, envelope: { requestId: 1, mediaTimeSec: 0, generation: 0, videoKey: "v" }, ...extra });
+
+  it("gives the pipeline the scope and the focus, and neither when the request has none", async () => {
+    const w = host({});
+    await w.load();
+    const analyze = vi.spyOn(w.pipeline, "analyze");
+    await w.h.handle(request({ geometricScope: "focus", focus: { x: 30, y: 40 } }));
+    expect(analyze.mock.calls[0]![2]).toMatchObject({ geometricScope: "focus", focus: { x: 30, y: 40 } });
+    await w.h.handle(request({ geometricScope: "focus", focus: null }));
+    expect(analyze.mock.calls[1]![2]).toMatchObject({ geometricScope: "focus", focus: null });
+    await w.h.handle(request({}));
+    expect(Object.keys(analyze.mock.calls[2]![2]!)).toEqual([]);
   });
 });

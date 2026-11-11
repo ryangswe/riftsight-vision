@@ -36,6 +36,7 @@
 import type { ExecutionProvider } from "../src/providers.js";
 import { type IndexedVideo, matchVideos, parseManifest, parseVideoIndex, readChosen, rowsOfRole, type ScoreRow } from "../score/manifest.js";
 import { eventLines, onVideoTimeline, type RowLine, runHeader, scoreRows, type ScoringVideo, summarize } from "../score/run.js";
+import { focusChecked, focusCheckLines, type FocusCheckReport } from "../score/focus-check.js";
 import { type Analyzer, createAnalyzer, openVideo } from "../score/video.js";
 import { byId, chosenBackend, prefillRelease, servedGeometric, serverConfig, WORKER_URL } from "./page.js";
 import { coverage, type Input, type PreRun, preRun, resultView, scoringCommand } from "./score-view.js";
@@ -265,7 +266,11 @@ async function run(): Promise<string[]> {
       ...(asked === null ? {} : { providers: [asked] }),
       ...(geometricPath === null ? {} : { geometricUrl: new URL(geometricPath, location.href) }),
     });
-    const loaded = analyzer;
+    const created = analyzer;
+    // Development only: `?focusCheck` also analyzes each face in focus scope and compares.
+    const checking = new URLSearchParams(location.search).has("focusCheck");
+    const focusReport: FocusCheckReport = { frames: 0, faces: 0, differing: 0, details: [] };
+    const loaded = checking ? focusChecked(created, focusReport) : created;
     const release = loaded.release;
     const stage = geometricPath === null ? null : await loaded.geometricSettled();
     if (stage !== null && stage.state !== "ready") throw new Error(`the geometric stage did not start: ${stage.reason ?? "no reason given"}`);
@@ -308,6 +313,11 @@ async function run(): Promise<string[]> {
       manifests: manifests.map((manifest) => ({ file: manifest.name, sha256: manifest.sha256, rows: manifest.rows.length })),
       ...(geometric ? { geometric } : {}),
     });
+    if (checking) {
+      (window as unknown as { cardvisionFocusCheck?: FocusCheckReport }).cardvisionFocusCheck = focusReport;
+      head.push(...focusCheckLines(focusReport));
+      console.log("cardvision focus check", JSON.stringify(focusReport));
+    }
     const text = eventLines(header, lines);
     if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     downloadUrl = URL.createObjectURL(new Blob([text.join("\n") + "\n"], { type: "application/x-ndjson" }));
