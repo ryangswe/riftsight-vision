@@ -1291,7 +1291,7 @@ class Smoke(unittest.TestCase):
             page = body.decode("utf-8")
             self.assertIn("<title>Card labeler</title>", page)
             scripts = [part.split('"')[0] for part in page.split('<script src="')[1:]]
-            self.assertEqual(len(scripts), 16)
+            self.assertEqual(len(scripts), 18)
             self.assertLess(scripts.index("/boxgeom.js"), scripts.index("/boxedit.js"), "boxedit.js reads boxgeom.js as it loads")
             self.assertLess(scripts.index("/boxedit.js"), scripts.index("/sources.js"))
             self.assertLess(scripts.index("/picker.js"), scripts.index("/names.js"), "the list of names reads picker.js as it loads")

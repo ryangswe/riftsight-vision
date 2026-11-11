@@ -20,6 +20,19 @@
   const node = typeof module !== "undefined" && module.exports;
   const Picker = node ? require("./picker.js") : root.LabelerPicker;
   const Filters = node ? require("./filters.js") : root.LabelerFilters;
+  const strayKeys = () => (node ? require("./straykeys.js") : root.LabelerStrayKeys); // read at the call: the page loads it after this file
+
+  // Enter in the search picks the highlighted card only when it was chosen: the query was typed in,
+  // a filter is on, or the arrow keys moved the highlight (straykeys.js, mayPick).
+  // `arrowed`: the highlight was moved by the arrow keys on this card since the query last changed (see armed/queryChanged).
+  function enterPicks(query, arrowed, filters) {
+    return strayKeys().mayPick({ query, touched: !!arrowed || Object.values(filters || {}).some(Boolean) });
+  }
+  // The arrow-moved state of the picker `p` ({arrowed, arrowedAt, lastQuery}): set by an arrow key on card `at`,
+  // cleared by any change of the query and valid on that card only.
+  function arrowMoved(p, at) { p.arrowed = true; p.arrowedAt = at; }
+  function queryChanged(p, query) { if (query !== p.lastQuery) { p.lastQuery = query; p.arrowed = false; } }
+  function armed(p, at) { return !!p.arrowed && p.arrowedAt === at; }
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -491,6 +504,7 @@
       if (P.mode() === "verify" ? !P.vCenter(P.vItem()) : !P.selected()) { P.setStatus(P.mode() === "verify" ? "There is no card here." : P.noTargetMessage()); return; }
       $("searchBox").hidden = false; // a hidden field takes no focus: `/` and Change always reach it
       const inp = $("pickerInput");
+      if (!inp.value) S.picker.arrowed = false; // an empty search starts untouched: Enter picks nothing until it is typed in or moved
       inp.focus(); inp.select();
       renderPicker();
     }
@@ -509,7 +523,7 @@
     // The search, the filters and the highlight back to empty: after every answer (clearsSearch).
     function clearSearch(answer) {
       if (!clearsSearch(answer)) return;
-      $("pickerInput").value = ""; S.picker.query = "";
+      $("pickerInput").value = ""; S.picker.query = ""; S.picker.arrowed = false;
       S.picker.hl = { g: 0, t: 0 };
       S.filters = {};
       renderFilters(); renderPicker();
@@ -567,6 +581,7 @@
 
     function renderPicker() {
       hideHoverPreview(); // the tile it showed may be gone: the next pointer move shows it again
+      queryChanged(S.picker, $("pickerInput").value);
       S.picker.query = $("pickerInput").value;
       // the cards "Show more" added stay while the list is the same one (listKey), and so does its scroll
       const key = listKey({ query: S.picker.query, scope: S.picker.scope, filters: S.filters, at: S.filterAt });
@@ -651,11 +666,15 @@
           const gs = groups();
           if (downLoadsMore(gs, S.picker.hl, ev.key, S.picker.list ? S.picker.list.total : 0)) { S.picker.extra = (S.picker.extra || 0) + PAGE; S.picker.hl = { g: gs.length, t: 0 }; }
           else S.picker.hl = moveHl(gs, S.picker.hl, ev.key);
-          S.picker.byKeys = true; renderPicker(); S.picker.byKeys = false; ev.preventDefault();
+          arrowMoved(S.picker, S.filterAt); S.picker.byKeys = true; renderPicker(); S.picker.byKeys = false; ev.preventDefault();
         }
-      } else if (ev.key === "Enter") { pickHighlighted(); ev.preventDefault(); }
+      } else if (ev.key === "Enter") {
+        if (!enterPicks($("pickerInput").value, armed(S.picker, S.filterAt), S.filters)) P.setStatus("Type part of the name first, or move with the arrow keys: Enter picks only a card you chose.");
+        else pickHighlighted();
+        ev.preventDefault();
+      }
       else if (ev.key === "Tab") { choose({ kind: "not-in-list" }); ev.preventDefault(); }
-      else if (ev.key === "Escape") { $("pickerInput").value = ""; S.picker.fresh = true; renderPicker(); closePicker(); ev.preventDefault(); }
+      else if (ev.key === "Escape") { $("pickerInput").value = ""; S.picker.arrowed = false; S.picker.fresh = true; renderPicker(); closePicker(); ev.preventDefault(); }
       // `/` puts the keys in the search from the frame; pressed again in the empty search it is not typed
       else if (ev.key === "/" && !$("pickerInput").value) ev.preventDefault();
       ev.stopPropagation();
@@ -783,7 +802,7 @@
   const api = { textArrow, changeOf, settleProvenance, gridGroups, groupTitle, startHl, fitHl, moveHl, tileAt, tilePick, clearsSearch,
     PAGE, listKey, countLine, moreCount, downLoadsMore,
     ZOOM_MAX, ZOOM_STEPS, fitScale, boxMid, cardBox, growCard, cropSize, POINT_STRIP, pointCropSize, clampView, drawnView, fitView, toView, toFrame, zoomAt, panBy, cycleLevel, cycleZoom,
-    modalAction, sourceLine, renderSource, renderGrid, arrangePanes, wholeFrame, panel };
+    modalAction, sourceLine, renderSource, renderGrid, arrangePanes, wholeFrame, panel, enterPicks, arrowMoved, queryChanged, armed };
   if (node) module.exports = api;
   else root.LabelerNames = api;
 })(typeof window !== "undefined" ? window : globalThis);

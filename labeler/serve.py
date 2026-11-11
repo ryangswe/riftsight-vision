@@ -78,6 +78,7 @@ import export as ex  # noqa: E402
 import labelcore as lc  # noqa: E402
 import labelfiles as lf  # noqa: E402
 import make_toy_data  # noqa: E402
+import probes as pr  # noqa: E402
 import project as pj  # noqa: E402
 
 TOOL_DIR = Path(__file__).resolve().parent
@@ -105,6 +106,8 @@ STATIC_FILES = {
     "/verifycore.js": "application/javascript; charset=utf-8",
     "/uistate.js": "application/javascript; charset=utf-8",
     "/keyroute.js": "application/javascript; charset=utf-8",
+    "/probecore.js": "application/javascript; charset=utf-8",
+    "/straykeys.js": "application/javascript; charset=utf-8",
     "/savegate.js": "application/javascript; charset=utf-8",
     "/theme.css": "text/css; charset=utf-8",
     "/sources.css": "text/css; charset=utf-8",
@@ -137,6 +140,7 @@ class Config:
     decklists: dict = {}  # set id or "*" → [Path, ...]
     decklists_dir = None  # <video id>.txt / <video id>.<label>.txt, per video; default beside the sample
     prefills: dict = {}  # set id or "*" → Path
+    probe = False  # --probe: center mode also asks for a card height and an angle class per frame (probes.py)
     verify = None  # verify mode: the arms' proposals and the blind subsample, loaded and checked at start
     byte_cap = None  # the largest file this run reads whole: None for a start with flags; a start from the page has pj.SAMPLE_BYTES
     launch = None  # the command line this run was started with (main() sets it), or the one that stands for a start from the page
@@ -201,7 +205,7 @@ RUN_ID = secrets.token_hex(8)
 PAGE_API = 2
 OTHER_RUN = ("The tool was started again, or switched to another pass, since this page was loaded, so this page belongs to the run before. "
              "Nothing was saved. Reload the page to work in what the tool runs now.")
-SAVE_ROUTES = ("labels", "timing", "verify-reveal", "remove-frame")  # the requests that write label files, the timing log or the removed frames
+SAVE_ROUTES = ("labels", "timing", "verify-reveal", "remove-frame", "probe")  # the requests that write label files, the timing log or the removed frames
 
 
 class Saves:
@@ -609,6 +613,7 @@ def set_payload(set_id: str) -> dict:
     return {"setId": set_id, "meta": meta, "effectiveMeta": effective, "frames": frames,
             "readOnly": ro, "decklist": deck,
             "server": {"mode": CFG.mode, "role": CFG.role},
+            **({"probes": pr.read_set(CFG.labels_dir, set_id)} if probing() else {}),
             "identifyQueue": ([e for e in lc.identify_queue(frames) if e.get("frame") in {f["name"] for f in entry["frames"]}] if entry else [])
             if CFG.mode == "identify" and not ro else None,
             "verify": verify_payload(entry, frames) if CFG.mode == "verify" and CFG.verify and entry and not ro else None}
@@ -678,6 +683,11 @@ def save_frame(set_id: str, frame: dict) -> tuple:
                 return 409, {"error": "; ".join(changes)}
             lc.mark_orientation(old, frame, set_mode)  # orientationFixedIn on a box whose top edge turned
         errors = lc.validate_frame(frame, set_mode, meta.get("role"))
+        if probing() and set_mode == "center" and frame.get("done") and frame.get("centers") and not errors:
+            have = pr.read_set(CFG.labels_dir, set_id).get(frame.get("name"))
+            if not pr.is_full(have):
+                return 409, {"error": "this frame has no full probe yet: measure the card height (Alt+drag along a card's long edge) "
+                                      "and set the angle class (7, 8 or 9) before confirming it", "problem": "probe-missing"}
         if CFG.mode != "identify" and not errors:  # a pass that draws on the frame: the row records the frame's size
             errors = lc.frame_size_errors(frame)
         if set_mode == "center" and not errors:  # center ids are never reused within a frame
@@ -701,6 +711,53 @@ def save_frame(set_id: str, frame: dict) -> tuple:
         meta["labeledAt"] = _now()
         _write_set(set_id, meta, frames)
         return 200, {"ok": True, "frame": row, "meta": meta}
+
+
+def probing() -> bool:
+    """The tool was started with --probe and runs a center pass."""
+    return bool(CFG.probe) and CFG.mode == "center"
+
+
+def probe_gaps() -> int:
+    """Confirmed frames with at least one center and no full probe, over the sets of the sample."""
+    have = pr.read(CFG.labels_dir)
+    n = 0
+    for s in list_sets():
+        _, frames = read_set(s["setId"])
+        n += sum(1 for fr in frames if fr.get("done") and fr.get("centers") and not pr.is_full(have.get(pr.key(s["setId"], fr.get("name")))))
+    return n
+
+
+def save_probe(set_id: str, body: dict) -> tuple:
+    """Set the card height and/or the angle class of one frame (probes.py); the labels are not touched."""
+    if not probing():
+        return 404, {"error": "not found"}
+    name = body.get("frame")
+    if not isinstance(name, str) or not FRAME_NAME_RE.fullmatch(name):
+        return 400, {"error": "invalid frame name"}
+    patch = {k: body[k] for k in pr.KEYS if k in body}
+    if not patch:
+        return 400, {"error": "say a cardHeightPx, an angleClass or both"}
+    errors = pr.entry_errors(patch)
+    if errors:
+        return 400, {"error": "; ".join(errors)}
+    with LOCK:
+        meta, frames = read_set(set_id)
+        ro = read_only_reason(meta, frames)
+        if ro:
+            return 409, {"error": ro}
+        entry = next((s for s in list_sets() if s["setId"] == set_id), None)
+        if entry is None:
+            return 404, {"error": "unknown set"}
+        if name not in {f["name"] for f in entry["frames"]}:
+            return 404, {"error": "unknown frame"}
+        have, damage = pr.read_strict(CFG.labels_dir)
+        if damage:
+            return 409, {"error": f"{damage}: correct it or delete it, then measure again. Nothing was written.", "problem": "probes-damaged"}
+        k = pr.key(set_id, name)
+        have[k] = pr.merge(have.get(k), patch)
+        pr.write(CFG.labels_dir, have)
+        return 200, {"ok": True, "probe": have[k], "full": pr.is_full(have[k])}
 
 
 def save_meta(set_id: str, body: dict) -> tuple:
@@ -1522,6 +1579,11 @@ def describe_run(port) -> list:
     else:
         cards = load_catalog()
         lines.append(f"catalog: {CFG.catalog} ({len(cards)} cards, {sum(1 for c in cards if c['token'])} tokens)")
+    if probing():
+        lines.append("probe:     on · card height and angle class per frame, in probes.json in the labels folder")
+        lacking = probe_gaps()
+        if lacking:
+            lines.append(f"probe:     {lacking} confirmed {'frame' if lacking == 1 else 'frames'} with cards and no full probe yet")
     lines.append(f"art:       {CFG.art if CFG.art is not None else 'none (previews show card names only)'}")
     if CFG.verify and CFG.verify.get("allBlind"):
         lines.append(f"verify:    --all-blind · {CFG.verify['blindEvents']} center events, every one named with no proposals")
@@ -1907,6 +1969,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             return self._json({"mode": CFG.mode, "role": CFG.role, "k": CFG.k, "seed": CFG.seed, "zoom": CFG.zoom, "snap": CFG.snap,
                                "pageApi": PAGE_API,
+                               **({"probe": {"angleClasses": list(pr.ANGLE_CLASSES)}} if probing() else {}),
                                "prefill": prefill_on(),
                                "identifyTurns": True,  # the identity pass may turn a box's top edge
                                "identifyEdits": True,  # ... and move, resize or rotate a box (training and development box sets)
@@ -2037,6 +2100,12 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[3] == "meta":
                 status, payload = save_meta(sid, body)
                 return self._json(payload, status)
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "probe":
+            sid = _safe_id(parts[2])
+            if sid is None:
+                return self._json({"error": "invalid set id"}, 400)
+            status, payload = save_probe(sid, body)
+            return self._json(payload, status)
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "remove-frame":
             sid = _safe_id(parts[2])
             if sid is None:
@@ -2159,6 +2228,7 @@ def _configure(args) -> None:
             raise SystemExit(f"--catalog: {CFG.catalog}: {problem}")
     CFG.art = _resolve_art(getattr(args, "art", None))
     CFG.mode, CFG.role, CFG.k, CFG.seed, CFG.zoom = args.mode, args.role, args.k, args.seed, args.zoom
+    CFG.probe = bool(getattr(args, "probe", False))
     CFG.snap = getattr(args, "snap", "off") == "on"
     CFG.decklists = _parse_mapping(args.decklist, many=True, flag="--decklist")
     ddir = getattr(args, "decklists_dir", None)
@@ -2271,6 +2341,9 @@ def build_parser():
     p.add_argument("--blind", default=None, help="verify mode: the blind subsample (center events named with no proposals)")
     p.add_argument("--all-blind", action="store_true",
                    help="verify mode: every center blind, no arm; excludes --arm / --blind")
+    p.add_argument("--probe", action="store_true",
+                   help="center mode: also measure each frame's card height (Alt+drag along a card's long edge) and set its angle class "
+                        "(keys 7, 8, 9); kept in probes.json in the labels folder, and a frame cannot be confirmed without both")
     p.add_argument("--problems-report", default=None,
                    help="verify mode: write the problems that refuse the start to this JSON file too")
     return p

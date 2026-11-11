@@ -554,4 +554,33 @@ function fakeDoc() {
   return doc;
 }
 
+// Enter in the search (names pass and name check alike): only a card that was chosen
+assert.strictEqual(N.enterPicks("", false, {}), false, "an untouched list: the first tile is nobody's choice");
+assert.strictEqual(N.enterPicks("  ", false, undefined), false);
+assert.strictEqual(N.enterPicks("jade", false, {}), true, "typed");
+assert.strictEqual(N.enterPicks("", true, {}), true, "the arrow keys moved the highlight");
+assert.strictEqual(N.enterPicks("", false, { kind: "Unit" }), true, "a filter is on");
+assert.strictEqual(N.enterPicks("", false, { kind: null, color: "" }), false, "filters that are off");
+{
+  const pick = (p, query, at) => N.enterPicks(query, N.armed(p, at), {});
+  const typeTo = (p, query) => N.queryChanged(p, query);
+  // type, erase, Enter: refused
+  let p = {};
+  typeTo(p, "a"); typeTo(p, "ab"); typeTo(p, "a"); typeTo(p, "");
+  assert.strictEqual(pick(p, "", "card1"), false, "typed and erased is untouched again");
+  // an arrow on an empty list, then Enter: picks
+  p = {}; typeTo(p, ""); N.arrowMoved(p, "card1");
+  assert.strictEqual(pick(p, "", "card1"), true);
+  // the arrow keys after the query last became empty
+  p = {}; typeTo(p, "ab"); typeTo(p, ""); N.arrowMoved(p, "card1");
+  assert.strictEqual(pick(p, "", "card1"), true);
+  // an arrow, then the query changes and is erased: untouched again
+  p = {}; typeTo(p, ""); N.arrowMoved(p, "card1"); typeTo(p, "x"); typeTo(p, "");
+  assert.strictEqual(pick(p, "", "card1"), false);
+  // arrows on card 1's empty list without picking, then card 2: Enter is not armed there
+  p = {}; typeTo(p, ""); N.arrowMoved(p, "card1");
+  assert.strictEqual(pick(p, "", "card2"), false, "a new card starts untouched");
+  assert.strictEqual(pick(p, "", "card1"), true, "and it still holds on card 1");
+}
+
 console.log("test_names.js: all assertions passed");

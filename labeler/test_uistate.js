@@ -196,7 +196,7 @@ assert.ok(U.describe({ noSets: true }).text.includes("no frames"));
   r = verify({ readability: true, proposals: true });
   assert.deepStrictEqual(r.primary, { label: "Show the suggestion", key: "Space", act: "space" });
   r = verify({ complete: true, readability: true });
-  assert.deepStrictEqual(r.primary, { label: "Next card still open", key: "Space", act: "space" });
+  assert.deepStrictEqual(r.primary, { label: "Next card still open", key: "J", act: "next-open" });
   assert.ok(verify({ stale: true, readability: false }).text.startsWith("This card was answered for another position"));
 }
 
