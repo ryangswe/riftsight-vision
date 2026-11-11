@@ -1347,6 +1347,22 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     for (const x of [40, 340, 600]) expect(cardAt(t.core, x), `x ${x}`).toBe(cardAt(all.core, x));
   });
 
+  it("still repeats: a focus look whose group is every face is followed by a full pass, then a reuse", async () => {
+    const one = [{ box: box(20, 20), red: 250 }];
+    const t = live(one.map((c) => c.box), one, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus" });
+    expect(t.core.analysis()?.boxes.some((b) => b.face?.unverified === true)).toBe(false); // nothing unverified after the focus look
+    await t.settle(repeatSpan + 2_000);
+    expect(t.sent).toHaveLength(CONFIRM_FRAMES);
+    expect(t.sent[1]!.reuseOf).toBeUndefined();
+    expect("geometricScope" in t.sent[1]!).toBe(false);
+    expect(t.sent[2]!.reuseOf).toBe(t.sent[1]!.envelope.requestId);
+    expect(t.split()).toEqual({ analyzed: 2, reused: 1 });
+  });
+
   it("still repeats (a): the track layer confirms on a paused picture in pointer mode within the time it did before", async () => {
     const sure = [{ box: box(20, 20), red: 250 }, { box: box(300, 20), red: 250 }]; // cards the recognizer names, so the gate counts them
     const sureBoxes = sure.map((c) => c.box);

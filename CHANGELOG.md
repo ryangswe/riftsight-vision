@@ -19,8 +19,9 @@ break the public surface; this file names each break and how to migrate.
   the tilted retry neither set, removed nor failed); otherwise it analyzes the picture. The
   track layer fills on a paused picture as before, a paused hover is one analysis in scope "all"
   (two in focus scope) instead of three, and a picture whose time changed is analyzed. A reused
-  reply is not counted in `status().frames` and not recorded for measured pacing. Always-on and
-  layout modes are unchanged.
+  reply is not counted in `status().frames` and not recorded for measured pacing, and reports
+  `retried: 0` and `embeddings: 0`. In focus scope the reuse waits for the full pass. Always-on and
+  layout modes are unchanged. `npm run user-wait` counts reused replies apart (`reusedFrames`).
 - Browser: in focus scope, the repeats of a look on a picture that is really still run scope
   "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
   still when the repeat's captured picture has the same video time as the previous look's (same

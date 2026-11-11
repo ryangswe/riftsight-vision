@@ -365,7 +365,7 @@ describe("the frame request's reuseOf", () => {
     });
     return w.replies.filter((r): r is FrameResult => r.kind === "frame-result").find((r) => r.envelope.requestId === id)!;
   };
-  const strip = (a: FrameResult["analysis"]) => JSON.stringify({ ...a, tracks: null, timings: null, reused: null });
+  const strip = (a: FrameResult["analysis"]) => JSON.stringify({ ...a, tracks: null, timings: null, reused: null, retried: null, embeddings: null, discontinuity: null });
 
   it("feeds the newest analyzed frame to the tracker and the gate again: the same analysis but tracks and timings, marked reused", async () => {
     const detector = vi.fn();
@@ -409,5 +409,65 @@ describe("the frame request's reuseOf", () => {
     const joined = await send(w, 2, 5, 1);
     expect(joined.analysis?.reused).toBeUndefined();
     expect(joined.analysis?.timings.geometricMs).toBeDefined();
+  });
+
+  it("reports no work for a reuse: retried and embeddings 0, no discontinuity, the rest copied", async () => {
+    const w = host({});
+    await w.h.handle({ kind: "load", releaseUrl: "https://x/release.json" });
+    const first = await send(w, 1, 5);
+    expect(first.analysis!.embeddings).toBeGreaterThan(0);
+    const again = await send(w, 2, 5, 1);
+    expect(again.analysis).toMatchObject({ reused: true, retried: 0, embeddings: 0, discontinuity: false });
+    expect(again.analysis!.timings).toMatchObject({ detectorMs: 0, recognizeMs: 0 });
+    expect(again.analysis!.boxes).toEqual(first.analysis!.boxes);
+  });
+
+  it("is refused after the stage joined through the load (the worker's own path)", async () => {
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => (open = resolve));
+    const w = host({ open: async () => { await opened; return { stage: fakeStage(), bytes: 1, note: null }; } });
+    const loading = w.load(); // the release is up, the stage is still loading
+    await new Promise((r) => setTimeout(r, 0));
+    const first = await send(w, 1, 5);
+    expect(first.analysis?.timings.geometricMs).toBeUndefined();
+    open();
+    await loading; // the stage joins between frames
+    const second = await send(w, 2, 5, 1);
+    expect(second.analysis?.reused).toBeUndefined();
+    expect(second.analysis?.timings.geometricMs).toBeDefined();
+  });
+
+  it("is refused after a failed analysis: the failed frame left the pipeline's state moved", async () => {
+    let calls = 0;
+    const w = host({ gate: async () => { calls += 1; if (calls === 2) throw new Error("boom"); } });
+    await w.h.handle({ kind: "load", releaseUrl: "https://x/release.json" });
+    await send(w, 1, 5);
+    const failed = await send(w, 2, 6);
+    expect(failed.error).toMatch(/analysis-failed/);
+    const next = await send(w, 3, 6, 1); // names the frame before the failure
+    expect(next.analysis?.reused).toBeUndefined();
+    expect(next.analysis).not.toBeNull();
+  });
+
+  it("is refused after the tilted retry was set or removed", async () => {
+    const w = host({});
+    await w.h.handle({ kind: "load", releaseUrl: "https://x/release.json" });
+    await send(w, 1, 5);
+    w.pipeline.setTiltedRetry(null); // what turnTiltedOff does after a failure or a watchdog trip
+    const next = await send(w, 2, 5, 1);
+    expect(next.analysis?.reused).toBeUndefined();
+  });
+});
+
+describe("Pipeline.reuse after a stage failed on the frame", () => {
+  it("returns null: the frame's answers are the fallback's, not the stage's", async () => {
+    const pipeline = makePipeline();
+    pipeline.setGeometric(fakeStage(() => true));
+    await pipeline.analyze(FRAME, 5);
+    expect(pipeline.takeGeometricFailure()).not.toBeNull();
+    expect(pipeline.reuse(5)).toBeNull();
+    pipeline.setGeometric(null);
+    await pipeline.analyze(FRAME, 5);
+    expect(pipeline.reuse(5)?.reused).toBe(true);
   });
 });
