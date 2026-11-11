@@ -45,6 +45,10 @@ LIVE=...      # the live release's folder as you kept it: the previous update's 
               # first update the folder the store build's bundled release was built in. A copy
               # fetched from the host will not do: it has no accept.json
 LIVE_GEO=...  # geometric stage only: the live geometric settings, the previous update's $UPD/geo/geo.json
+LIVE_GEO_INDEX=...  # series only: the live index file (index.features.json) the live pack was made from
+LIVE_MANIFEST=...   # series only: the live series manifest (manifest-<16 hex>.json), its shards beside it
+SRC16=...     # series only: the first 16 hex of this update's index file's SHA-256 (recomputed per set)
+SERIES16=...  # series only: the series folder under vision/geo/, named once after the series' first index
 LIVE_BANK="$LIVE/bank.json"   # or "$LIVE/bank.bin" when the live release's bank is binary
 UPD=...       # this update's folder, outside the repository: a new one for every update
 IMAGES=...    # the card images folder; catalog art paths are relative to it
@@ -143,10 +147,9 @@ cardvision refresh check "$UPD/cand/release.json" --base "$LIVE/release.json" \
 ```
 
 Add `--bundled-id ID` when the live settings name no release, `--editable FIELDS` when the rule
-allows edits, and for a product with the geometric stage, after step 3.1,
-`--geometric "$UPD/geo/geo.json" --base-geometric "$LIVE_GEO"`. The candidate's settings must be
-`$UPD/geo/geo.json`, whose index is the file beside it with `packed/` next to it, not
-`$UPD/geometric.json`, whose index is an address on the host.
+allows edits, and for the geometric stage, after step 3.1, `--geometric "$UPD/geo/geo.json"
+--base-geometric "$LIVE_GEO"` (a series also `--packed "$UPD/geo/packed/manifest-$SRC16.json"`).
+The candidate's settings are `$UPD/geo/geo.json` (index beside it), not `$UPD/geometric.json`.
 
 - **Expect:** exit 0 and `"ok": true`. Any check false makes the update INVALID: fix the step it
   names and run it again; do not score.
@@ -169,13 +172,55 @@ shasum -a 256 "$UPD/geo/packed/manifest.json"
 - **Expect:** `round trip: ok`; the manifest's `bank.sha256` is the SHA-256 of
   `$UPD/cand/bank.json`; its card count is the bank's; the settings are the live ones apart from
   `index`. Note the manifest's SHA-256 as `MANIFEST_SHA`.
-- **Know:** `cardvision cdn publish-geo` writes a flat folder, so pack without `--base`.
+- **Know:** this plain pack goes to a flat folder (`cardvision cdn publish-geo`), which a user
+  downloads whole at each refresh. A product that keeps a series folder uses 3.1a instead.
   `build-features --base` may save time; it writes the same bytes.
+
+**3.1a A series, for a product that publishes its index as one** (users then download only a
+set's new shards). This step only builds, checks and dry-runs. It publishes nothing: the real
+`publish-geo`, `verify-geo --series` and `publish-release` are in 6.4 and 6.5, after Gate R,
+Gate N, the eye check and the maintainer's go.
+
+```
+# After build-features (below, or step 3.1), for every set:
+SRC16=$(shasum -a 256 "$UPD/geo/index.features.json" | cut -c1-16)
+
+# Once, to start the series; SERIES16 is this first index's SRC16 and the folder must be empty:
+cardvision pack-features --index "$UPD/geo/index.features.json" --config "$UPD/geo/geo.json" \
+    --out "$UPD/geo/packed" --content-names --manifest-name "manifest-$SRC16.json"
+SERIES16=$SRC16
+MANIFEST_SHA=$(shasum -a 256 "$UPD/geo/packed/manifest-$SRC16.json" | cut -d' ' -f1)
+cardvision cdn publish-geo --env-file "$ENV" --series --new-series --dir "$UPD/geo/packed" \
+    --folder "$SERIES16" --manifest "manifest-$SRC16.json" --expect-sha256 "$MANIFEST_SHA" --dry-run
+
+# Every later set: extend the live index and pack, check, dry-run.
+cardvision build-features --base "$LIVE_GEO_INDEX" --config "$UPD/geo/geo.json" \
+    --catalog "$UPD/cand/catalog.json" --art "$IMAGES" --bank "$UPD/cand/bank.json" \
+    --out "$UPD/geo/index.features.json" --pin
+SRC16=$(shasum -a 256 "$UPD/geo/index.features.json" | cut -c1-16)
+cardvision pack-features --index "$UPD/geo/index.features.json" --config "$UPD/geo/geo.json" \
+    --base "$LIVE_MANIFEST" --out "$UPD/geo/packed" --manifest-name "manifest-$SRC16.json"
+MANIFEST_SHA=$(shasum -a 256 "$UPD/geo/packed/manifest-$SRC16.json" | cut -d' ' -f1)
+cardvision refresh check "$UPD/cand/release.json" --base "$LIVE/release.json" \
+    --geometric "$UPD/geo/geo.json" --base-geometric "$LIVE_GEO" \
+    --packed "$UPD/geo/packed/manifest-$SRC16.json" --base-packed "$LIVE_MANIFEST"
+cardvision cdn publish-geo --env-file "$ENV" --series --dir "$UPD/geo/packed" --folder "$SERIES16" \
+    --manifest "manifest-$SRC16.json" --expect-sha256 "$MANIFEST_SHA" --dry-run
+```
+
+- **Expect:** the check's two series P4 lines (extends the base, packs the live index) are true.
+  The dry run's last line gives what a returning browser downloads (new shards plus the manifest).
+- **Know:** `publish-geo --series` uploads only the shards the folder lacks, then the manifest,
+  and never overwrites. An append goes into the folder that holds the live shards (`SERIES16`
+  stays the same). A new series needs `--new-series` and a new, empty folder. The first series
+  is one full download (a flat or bundled index cannot become a series), and a card whose image
+  changed is refused by `build-features --base`, so a set with art swaps starts a new series.
 
 **3.2 The pointer's settings file.** Copy `$UPD/geo/geo.json` to `$UPD/geometric.json` and set
 its `index.path` to the manifest's address on the host,
 `https://cdn.example.org/vision/geo/<first 16 hex of the manifest's source.sha256>/manifest.json`.
-Leave `index.sha256` as `--pin` wrote it.
+Leave `index.sha256` as `--pin` wrote it. For a series, the address is
+`https://cdn.example.org/vision/geo/$SERIES16/manifest-$SRC16.json`.
 
 ## 4. Gate R: the replay
 
@@ -269,7 +314,9 @@ cardvision cdn publish-geo --env-file "$ENV" --dir "$UPD/geo/packed" --expect-sh
 cardvision cdn verify-geo --env-file "$ENV" --dir "$UPD/geo/packed" --expect-sha256 "$MANIFEST_SHA"
 ```
 
-Older folders stay: a rollback and older installs need them.
+For a series (3.1a), add `--series --folder "$SERIES16" --manifest "manifest-$SRC16.json"` to
+all three; the first publish of a series also takes `--new-series` on both publish-geo commands,
+not on verify-geo. Older folders stay: a rollback and older installs need them.
 
 **6.5 The release and the pointer.** `MINV` is the live pointer's `minimumExtensionVersion`,
 else the first version of the product that reads a pointer.

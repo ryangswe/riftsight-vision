@@ -339,3 +339,61 @@ def test_the_command_prints_and_writes_one_verdict(made, tmp_path, capsys):
     assert refresh(["check", str(cand)]) == 2
     assert refresh(["check", str(cand), "--base", str(base), "--rule", "x"]) == 2
     assert refresh(["check", str(cand), "--base", str(base), "--geometric", "g.json"]) == 2
+
+
+def series_manifest(geo: Path, shards: list[dict], cards: list[dict], name: str = "manifest-0123456789abcdef.json") -> Path:
+    """A packed manifest for the index `geo` (a settings file from ``write_geometric``), saved as `name`."""
+    doc = json.loads((geo.parent / "packed" / "manifest.json").read_text())
+    path = geo.parent / "packed" / name
+    path.write_text(json.dumps({**doc, "shards": shards, "cards": cards}), encoding="utf-8")
+    return path
+
+
+def verdict_ok_src(verdict, name):
+    return verdict["checks"][name]["ok"]
+
+
+def test_p4_base_packed_needs_an_appended_pack(made, tmp_path, capsys):
+    *_, base, cand = made
+    base_sha = json.loads(base.read_text())["bank"]["sha256"]
+    cand_sha = json.loads(cand.read_text())["bank"]["sha256"]
+    settings = {"features": {"kind": "orb"}, "minInliers": 12}
+    base_geo = write_geometric(tmp_path / "base-geo", base_sha, settings)
+    good = write_geometric(tmp_path / "good", cand_sha, settings)
+    a, b = ({"path": f"shard-{c * 16}.bin", "sha256": c * 64, "rows": 4} for c in "ab")
+    c1, c2 = ({"cardId": f"C{i}", "shard": 0, "offset": i, "n": 1} for i in (1, 2))
+    live = series_manifest(base_geo, [a], [c1])
+    name = "P4 packed manifest extends the base's shards and cards"
+
+    appended = series_manifest(good, [a, b], [c1, c2])
+    verdict = check_release(cand, base, geometric=good, base_geometric=base_geo, packed=appended, base_packed=live)
+    assert verdict["ok"] and verdict["checks"][name]["ok"], "an appended pack extends the base"
+
+    repacked = series_manifest(good, [{"path": f"shard-{'c' * 16}.bin", "sha256": "c" * 64, "rows": 8}], [c1, c2], "full.json")
+    verdict = check_release(cand, base, geometric=good, base_geometric=base_geo, packed=repacked, base_packed=live)
+    assert failed(verdict) == [name] and not verdict["ok"], "a pack made without --base does not"
+    assert "shards" in verdict["checks"][name]["detail"]
+
+    moved = series_manifest(good, [a, b], [{**c1, "offset": 9}, c2], "moved.json")
+    assert failed(check_release(cand, base, geometric=good, base_geometric=base_geo, packed=moved, base_packed=live)) == [name], \
+        "a base card entry that changed fails"
+
+    src = "P4 base packed manifest packs the live index"
+    assert verdict_ok_src(check_release(cand, base, geometric=good, base_geometric=base_geo, packed=appended, base_packed=live), src)
+    wrong_live = tmp_path / "wrong-live.json"
+    wrong_live.write_text(json.dumps({**json.loads(live.read_text()), "source": {"sha256": "9" * 64}}), encoding="utf-8")
+    wrong = check_release(cand, base, geometric=good, base_geometric=base_geo, packed=appended, base_packed=wrong_live)
+    assert failed(wrong) == [src] and "9" * 64 in wrong["checks"][src]["detail"], "a base manifest of another index fails"
+
+    plain = check_release(cand, base, geometric=good, base_geometric=base_geo)
+    assert plain["ok"] and name not in plain["checks"], "without the flag P4 is unchanged"
+    with pytest.raises(ValueError):
+        check_release(cand, base, base_packed=live)
+
+    args = ["check", str(cand), "--base", str(base), "--geometric", str(good), "--base-geometric", str(base_geo)]
+    assert refresh([*args, "--packed", str(appended), "--base-packed", str(live)]) == 0
+    capsys.readouterr()
+    assert refresh([*args, "--packed", str(repacked), "--base-packed", str(live)]) == 1, "the exit is non-zero"
+    assert refresh([*args, "--base-packed", str(tmp_path / "missing.json")]) == 1
+    capsys.readouterr()
+    assert refresh(["check", str(cand), "--base", str(base), "--base-packed", str(live)]) == 2

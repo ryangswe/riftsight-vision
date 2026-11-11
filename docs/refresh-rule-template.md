@@ -67,7 +67,12 @@ the same picture, where a repeat inside one identity is expected and a repeat ac
 is still refused; `report` to list repeats without failing, for a game where the identity
 groups cannot tell those cases apart and a person looks at the list. The output records the mode
 and every repeated pair.
-With `--geometric`, `--base-geometric` adds the checks of the optional geometric stage. `diff`
+With `--geometric`, `--base-geometric` adds the checks of the optional geometric stage.
+`--packed MANIFEST` names the candidate's packed manifest when it is not
+`packed/manifest.json` next to the settings (a series' `manifest-<16 hex>.json`), and
+`--base-packed MANIFEST`, the live one, adds a P4 check that the candidate's `shards` and `cards`
+begin with the base's, entry for entry; a pack made without `--base` fails it, and the exit is
+non-zero. `diff`
 takes `--exclude-truth-prefix` or `--exclude-truth-ids` for rehearsals only. `verdict` exits 0
 PASS, 1 FAIL, 3 INVALID, and writes `VERDICT-R.json` or `VERDICT-N.json` into the folder it
 judged. A missing or oddly shaped input is INVALID; a folder that does not exist is INVALID and

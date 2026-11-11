@@ -196,6 +196,11 @@ An index lives in a folder of its own under `vision/geo/<16 hex>/`, in one of tw
   (`shard-<16 hex>.bin`) that keep their names. A later version adds a few shards instead of a
   whole new index (`cardvision pack-features --base`, `--content-names`, `--manifest-name`).
 
+Publish a series with `cardvision cdn publish-geo --series` ([cdn.md](cdn.md#publish-geo-and-verify-geo)):
+only the shards the folder lacks are uploaded, so a returning user downloads a set's new shards
+and a manifest. The first series is one full download, and an append refuses a changed card
+image, so a set with art swaps starts a new series.
+
 A folder holds one layout only: the cache would keep the other kind's shards. A new folder
 starts when the features settings, the OpenCV version or an existing card's art change. Moving
 between folders deletes the old folder's cached shards on the first load of the new one.

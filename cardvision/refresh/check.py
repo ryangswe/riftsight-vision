@@ -6,7 +6,8 @@
     cardvision refresh check CANDIDATE/release.json --base LIVE/release.json
         [--live-config CONFIG.json [--bundled-id ID]] [--editable name,facets] [--near 0.90]
         [--duplicate-vectors refuse|same-identity|report]
-        [--geometric CAND_GEO.json --base-geometric BASE_GEO.json] [--cardvision "COMMAND"] [--json OUT.json]
+        [--geometric CAND_GEO.json --base-geometric BASE_GEO.json [--packed MANIFEST [--base-packed MANIFEST]]]
+        [--cardvision "COMMAND"] [--json OUT.json]
 
 Read-only. Either release may hold its bank in either form, JSON or binary (``bank.bin``,
 ``cardvision convert-release``); the checks read both as the same document. A refresh appends new cards to a release and changes nothing else; these checks say
@@ -45,8 +46,11 @@ P3
 P4
     ``cardvision verify-release`` accepts both releases. With ``--geometric``: the geometric
     settings equal ``--base-geometric`` except for ``index``; the index file hashes to the pinned
-    SHA-256 and names the candidate's bank; ``packed/manifest.json`` next to the settings is a
-    packing of that index.
+    SHA-256 and names the candidate's bank; ``packed/manifest.json`` next to the settings (or
+    ``--packed``, for a series' ``manifest-<16 hex>.json``) is a packing of that index. With
+    ``--base-packed``, the live packed manifest: the candidate's ``shards`` and ``cards`` begin
+    with the base's, entry for entry (an appended pack; a full repack fails this check), and the
+    base manifest's source is the index the live settings pin.
 
 Prints one JSON verdict (``ok``, ``bankOnly``, ``p0Checked``, ``newCards``, ``catalogEdits``,
 ``nearDuplicates``, ``checks``); exit 0 only when every check that ran holds.
@@ -121,10 +125,25 @@ def near_duplicates(base_entries: Sequence[dict[str, Any]], appended: Sequence[d
     return near
 
 
+def _extends(candidate: dict[str, Any], base: dict[str, Any]) -> tuple[bool, str]:
+    """Whether the candidate packed manifest's ``shards`` and ``cards`` begin with the base's,
+    entry for entry, and the detail."""
+    problems = []
+    for key in ("shards", "cards"):
+        c, b = candidate.get(key), base.get(key)
+        if not isinstance(c, list) or not isinstance(b, list):
+            problems.append(f"{key}: not a list in both manifests")
+        elif c[:len(b)] != b:
+            at = next((i for i, (x, y) in enumerate(zip(c, b)) if x != y), min(len(c), len(b)))
+            problems.append(f"{key}: the candidate has {len(c)}, the base {len(b)}; the first difference is at entry {at}")
+    return not problems, "; ".join(problems) or "the base's entries come first, unchanged"
+
+
 def check_release(release: str | Path, base: str | Path, *, live_config: str | Path | None = None,
                   bundled_id: str | None = None, editable: Iterable[str] = (), near: float = DEFAULT_NEAR,
                   geometric: str | Path | None = None, base_geometric: str | Path | None = None,
-                  cardvision: Sequence[str] | None = None, duplicate_vectors: str = "refuse") -> dict[str, Any]:
+                  cardvision: Sequence[str] | None = None, duplicate_vectors: str = "refuse",
+                  packed: str | Path | None = None, base_packed: str | Path | None = None) -> dict[str, Any]:
     """The verdict document of ``refresh check`` (see the module's description)."""
     if duplicate_vectors not in DUPLICATE_MODES:
         raise ValueError(f"duplicate_vectors must be one of {', '.join(DUPLICATE_MODES)}")
@@ -132,6 +151,8 @@ def check_release(release: str | Path, base: str | Path, *, live_config: str | P
         raise ValueError("geometric and base_geometric go together")
     if bundled_id is not None and live_config is None:
         raise ValueError("bundled_id needs live_config")
+    if (packed is not None or base_packed is not None) and geometric is None:
+        raise ValueError("packed and base_packed need geometric")
     command = list(cardvision) if cardvision else default_cardvision()
     editable = list(dict.fromkeys(editable))
     out: dict[str, dict[str, Any]] = {}
@@ -262,12 +283,22 @@ def check_release(release: str | Path, base: str | Path, *, live_config: str | P
         with open(index_path, encoding="utf-8") as handle:
             head = handle.read(4096)
         check("P4 index bound to the candidate bank", new["bank"]["sha256"] in head)
-        manifest = gd / "packed" / "manifest.json"
+        manifest = Path(packed) if packed is not None else gd / "packed" / "manifest.json"
         if manifest.exists():
             m = _read(manifest)
             check("P4 packed manifest repacks the index",
                   m["source"]["sha256"] == index_sha and m["bank"]["sha256"] == new["bank"]["sha256"],
                   f"manifest sha256 {_sha(manifest)}")
+            if base_packed is not None:
+                if Path(base_packed).exists():
+                    bm = _read(base_packed)
+                    check("P4 packed manifest extends the base's shards and cards", *_extends(m, bm))
+                    live_sha = (_read(base_geometric).get("index") or {}).get("sha256")
+                    base_src = (bm.get("source") or {}).get("sha256") if isinstance(bm.get("source"), dict) else None
+                    check("P4 base packed manifest packs the live index", live_sha is not None and base_src == live_sha,
+                          f"the base manifest's source is {base_src}, the live settings pin {live_sha}")
+                else:
+                    check("P4 packed manifest extends the base's shards and cards", False, f"{base_packed}: missing")
         else:
             check("P4 packed manifest present", False, str(manifest))
 

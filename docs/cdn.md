@@ -225,6 +225,37 @@ and wrong metadata refuses it too, unless `--fix-metadata`, which rewrites the m
 `publish-geo` writes a flat index; a folder that holds a series index is refused
 ([index folders](remote-releases.md#index-folders)).
 
+With `--series`, the index is a series: the pack came from `pack-features --content-names` (the
+first time) or `--base` (a later set), and the folder is named once, `--folder`, with the first
+16 hex of the series' first index SHA-256:
+
+```
+cardvision cdn publish-geo --series --env-file .env --dir PACKED --folder SERIES16 \
+    --manifest manifest-SRC16.json --expect-sha256 MANIFEST_SHA256 --dry-run
+cardvision cdn publish-geo --series --env-file .env --dir PACKED --folder SERIES16 \
+    --manifest manifest-SRC16.json --expect-sha256 MANIFEST_SHA256
+cardvision cdn verify-geo --series --env-file .env --dir PACKED --folder SERIES16 \
+    --manifest manifest-SRC16.json --expect-sha256 MANIFEST_SHA256
+```
+
+Only `shard-<16 hex>.bin` names whose 16 hex are the first of their own SHA-256 are taken.
+Only the shards the folder lacks are uploaded, then the manifest; nothing is overwritten
+(an object there with other bytes refuses the run). The run also prints the shard bytes
+uploaded (or, in a dry run, to upload) against the manifest's total, and what a returning
+browser downloads: the new shards plus the manifest, against the whole index. A folder that holds a
+flat index (`manifest.json` or `shard-N.bin`) is refused. A new series needs `--new-series` and a
+new, empty folder (a non-empty one is refused: the browser's cache would never free the old
+series' shards). Without `--new-series`, the folder must already hold at least one of the
+manifest's shards; an empty folder or one that shares none is refused as a likely mistyped
+folder, which would cost users a full download.
+`--fix-metadata` works as for a flat index; `verify-geo --series` reads every file of the
+manifest back.
+
+Limits: the first series is one full download from a flat index, because the browser's cache is
+keyed by address. An appended index refuses a changed card image, so a set with preview-to-final
+art swaps starts a new series, in a new folder. Then `publish-release --geometric` takes the series manifest's
+path as before.
+
 ### publish-release
 
 ```
