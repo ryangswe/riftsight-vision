@@ -43,14 +43,14 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
-import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, geometricFlagsProblem, geometricGate, geometricSummary, settleAnalyses, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, loadOnHoverProblem, loadRest, loadSummary, measuredFactor, median, restScriptProblem, runMode, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
+import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, geometricFlagsProblem, geometricGate, geometricSummary, settleAnalyses, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, framePoint, pointGroup, restDelay, loadOnHoverProblem, loadRest, loadSummary, measuredFactor, median, restScriptProblem, runMode, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
 
 // Analyses at the emulated speed before the rests begin, in a run with pacing on or off alike.
 const PACER_SETTLE_ANALYSES = 5;
 
 const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests FILE [--throttle N]
                             [--limit MS] [--out FILE] [--chrome PATH] [--headed] [--measured-pacing [--share S]]
-                            [--gpu] [--geometric FILE [--geometric-scope all|focus]]
+                            [--gpu] [--geometric FILE [--geometric-scope all|focus]] [--record-frames]
 
   --release FOLDER  a release folder (a release document and the files it pins)
   --clip FILE       an image or a video file to play
@@ -80,6 +80,9 @@ const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests 
                     includes the load (release fetch, runtime start-up, model compile, first analysis).
                     The worker's load reply is held like an analysis, so the load is slowed too (an
                     estimate: README.md). Not with --correction or --measured-pacing
+  --record-frames   also record, for each rest, every frame the worker answered (its request and the
+                    pointer's box group with whole faces) and every change of what atPointer() returned
+                    (README.md, "Measuring the wait"). Off: the run measures as before
   --out FILE        also write the report here
   --chrome PATH     the Chrome to drive (or CHROME in the environment)
   --headed          show the window
@@ -90,7 +93,7 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(USAGE);
   process.exit(0);
 }
-const flags = new Set(["--headed", "--cold", "--measured-pacing", "--gpu", "--load-on-hover"]);
+const flags = new Set(["--headed", "--cold", "--measured-pacing", "--gpu", "--load-on-hover", "--record-frames"]);
 const known = new Set(["--release", "--clip", "--rests", "--throttle", "--limit", "--ready-timeout", "--scenes", "--art", "--out", "--chrome", "--share", "--correction", "--geometric", "--geometric-scope"]);
 const given = {};
 for (let at = 0; at < args.length; at += 1) {
@@ -121,6 +124,7 @@ if (givenCorrection !== undefined) {
 const geometric = given.geometric === undefined ? null : { path: given.geometric, scope: given["geometric-scope"] ?? null };
 if (geometric !== null && !existsSync(join(given.release, geometric.path))) usageError(`--geometric ${geometric.path}: no such file in the release folder`);
 const loadOnHover = given["load-on-hover"] === true;
+const recordFrames = given["record-frames"] === true;
 const loadProblem = loadOnHoverProblem({ loadOnHover, correction: givenCorrection, measuredPacing: pacing.on });
 if (loadProblem) usageError(loadProblem);
 const limitMs = Number(given.limit ?? DEFAULT_LIMIT_MS);
@@ -192,7 +196,7 @@ const workerWrapper = (factor, slowLoad) => `import "/slow-setup.js?rate=${facto
  * top of this file). Only frame results change, and only that one number in them. It tells the
  * page what it did on the first channel.
  */
-const workerSetup = (factor, slowLoad) => `
+const workerSetup = (factor, slowLoad, recordFrames) => `
 let rate = ${factor};
 let c = 1;
 const tell = new BroadcastChannel("user-wait");
@@ -200,10 +204,46 @@ new BroadcastChannel("user-wait-control").onmessage = (event) => { rate = event.
 const post = self.postMessage.bind(self);
 const arrivals = [];
 let loadArrived = null;
+// With --record-frames: each frame request as the worker got it, by request id (the picture's
+// media time, the point and the scope the session sent; the trigger is not in a request), and the
+// pointer the page last reported, as fractions of the picture, for requests that send no point.
+const RECORD_FRAMES = ${recordFrames ? "true" : "false"};
+const requests = new Map();
+let pagePointer = null;
+if (RECORD_FRAMES) new BroadcastChannel("user-wait-pointer").onmessage = (event) => { pagePointer = event.data; };
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.kind === "frame") arrivals.push(performance.now());
+  if (event.data && event.data.kind === "frame") {
+    arrivals.push(performance.now());
+    if (RECORD_FRAMES) {
+      const d = event.data;
+      requests.set(d.envelope.requestId, { requestId: d.envelope.requestId, generation: d.envelope.generation, mediaTimeSec: d.envelope.mediaTimeSec, videoTimeSec: d.videoTimeSec, focus: d.focus ?? null, scope: d.geometricScope ?? "all" });
+    }
+  }
   if (event.data && event.data.kind === "load" && loadArrived === null) loadArrived = performance.now();
 });
+${pointGroup.toString()}
+${framePoint.toString()}
+function frameRecord(message, rawMs) {
+  const request = requests.get(message.envelope.requestId) ?? null;
+  requests.delete(message.envelope.requestId);
+  const a = message.analysis;
+  const fromPage = framePoint(pagePointer, message.width, message.height);
+  const point = request && request.focus ? { ...request.focus, source: "request" } : fromPage ? { ...fromPage, source: "page" } : null;
+  return {
+    kind: "frame-record",
+    request,
+    point,
+    width: message.width,
+    height: message.height,
+    error: message.error ?? null,
+    rawMs,
+    boxes: a ? a.boxes.length : null,
+    faces: a ? a.boxes.filter((b) => b.face).length : null,
+    verified: a ? a.boxes.filter((b) => b.face && b.face.geometric).length : null,
+    unverified: a ? a.boxes.filter((b) => b.face && b.face.unverified).length : null,
+    group: a && point ? pointGroup(a.boxes, point) : [],
+  };
+}
 self.postMessage = (message, ...rest) => {
   if (${slowLoad} && message && message.kind === "release-status" && message.ok && loadArrived !== null) {
     // The load: the same rule as an analysis, over the time from the load request to this reply.
@@ -225,6 +265,16 @@ self.postMessage = (message, ...rest) => {
   setTimeout(() => {
     tell.postMessage({ rawMs, reportedMs: +reportedMs.toFixed(2), heldMs: performance.now() - arrived });
     post({ ...message, workerMs: +reportedMs.toFixed(2) }, ...rest);
+    // The record goes after the reply, in a task of its own, so the session gets the reply as before.
+    if (RECORD_FRAMES) {
+      setTimeout(() => {
+        try {
+          tell.postMessage(frameRecord(message, rawMs));
+        } catch (error) {
+          tell.postMessage({ kind: "frame-record", error: "record failed: " + String(error) });
+        }
+      }, 0);
+    }
   }, wait);
 };
 `;
@@ -240,6 +290,7 @@ const IS_IMAGE = ${JSON.stringify(isImage)};
 const LOAD_ON_HOVER = ${JSON.stringify(loadOnHover)};
 const MEASURED_PACING = ${JSON.stringify(pacing.on ? { share: pacing.share } : null)};
 const GPU = ${JSON.stringify(given.gpu === true)};
+const RECORD_FRAMES = ${JSON.stringify(recordFrames)};
 const GEOMETRIC = ${JSON.stringify(geometric)};
 const SCENES = ${JSON.stringify(sceneSpec === null ? null : sceneSpec.scenes)};
 let scene = ${JSON.stringify(sceneSpec === null ? null : (sceneSpec.start ?? Object.keys(sceneSpec.scenes)[0]))};
@@ -251,7 +302,14 @@ const loads = [];
 let lastFrames = -1;
 let sessionRate = 1;
 let createdAt = null;
-new BroadcastChannel("user-wait").onmessage = (event) => (event.data.kind === "load" ? loads : worker).push(event.data);
+// Each analyzed frame as the worker wrapper saw it, stamped with the page's time and the video's
+// currentTime when the page got it.
+const frameRecords = [];
+const pointerChannel = new BroadcastChannel("user-wait-pointer");
+new BroadcastChannel("user-wait").onmessage = (event) => {
+  if (event.data.kind === "frame-record") frameRecords.push({ ...event.data, at: performance.now(), currentTimeSec: video.currentTime, paused: video.paused });
+  else (event.data.kind === "load" ? loads : worker).push(event.data);
+};
 
 // A fixed loop, timed: the minimum of several runs, so a busy moment does not count.
 function calibrate() {
@@ -315,6 +373,19 @@ async function playClip() {
   while (video.videoWidth === 0 || video.readyState < 2) await new Promise((r) => setTimeout(r, 20));
 }
 
+/** Record the analysis the session has just finished, once. It runs from the 20 ms timer, from the
+ *  session's update callback and when a rest finishes, so the analysis that produced a rest's
+ *  answer is in cycles before the rest's record is read (the timer alone could notice it after). */
+function record() {
+  const s = session.status();
+  if (s.frames !== lastFrames && s.lastWorkerMs !== null) {
+    lastFrames = s.frames;
+    const analysis = session.analysis();
+    const verified = analysis ? analysis.boxes.filter((b) => b.face && b.face.geometric) : null;
+    cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs, geometricMs: analysis?.timings.geometricMs ?? null, verified: verified ? verified.length : null, at: performance.now(), verifiedBoxes: verified ? verified.map((b) => b.box) : null });
+  }
+}
+
 /** Create the session over the playing clip, as a product does. */
 function create() {
   createdAt = performance.now();
@@ -324,17 +395,12 @@ function create() {
     wasmPaths: location.origin + "/lib/",
     ...(GPU ? {} : { providers: ["wasm"] }),
     mode: "pointer",
+    onUpdate: () => { if (session) record(); },
     ...(GEOMETRIC ? { geometricUrl: location.origin + "/release/" + GEOMETRIC.path } : {}),
     ...(GEOMETRIC && GEOMETRIC.scope ? { geometricScope: GEOMETRIC.scope } : {}),
     ...(MEASURED_PACING ? { measuredPacing: MEASURED_PACING } : {}),
   });
-  setInterval(() => {
-    const s = session.status();
-    if (s.frames !== lastFrames && s.lastWorkerMs !== null) {
-      lastFrames = s.frames;
-      cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs, geometricMs: session.analysis()?.timings.geometricMs ?? null, verified: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).length ?? null, at: performance.now(), verifiedBoxes: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).map((b) => b.box) ?? null });
-    }
-  }, 20);
+  setInterval(record, 20);
 }
 
 /** Wait until the session is ready, and say how long it took from its creation. */
@@ -360,27 +426,45 @@ async function open(rate, readyTimeoutMs) {
 
 // One rest: armed before the pointer moves; the first pointer move after that is where the
 // pointer comes to rest, a second one is the pointer leaving.
-function arm(expect, limitMs) {
+function arm(expect, limitMs, holdMs) {
   return new Promise((resolve) => {
-    current = { expect, limitMs, start: null, movedAt: null, readings: [], last: undefined, createdAt: null, readyAt: null, resolve };
+    current = { expect, limitMs, holdMs, answeredAt: null, scored: null, timeline: [], start: null, movedAt: null, readings: [], last: undefined, createdAt: null, readyAt: null, resolve, polled: [], lastPolled: undefined, pointer: null, beganAt: performance.now(), beganTimeSec: video.currentTime };
   });
 }
 function finish() {
   const rest = current;
   current = null;
-  rest.resolve({ readings: rest.readings, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session ? session.status().frames : 0, createdAtMs: rest.createdAt, readyAtMs: rest.readyAt, startAtMs: rest.start, endAtMs: performance.now() });
+  if (session) record();
+  rest.resolve({ polled: rest.polled, pointer: rest.pointer, beganAt: rest.beganAt, beganTimeSec: rest.beganTimeSec, startTimeSec: rest.startTimeSec ?? null, endTimeSec: video.currentTime, readings: rest.scored ?? rest.readings, timeline: rest.timeline, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session ? session.status().frames : 0, createdAtMs: rest.createdAt, readyAtMs: rest.readyAt, startAtMs: rest.start, endAtMs: performance.now() });
 }
 function poll() {
   const rest = current;
   if (!rest) return;
   const t = performance.now() - rest.start;
-  const cardId = session ? session.atPointer()?.cardId ?? null : null;
+  const shownNow = session ? session.atPointer() : null;
+  const cardId = shownNow?.cardId ?? null;
+  // With --record-frames: every change of what atPointer() returns, not only its id.
+  if (RECORD_FRAMES) {
+    const reading = shownNow ? { cardId, name: shownNow.name, frameBox: shownNow.frameBox } : null;
+    const key = JSON.stringify(reading);
+    if (key !== rest.lastPolled) {
+      rest.polled.push({ atMs: Math.round(t * 100) / 100, currentTimeSec: video.currentTime, ...(reading ?? { cardId: null }) });
+      rest.lastPolled = key;
+    }
+  }
   if (session && rest.createdAt !== null && rest.readyAt === null && session.status().state === "ready") rest.readyAt = t;
   if (cardId !== rest.last) {
     rest.readings.push({ t, cardId });
+    rest.timeline.push({ atMs: Math.round(t * 100) / 100, cardId });
     rest.last = cardId;
   }
-  if (cardId === rest.expect || t >= rest.limitMs) return finish();
+  if (rest.answeredAt === null && cardId === rest.expect) {
+    // The answer: what is scored is fixed here. With holdMs the rest keeps reading after it, so
+    // the timeline shows whether the shown card changes later (a repeat's result).
+    rest.answeredAt = t;
+    rest.scored = rest.readings.slice();
+  }
+  if (rest.answeredAt !== null ? t >= rest.answeredAt + rest.holdMs : t >= rest.limitMs) return finish();
   setTimeout(poll, 4);
 }
 document.addEventListener("pointermove", (event) => {
@@ -388,6 +472,14 @@ document.addEventListener("pointermove", (event) => {
   if (!current || !event.isTrusted) return;
   if (current.start === null) {
     current.start = event.timeStamp;
+    current.startTimeSec = video.currentTime;
+    const r = video.getBoundingClientRect();
+    // The picture inside the element (object-fit: contain), and the pointer as fractions of it.
+    const scale = Math.min(r.width / video.videoWidth, r.height / video.videoHeight);
+    const picture = { x: r.x + (r.width - video.videoWidth * scale) / 2, y: r.y + (r.height - video.videoHeight * scale) / 2, width: video.videoWidth * scale, height: video.videoHeight * scale };
+    const fraction = { fx: (event.clientX - picture.x) / picture.width, fy: (event.clientY - picture.y) / picture.height };
+    current.pointer = { clientX: event.clientX, clientY: event.clientY, ...fraction, picture, videoWidth: video.videoWidth, videoHeight: video.videoHeight };
+    if (RECORD_FRAMES) pointerChannel.postMessage(fraction);
     if (session === null) {
       // The first hover of a load-on-hover run: the clock has started, now the session is made, and
       // it is told where the pointer is, as the next move of a real pointer would.
@@ -401,6 +493,8 @@ document.addEventListener("pointermove", (event) => {
     poll();
   } else {
     current.movedAt = event.timeStamp - current.start;
+    // The pointer left: the worker's later records have no page point until the next rest's move.
+    if (RECORD_FRAMES) pointerChannel.postMessage(null);
     finish();
   }
 });
@@ -416,15 +510,17 @@ window.harness = {
   },
   box: () => { const r = video.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; },
   scene: (name) => { scene = name; },
-  pause: () => { video.pause(); },
+  pause: () => { video.pause(); return { at: performance.now(), currentTimeSec: video.currentTime }; },
   resume: async () => { if (video.paused) await video.play(); },
-  seek: async (sec) => { video.currentTime = sec; await new Promise((r) => video.addEventListener("seeked", r, { once: true })); },
+  seek: async (sec) => { video.currentTime = sec; await new Promise((r) => video.addEventListener("seeked", r, { once: true })); return video.currentTime; },
+  currentTime: () => video.currentTime,
+  frameRecords: () => frameRecords,
   control: (rate, c) => new BroadcastChannel("user-wait-control").postMessage({ rate, c }),
-  begin: (expect, limitMs) => { window.__rest = arm(expect, limitMs); },
+  begin: (expect, limitMs, holdMs) => { window.__rest = arm(expect, limitMs, holdMs); },
   result: () => window.__rest,
   status: () => session.status(),
   cycles: () => cycles,
-  reset: () => { cycles.length = 0; worker.length = 0; },
+  reset: () => { cycles.length = 0; worker.length = 0; frameRecords.length = 0; },
   worker: () => worker,
   loads: () => loads,
 };
@@ -448,7 +544,7 @@ const server = createServer((request, response) => {
   if (path === "/page.js") return text(TYPES[".js"], PAGE_JS);
   const slowLoad = query.get("load") === "1";
   if (path === "/slow-worker.js") return text(TYPES[".js"], workerWrapper(factor, slowLoad));
-  if (path === "/slow-setup.js") return text(TYPES[".js"], workerSetup(factor, slowLoad));
+  if (path === "/slow-setup.js") return text(TYPES[".js"], workerSetup(factor, slowLoad, recordFrames));
   let file = null;
   if (path === "/clip") file = clipFile;
   else if (path.startsWith("/release/")) file = inside(given.release, path.slice("/release/".length));
@@ -603,16 +699,28 @@ try {
   const runBegan = Date.now();
 
   const lines = [];
+  let previousBegin = null;
+  const frameWindows = [];
   for (const [index, rest] of script.rests.entries()) {
-    await new Promise((done) => setTimeout(done, rest.pauseMs ?? 1000));
+    // pauseMs after the previous rest ended, or with pauseAfterPreviousBeginMs that long after its
+    // begin(), so a pause with no seek comes at about the same clip time whichever way the previous
+    // rest went (timing.pausedAtSec says where it landed). Node's clock on both sides.
+    const { waitMs: delayMs, lateMs } = restDelay(rest, previousBegin, performance.now());
+    // The pauseMs path always yields a timer turn, as before, even for 0.
+    if (delayMs > 0 || lateMs === null) await new Promise((done) => setTimeout(done, delayMs));
     const limit = rest.limitMs ?? limitMs;
     if (rest.scene !== undefined) await tab.evaluate((name) => window.harness.scene(name), rest.scene);
     // A rest that pauses pauses before its seek, so the picture is exactly `atSec`; a later rest
     // without `pause` plays the clip on.
-    if (rest.pause === true) await tab.evaluate(() => window.harness.pause());
+    let pausedAtSec = null;
+    if (rest.pause === true) pausedAtSec = (await tab.evaluate(() => window.harness.pause())).currentTimeSec;
     else await tab.evaluate(() => window.harness.resume());
-    if (rest.atSec !== undefined) await tab.evaluate((sec) => window.harness.seek(sec), rest.atSec);
-    await tab.evaluate((expect, ms) => window.harness.begin(expect, ms), rest.expect, limit);
+    let seekedToSec = null;
+    if (rest.atSec !== undefined) seekedToSec = await tab.evaluate((sec) => window.harness.seek(sec), rest.atSec);
+    await tab.evaluate((expect, ms, hold) => window.harness.begin(expect, ms, hold), rest.expect, limit, rest.holdMs ?? 0);
+    previousBegin = performance.now();
+    // moveAfterMs: the pointer stays where the last rest left it for that long after the seek.
+    if (rest.moveAfterMs) await new Promise((done) => setTimeout(done, rest.moveAfterMs));
     await tab.mouse.move(...at(rest.x, rest.y));
     let left = null;
     if (rest.leaveAfterMs !== undefined) left = setTimeout(() => void tab.mouse.move(...park).catch(() => {}), rest.leaveAfterMs);
@@ -628,7 +736,11 @@ try {
         : (await tab.evaluate(() => window.harness.cycles()))
             .filter((c) => c.at >= measured.startAtMs && c.at <= measured.endAtMs + 50)
             .map((c) => ({ atMs: Math.round(c.at - measured.startAtMs), verified: c.verified, boxes: c.verifiedBoxes }));
-    lines.push({ index: index + 1, x: rest.x, y: rest.y, paused: rest.pause === true, ...(analyses ? { analyses } : {}), ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
+    // When the clip paused, seeked, began and ended. With --record-frames, the frames are added
+    // after the last rest (read once then, so no rest waits on them), from begin() to the end.
+    if (recordFrames) frameWindows.push({ index, from: measured.beganAt, to: measured.endAtMs + 50, base: measured.startAtMs });
+    const timing = { pausedAtSec, seekedToSec, ...(lateMs !== null ? { lateMs } : {}), beganTimeSec: measured.beganTimeSec, movedTimeSec: measured.startTimeSec, endTimeSec: measured.endTimeSec, moveAfterBeginMs: Math.round(measured.startAtMs - measured.beganAt) };
+    lines.push({ index: index + 1, x: rest.x, y: rest.y, paused: rest.pause === true, ...(rest.holdMs ? { holdMs: rest.holdMs } : {}), shown: measured.timeline, ...(analyses ? { analyses } : {}), timing, pointer: measured.pointer, ...(recordFrames ? { polled: measured.polled } : {}), ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
     // Later rests meet a session that is ready, as in a cold run.
     if (loadOnHover && index === 0) {
       opened = await tab.evaluate((ms) => window.harness.ready(ms), readyTimeoutMs);
@@ -637,6 +749,12 @@ try {
   }
 
   const wallMs = Date.now() - runBegan;
+  if (recordFrames) {
+    const records = await tab.evaluate(() => window.harness.frameRecords());
+    for (const w of frameWindows) {
+      lines[w.index].frames = records.filter((f) => f.at >= w.from && f.at <= w.to).map(({ kind, at, ...f }) => ({ atMs: Math.round(at - w.base), ...f }));
+    }
+  }
   const cycles = await tab.evaluate(() => window.harness.cycles());
   const held = await tab.evaluate(() => window.harness.worker());
   const loadMessages = await tab.evaluate(() => window.harness.loads());

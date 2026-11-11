@@ -155,7 +155,13 @@ export function restScriptProblem(script) {
     const fraction = (v) => typeof v === "number" && v >= 0 && v <= 1;
     if (!rest || typeof rest.expect !== "string" || !fraction(rest.x) || !fraction(rest.y)) return `rest ${at + 1} needs \`expect\` (a card id) and \`x\`, \`y\` (fractions of the picture, 0 to 1)`;
     if (rest.pause !== undefined && typeof rest.pause !== "boolean") return `rest ${at + 1}: \`pause\` must be true or false`;
-    for (const key of ["pauseMs", "leaveAfterMs", "limitMs"]) if (rest[key] !== undefined && !(typeof rest[key] === "number" && rest[key] >= 0)) return `rest ${at + 1}: \`${key}\` must be a number of ms`;
+    if (rest.moveAfterMs !== undefined && !(Number.isInteger(rest.moveAfterMs) && rest.moveAfterMs >= 0)) return `rest ${at + 1}: \`moveAfterMs\` must be a whole number of ms, 0 or more`;
+    if (rest.pauseAfterPreviousBeginMs !== undefined) {
+      if (!(typeof rest.pauseAfterPreviousBeginMs === "number" && rest.pauseAfterPreviousBeginMs >= 0)) return `rest ${at + 1}: \`pauseAfterPreviousBeginMs\` must be a number of ms`;
+      if (rest.pauseMs !== undefined) return `rest ${at + 1}: give \`pauseMs\` or \`pauseAfterPreviousBeginMs\`, not both`;
+      if (at === 0) return "rest 1: `pauseAfterPreviousBeginMs` needs a previous rest";
+    }
+    for (const key of ["pauseMs", "leaveAfterMs", "limitMs", "holdMs"]) if (rest[key] !== undefined && !(typeof rest[key] === "number" && rest[key] >= 0)) return `rest ${at + 1}: \`${key}\` must be a number of ms`;
   }
   return null;
 }
@@ -371,4 +377,54 @@ export function loadSummary(messages) {
   if (messages.length === 0) return { loads: 0, rawMs: null, emulatedMs: null, heldMs: null, appliedFactor: null };
   const rawMs = sum("rawMs");
   return { loads: messages.length, rawMs: round(rawMs), emulatedMs: round(sum("reportedMs")), heldMs: round(sum("heldMs")), appliedFactor: rawMs > 0 ? round(sum("heldMs") / rawMs) : null };
+}
+
+/**
+ * When a rest starts, in ms from `now`: `pauseMs` (default 1000) after the previous rest ended, or,
+ * with `pauseAfterPreviousBeginMs`, that long after the previous rest's begin() (`previousBegin`,
+ * on the same clock as `now`). A previous rest that ran past it starts this one at once, `lateMs`
+ * late. `lateMs` is null on the `pauseMs` path.
+ */
+export function restDelay(rest, previousBegin, now) {
+  if (rest.pauseAfterPreviousBeginMs === undefined || previousBegin === null) return { waitMs: rest.pauseMs ?? 1000, lateMs: null };
+  const due = previousBegin + rest.pauseAfterPreviousBeginMs - now;
+  return { waitMs: Math.max(0, due), lateMs: due < 0 ? Math.round(-due) : 0 };
+}
+
+/**
+ * The boxes of one analyzed frame that hold `point` and, transitively, those overlapping them by
+ * IoU 0.3 or more: recognition.ts `focusGroup`, over every box of the result rather than only the
+ * faces the recognizer cropped. Each with its box, score, class and whole face (a geometric debug
+ * record is left out). Self-contained: the worker wrapper is given its source text.
+ */
+export function pointGroup(boxes, point) {
+  const IOU = 0.3;
+  const iou = (a, b) => {
+    const w = Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0]);
+    const h = Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]);
+    const inter = w > 0 && h > 0 ? w * h : 0;
+    return inter > 0 ? inter / (a[2] * a[3] + b[2] * b[3] - inter) : 0;
+  };
+  if (!point) return [];
+  const group = [];
+  boxes.forEach((b, i) => {
+    if (point.x >= b.box[0] && point.x <= b.box[0] + b.box[2] && point.y >= b.box[1] && point.y <= b.box[1] + b.box[3]) group.push(i);
+  });
+  const holders = new Set(group);
+  for (let q = 0; q < group.length; q++) {
+    const from = boxes[group[q]].box;
+    boxes.forEach((b, i) => {
+      if (!group.includes(i) && iou(from, b.box) >= IOU) group.push(i);
+    });
+  }
+  return group.map((i) => {
+    const b = boxes[i];
+    const face = b.face && b.face.geometric && b.face.geometric.debug !== undefined ? { ...b.face, geometric: { ...b.face.geometric, debug: "(left out)" } } : b.face;
+    return { index: i, holdsPoint: holders.has(i), box: b.box, score: b.score, cls: b.cls, className: b.className, face };
+  });
+}
+
+/** A point given as fractions of the picture, in pixels of a frame of that size; null stays null. */
+export function framePoint(fraction, width, height) {
+  return fraction ? { x: fraction.fx * width, y: fraction.fy * height } : null;
 }

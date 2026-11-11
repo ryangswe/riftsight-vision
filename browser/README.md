@@ -1022,8 +1022,11 @@ By default an idle frame stays and reloads its worker in place. Ending the worke
 frame's own renderer process running, which on a real release costs about 90 MB of footprint more
 than no frame. `createCaptureControl({ whenIdle: { remove, make } })` drops the whole frame
 instead: on the `idle` status it calls `remove()` (delete the iframe), and the next trusted pointer
-move or `pointerdown` (a tap) over the video, or an `intent` moment while the video plays, calls `make()` (create a new
-iframe; the function you give `loadWhen` works) and connects to it. `startComputeFrame` returns a
+move or `pointerdown` (a tap) over the video calls `make()`, which creates a new iframe (the
+function you give `loadWhen` works); the control then connects to it. An `intent` moment does not
+call `make()`: rebuilding on any page move cost more than it saved for viewers who don't hover. If
+`make()` throws, the control stays removed and only the next trusted move or tap over the video
+tries again, not a move elsewhere on the page. `startComputeFrame` returns a
 `state` that reads `idle` while idle (`core` still reads `loading` then). The control's
 `frameRemoved` is true from `remove()` until the next accepted handshake. A product must not make
 the frame on its own load triggers while it is true: `loadWhen` fires once, so it is safe, but a
@@ -1191,6 +1194,52 @@ that long after, if no name has shown by then. `limitMs` sets the wait limit for
 the rest meets a new picture. The local server answers range requests, so a seek can land past
 what the browser has buffered. The clip plays on from there, so keep each picture on screen for
 longer than the rest's wait limit.
+
+`holdMs` keeps a rest reading that long after the answer (default 0, which ends the rest at the
+answer): what is scored is fixed at the answer, and the timeline shows whether the shown card
+changes afterwards, for example when a repeat's result arrives. Each rest line has `shown`, the
+timeline: every change of the card the session names at the pointer, as `{ atMs, cardId }` from the
+pointer coming to rest (`cardId` null for nothing). With a stage, `analyses` lists the analyses
+that finished during the rest. The analysis that produced the answer is included: the harness
+records an analysis when the session reports it and when the rest ends, not only on a timer.
+
+`moveAfterMs` (a whole number of ms, default 0) waits that long after the seek before the pointer
+moves; meanwhile the pointer stays where the previous rest left it. The rest's wait still counts
+from the move, so "seek, then move about 100 ms later" is `"atSec": 12, "moveAfterMs": 100`.
+
+`pauseAfterPreviousBeginMs` (ms, in place of `pauseMs`, not on the first rest) starts the rest that
+long after the previous rest began, not `pauseMs` after it ended. A rest that pauses with no seek
+then pauses at about the same clip time however fast the previous rest answered; the pause still
+comes after two calls into the page, so on a playing clip it can differ by a frame. Make it longer
+than the previous rest can take (its `moveAfterMs`, `limitMs` and `holdMs`, and a margin): a
+previous rest that runs past it starts this one at once, and `timing.lateMs` says how late.
+
+Each rest line has `timing`: `pausedAtSec` and `seekedToSec` (the video's `currentTime` after the
+rest's pause and seek, or null), `beganTimeSec`, `movedTimeSec` and `endTimeSec` (its `currentTime`
+when the rest began, when the pointer came to rest and when the rest ended), `moveAfterBeginMs`, and
+`lateMs` with `pauseAfterPreviousBeginMs`. `pointer` is the move's client position, the pointer as
+fractions of the picture (`fx`, `fy`), and the picture's box on the page.
+
+`--record-frames` records more, for diagnosing one rest rather than for timing (without it the run
+measures as before). Each rest line then also has:
+- `polled`: every change of what `session.atPointer()` returned (card id, name and frame box), with
+  its time and the video's `currentTime`. `shown` keeps only the card id.
+- `frames`: each frame the worker answered from the rest's begin() to its end (`atMs` from the
+  pointer coming to rest, so a frame answered between begin() and the move is negative). Each has
+  `request` (`requestId`, `generation`, `mediaTimeSec` of the captured picture, `videoTimeSec`, the
+  `focus` point in frame pixels or null, and `scope`, "focus" or "all"), `point` (the request's
+  focus, or with none the rest's pointer from the page when the result came back, null once the
+  pointer has left, and which one as `source`), the frame's
+  `width` and `height`, `error`, the worker's `rawMs`, the counts of `boxes`, `faces`, `verified`
+  faces (the geometric stage ran on them, which is not that it accepted them) and `unverified`
+  faces, `group`, and the page's `currentTimeSec` and `paused` when the result arrived. `group` is
+  the boxes holding `point` and, transitively, those overlapping them by IoU 0.3 or more (as
+  `focusGroup` in recognition.ts, over every box), each with `index`, `holdsPoint`, its box, score,
+  class and whole face (a geometric debug record is left out). What started an analysis (a hover,
+  a repeat, the cadence or a cut) is not in the request, so it is not recorded.
+
+The frames are read once, after the last rest, so no rest waits for them. A report with them is
+larger, about 2 to 8 KB a frame, and it is printed as well as written to `--out`.
 
 `"pause": true` pauses the clip before the rest's `atSec` seek (so the picture is exactly that
 time) and before the pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
@@ -1538,7 +1587,17 @@ another mode, because the pointer is what says which faces to verify.
   looks at the picture again with the pointer there, at most once per
   `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight, and the look gets the
   repeats a newly presented picture gets. It marks nothing stale and clears nothing shown, and it
-  stops once the face is verified. It waits for the picture's repeats and any retry to finish,
+  stops once the face is verified. The repeats of a look on a
+  picture that is still run scope `"all"`. A picture counts as still when the repeat's captured
+  picture has the same video time (within a millisecond) as the previous analyzed look's, in the
+  same seek generation and source: the video's clock stood still (paused, frozen, stalled, ended,
+  an image). When the pointer has moved to a card the newest result did not verify (a seek's look is asked for with the old pointer), that repeat is a focus look at the pointer and the full pass follows on the next. The presented events a seek reports two or three times play no part, and a video
+  whose time moves between the looks keeps the focus on its repeats. No
+  `focus` is sent and every face the stage applies to is verified, so after the first repeat a
+  move to another card is named at once from the result on screen, with no new look. A move to a
+  not yet verified card while that repeat is in flight shows nothing until it answers (about a
+  second on the measured clips), and queues no extra look. A playing video has no such repeats and
+  is unchanged. It waits for the picture's repeats and any retry to finish,
   never follows a refused capture, and stops after the pointer's 10 s grace period. With the option off nothing changes.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.

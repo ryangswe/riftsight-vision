@@ -11,7 +11,36 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
-- The browser runtime reads release, manifest and shard bytes through `blob().arrayBuffer()` when the response has `blob()`, because in Chrome `Response.arrayBuffer()` in a worker leaves about 1.5 times the file size resident after garbage collection (about 27 MB on a mid-size release) and `blob().arrayBuffer()` leaves nothing; the bytes and their size and SHA-256 checks are unchanged.
+- Browser: in focus scope, the repeats of a look on a picture that is really still run scope
+  "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
+  still when the repeat's captured picture has the same video time as the previous look's (same
+  seek generation and source), whatever events were reported. When the pointer has moved onto a card the newest result did
+  not verify, that repeat is a focus look at the pointer first, and the full pass follows.
+  After that repeat, a move to another card is named at once with no new look; a move to a card
+  not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
+  extra look. Playing video, scope "all" and a session with no stage are unchanged.
+- With `whenIdle`, a page-wide pointer move (`intent: "page"`) no longer rebuilds a dropped compute
+  frame; only a trusted move or tap over the video does. Rebuilding on any page move cost more than
+  it saved for viewers who don't hover. `intent` still reloads the worker of a frame that was kept.
+- The browser runtime reads release, manifest and shard bytes through `blob().arrayBuffer()` when
+  the response has `blob()`, because in Chrome `Response.arrayBuffer()` in a worker leaves about 1.5
+  times the file size resident after garbage collection (about 27 MB on a mid-size release) and
+  `blob().arrayBuffer()` leaves nothing; the bytes and their size and SHA-256 checks are unchanged.
+
+### Fixed
+
+- `npm run user-wait`: a rest can carry `pauseAfterPreviousBeginMs` to start that long after the
+  previous rest began, so a pause with no seek comes at about the same clip time however fast the
+  previous rest answered. Each rest line has `timing` (the video's time at the pause, seek, begin,
+  move and end) and `pointer`. `--record-frames` also records `polled` (every change of what
+  `atPointer()` returned) and `frames` (each answered frame's request, and the boxes at the
+  pointer with whole faces); without it the run measures as before.
+- `npm run user-wait`: a rest can carry `moveAfterMs` to wait after its seek before the pointer
+  moves (the wait still counts from the move).
+- `npm run user-wait`: a rest's `analyses` now includes the analysis that produced its answer; it
+  was recorded by a 20 ms timer and could land after the rest's record was read. A rest can carry
+  `holdMs` to keep reading after the answer, and each rest line has `shown`, the timeline of the
+  card named at the pointer (`atMs`, `cardId`).
 
 ## [0.12.0] - 2026-11-11
 

@@ -237,23 +237,33 @@ describe("whenIdle (row 8)", () => {
     expect(p.whenIdle.make).toHaveBeenCalledTimes(1);
   });
 
-  it("with intent: page, an intent moment while the video plays makes the frame instead of sending intent", () => {
+  it("with intent: page, a page-wide move while the video plays does not remake a dropped frame; a move over the picture does", () => {
     const p = page({ intent: "page" });
     p.status("idle");
-    p.video.paused = true;
-    p.move(OFF_PICTURE);
-    expect(p.whenIdle.make).not.toHaveBeenCalled();
     p.video.paused = false;
-    p.move({ isTrusted: false, ...OFF_PICTURE });
-    expect(p.whenIdle.make).not.toHaveBeenCalled();
     p.move(OFF_PICTURE);
+    p.advance(1500);
+    p.move(OFF_PICTURE);
+    expect(p.whenIdle.make).not.toHaveBeenCalled();
+    expect(p.frames.flatMap((f) => f.got)).toEqual([]);
+    p.move();
     expect(p.whenIdle.make).toHaveBeenCalledTimes(1);
-    expect(p.frames.flatMap((f) => f.got).filter((m) => m.kind === "intent")).toEqual([]);
     // Once the new frame is connected, an intent is sent to it as usual.
     p.ready(NEW_ID);
     p.advance(1500);
     p.move(OFF_PICTURE);
     expect(p.frames[1]!.kinds()).toContain("intent");
+    expect(p.whenIdle.make).toHaveBeenCalledTimes(1);
+  });
+
+  it("on a paused video, a page-wide move does nothing after remove, and a move over the picture makes the frame", () => {
+    const p = page({ intent: "page" });
+    p.status("idle");
+    p.video.paused = true;
+    p.move(OFF_PICTURE);
+    expect(p.whenIdle.make).not.toHaveBeenCalled();
+    expect(p.frames.flatMap((f) => f.got)).toEqual([]);
+    p.move();
     expect(p.whenIdle.make).toHaveBeenCalledTimes(1);
   });
 
