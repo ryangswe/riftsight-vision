@@ -16,6 +16,9 @@ break the public surface; this file names each break and how to migrate.
   workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,
   when the section is missing, the version is on the package index or the index cannot be asked,
   or a higher version is already tagged. `RELEASING.md` has the steps that remain.
+- The labeller's optional `--probe`: in the center pass, each frame with a card marker also
+  takes a card height in frame pixels (Alt/Option+drag) and a camera angle class (keys 7, 8, 9),
+  kept in `probes.json` beside the labels. The label rows and the manifest export don't change.
 - `cardvision cdn publish-geo --series` and `verify-geo --series` (with `--folder`, `--manifest`
   and `--new-series`) publish a geometric index as a series: only the content-named shards the
   folder lacks are uploaded, then the manifest, and nothing is overwritten, so a returning user
@@ -41,6 +44,9 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- The labeller's Enter and Space never skip an unanswered point or card; in the names and
+  check-names searches, Enter picks only a card you chose; an erased search counts as untouched
+  again; and arrow keys count for the card they were pressed on.
 - `npm run user-wait --cold` measures a cold first hover again: 0.11.0 ran its 5 settle analyses
   before the rests in every run, cold ones too, so the models had analyzed before the first rest.
   Only warm runs settle now, and the report's `analysis.pacerSettle` gives 0 for a cold run.

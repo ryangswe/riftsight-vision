@@ -112,6 +112,7 @@
           <label class="boxOnly" title="The Boxes pass draws boxes only: the list of names is hidden, and names come in the Names pass."><input type="checkbox" id="boxesOnlyToggle"> Hide names (box pass)</label>
           <label class="verifyOnly" title="Card backs are shown too, after the faces of each frame, to check that they are backs."><input type="checkbox" id="verifyBacksToggle"> Include card backs</label>
           <label class="namesOnly" title="Each card starts with the search box in use, so typing searches at once. The letter keys then type: Esc leaves the search first."><input type="checkbox" id="searchFirstToggle"> Start each card in the search box</label>
+          <label class="verifyOnly" title="Right after Y, M or N the search box takes the focus, so typing searches at once. The letter keys then type: Esc leaves the search first."><input type="checkbox" id="verifySearchFirstToggle"> Search for the name right after Y, M or N</label>
           <label title="Pointing at a named box shows its card."><input type="checkbox" id="hoverToggle"> Card previews <kbd>P</kbd></label>
         </div>
         <details id="defaultBox" hidden>
@@ -163,6 +164,8 @@
   <script src="/verifycore.js"></script>
   <script src="/uistate.js"></script>
   <script src="/keyroute.js"></script>
+  <script src="/probecore.js"></script>
+  <script src="/straykeys.js"></script>
   <script src="/savegate.js"></script>
   <script src="/sources.js"></script>
 </body>
