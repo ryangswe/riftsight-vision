@@ -149,10 +149,10 @@ const DEFAULTS: Required<Omit<GpuVoterOptions, "maxRowsPerBuffer">> = {
 
 /**
  * Copies `bytes` bytes of `src`, from byte `srcOffset`, to the start of `buffer`, at most
- * `pieceBytes` at a time, and waits for the queue after each piece. Chrome stages a write in
- * memory mapped by both the page and the GPU process, and that memory stays after the write is
- * done. One write of a whole index kept about its size in each process (about 50 MB each for a
- * 52 MB index); 4 MiB pieces with a wait kept about a piece and took no longer.
+ * `pieceBytes` (a positive integer) at a time, and waits for the queue after each piece. Chrome
+ * stages a write in memory shared by the page and the GPU process, and keeps it after the write
+ * is done. With a 62.6 MiB index in headless Chrome, 4 MiB pieces left the page about 45 MB
+ * lighter and the GPU process about 25 MB lighter than one write, and the stage was ready as quickly as before.
  */
 export async function writeInPieces(
   queue: Pick<GPUQueue, "writeBuffer" | "onSubmittedWorkDone">,
@@ -162,6 +162,7 @@ export async function writeInPieces(
   bytes: number,
   pieceBytes: number,
 ): Promise<void> {
+  if (!Number.isInteger(pieceBytes) || pieceBytes < 1) throw new Error("writeInPieces: pieceBytes must be a positive integer");
   for (let done = 0; done < bytes; done += pieceBytes) {
     queue.writeBuffer(buffer, done, src as Uint8Array<ArrayBuffer>, srcOffset + done, Math.min(pieceBytes, bytes - done));
     await queue.onSubmittedWorkDone();
@@ -270,6 +271,8 @@ export async function gpuVoter(device: GPUDevice, desc: Uint8Array, options: Gpu
     if (value !== undefined && (!Number.isInteger(value) || value < 1)) throw new Error(`gpuVoter: ${name} must be a positive integer`);
   }
   if (o.chunkRows % o.tileRows !== 0) throw new Error("gpuVoter: chunkRows must be a multiple of tileRows");
+  // An explicit `undefined` means the default, as when the key is left out.
+  o.uploadPieceBytes = options.uploadPieceBytes ?? DEFAULTS.uploadPieceBytes;
   if (o.uploadPieceBytes % DESCRIPTOR_BYTES !== 0) throw new Error(`gpuVoter: uploadPieceBytes must be a multiple of ${DESCRIPTOR_BYTES}`);
   const limits = device.limits;
   const bindingBytes = Math.min(limits.maxStorageBufferBindingSize, limits.maxBufferSize);

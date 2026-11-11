@@ -12,10 +12,10 @@ break the public surface; this file names each break and how to migrate.
 ### Changed
 
 - Browser: the geometric stage copies its index to the GPU 4 MiB at a time and waits for the
-  queue after each piece, instead of in one write. Chrome kept a staging copy of the whole write
-  mapped in both the page and the GPU process, about 50 MB in each for a 52 MB index; pieces keep
-  about one. The bytes on the GPU and every answer are unchanged. `GpuVoterOptions` has
-  `uploadPieceBytes`, and `writeInPieces` is exported.
+  queue after each piece, instead of in one write. Chrome kept the staging memory of the whole
+  write in both the page and the GPU process. With a 62.6 MiB index in headless Chrome, the page
+  is about 45 MB lighter and the GPU process about 25 MB lighter once the stage is ready, and the
+  stage is ready as quickly as before. The bytes on the GPU and every answer are unchanged.
 - Browser: in pointer mode, a repeat of a still picture whose newest result has no unverified
   face and whose video time has not moved is no longer analyzed again. The session sends the
   worker the picture with `reuseOf`, the request number of the newest analyzed look, and the

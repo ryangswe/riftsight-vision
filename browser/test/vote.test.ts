@@ -2,9 +2,9 @@
 // The geometric vote's reference voter against a naive count. The GPU voter is checked
 // against this one in a browser: `npm run test:webgpu` (scripts/webgpu-test.mjs).
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cpuVoter, DESCRIPTOR_BYTES, NO_DISTANCE, NO_ROW, writeInPieces, type KnnResult } from "../src/geometric/vote.js";
+import { cpuVoter, DESCRIPTOR_BYTES, gpuVoter, NO_DISTANCE, NO_ROW, writeInPieces, type KnnResult } from "../src/geometric/vote.js";
 import { queriesFrom, randomDescriptors, tiedDescriptors } from "./vote-fixtures.js";
 
 /** The two nearest rows by sorting every row by (distance, row), bit by bit. */
@@ -130,6 +130,13 @@ describe("writeInPieces", () => {
     expect(none.log).toEqual([]);
   });
 
+  it("refuses a piece size that is not a positive integer", async () => {
+    const { queue } = recordingQueue(64);
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      await expect(writeInPieces(queue, buffer, new Uint8Array(64), 0, 64, bad)).rejects.toThrow("positive integer");
+    }
+  });
+
   it("does not start the next piece before the wait resolves", async () => {
     const src = randomDescriptors(8, 33);
     const log: string[] = [];
@@ -146,5 +153,71 @@ describe("writeInPieces", () => {
     expect(log).toEqual(["write 0", "write 128"]);
     release();
     await writing;
+  });
+});
+
+describe("gpuVoter's upload", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A device that does nothing but record each write into an index buffer, with the queue's
+   *  waits between them. Large limits, so the whole index is one buffer unless the test splits it. */
+  function fakeDevice() {
+    vi.stubGlobal("GPUBufferUsage", { STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, UNIFORM: 8, MAP_READ: 16 });
+    const log: string[] = [];
+    const indexBuffers = new Set<object>();
+    const pipeline = { getBindGroupLayout: () => ({}) };
+    const device = {
+      limits: {
+        maxStorageBufferBindingSize: 2 ** 31, maxBufferSize: 2 ** 31, maxComputeWorkgroupsPerDimension: 65_535,
+        maxComputeWorkgroupStorageSize: 32_768, maxComputeInvocationsPerWorkgroup: 256,
+      },
+      pushErrorScope: () => undefined,
+      popErrorScope: async () => null,
+      createShaderModule: () => ({}),
+      createComputePipelineAsync: async () => pipeline,
+      createBindGroup: () => ({}),
+      createBuffer: (d: { size: number; usage: number }) => {
+        const b = { size: d.size, destroy: () => undefined };
+        if (d.usage === (1 | 2)) indexBuffers.add(b);
+        return b;
+      },
+      queue: {
+        writeBuffer: (b: object, at: number, _data: Uint8Array, _from: number, bytes: number) => {
+          if (indexBuffers.has(b)) log.push(`write ${at} ${bytes}`);
+        },
+        onSubmittedWorkDone: async () => {
+          log.push("wait");
+        },
+      },
+    };
+    return { device: device as unknown as GPUDevice, log };
+  }
+
+  it("copies a large index 4 MiB at a time by default, waiting after each piece", async () => {
+    const { device, log } = fakeDevice();
+    const rows = (9 * 1024 * 1024) / DESCRIPTOR_BYTES + 5;
+    await gpuVoter(device, new Uint8Array(rows * DESCRIPTOR_BYTES));
+    const mib = 4 * 1024 * 1024;
+    expect(log).toEqual([`write 0 ${mib}`, "wait", `write ${mib} ${mib}`, "wait", `write ${2 * mib} ${1024 * 1024 + 5 * 32}`, "wait"]);
+  });
+
+  it("uses uploadPieceBytes, and an explicit undefined is the default", async () => {
+    const small = fakeDevice();
+    await gpuVoter(small.device, new Uint8Array(10 * DESCRIPTOR_BYTES), { uploadPieceBytes: 4 * DESCRIPTOR_BYTES });
+    expect(small.log).toEqual(["write 0 128", "wait", "write 128 128", "wait", "write 256 64", "wait"]);
+    const unset = fakeDevice();
+    await gpuVoter(unset.device, new Uint8Array(10 * DESCRIPTOR_BYTES), { uploadPieceBytes: undefined });
+    expect(unset.log).toEqual(["write 0 320", "wait"]);
+  });
+
+  it("refuses a piece size that is not a positive multiple of 32", async () => {
+    for (const bad of [48, 31]) {
+      await expect(gpuVoter(fakeDevice().device, new Uint8Array(32), { uploadPieceBytes: bad })).rejects.toThrow("multiple of 32");
+    }
+    for (const bad of [0, -32, 1.5]) {
+      await expect(gpuVoter(fakeDevice().device, new Uint8Array(32), { uploadPieceBytes: bad })).rejects.toThrow("positive integer");
+    }
   });
 });

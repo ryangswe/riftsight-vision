@@ -1688,7 +1688,7 @@ npm run test:webgpu -- --chrome "$CHROME" --bench --runs 20
 You should see something like:
 
 ```
-13 of 13 checks agree with the CPU voter
+15 of 15 checks agree with the CPU voter
 {"rows":1500000,"setupMs":12,"options":{},"q500":{"firstMs":13,"medianMs":5.2,"minMs":5.1,"maxMs":6.1},"q6000":{"firstMs":52.1,"medianMs":52.3,"minMs":51.6,"maxMs":52.8},"adapter":"apple metal-3"}
 ```
 
