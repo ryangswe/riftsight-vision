@@ -232,12 +232,19 @@ interface InFlight {
    *  still is decided when it arrives (`frame`): in focus scope a repeat of an unchanged picture
    *  is analyzed as scope "all", which checks every face for the next card. */
   repeat: boolean;
+  /** Set when the picture goes to the worker: whether the analysis is of every face. */
+  full: boolean;
 }
 
 /** The newest look that came back analyzed: its picture's time, generation and source. A repeat
  *  whose captured picture has the same time, in the same generation and source, is of a picture
  *  whose clock stood still (paused, frozen, stalled, ended, an image). */
 interface LastLook {
+  /** The request that analyzed the picture (not a reuse of it): what `reuseOf` names. */
+  requestId: number;
+  /** Whether that look verified every face (scope "all", or a full pass in focus scope). A focus
+   *  look verifies the pointer's group, and what it leaves unmarked is not known to match "all". */
+  full: boolean;
   mediaTime: number;
   generation: number;
   videoKey: string;
@@ -374,6 +381,12 @@ export class SessionCore {
       this.publish();
       return;
     }
+    // Pointer mode, a repeat of a still picture, and nothing unverified in the newest result:
+    // the picture is not analyzed again, but the worker is asked to feed the newest analyzed
+    // frame's detections to the tracker and the temporal gate once more (`reuseOf`), so that the
+    // track layer fills on a paused picture as it always did. It takes milliseconds. A worker
+    // that cannot vouch for the frame (a reset, a stage that joined since) analyzes the picture.
+    const reuseOf = this.mode === "pointer" && this.lastLook !== null && this.lastLook.full && this.stillNeedsNothing(sent, mediaTime) ? this.lastLook.requestId : undefined;
     sent.analyzing = true;
     const envelope: FrameEnvelope = { requestId: sent.requestId, mediaTimeSec: mediaTime, generation: sent.generation, videoKey: sent.videoKey };
     // The pointer as it was when the picture was asked for, in the picture's pixels (the bitmap
@@ -384,14 +397,13 @@ export class SessionCore {
     // (`mediaTimeOf`), two captures at least REPEAT_INTERVAL_MS apart, so an equal time means the
     // clock stood still. The presented events, which a seek reports two or three times, are not
     // consulted.
-    const last = this.lastLook;
-    const still =
-      sent.repeat && last !== null && last.generation === sent.generation && last.videoKey === sent.videoKey && Math.abs(last.mediaTime - mediaTime) < SAME_TIME_SEC;
+    const still = this.isStillRepeat(sent, mediaTime);
     // The pointer's own card comes first: when the pointer's group is not verified in the newest
     // result (a seek's look was asked for with the old pointer, and the pointer has moved since),
     // this repeat is a focus look at the pointer, and the full pass follows on the next repeat.
     const yields = still && focus !== null && this.result !== null && pointerGroupUnverified(this.result.analysis, focus.x, focus.y);
     const full = still && !yields;
+    sent.full = !this.focusScope || full;
     try {
       this.deps.toWorker(
         {
@@ -401,6 +413,7 @@ export class SessionCore {
           envelope,
           ...(this.focusScope && !full ? { geometricScope: "focus" as const, focus } : {}),
           ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}),
+          ...(reuseOf !== undefined ? { reuseOf } : {}),
         },
         [bitmap],
       );
@@ -412,6 +425,18 @@ export class SessionCore {
       this.scheduler.lookUnanswered(this.deps.now());
     }
     this.publish();
+  }
+
+  /** Is this capture a repeat of the picture the newest analyzed look was taken at? */
+  private isStillRepeat(sent: InFlight, mediaTime: number): boolean {
+    const last = this.lastLook;
+    return sent.repeat && last !== null && last.generation === sent.generation && last.videoKey === sent.videoKey && Math.abs(last.mediaTime - mediaTime) < SAME_TIME_SEC;
+  }
+
+  /** A still repeat with no unverified face in the newest result has nothing to add. */
+  private stillNeedsNothing(sent: InFlight, mediaTime: number): boolean {
+    if (!this.isStillRepeat(sent, mediaTime) || this.result === null) return false;
+    return !(this.result.analysis.boxes ?? []).some((b) => b.face?.unverified === true);
   }
 
   /** The capture for `requestId` failed. `retry`: the picture could not be had (not ready yet, or
@@ -497,18 +522,21 @@ export class SessionCore {
       return;
     }
     this.lastAcceptedRequestId = reply.envelope.requestId;
-    if (reply.analysis) this.lastLook = { mediaTime: reply.envelope.mediaTimeSec, generation: reply.envelope.generation, videoKey: reply.envelope.videoKey };
+    const reused = reply.analysis?.reused === true;
+    if (reply.analysis && !reused) this.lastLook = { requestId: reply.envelope.requestId, full: sent.full, mediaTime: reply.envelope.mediaTimeSec, generation: reply.envelope.generation, videoKey: reply.envelope.videoKey };
     this.st.lastFrameError = reply.error ?? null;
-    this.st.lastWorkerMs = reply.workerMs;
+    if (!reused) this.st.lastWorkerMs = reply.workerMs;
     this.st.lastRoundTripMs = +(now - sent.sentAt).toFixed(2);
     if (reply.analysis) {
       this.analyzedSinceLoad = true;
-      if (this.pacer) {
+      // A reused reply took milliseconds: it says nothing of how fast the worker analyzes, and
+      // it is no analysis to count.
+      if (this.pacer && !reused) {
         this.pacer.record(reply.workerMs);
         this.applyCadence();
       }
       this.scheduler.lookAnswered();
-      this.st.frames += 1;
+      if (!reused) this.st.frames += 1;
       this.result = { analysis: reply.analysis, videoTimeSec: reply.videoTimeSec };
       this.deps.onAnalysis?.(reply.analysis);
     } else {
@@ -641,7 +669,7 @@ export class SessionCore {
     if (this.st.state !== "ready" || this.inFlight) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
-    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, repeat: false };
+    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, repeat: false, full: true };
     this.scheduler.started(now, { videoTimeSec: this.videoTime(), ...(trigger ? { trigger } : {}) });
     this.inFlight.repeat = this.scheduler.lastTrigger === "repeat";
     this.deps.capture(requestId, { ...this.analysisWidth });

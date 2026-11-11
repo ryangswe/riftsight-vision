@@ -259,6 +259,22 @@ self.postMessage = (message, ...rest) => {
   }
   if (!message || message.kind !== "frame-result") return post(message, ...rest);
   const arrived = arrivals.shift() ?? performance.now();
+  // A reused repeat (pipeline.reuse) is no analysis: counted apart, not slowed, not in the timings.
+  if (message.analysis && message.analysis.reused === true) {
+    tell.postMessage({ kind: "reused" });
+    post(message, ...rest);
+    // With --record-frames a reused frame is recorded too, after the reply, marked reused.
+    if (RECORD_FRAMES) {
+      setTimeout(() => {
+        try {
+          tell.postMessage({ ...frameRecord(message, message.workerMs), reused: true });
+        } catch (error) {
+          tell.postMessage({ kind: "frame-record", reused: true, error: "record failed: " + String(error) });
+        }
+      }, 0);
+    }
+    return;
+  }
   const rawMs = message.workerMs;
   const reportedMs = rate * c * rawMs;
   const wait = Math.max(0, reportedMs - rawMs);
@@ -299,6 +315,7 @@ let current = null;
 const cycles = [];
 const worker = [];
 const loads = [];
+let reusedFrames = 0;
 let lastFrames = -1;
 let sessionRate = 1;
 let createdAt = null;
@@ -307,7 +324,8 @@ let createdAt = null;
 const frameRecords = [];
 const pointerChannel = new BroadcastChannel("user-wait-pointer");
 new BroadcastChannel("user-wait").onmessage = (event) => {
-  if (event.data.kind === "frame-record") frameRecords.push({ ...event.data, at: performance.now(), currentTimeSec: video.currentTime, paused: video.paused });
+  if (event.data.kind === "reused") reusedFrames += 1;
+  else if (event.data.kind === "frame-record") frameRecords.push({ ...event.data, at: performance.now(), currentTimeSec: video.currentTime, paused: video.paused });
   else (event.data.kind === "load" ? loads : worker).push(event.data);
 };
 
@@ -520,7 +538,8 @@ window.harness = {
   result: () => window.__rest,
   status: () => session.status(),
   cycles: () => cycles,
-  reset: () => { cycles.length = 0; worker.length = 0; frameRecords.length = 0; },
+  reset: () => { cycles.length = 0; worker.length = 0; reusedFrames = 0; frameRecords.length = 0; },
+  reused: () => reusedFrames,
   worker: () => worker,
   loads: () => loads,
 };
@@ -758,6 +777,7 @@ try {
   const cycles = await tab.evaluate(() => window.harness.cycles());
   const held = await tab.evaluate(() => window.harness.worker());
   const loadMessages = await tab.evaluate(() => window.harness.loads());
+  const reusedFrames = await tab.evaluate(() => window.harness.reused());
   const raw = held.map((h) => h.rawMs);
   const real = held.map((h) => h.heldMs);
   const endStatus = await tab.evaluate(() => window.harness.status());
@@ -777,6 +797,7 @@ try {
           // The time the wrapper really took per frame, over c x the raw time: about the rate asked.
           measured: raw.length === 0 ? null : measuredFactor([raw.reduce((a, b) => a + b, 0) * c], [real.reduce((a, b) => a + b, 0)]),
           frames: held.length,
+          reusedFrames,
           ...(loadOnHover
             ? {
                 load: {

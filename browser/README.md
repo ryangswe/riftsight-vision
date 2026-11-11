@@ -1078,6 +1078,7 @@ picture) and returns a `FrameAnalysis`:
 | `boxes[].face` | For a face: `topId`, `topName`, `similarity`, `margin`, `look` (0 upright, k quarter turns counter-clockwise), `retried`, `tauPassed`, `accepted`, `cardId`, `name`, `kept`; with the tilted retry, on a face it was tried on, `tilted` (`tilt`, `scale` or null, `before`). `null` for a back. |
 | `hover` | The hover layer under the release's selection: the cards a pointer is resolved against, bottom of the stack first |
 | `tracks` | The track layer: cards with ids that persist between frames and pooled identities, shown once the temporal gate holds |
+| `reused` | `true` on an analysis that is not new: in pointer mode, the previous frame's detections fed to the tracker and the gate again for a still picture (see "A still picture in pointer mode"). `tracks` and `timings` are new, `discontinuity` is false and `retried` and `embeddings` are 0; every other field is the previous analysis's, and shares its nested objects. Absent on an analyzed frame |
 | `discontinuity`, `retried`, `embeddings`, `timings` | Whether the state between frames was reset; how many faces were retried and embeddings computed; milliseconds per stage (`tiltedMs` while the tilted retry runs) |
 
 `hoverAt(analysis, x, y, selection?)` resolves a pointer against an analyzed frame, under the
@@ -1135,12 +1136,41 @@ By default a session analyzes at fixed rates: every 500 ms while the pointer is 
 - Until 3 analyses have been measured, the fixed rate applies.
 - The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
 - The session learns within its own run and stores nothing.
+- A reused repeat (below) is not recorded: it took milliseconds and says nothing of how fast the
+  worker analyzes.
 
 For example, analyses of 900 ms on WebAssembly give a wait of 900 / 0.25 = 3600 ms. The user-wait
 harness takes `--measured-pacing` (and `--share`) to turn the option on ("Measuring the wait"); its
 report records the setting and the share of the run's time spent analyzing. Warm runs with pacing on
 and off both analyze 5 frames at the emulated speed before the rests begin; a `--cold` run does
 not, so its first rest meets the models' first analysis.
+
+### A still picture in pointer mode
+
+A paused picture, or an image, is analyzed when presented and then repeated twice more, 250 ms
+apart, because the tracker and the temporal gate (`tracks`) count analyzed frames. In pointer
+mode only the first analysis and the repeats that could change an answer need the models. A
+repeat whose captured picture has the same video time (within a millisecond) as the newest
+analyzed look's, in the same seek generation and source, whose newest result has no unverified
+face, and whose newest analyzed look verified every face (always in scope `"all"`; in focus scope
+only the full pass, never the focus look) is sent to the worker with `reuseOf`, the request number
+of that look. The worker feeds that look's detections to the tracker and the gate again and
+answers in milliseconds with `reused: true`. The reply is the look's analysis with these fields
+set: `tracks` (this step of the tracker and the gate), `timings` (detector and recognizer 0,
+`analyzeMs` the time of the reuse, no stage or retry times), `discontinuity: false`, `retried: 0`
+and `embeddings: 0`; every other field is copied. No detector, recognizer or stage runs. The
+copied fields share their nested objects with the stored analysis (`Pipeline.reuse` does not
+clone them), so a caller must not modify them.
+
+So the track layer confirms on a paused picture as before, while a paused hover costs one
+analysis (scope `"all"`) or two (focus scope: the focus look and one full pass), and a seek is
+not kept waiting behind three. The worker honors `reuseOf` only while the pipeline can vouch that
+nothing that changes an answer happened since that look: no reset, and the geometric stage and
+the tilted retry neither set, removed nor failed; otherwise it analyzes the picture. A picture
+whose time differs (a pause lands a frame after the look, or the video moved with no presented
+report) is analyzed. A reused reply is no analysis: it is not counted in `status().frames`, not
+recorded for measured pacing and not shown as `lastWorkerMs`. `"always-on"` and `"layout"` modes
+are unchanged.
 
 ## Measuring the wait
 
@@ -1224,8 +1254,9 @@ fractions of the picture (`fx`, `fy`), and the picture's box on the page.
 measures as before). Each rest line then also has:
 - `polled`: every change of what `session.atPointer()` returned (card id, name and frame box), with
   its time and the video's `currentTime`. `shown` keeps only the card id.
-- `frames`: each frame the worker answered from the rest's begin() to its end (`atMs` from the
-  pointer coming to rest, so a frame answered between begin() and the move is negative). Each has
+- `frames`: each frame the worker answered from the rest's begin() to its end, a reused repeat
+  included and marked `"reused": true` (`atMs` from the pointer coming to rest, so a frame
+  answered between begin() and the move is negative). Each has
   `request` (`requestId`, `generation`, `mediaTimeSec` of the captured picture, `videoTimeSec`, the
   `focus` point in frame pixels or null, and `scope`, "focus" or "all"), `point` (the request's
   focus, or with none the rest's pointer from the page when the result came back, null once the
@@ -1572,7 +1603,8 @@ another mode, because the pointer is what says which faces to verify.
   those joined to them by IoU 0.3 or more) holds a face the stage applies to that the result did
   not verify, and a held tooltip ends there. Without this, the card beneath an unverified
   neighbour could show where a full analysis shows the neighbour. Once the group is verified (the
-  re-look below) the answer is the full analysis's. Scope `"all"` reads as before. This rule applies to `at`, `atPointer`, `shown` and `onShown`; the raw
+  re-look below) the answer is the full analysis's. Scope `"all"` reads as before. This rule
+  applies to `at`, `atPointer`, `shown` and `onShown`; the raw
   `session.analysis()` read with the exported `hoverAt` is not covered, as it reads the analysis as is.
 - **`others`.** When the result has no unverified face (always, with no stage), the `others` of
   what `atPointer()` returns are exactly `"all"`'s for the same frame, in the same order and with
@@ -1581,8 +1613,9 @@ another mode, because the pointer is what says which faces to verify.
   suppressed or verified it, so a tooltip avoids all of them. These come first and the session's
   `maxOtherBoxes` does not cut them; the layer's other boxes follow, in its order, in the room the
   limit leaves.
-- **A paused or unchanged picture.** A still picture is analyzed when presented and a few times
-  more, then not again, so a card the pointer reaches later would stay unnamed. In focus scope,
+- **A paused or unchanged picture.** A still picture is looked at when presented and at a few
+  repeats (analyzed or, in pointer mode, reused: see "A still picture in pointer mode"), then not
+  again, so a card the pointer reaches later would stay unnamed. In focus scope,
   when the pointer is on a face (or a group) the newest analysis left unverified, the session
   looks at the picture again with the pointer there, at most once per
   `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight, and the look gets the
@@ -1591,14 +1624,17 @@ another mode, because the pointer is what says which faces to verify.
   picture that is still run scope `"all"`. A picture counts as still when the repeat's captured
   picture has the same video time (within a millisecond) as the previous analyzed look's, in the
   same seek generation and source: the video's clock stood still (paused, frozen, stalled, ended,
-  an image). When the pointer has moved to a card the newest result did not verify (a seek's look is asked for with the old pointer), that repeat is a focus look at the pointer and the full pass follows on the next. The presented events a seek reports two or three times play no part, and a video
-  whose time moves between the looks keeps the focus on its repeats. No
+  an image). When the pointer has moved to a card the newest result did not verify (a seek's look
+  is asked for with the old pointer), that repeat is a focus look at the pointer and the full pass
+  follows on the next. The presented events a seek reports two or three times play no part, and a
+  video whose time moves between the looks keeps the focus on its repeats. No
   `focus` is sent and every face the stage applies to is verified, so after the first repeat a
   move to another card is named at once from the result on screen, with no new look. A move to a
   not yet verified card while that repeat is in flight shows nothing until it answers (about a
   second on the measured clips), and queues no extra look. A playing video has no such repeats and
-  is unchanged. It waits for the picture's repeats and any retry to finish,
-  never follows a refused capture, and stops after the pointer's 10 s grace period. With the option off nothing changes.
+  is unchanged. The re-look waits for the picture's repeats and any retry to finish, never follows
+  a refused capture, and stops after the pointer's 10 s grace period. With the option off there
+  is no re-look (the reuse of still repeats applies either way).
 - **A pointer resting where the last look found no card** is looked at once every 2 s (`EMPTY_SPOT_INTERVAL_MS`) instead of at the fast rate, because each look of an empty spot costs a full analysis and has nothing to show. In the 10 s grace period that is about 5 looks, against about 20 on WebGPU with fast analyses (the fast rate is 500 ms) and 10 on WebAssembly (1000 ms). A card that arrives under the resting pointer shows up to about 1.5 s later than before on WebGPU (1 s later on WebAssembly), and at most about 2 s plus one analysis after it arrives. A move over the picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at once; the pointer leaving the picture does not, and a longer measured-pacing gap still wins. Nothing changes outside pointer mode or while a card shows.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.
