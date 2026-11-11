@@ -1438,4 +1438,42 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     expect(t.sent.length).toBeGreaterThanOrEqual(2);
     expect(isFull(t.sent[1]!)).toBe(true);
   });
+
+  it("a seek's look was asked for with the old pointer and the pointer moved: the next repeat is a focus look there, then the full pass", async () => {
+    const stage = fakeStage();
+    const t = live(threeBoxes, three, { geometricScope: "focus" }, stage);
+    t.setMedia(5);
+    t.core.discontinuity(false);
+    t.core.presented(5);
+    t.core.presented(5);
+    t.core.pointer(PX(40), PY, 5); // the seek's look, asked for with this pointer
+    t.step(100);
+    t.core.pointer(PX(340), PY, 5); // and 100 ms later the pointer is on another card
+    await t.flush(); // the look answers: only the old card is verified
+    expect(t.sent[0]!.focus).toEqual({ x: 40, y: 100 });
+    expect(t.core.fresh()).toBeNull(); // the new card is unverified: nothing shows
+    await run(t, 300); // the next repeat
+    expect(t.sent[1]).toMatchObject({ geometricScope: "focus", focus: { x: 340, y: 100 } });
+    expect(t.core.fresh()?.cardId).toBe("C"); // named by that one focus look
+    await run(t, 300); // the repeat after it is the full pass
+    expect(isFull(t.sent[2]!)).toBe(true);
+    const looks = t.sent.length;
+    t.core.pointer(PX(600), PY, 5);
+    expect(t.core.fresh()?.cardId).toBe("D"); // a later card needs no look
+    expect(t.sent.length).toBe(looks);
+  });
+
+  it("a look that is not a repeat keeps the focus on a paused picture, even at the same video time", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.setMedia(5);
+    t.core.presented(5);
+    t.core.pointer(PX(40), PY, 5);
+    await t.flush();
+    const before = t.sent.length;
+    t.core.presented(5); // a late report of the same picture: a look by the cadence, not a repeat
+    await run(t, 1_500);
+    const next = t.sent[before];
+    expect(next).toBeDefined();
+    expect(next).toMatchObject({ geometricScope: "focus" });
+  });
 });

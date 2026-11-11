@@ -14,7 +14,8 @@ break the public surface; this file names each break and how to migrate.
 - Browser: in focus scope, the repeats of a look on a picture that is really still run scope
   "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
   still when the repeat's captured picture has the same video time as the previous look's (same
-  seek generation and source), whatever events were reported.
+  seek generation and source), whatever events were reported. When the pointer has moved onto a card the newest result did
+  not verify, that repeat is a focus look at the pointer first, and the full pass follows.
   After that repeat, a move to another card is named at once with no new look; a move to a card
   not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
   extra look. Playing video, scope "all" and a session with no stage are unchanged.

@@ -1550,7 +1550,7 @@ another mode, because the pointer is what says which faces to verify.
   picture that is still run scope `"all"`. A picture counts as still when the repeat's captured
   picture has the same video time (within a millisecond) as the previous analyzed look's, in the
   same seek generation and source: the video's clock stood still (paused, frozen, stalled, ended,
-  an image). The presented events a seek reports two or three times play no part, and a video
+  an image). When the pointer has moved to a card the newest result did not verify (a seek's look is asked for with the old pointer), that repeat is a focus look at the pointer and the full pass follows on the next. The presented events a seek reports two or three times play no part, and a video
   whose time moves between the looks keeps the focus on its repeats. No
   `focus` is sent and every face the stage applies to is verified, so after the first repeat a
   move to another card is named at once from the result on screen, with no new look. A move to a

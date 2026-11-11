@@ -385,8 +385,13 @@ export class SessionCore {
     // clock stood still. The presented events, which a seek reports two or three times, are not
     // consulted.
     const last = this.lastLook;
-    const full =
+    const still =
       sent.repeat && last !== null && last.generation === sent.generation && last.videoKey === sent.videoKey && Math.abs(last.mediaTime - mediaTime) < SAME_TIME_SEC;
+    // The pointer's own card comes first: when the pointer's group is not verified in the newest
+    // result (a seek's look was asked for with the old pointer, and the pointer has moved since),
+    // this repeat is a focus look at the pointer, and the full pass follows on the next repeat.
+    const yields = still && focus !== null && this.result !== null && pointerGroupUnverified(this.result.analysis, focus.x, focus.y);
+    const full = still && !yields;
     try {
       this.deps.toWorker(
         {
