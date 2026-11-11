@@ -1591,9 +1591,12 @@ another mode, because the pointer is what says which faces to verify.
   a face unretried in `"all"` that focus scope retries, so focus can name a face a capped full
   analysis left unnamed. `"all"` keeps its cap and its order.
 - **The pointer** is its position when the picture was asked for, in the pixels of the picture
-  that is analyzed, so the point matches the boxes. The session sends it (as `focus`, with
-  `geometricScope: "focus"`, in the frame request) only when the option is on; with the option
-  off no `focus` is sent, and the tilted retry orders faces as before.
+  that is analyzed, so the point matches the boxes. The session sends it only when the option is
+  on: as `focus`, with `geometricScope: "focus"`, in a focus look, and as `focus` alone in a still
+  picture's full pass while the stage is ready, where it only puts the faces holding it first in
+  the tilted retry's order. With the option off, or no ready stage, no `focus` is sent, and the
+  tilted retry orders faces as before. A face the retry's cap left out is marked `tiltedSkipped`,
+  and a pointer moving onto it asks for a look there, as onto a face not verified.
 - **A face the stage applies to and did not verify is not named** on that analysis: it has no
   name in the hover layer, so `atPointer()` and `at()` give nothing for it and the hover layer
   does not draw it, until an analysis verifies it (its box then reports `face.unverified: true`).
@@ -1632,7 +1635,7 @@ another mode, because the pointer is what says which faces to verify.
   is asked for with the old pointer), that repeat is a focus look at the pointer and the full pass
   follows on the next. The presented events a seek reports two or three times play no part, and a
   video whose time moves between the looks keeps the focus on its repeats. No
-  `focus` is sent and every face the stage applies to is verified, so after the first repeat a
+  `geometricScope` is sent and every face the stage applies to is verified, so after the first repeat a
   move to another card is named at once from the result on screen, with no new look. A move to a
   not yet verified card while that repeat is in flight shows nothing until it answers (about a
   second on the measured clips), and queues no extra look. A playing video has no such repeats and

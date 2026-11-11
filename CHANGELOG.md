@@ -29,14 +29,18 @@ break the public surface; this file names each break and how to migrate.
   reply is not counted in `status().frames` and not recorded for measured pacing, and reports
   `retried: 0` and `embeddings: 0`. In focus scope the reuse waits for the full pass. Always-on and
   layout modes are unchanged. `npm run user-wait` counts reused replies apart (`reusedFrames`).
-- Browser: in focus scope, the repeats of a look on a picture that is really still run scope
-  "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
+- Browser: in focus scope, the repeats of a look on a picture that is really still verify
+  every face the stage applies to: no `geometricScope` is sent. A picture counts as
   still when the repeat's captured picture has the same video time as the previous look's (same
   seek generation and source), whatever events were reported. When the pointer has moved onto a card the newest result did
   not verify, that repeat is a focus look at the pointer first, and the full pass follows.
   After that repeat, a move to another card is named at once with no new look; a move to a card
   not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
-  extra look. Playing video, scope "all" and a session with no stage are unchanged.
+  extra look. Playing video, scope "all" and a session with no stage are unchanged. With the
+  stage ready, the full pass still sends the pointer (`focus`, without the scope) so that a capped
+  tilted retry (`maxFacesPerFrame`) takes the faces holding it first. A face the cap left out is
+  marked `tiltedSkipped`, and a pointer moving onto it asks for a look there, which retries the
+  pointer's faces with no cap.
 - With `whenIdle`, a page-wide pointer move (`intent: "page"`) no longer rebuilds a dropped compute
   frame; only a trusted move or tap over the video does. Rebuilding on any page move cost more than
   it saved for viewers who don't hover. `intent` still reloads the worker of a frame that was kept.
@@ -64,6 +68,9 @@ break the public surface; this file names each break and how to migrate.
   a new source ends it. While it lasts, `shown` carries `held: true` once a recent analysis shows the card
   gone, so a host can hide its outline. While the pointer rests past its grace period on a card it
   shows, nothing is analyzed. Off unless a host passes it; `SHOWN_HOLD` is unchanged.
+- Browser: `FrameAnalysis` faces carry `tiltedSkipped: true` when the tilted retry would have tried
+  them but its cap (`maxFacesPerFrame`) left them out on that frame, in any scope. A focus-scope
+  session with a ready stage looks again when the pointer moves onto one.
 - Browser: `FrameAnalysis.reused` (`true` on a reused analysis), the frame request's optional
   `reuseOf` and `Pipeline.reuse`.
 
