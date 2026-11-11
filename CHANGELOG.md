@@ -11,6 +11,18 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- The compute frame can end its worker when idle: the `idleUnloadMs` option of `startComputeFrame`
+  (off by default) ends the worker after that long with no pointer over the picture, no `intent`, no card
+  shown and no analysis in flight, reports the new status `idle`, and loads the same release again
+  on the next `pointer` or the new `intent` message. It is not a crash, so the restart stays
+  available. The content script's `createCaptureControl({ intent: "page" })` sends `intent` on a
+  trusted pointer move anywhere in the page, at most once a second, while the video plays, and the
+  helper `loadWhen(video, "play", make)` lets a product make the frame at play. With
+  `createCaptureControl({ whenIdle: { remove, make } })` the page drops the whole frame on `idle`
+  (freeing its renderer, about 90 MB on a real release) and makes a new one on the next trusted
+  pointer move over the video or an `intent` moment (`control.frameRemoved` tells a product the frame is dropped, so it does not remake it on its own triggers); the object `startComputeFrame` returns has a
+  `state` that reads `idle` while idle. See
+  [docs/extension-session.md](docs/extension-session.md).
 - A push to `main` that raises the version now tags it, publishes the GitHub release with the
   changelog section as its notes (a release candidate as a pre-release) and starts the Publish
   workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,
@@ -39,6 +51,10 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- The compute-frame protocol is at version 2 (`PROTOCOL_VERSION`): a new `idle` status state and
+  a new `intent` message. A product vendors the content-script and compute-frame halves together;
+  a mismatch is reported as a version error. With neither `idleUnloadMs` nor `intent` set,
+  behavior is unchanged.
 - `cardvision cdn publish --config` now refuses a pointer to a release that was uploaded without the
   refresh verdicts (exit 3, a dry run too). `publish-release` records in each release's index
   entry whether it cleared the refresh gate (an optional `refreshGate` key; `schemaVersion` stays

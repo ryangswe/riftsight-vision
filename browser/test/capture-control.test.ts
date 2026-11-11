@@ -621,8 +621,8 @@ describe("the handshake", () => {
     h.control.attach(asVideo(h.video));
     h.hover();
     h.control.connect();
-    h.ready(INSTANCE_A, 2);
-    expect(h.problems).toEqual([{ kind: "version", expected: PROTOCOL_VERSION, received: 2 }]);
+    h.ready(INSTANCE_A, PROTOCOL_VERSION + 1);
+    expect(h.problems).toEqual([{ kind: "version", expected: PROTOCOL_VERSION, received: PROTOCOL_VERSION + 1 }]);
     expect(h.control.connected).toBe(false);
     expect(h.timers.at(-1)!.cleared).toBe(true);
     h.clear();

@@ -1006,7 +1006,35 @@ that watches the video and captures pictures (`dist/page-capture.js`), and an ex
 that runs the session and the worker (`dist/compute-session.js`, `startComputeFrame`). In the
 content script, `createCaptureControl` holds the capture gate, the handshake with the frame and
 the transfer of pictures. [docs/extension-session.md](../docs/extension-session.md) has the
-messages between them, the controller's rule and a sketch of each side. Both entries are
+messages between them, the controller's rule and a sketch of each side.
+
+Two options keep a page light. `startComputeFrame({ idleUnloadMs })` (off when absent) ends the
+worker after that many milliseconds with no pointer over the picture, no `intent`, no card
+shown and no analysis in flight, and loads the same release again on the next pointer or `intent` message; the
+status is `idle` meanwhile. `createCaptureControl({ intent: "page" })` sends that `intent`, at
+most once a second, on a trusted pointer move anywhere in the page while the video plays. The
+helper `loadWhen(video, "play", make)` (same module as `createCaptureControl`) calls `make` once
+when the video plays, so a product can make the compute frame at play instead of at the first
+pointer move; `stop()` removes its listener.
+
+By default an idle frame stays and reloads its worker in place. Ending the worker leaves the
+frame's own renderer process running, which on a real release costs about 90 MB of footprint more
+than no frame. `createCaptureControl({ whenIdle: { remove, make } })` drops the whole frame
+instead: on the `idle` status it calls `remove()` (delete the iframe), and the next trusted pointer
+move or `pointerdown` (a tap) over the video, or an `intent` moment while the video plays, calls `make()` (create a new
+iframe; the function you give `loadWhen` works) and connects to it. `startComputeFrame` returns a
+`state` that reads `idle` while idle (`core` still reads `loading` then). The control's
+`frameRemoved` is true from `remove()` until the next accepted handshake. A product must not make
+the frame on its own load triggers while it is true: `loadWhen` fires once, so it is safe, but a
+reload on every `playing` event (a looping clip fires one) would quietly undo the unload, since the
+control accepts a frame the product connects itself.
+
+`scripts/idle-unload-memory.mjs` measures what an unload gives back in a headless Chrome (the
+header says how to run it). Its pass rule is the macOS physical footprint right after the unload,
+within 30 MB of the same page with no frame. The toy release cannot show the drop: its stand-in
+models are tiny, a ready frame adds only about 25 MB, and the run cannot tell an unload from none.
+Use a real release for that; the report prints the ready-minus-no-frame figure beside the pass
+figure to show how much there was to free. Both entries are
 [experimental](../docs/stability.md#experimental).
 
 ### `loadRelease(url, options)` and `analyzeFrame(loaded, frame)`
