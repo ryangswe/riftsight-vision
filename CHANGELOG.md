@@ -9,6 +9,18 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- `cardvision cdn publish-geo --series` and `verify-geo --series` (with `--folder`, `--manifest`
+  and `--new-series`) publish a geometric index as a series: only the content-named shards the
+  folder lacks are uploaded, then the manifest, and nothing is overwritten, so a returning user
+  downloads a card set's new shards instead of the whole index. A folder with a flat index, or a
+  non-empty folder that shares no shard with the manifest, is refused unless `--new-series`. The
+  run prints the shard bytes uploaded against the manifest's total.
+- `cardvision refresh check --packed MANIFEST [--base-packed MANIFEST]`: with `--base-packed`, a
+  new P4 check that the candidate's packed `shards` and `cards` begin with the base's, entry for
+  entry. Without the flags the check is unchanged.
+
 ### Changed
 
 - `cardvision cdn publish --config` now refuses a pointer to a release that was uploaded without the

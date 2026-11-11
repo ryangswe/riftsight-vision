@@ -169,8 +169,48 @@ shasum -a 256 "$UPD/geo/packed/manifest.json"
 - **Expect:** `round trip: ok`; the manifest's `bank.sha256` is the SHA-256 of
   `$UPD/cand/bank.json`; its card count is the bank's; the settings are the live ones apart from
   `index`. Note the manifest's SHA-256 as `MANIFEST_SHA`.
-- **Know:** `cardvision cdn publish-geo` writes a flat folder, so pack without `--base`.
+- **Know:** this plain pack goes to a flat folder (`cardvision cdn publish-geo`), which a user
+  downloads whole at each refresh. A product that keeps a series folder uses 3.1a instead.
   `build-features --base` may save time; it writes the same bytes.
+
+**3.1a A series, for a product that publishes its index as one** (users then download only a
+set's new shards). Paths below are the live series' manifest `LIVE_MANIFEST` (with its shards
+beside it) and its folder `SERIES16` under `vision/geo/`.
+
+```
+# Once, to start the series (a full download for users, as any flat index is); SRC16 is the
+# first 16 hex of the index file's SHA-256, and SERIES16 = SRC16 for this first index:
+cardvision pack-features --index "$UPD/geo/index.features.json" --config "$UPD/geo/geo.json" \
+    --out "$UPD/geo/packed" --content-names --manifest-name "manifest-$SRC16.json"
+cardvision cdn publish-geo --series --new-series --dir "$UPD/geo/packed" --folder "$SERIES16" \
+    --manifest "manifest-$SRC16.json" --expect-sha256 MANIFEST_SHA --dry-run
+
+# Every later set: extend the live index, then the live pack, then check, then publish.
+cardvision build-features --base "$LIVE_GEO_INDEX" --config "$UPD/geo/geo.json" \
+    --catalog "$UPD/cand/catalog.json" --art "$IMAGES" --bank "$UPD/cand/bank.json" \
+    --out "$UPD/geo/index.features.json" --pin
+cardvision pack-features --index "$UPD/geo/index.features.json" --config "$UPD/geo/geo.json" \
+    --base "$LIVE_MANIFEST" --out "$UPD/geo/packed" --manifest-name "manifest-$SRC16.json"
+cardvision refresh check "$UPD/cand/release.json" --base "$LIVE/release.json" \
+    --geometric "$UPD/geo/geo.json" --base-geometric "$LIVE_GEO" \
+    --packed "$UPD/geo/packed/manifest-$SRC16.json" --base-packed "$LIVE_MANIFEST"
+cardvision cdn publish-geo --series --dir "$UPD/geo/packed" --folder "$SERIES16" \
+    --manifest "manifest-$SRC16.json" --expect-sha256 MANIFEST_SHA --dry-run
+```
+
+Run `publish-geo` again without `--dry-run`, then `verify-geo --series` with the same options,
+then `publish-release --geometric` as in 6.5 (its `index.path` names the series manifest).
+
+- **Expect:** the check lists `P4 packed manifest extends the base's shards and cards` as true.
+  The dry run's last line gives the shard bytes to upload against the index's total; a set that
+  adds few cards uploads a small share. `publish-geo --series` uploads only the shards the folder
+  lacks, then the manifest, and never overwrites.
+- **Limits:** the first series is one full download (the browser's cache is keyed by address, so
+  a flat or bundled index cannot become a series). An appended pack keeps every earlier card as
+  it was, so a card whose image changed is refused by `build-features --base`: a set with
+  preview-to-final art swaps starts a new series (a new folder and `--new-series`).
+  `--new-series` is also what lets `publish-geo` write into a folder that is not empty and holds
+  none of the manifest's shards; without it that is refused as a likely mistyped folder.
 
 **3.2 The pointer's settings file.** Copy `$UPD/geo/geo.json` to `$UPD/geometric.json` and set
 its `index.path` to the manifest's address on the host,
@@ -269,7 +309,9 @@ cardvision cdn publish-geo --env-file "$ENV" --dir "$UPD/geo/packed" --expect-sh
 cardvision cdn verify-geo --env-file "$ENV" --dir "$UPD/geo/packed" --expect-sha256 "$MANIFEST_SHA"
 ```
 
-Older folders stay: a rollback and older installs need them.
+For a series (3.1a), add `--series --folder "$SERIES16" --manifest "manifest-$SRC16.json"` to
+all three; the folder stays the same from set to set. Older folders stay: a rollback and older
+installs need them.
 
 **6.5 The release and the pointer.** `MINV` is the live pointer's `minimumExtensionVersion`,
 else the first version of the product that reads a pointer.

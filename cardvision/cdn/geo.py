@@ -119,6 +119,62 @@ def geo_plan(folder: Path, expect_sha256: str) -> tuple[str, list[GeoFile]]:
     return f"{GEO_PREFIX}{source[:16]}/", files
 
 
+def geo_series_plan(folder: Path, manifest_name: str, series_folder: str, expect_sha256: str) -> tuple[str, list[GeoFile]]:
+    """The packed index of a series in `folder`: the manifest `manifest_name` (``manifest-<16 hex>.json``)
+    with the SHA-256 the extension pins, and every shard it names (``shard-<16 hex>.bin``, the
+    first 16 hex of its own SHA-256), the base's shards included. Returns the CDN folder
+    ``vision/geo/<series_folder>/`` and the files, shards first and the manifest last."""
+    folder = Path(folder)
+    if not HEX64.fullmatch(expect_sha256 or ""):
+        raise Refused("--expect-sha256 must be 64 lowercase hex digits (the manifest's SHA-256 the extension pins)")
+    if not re.fullmatch(r"[0-9a-f]{16}", series_folder or ""):
+        raise Refused("--folder must be 16 lowercase hex digits (the first 16 of the series' first index SHA-256)")
+    if not re.fullmatch(r"manifest-[0-9a-f]{16}\.json", manifest_name or ""):
+        raise Refused("--manifest must be a file name of the form manifest-<16 hex>.json")
+    mpath = folder / manifest_name
+    if not mpath.is_file():
+        raise Refused(f"{mpath}: missing")
+    mbytes = mpath.read_bytes()
+    msha = hashlib.sha256(mbytes).hexdigest()
+    if msha != expect_sha256:
+        raise Refused(f"{manifest_name} has SHA-256 {msha}, not the expected {expect_sha256}")
+    try:
+        m = json.loads(mbytes)
+    except json.JSONDecodeError as e:
+        raise Refused(f"{manifest_name} is not JSON ({e})")
+    if not isinstance(m, dict) or m.get("schemaVersion") != 1 or m.get("kind") != "geometric-index-packed":
+        raise Refused(f"{manifest_name} is not a packed geometric index (schemaVersion 1, kind geometric-index-packed)")
+    source = (m.get("source") or {}).get("sha256") if isinstance(m.get("source"), dict) else None
+    if not isinstance(source, str) or not HEX64.fullmatch(source):
+        raise Refused(f"{manifest_name}: source.sha256 must be 64 lowercase hex digits")
+    shards = m.get("shards")
+    if not isinstance(shards, list) or not shards:
+        raise Refused(f"{manifest_name}: shards must be a non-empty list")
+    files: list[GeoFile] = []
+    seen: set[str] = set()
+    for i, sh in enumerate(shards):
+        name = sh.get("path") if isinstance(sh, dict) else None
+        sha = sh.get("sha256") if isinstance(sh, dict) else None
+        if not isinstance(name, str) or not re.fullmatch(r"shard-[0-9a-f]{16}\.bin", name) or name in seen:
+            raise Refused(f"{manifest_name}: shards[{i}].path must be a distinct shard-<16 hex>.bin name "
+                          "(pack with --content-names; a series takes content-named shards only)")
+        if not isinstance(sha, str) or not HEX64.fullmatch(sha):
+            raise Refused(f"{manifest_name}: shards[{i}].sha256 must be 64 lowercase hex digits")
+        if name != f"shard-{sha[:16]}.bin":
+            raise Refused(f"{manifest_name}: shards[{i}] is named {name}, but its SHA-256 {sha} gives shard-{sha[:16]}.bin")
+        seen.add(name)
+        p = folder / name
+        if not p.is_file():
+            raise Refused(f"{p}: missing")
+        data = p.read_bytes()
+        got = hashlib.sha256(data).hexdigest()
+        if got != sha:
+            raise Refused(f"{name}: SHA-256 {got}, the manifest says {sha}")
+        files.append(GeoFile(name, data, sha, "application/octet-stream"))
+    files.append(GeoFile(manifest_name, mbytes, msha, "application/json"))
+    return f"{GEO_PREFIX}{series_folder}/", files
+
+
 def remote_head(s3, bucket: str, key: str) -> Optional[dict]:
     """HEAD of an object, or None when there is none."""
     try:
@@ -158,36 +214,74 @@ def _check(s3, bucket: str, key: str, f: GeoFile) -> Optional[str]:
     return "; ".join(problems) if problems else None
 
 
+def _folder_names(s3, bucket: str, folder: str) -> list[str]:
+    """The names of the objects under `folder`, listed through the S3 API."""
+    names, token = [], None
+    while True:
+        page = s3.list_objects_v2(Bucket=bucket, Prefix=folder, **({"ContinuationToken": token} if token else {}))
+        names += [o["Key"][len(folder):] for o in page.get("Contents", [])]
+        if not page.get("IsTruncated"):
+            return names
+        token = page.get("NextContinuationToken")
+
+
 def geo_layout_problem(s3, bucket: str, folder: str, flat: bool) -> Optional[str]:
     """An index folder holds one layout only: a flat index (manifest.json and shard-N.bin, written
     once) or a series (manifest-<16 hex>.json and shard-<16 hex>.bin, grown by appending). Writing
     one kind into a folder that holds the other is refused: the browser's cache keeps everything
     under the loaded manifest's folder, so the other kind's shards would never be freed. Listed
     through the S3 API."""
-    names, token = [], None
-    while True:
-        page = s3.list_objects_v2(Bucket=bucket, Prefix=folder, **({"ContinuationToken": token} if token else {}))
-        names += [o["Key"][len(folder):] for o in page.get("Contents", [])]
-        if not page.get("IsTruncated"):
-            break
-        token = page.get("NextContinuationToken")
+    names = _folder_names(s3, bucket, folder)
     if flat:
         series = [n for n in names if GEO_SERIES_FILE.fullmatch(n)]
         return f"{folder} holds a series index ({series[0]}…); a flat index never goes into a series folder" if series else None
     return f"{folder} holds a flat index (manifest.json); a series never starts in a flat folder" if "manifest.json" in names else None
 
 
+def _series_folder_problem(s3, bucket: str, folder: str, files: list[GeoFile], new_series: bool) -> None:
+    """Refuse a series folder that holds a flat index, or (without `new_series`) one that is not
+    empty and shares no shard with the manifest."""
+    names = _folder_names(s3, bucket, folder)
+    flat = [n for n in names if n == "manifest.json" or GEO_SHARD.fullmatch(n)]
+    if flat:
+        raise Refused(f"{folder} holds a flat index ({flat[0]}); a series never goes into a flat folder")
+    shards = [f.name for f in files if f.content_type != "application/json"]
+    if names and not new_series and not any(n in names for n in shards):
+        raise Refused(f"{folder} is not empty and holds none of this manifest's shards: a mistyped --folder would cost "
+                      "a full download. Check the folder, or pass --new-series to start another series here")
+
+
+def _series_bytes_line(files: list[GeoFile], todo: list[GeoFile], dry_run: bool) -> str:
+    """The shard bytes uploaded (or to upload) against the manifest's total."""
+    total = sum(len(f.data) for f in files if f.content_type != "application/json")
+    new = sum(len(f.data) for f in todo if f.content_type != "application/json")
+    manifest = sum(len(f.data) for f in todo if f.content_type == "application/json")
+    pct = f"{100 * new / total:.1f}" if total else "0.0"
+    return (f"{'would upload' if dry_run else 'uploaded'} {new} of {total} shard bytes ({pct}% of the index), "
+            f"plus {manifest} manifest bytes")
+
+
 def publish_geo(s3, bucket: str, folder: str, files: list[GeoFile], dry_run: bool = False,
-                fix_metadata: bool = False, log: Callable[[str], None] = print) -> int:
+                fix_metadata: bool = False, log: Callable[[str], None] = print,
+                series: bool = False, new_series: bool = False) -> int:
     """Upload the index under `folder`, shards first, then the manifest only once every shard is
     checked (size, SHA-256, Content-Type, Cache-Control). Nothing is ever overwritten with other
     bytes: such an object refuses the run before anything is uploaded. An object with the same
     bytes but the wrong Content-Type or Cache-Control refuses it too, unless `fix_metadata`,
     which rewrites its metadata in place (a copy onto itself; the bytes do not change). Returns
-    the number of failures (0: all published and checked)."""
-    layout = geo_layout_problem(s3, bucket, folder, flat=True)
-    if layout:
-        raise Refused(layout)
+    the number of failures (0: all published and checked).
+
+    With `series`, `files` is a series' manifest and shards (``geo_series_plan``): only the
+    objects missing from the folder are uploaded, so a set added to a series costs its own shards
+    and the manifest. A folder that holds a flat index is refused, and so is a non-empty folder
+    that shares no shard with the manifest (a mistyped folder would cost a full download), unless
+    `new_series`. The log ends with the shard bytes uploaded against the manifest's total."""
+    if series:
+        _series_folder_problem(s3, bucket, folder, files, new_series)
+    else:
+        layout = geo_layout_problem(s3, bucket, folder, flat=True)
+        if layout:
+            raise Refused(layout)
     todo: list[GeoFile] = []
     to_fix: list[GeoFile] = []
     wrong_meta: list[str] = []
@@ -213,6 +307,8 @@ def publish_geo(s3, bucket: str, folder: str, files: list[GeoFile], dry_run: boo
     for f in to_fix:
         log(f"{'would fix metadata of' if dry_run else 'fix metadata of'} {folder + f.name}")
     if dry_run:
+        if series:
+            log(_series_bytes_line(files, todo, True))
         log(f"dry run: {len(todo)} to upload, {len(to_fix)} to fix, {len(files) - len(todo) - len(to_fix)} already there; nothing changed")
         return 0
 
@@ -229,8 +325,8 @@ def publish_geo(s3, bucket: str, folder: str, files: list[GeoFile], dry_run: boo
             return f"upload failed: {e}"
         return _check(s3, bucket, key, f)
 
-    shards = [f for f in files if f.name != "manifest.json"]
-    manifest = [f for f in files if f.name == "manifest.json"]
+    shards = [f for f in files if f.content_type != "application/json"]
+    manifest = [f for f in files if f.content_type == "application/json"]
     bad = 0
     for f in shards:
         problem = put(f)
@@ -250,6 +346,8 @@ def publish_geo(s3, bucket: str, folder: str, files: list[GeoFile], dry_run: boo
             log(f"FAILED {folder + f.name}: {problem}")
         else:
             log(f"ok    {folder + f.name}")
+    if series and not bad:
+        log(_series_bytes_line(files, todo, False))
     return bad
 
 

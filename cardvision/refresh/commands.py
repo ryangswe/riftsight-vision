@@ -6,7 +6,8 @@
     cardvision refresh check CANDIDATE/release.json --base LIVE/release.json
         [--live-config CONFIG.json [--bundled-id ID]] [--editable name,facets] [--near 0.90]
         [--duplicate-vectors refuse|same-identity|report]
-        [--geometric CAND_GEO.json --base-geometric BASE_GEO.json] [--cardvision "COMMAND"] [--json OUT.json]
+        [--geometric CAND_GEO.json --base-geometric BASE_GEO.json [--packed MANIFEST [--base-packed MANIFEST]]]
+        [--cardvision "COMMAND"] [--json OUT.json]
     cardvision refresh diff BASE_DIR CANDIDATE_DIR
         [--exclude-truth-prefix PREFIX ...] [--exclude-truth-ids IDS.json] [--json OUT.json]
     cardvision refresh subset CATALOG OUT (--new-vs BASE_CATALOG | --ids IDS.json)
@@ -38,7 +39,7 @@ STEPS = {
 }
 # step -> the destinations of the flags it takes
 FLAGS = {
-    "check": {"base", "live_config", "bundled_id", "editable", "near", "duplicate_vectors", "geometric", "base_geometric", "cardvision", "json"},
+    "check": {"base", "live_config", "bundled_id", "editable", "near", "duplicate_vectors", "geometric", "base_geometric", "packed", "base_packed", "cardvision", "json"},
     "diff": {"exclude_truth_prefix", "exclude_truth_ids", "json"},
     "subset": {"new_vs", "ids"},
     "verdict": {"rule", "sha_file", "rehearsal", "reference"},
@@ -68,6 +69,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                             "one identity (same-identity), or only list it (report)")
     group.add_argument("--geometric", metavar="CAND_GEO.json", help="P4: the candidate's geometric settings")
     group.add_argument("--base-geometric", metavar="BASE_GEO.json", help="P4: the base's geometric settings")
+    group.add_argument("--packed", metavar="MANIFEST",
+                       help="P4: the candidate's packed manifest (default: packed/manifest.json beside --geometric); "
+                            "a series' is manifest-<16 hex>.json")
+    group.add_argument("--base-packed", metavar="MANIFEST",
+                       help="P4: the live packed manifest; the candidate's shards and cards must begin with its entries")
     group.add_argument("--cardvision", metavar="COMMAND",
                        help="the command that runs cardvision check-refresh and verify-release "
                             "(default: this Python with -m cardvision)")
@@ -117,11 +123,14 @@ def _check(args: argparse.Namespace) -> int:
         return _refuse("--geometric and --base-geometric go together")
     if args.bundled_id is not None and args.live_config is None:
         return _refuse("--bundled-id needs --live-config")
+    if (args.packed is not None or args.base_packed is not None) and args.geometric is None:
+        return _refuse("--packed and --base-packed need --geometric and --base-geometric")
     editable = [f.strip() for f in (args.editable or "").split(",") if f.strip()]
     verdict = check_release(args.paths[0], args.base, live_config=args.live_config, bundled_id=args.bundled_id,
                             editable=editable, near=DEFAULT_NEAR if args.near is None else args.near,
                             duplicate_vectors=args.duplicate_vectors or "refuse",
                             geometric=args.geometric, base_geometric=args.base_geometric,
+                            packed=args.packed, base_packed=args.base_packed,
                             cardvision=shlex.split(args.cardvision) if args.cardvision else None)
     text = json.dumps(verdict, indent=1)
     if args.json:

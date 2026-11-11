@@ -10,6 +10,9 @@ pages, settings file and remote releases on its own Cloudflare R2 bucket.
     cardvision cdn verify  [--samples N]
     cardvision cdn publish-geo --dir PACKED --expect-sha256 SHA [--dry-run] [--fix-metadata]
     cardvision cdn verify-geo  --dir PACKED --expect-sha256 SHA
+    cardvision cdn publish-geo --series --dir PACKED --folder HEX16 --manifest manifest-HEX16.json
+                   --expect-sha256 SHA [--new-series] [--dry-run] [--fix-metadata]
+    cardvision cdn verify-geo  --series --dir PACKED --folder HEX16 --manifest manifest-HEX16.json --expect-sha256 SHA
     cardvision cdn publish-release --release DIR --min-version X [--max-version Y] [--legal DIR]
                    [--geometric FILE --geo-manifest-sha256 SHA] [--data-file F]
                    [--config F [--set-pointer]] [--verdict-r F --verdict-n F | --no-refresh-gate REASON]
@@ -26,7 +29,10 @@ unpacked extension ids, comma-separated). ``plan --offline`` reads ``_PUBLIC_BAS
 ``publish-release``, and ``publish --config`` with a new pointer, need ``_EXTENSION_IDS`` too, a
 dry run included.
 
-``publish-geo``/``verify-geo`` and ``--geometric`` need ``"geometric": true``. ``--sessions``
+``publish-geo``/``verify-geo`` and ``--geometric`` need ``"geometric": true``. ``--series`` publishes
+an index packed with ``--content-names`` (and grown with ``pack-features --base``) into a folder
+that keeps growing: only the shards the folder lacks are uploaded, then the manifest, and
+nothing is overwritten. ``--sessions``
 also starts both ONNX Runtime sessions of the release in Node: use it whenever the detector or
 recognizer differs from what installs run. A refusal exits 3 and writes nothing; a failure after
 the first upload exits 1. Publishing needs the ``cdn`` extra (boto3).
@@ -62,6 +68,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--samples", type=int, default=8, help="verify: images to fetch")
     parser.add_argument("--dir", help="publish-geo/verify-geo: the packed geometric index (manifest.json, shard-N.bin)")
     parser.add_argument("--expect-sha256", help="publish-geo/verify-geo: the manifest's SHA-256 the extension pins")
+    parser.add_argument("--series", action="store_true",
+                        help="publish-geo/verify-geo: the index is a series (content-named shards, manifest-<16 hex>.json) in "
+                             "an existing folder; only missing shards and the manifest are uploaded")
+    parser.add_argument("--folder", metavar="HEX16",
+                        help="--series: the series folder under vision/geo/ (16 hex, named once after the series' first index)")
+    parser.add_argument("--manifest", metavar="NAME",
+                        help="--series: the manifest's file name in --dir (manifest-<16 hex>.json)")
+    parser.add_argument("--new-series", action="store_true",
+                        help="publish-geo --series: allow a non-empty folder that holds none of the manifest's shards")
     parser.add_argument("--fix-metadata", action="store_true",
                         help="publish-geo/publish-release: rewrite the metadata of objects already there with the right "
                              "bytes (bytes never change)")
@@ -93,7 +108,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run(args: argparse.Namespace) -> int:
     """Run one action; 0 done, 1 failed, 3 refused (nothing written)."""
     from cardvision.cdn.config import DEFAULT_CONFIG_PATH, Refused, load_cdn_config
-    from cardvision.cdn.geo import geo_plan, publish_geo
+    from cardvision.cdn.geo import geo_plan, geo_series_plan, publish_geo
     from cardvision.cdn.publish import plan_offline, plan_or_publish, publish_release
     from cardvision.cdn.target import load_env_file, r2_client, target_from_env
     from cardvision.cdn.verify import verify, verify_geo, verify_release_live
@@ -118,12 +133,22 @@ def run(args: argparse.Namespace) -> int:
                 raise Refused(f"{args.action}: this product has no geometric stage (cdn.config.json geometric: false)")
             if not args.dir:
                 raise Refused(f"{args.action} needs --dir")
-            folder, files = geo_plan(Path(args.dir), args.expect_sha256 or "")
+            if not args.series and (args.folder or args.manifest or args.new_series):
+                raise Refused("--folder, --manifest and --new-series go with --series")
+            if args.new_series and args.action != "publish-geo":
+                raise Refused("--new-series is for publish-geo")
+            if args.series:
+                if not args.folder or not args.manifest:
+                    raise Refused(f"{args.action} --series needs --folder and --manifest")
+                folder, files = geo_series_plan(Path(args.dir), args.manifest, args.folder, args.expect_sha256 or "")
+            else:
+                folder, files = geo_plan(Path(args.dir), args.expect_sha256 or "")
             if args.action == "verify-geo":
                 return 1 if verify_geo(product, target_from_env(product, need_secrets=False).public_base, folder, files) else 0
             t = target_from_env(product)
             print(f"target: bucket {t.bucket}, served at {t.public_base}; folder {folder}")
-            return 1 if publish_geo(r2_client(t), t.bucket, folder, files, dry_run=args.dry_run, fix_metadata=args.fix_metadata) else 0
+            return 1 if publish_geo(r2_client(t), t.bucket, folder, files, dry_run=args.dry_run, fix_metadata=args.fix_metadata,
+                                           series=args.series, new_series=args.new_series) else 0
         if args.action == "plan" and args.offline:
             return plan_offline(product, args)
         return plan_or_publish(product, args, target_from_env(product))
