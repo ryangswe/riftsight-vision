@@ -326,9 +326,9 @@ describe("a paused rest", () => {
     expect(core.restScriptProblem({ rests: [{ ...rest, pause: "yes" }] })).toMatch(/`pause` must be true or false/);
   });
 
-  it("is wired into the script: paused after the seek and before the move, and recorded per rest", () => {
+  it("is wired into the script: paused before the seek and the move, and recorded per rest", () => {
     const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
-    expect(source).toMatch(/window\.harness\.seek\(sec\), rest\.atSec\);[\s\S]*?rest\.pause === true\) await tab\.evaluate\(\(\) => window\.harness\.pause\(\)\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
+    expect(source).toMatch(/rest\.pause === true\) await tab\.evaluate\(\(\) => window\.harness\.pause\(\)\)[\s\S]*?window\.harness\.seek\(sec\), rest\.atSec\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
     expect(source).toContain("paused: rest.pause === true");
     expect(readFileSync(fileOf("README.md"), "utf-8")).toContain('`"pause": true`');
   });

@@ -607,11 +607,11 @@ try {
     await new Promise((done) => setTimeout(done, rest.pauseMs ?? 1000));
     const limit = rest.limitMs ?? limitMs;
     if (rest.scene !== undefined) await tab.evaluate((name) => window.harness.scene(name), rest.scene);
-    if (rest.atSec !== undefined) await tab.evaluate((sec) => window.harness.seek(sec), rest.atSec);
-    // A rest that pauses holds the picture still from its seek until the pointer has come to rest;
-    // a later rest without `pause` plays the clip on.
+    // A rest that pauses pauses before its seek, so the picture is exactly `atSec`; a later rest
+    // without `pause` plays the clip on.
     if (rest.pause === true) await tab.evaluate(() => window.harness.pause());
     else await tab.evaluate(() => window.harness.resume());
+    if (rest.atSec !== undefined) await tab.evaluate((sec) => window.harness.seek(sec), rest.atSec);
     await tab.evaluate((expect, ms) => window.harness.begin(expect, ms), rest.expect, limit);
     await tab.mouse.move(...at(rest.x, rest.y));
     let left = null;

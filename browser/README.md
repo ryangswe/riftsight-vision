@@ -1164,8 +1164,8 @@ the rest meets a new picture. The local server answers range requests, so a seek
 what the browser has buffered. The clip plays on from there, so keep each picture on screen for
 longer than the rest's wait limit.
 
-`"pause": true` pauses the clip after the rest's `atSec` seek (or where it is) and before the
-pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
+`"pause": true` pauses the clip before the rest's `atSec` seek (so the picture is exactly that
+time) and before the pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
 card does. A later rest without `pause` plays the clip on. Each line of the report has `paused`
 (true or false). With `--geometric-scope focus`, paused rests are how a card reached after the
 picture's analyses is measured.

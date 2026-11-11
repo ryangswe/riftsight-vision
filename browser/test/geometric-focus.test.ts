@@ -24,7 +24,7 @@ import { hoverAt, Pipeline } from "../src/pipeline.js";
 import { focusChecked, type FocusCheckReport, focusCheckLines } from "../score/focus-check.js";
 import type { Analyzer } from "../score/video.js";
 import { ACCEPTED_NMS_IOU, focusGroup } from "../src/recognition.js";
-import { HOVER_TRIGGER_MIN_GAP_MS } from "../src/frame-scheduler.js";
+import { FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import { SessionCore } from "../src/session-core.js";
 import { CONFIRM_FRAMES } from "../src/temporal-gate.js";
 import { createSession } from "../src/session.js";
@@ -695,6 +695,7 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
     let captured = 0;
     let answered = 0;
     let verified: string[] = [];
+    let neverVerify = false;
     const core = new SessionCore({ now: () => now, toWorker: (r) => { if (r.kind === "frame") sent.push(r); }, capture: () => { captured += 1; }, hoverAt: hit as never }, options);
     core.fromWorker({ kind: "release-status", ok: true, error: null, release: { analysisWidth: { min: 720, max: 1920 }, hoverMaxAgeMs: 2000, recognizer: { ep: "wasm" } } as never, cards: [] });
     const bitmap = { width: 1000, height: 500, close() {} } as unknown as ImageBitmap;
@@ -706,7 +707,7 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
       core.frame(id, bitmap, 1);
       const request = sent.at(-1)!;
       const f = request.focus;
-      if (options?.geometricScope === "focus" && f) {
+      if (options?.geometricScope === "focus" && f && !neverVerify) {
         for (const [card, x] of [["B", 600], ["C", 350]] as const) if (f.x >= x && f.x <= x + 200 && !verified.includes(card)) verified = [...verified, card];
       }
       core.fromWorker({ kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysisOf(verified) });
@@ -717,7 +718,7 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
       now += ms;
       core.tick();
     };
-    return { core, sent, answer, step, captured: () => captured, clock: () => now };
+    return { core, sent, answer, step, captured: () => captured, clock: () => now, neverVerify: (v: boolean) => { neverVerify = v; } };
   }
 
   /** The picture is paused: presented once, then analyzed with its repeats, with the pointer on A. */
@@ -784,5 +785,153 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
     t.core.pointer(0.2, 0.5, 1); // A, verified
     t.step(1_000);
     expect(t.captured()).toBe(before);
+  });
+
+  it("never looks again at a playing video: focus starts no more looks than scope all", async () => {
+    const run = (options: ConstructorParameters<typeof SessionCore>[1]) => {
+      const t = setup(options);
+      for (let i = 0; i < 40; i++) {
+        t.core.presented(1 + i * 0.15); // a playing video presents a frame every tick
+        t.core.pointer([0.2, 0.7, 0.45][i % 3]!, 0.5, 1 + i * 0.15); // and the pointer crosses the cards
+        t.answer();
+        t.step(150);
+        t.answer();
+      }
+      return t.captured();
+    };
+    const all = run({});
+    expect(all).toBeGreaterThan(5);
+    expect(run({ geometricScope: "focus" })).toBeLessThanOrEqual(all);
+  });
+
+  it("waits out a retry's back-off, and a refused capture asks for nothing at rest", () => {
+    const t = paused({ geometricScope: "focus" });
+    const before = t.captured();
+    t.core.pointer(0.7, 0.5, 1); // B: the re-look
+    const times: number[] = [t.clock()];
+    let failed = before;
+    for (let ms = 0; ms < 9_000 && times.length < 5; ms += 25) {
+      if (t.captured() > failed) {
+        failed = t.captured();
+        if (times.length < 5) {
+          if (failed !== before + 1) times.push(t.clock());
+        }
+        t.core.captureFailed(failed, "no picture yet", true);
+      }
+      t.step(25);
+    }
+    const gaps = times.slice(1).map((at, i) => at - times[i]!);
+    expect(gaps.length).toBeGreaterThanOrEqual(3);
+    // 250, 500, 1000 (then 2000): each at least its back-off, and within a tick of it.
+    [250, 500, 1_000, 2_000].slice(0, gaps.length).forEach((want, i) => {
+      expect(gaps[i]!, `gap ${i}`).toBeGreaterThanOrEqual(want);
+      expect(gaps[i]!, `gap ${i}`).toBeLessThan(want + 300);
+    });
+
+    const r = paused({ geometricScope: "focus" });
+    const n = r.captured();
+    r.core.pointer(0.7, 0.5, 1);
+    // Every capture is refused (the pointer was outside); the refused look's own repeats may
+    // still run, and then the resting pointer asks for nothing more.
+    let refusedUpTo = n;
+    const refuseAll = (): void => {
+      while (refusedUpTo < r.captured()) {
+        refusedUpTo += 1;
+        r.core.captureFailed(refusedUpTo, "the pointer was outside", false);
+      }
+    };
+    refuseAll();
+    for (let i = 0; i < 60; i++) {
+      r.step(50);
+      refuseAll();
+    }
+    const settled = r.captured();
+    expect(settled).toBeLessThanOrEqual(n + CONFIRM_FRAMES);
+    for (let i = 0; i < 100; i++) {
+      r.step(50);
+      refuseAll();
+    }
+    expect(r.captured()).toBe(settled);
+  });
+
+  it("looks again from tick when the pointer reached the face while the last repeat was in flight, and rests", () => {
+    const t = paused({ geometricScope: "focus" });
+    t.core.pointer(0.7, 0.5, 1); // B: the re-look, then its repeats
+    t.answer();
+    const begun = t.captured();
+    // Run to the last repeat and leave it in flight.
+    while (t.captured() < begun + CONFIRM_FRAMES - 1) {
+      t.step(50);
+      if (t.captured() < begun + CONFIRM_FRAMES - 1) t.answer();
+    }
+    t.core.pointer(0.45, 0.5, 1); // C: a look is in flight, so nothing starts now
+    expect(t.captured()).toBe(begun + CONFIRM_FRAMES - 1);
+    t.answer(); // the repeat (which asked with the pointer on B) comes back; C is not verified
+    expect(t.core.hitAt(0.45, 0.5)?.cardId ?? null).toBeNull();
+    for (let i = 0; i < 20; i++) {
+      t.step(50); // the pointer rests: only tick can look again
+      t.answer();
+    }
+    expect(t.sent.at(-1)!.focus).toEqual({ x: 450, y: 250 });
+    expect(t.core.hitAt(0.45, 0.5)?.cardId).toBe("C");
+  });
+
+  it("does not look again for a pointer that has rested past the grace period", () => {
+    const t = paused({ geometricScope: "focus" });
+    t.neverVerify(true); // B stays unverified, so the re-look repeats while it is allowed
+    t.core.pointer(0.7, 0.5, 1);
+    const start = t.clock();
+    let lastCapture = start;
+    let seen = t.captured();
+    for (let i = 0; i < 300; i++) {
+      t.answer();
+      t.step(50);
+      if (t.captured() > seen) {
+        seen = t.captured();
+        lastCapture = t.clock();
+      }
+    }
+    expect(lastCapture - start).toBeGreaterThan(1_000); // it did keep trying
+    expect(lastCapture - start).toBeLessThanOrEqual(POINTER_GRACE_MS + 300); // and stopped with the grace period
+  });
+});
+
+describe("row 8: FrameScheduler.relookDue", () => {
+  /** A paused picture analyzed with all its repeats, the pointer moved onto it at `moved`. */
+  function still(moved: number) {
+    const s = new FrameScheduler(500, 3, "pointer", 1000);
+    s.framePresented();
+    s.pointerMoved(0);
+    s.started(0);
+    s.started(250);
+    s.started(500); // the presented picture and two repeats
+    s.pointerMoved(moved);
+    return s;
+  }
+
+  it("is due on a still picture the pointer moved onto, once the gap has passed", () => {
+    const s = still(2_000);
+    expect(s.relookDue(2_000, false)).toBe(true);
+    expect(s.relookDue(2_000, true)).toBe(false); // one in flight
+    s.started(2_000, { trigger: "hover" });
+    expect(s.relookDue(2_000 + HOVER_TRIGGER_MIN_GAP_MS - 1, false)).toBe(false); // repeats waiting, and the gap
+  });
+
+  it("is not due while a frame is waiting, repeats are left, a retry waits or a capture was refused", () => {
+    const presented = still(2_000);
+    presented.framePresented();
+    expect(presented.relookDue(2_000, false)).toBe(false);
+    const retry = still(2_000);
+    retry.lookUnanswered(2_000);
+    expect(retry.relookDue(2_100, false)).toBe(false);
+    const refused = still(2_000);
+    refused.lookRefused();
+    expect(refused.relookDue(2_000, false)).toBe(false);
+  });
+
+  it("is not due once the pointer's grace period is over", () => {
+    const s = still(2_000);
+    expect(s.relookDue(2_000 + POINTER_GRACE_MS - 1, false)).toBe(true);
+    expect(s.relookDue(2_000 + POINTER_GRACE_MS + 1, false)).toBe(false);
   });
 });
