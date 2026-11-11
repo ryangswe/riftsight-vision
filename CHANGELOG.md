@@ -20,6 +20,18 @@ break the public surface; this file names each break and how to migrate.
   takes a card height in frame pixels (Alt/Option+drag) and a camera angle class (keys 7, 8, 9),
   kept in `probes.json` beside the labels. The label rows and the manifest export don't change.
 
+### Changed
+
+- `cardvision cdn publish --config` now refuses a pointer to a release that was uploaded without the
+  refresh verdicts (exit 3, a dry run too). `publish-release` records in each release's index
+  entry whether it cleared the refresh gate (an optional `refreshGate` key; `schemaVersion` stays
+  1), and the pointer move reads that record. The record is written before the release's files,
+  so an upload that stops part-way still counts as uncleared, and an upload whose release index
+  cannot be written stops before any file is uploaded. Releases from before this change, and an
+  unreadable index, pass with a note or a warning, so a rollback is still one command. Verdict
+  options given to `publish-release` without `--config` are now read and recorded; before, they
+  were ignored.
+
 ### Fixed
 
 - The labeller's Enter and Space never skip an unanswered point or card; in the names and

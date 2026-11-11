@@ -325,7 +325,9 @@ cardvision cdn verify-release-live --env-file "$ENV" --expect-id PREVIOUS_ID
 - `live-config.json` is the settings file as it was before this update. Without a `release`
   field, installs return to their bundled release.
 - `publish --config` checks the release it names live before writing it, so a rollback is
-  checked too. Folders are never deleted.
+  checked too, and so is the release index: a release that cleared the refresh gate, or was
+  published before the index recorded it, needs no verdict options. Only a folder uploaded without
+  the verdicts refuses (exit 3). Folders are never deleted.
 - Faster stops, maintainer only: `namesOnly: true` (names, no pictures) or `primary: null`.
 - The next update starts from the release the settings file names after the rollback.
 

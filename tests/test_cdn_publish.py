@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cardvision.cdn.config import CONFIG_KEY
+from cardvision.cdn.config import CONFIG_KEY, Refused
 from cardvision.cdn.publish import data_file_gate, plan_or_publish, pointer_gate, publish_release
 from cardvision.cdn.release import RELEASE_CACHE, load_local_release, pointer_block
 from cardvision.cdn.settings import load_data_file
@@ -131,9 +131,10 @@ def test_release_then_data_file_then_config_with_the_exact_bytes(setup):
     keys = s3.put_keys
     doc_key = f"{PREFIX}{RID}/release.json"
     assert keys[-1] == CONFIG_KEY and keys.index(doc_key) < keys.index(f"data/{details.name}") < keys.index(CONFIG_KEY)
-    assert keys[:5] == [f"{PREFIX}{RID}/{n}" for n in ("detector.onnx", "recognizer.onnx", "bank.json", "identity-groups.json", "catalog.json")]
-    assert keys[5:9] == [f"{PREFIX}{RID}/{n}" for n in ("LICENSE", "NOTICE", "PROVENANCE.md")] + [doc_key]
-    assert keys[9] == f"{PREFIX}index.json"
+    assert keys[0] == f"{PREFIX}index.json", "the gate state first, so a crash after the folder leaves it"
+    assert keys[1:6] == [f"{PREFIX}{RID}/{n}" for n in ("detector.onnx", "recognizer.onnx", "bank.json", "identity-groups.json", "catalog.json")]
+    assert keys[6:10] == [f"{PREFIX}{RID}/{n}" for n in ("LICENSE", "NOTICE", "PROVENANCE.md")] + [doc_key]
+    assert keys[10] == f"{PREFIX}index.json"
     assert after == [(BASE, 4)], "verify after config.json"
     assert seen_live[0]["candidate"] == RID and seen_live[0]["geometric"] is None
     lr = load_local_release(p, setup.folder, setup.legal)
@@ -551,3 +552,176 @@ def test_publish_art_with_the_index(setup):
     args.dry_run = False
     assert plan_or_publish(p, args, TGT, s3=s3, log=quiet) == 0
     assert s3.put_keys == ["art/EX-001.jpg", "art/index.json"]
+
+
+# ------------------------------------------------------------ publish --config checks the release index
+INDEX = f"{PREFIX}index.json"
+NOT_LIVE = "ffffffffffffffff"
+
+
+class UnreadableIndex(FakeS3):
+    """A bucket whose release index cannot be read; `reads` counts the attempts."""
+    reads = 0
+
+    def get_object(self, *, Bucket, Key):
+        if Key == INDEX:
+            self.reads += 1
+            raise RuntimeError("index read")
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
+@pytest.fixture
+def move(setup):
+    """A pointer move to RID by publish --config over the bucket `s3` holds; returns the call."""
+    p = product(PANEL_CONFIG, setup.tmp)
+    lr = load_local_release(p, setup.folder, setup.legal)
+    block = pointer_block(lr, "0.3.0", None)
+    cfg_file = setup.tmp / "previous.json"
+    cfg_file.write_text(json.dumps(CFG | {"release": block}))
+
+    def call(s3, dry_run=False, get=no_pointer, log=quiet):
+        return plan_or_publish(p, publish_args(config=str(cfg_file), dry_run=dry_run), TGT, s3=s3, get=get,
+                               pointer_check=lambda base, rel: None, log=log)
+    return SimpleNamespace(p=p, block=block, call=call, cfg_file=cfg_file)
+
+
+def upload_folder(setup, s3, **k):
+    """publish-release without --config, as the older workflow did it."""
+    args = release_args(setup.folder, setup.legal, None, dry_run=False, **k)
+    assert pr(product(PANEL_CONFIG, setup.tmp), args, s3, setup.refs, verify_live=lambda *a, **k: 0) == 0
+
+
+def index_of(s3) -> dict:
+    return json.loads(s3.objects[INDEX]["Body"])["releases"]
+
+
+def test_a_rollback_to_a_release_with_a_record_or_from_before_the_gate_needs_no_verdicts(setup, move):
+    for entry, said in (({"publishedAt": "t", "bytes": {}, "refreshGate": {"at": "2026-11-01T00:00:00Z", "waived": True}},
+                         f"refresh gate: release {RID} cleared 2026-11-01T00:00:00Z"),
+                        ({"publishedAt": "t", "bytes": {}}, "recorded before the gate"),
+                        (None, "recorded before the gate")):
+        idx = {"schemaVersion": 1, "releases": {RID: entry} if entry else {}}
+        s3 = FakeS3(objects={INDEX: (json.dumps(idx).encode(), {})})
+        lines: list[str] = []
+        assert move.call(s3, log=lines.append) == 0
+        assert s3.put_keys == [CONFIG_KEY], "only config.json is written"
+        assert any(said in line for line in lines)
+    s3 = FakeS3()
+    assert move.call(s3) == 0 and s3.put_keys == [CONFIG_KEY], "no index at all: before the gate"
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_a_folder_uploaded_without_verdicts_cannot_be_pointed_at(setup, move, dry_run):
+    s3 = FakeS3()
+    upload_folder(setup, s3)
+    assert index_of(s3)[RID]["refreshGate"] is None
+    before, puts = dict(s3.objects), len(s3.puts)
+    with pytest.raises(Refused, match="was uploaded without the refresh verdicts.*publish-release --config.*"
+                                      "--verdict-r/--verdict-n.*--no-refresh-gate") as e:
+        move.call(s3, dry_run=dry_run)
+    assert "nothing written" in str(e.value) and len(s3.puts) == puts and s3.objects == before
+
+
+def test_the_command_exits_3_for_such_a_move(setup, move, monkeypatch, capsys):
+    import argparse
+
+    from cardvision.cdn import commands, config as cdn_config, publish as publish_mod, target as target_mod
+    s3 = FakeS3()
+    upload_folder(setup, s3)
+    monkeypatch.setattr(cdn_config, "load_cdn_config", lambda path: move.p)
+    monkeypatch.setattr(target_mod, "target_from_env", lambda product, **k: TGT)
+    monkeypatch.setattr(publish_mod, "r2_client", lambda t: s3)
+    monkeypatch.setattr(publish_mod, "product_get", lambda product: no_pointer)
+    monkeypatch.setattr(publish_mod, "pointer_gate", lambda *a, **k: None)
+    parser = argparse.ArgumentParser()
+    commands.add_arguments(parser)
+    args = parser.parse_args(["publish", "--config", str(move.cfg_file)])
+    puts = len(s3.puts)
+    assert commands.run(args) == 3 and len(s3.puts) == puts
+    assert "was uploaded without the refresh verdicts" in capsys.readouterr().err
+
+
+def test_a_folder_uploaded_with_verdicts_can_be_pointed_at_and_the_log_names_them(setup, move, tmp_path):
+    r, n = tmp_path / "VERDICT-R.json", tmp_path / "VERDICT-N.json"
+    for path, gate in ((r, "R"), (n, "N")):
+        path.write_text(json.dumps({"gate": gate, "rule": "1" * 64, "verdict": "PASS", "rehearsal": False}))
+    s3 = FakeS3()
+    upload_folder(setup, s3, verdict_r=str(r), verdict_n=str(n))
+    rec = index_of(s3)[RID]["refreshGate"]
+    assert rec["r"] == hashlib.sha256(r.read_bytes()).hexdigest() and rec["n"] == hashlib.sha256(n.read_bytes()).hexdigest()
+    lines: list[str] = []
+    puts = len(s3.puts)
+    assert move.call(s3, log=lines.append) == 0
+    assert [k for k, *_ in s3.puts[puts:]] == [CONFIG_KEY]
+    cleared = [line for line in lines if line.startswith(f"refresh gate: release {RID} cleared {rec['at']}")]
+    assert len(cleared) == 1, "the move says which verdicts cleared it"
+    assert f"rule {rec['rule']}, R sha256 {rec['r']}, N sha256 {rec['n']}" in cleared[0]
+
+
+def test_a_pointer_that_is_the_live_one_never_reads_the_index(setup, move):
+    live = lambda url, **k: (200, {}, json.dumps(CFG | {"release": move.block}).encode()) if CONFIG_KEY in url else (404, {}, b"")  # noqa: E731
+    s3 = UnreadableIndex()
+    lines: list[str] = []
+    assert move.call(s3, get=live, log=lines.append) == 0 and s3.put_keys == [CONFIG_KEY]
+    assert s3.reads == 0 and not any("WARNING" in line for line in lines), "the index was never read"
+    s3 = FakeS3()
+    upload_folder(setup, s3)
+    assert move.call(s3, get=live) == 0, "a null entry does not stop the live pointer being written again"
+
+
+def test_an_unreadable_index_passes_a_pointer_move_with_a_warning(setup, move):
+    s3 = UnreadableIndex()
+    lines: list[str] = []
+    assert move.call(s3, log=lines.append) == 0 and s3.put_keys == [CONFIG_KEY]
+    assert s3.reads == 1
+    warning = [line for line in lines if line.startswith("WARNING")]
+    assert len(warning) == 1 and "index could not be read" in warning[0] and not warning[0].endswith("nothing written")
+
+
+class CrashOnSecondIndexWrite(FakeS3):
+    """The first write of the release index lands; the next one crashes (a run killed after the folder)."""
+    writes = 0
+
+    def put_object(self, *, Bucket, Key, **k):
+        if Key == INDEX:
+            self.writes += 1
+            if self.writes > 1:
+                raise RuntimeError("crash")
+        return super().put_object(Bucket=Bucket, Key=Key, **k)
+
+
+def test_a_crash_after_the_folder_still_leaves_the_state_so_the_pointer_move_refuses(setup, move):
+    s3 = CrashOnSecondIndexWrite()
+    args = release_args(setup.folder, setup.legal, None, dry_run=False)
+    with pytest.raises(RuntimeError, match="crash"):
+        pr(product(PANEL_CONFIG, setup.tmp), args, s3, setup.refs, verify_live=lambda *a, **k: 0)
+    assert f"{PREFIX}{RID}/release.json" in s3.objects, "the folder is complete"
+    assert index_of(s3)[RID] == {"refreshGate": None}, "and the state was written first"
+    puts = len(s3.puts)
+    with pytest.raises(Refused, match="was uploaded without the refresh verdicts"):
+        move.call(s3)
+    assert len(s3.puts) == puts
+
+
+def test_a_record_made_against_another_live_release_warns_and_still_passes(setup, move):
+    rec = {"at": "2026-11-01T00:00:00Z", "rule": "1" * 64, "r": "2" * 64, "n": None, "againstLive": "a" * 16}
+    s3 = FakeS3(objects={INDEX: (json.dumps({"schemaVersion": 1, "releases": {RID: {"refreshGate": rec}}}).encode(), {})})
+    live = lambda url, **k: (200, {}, json.dumps(CFG | {"release": {"id": "b" * 16}}).encode()) if CONFIG_KEY in url else (404, {}, b"")  # noqa: E731
+    lines: list[str] = []
+    assert move.call(s3, get=live, log=lines.append) == 0 and s3.put_keys == [CONFIG_KEY]
+    assert (f"WARNING: release {RID} was cleared with R alone against release {'a' * 16}, "
+            f"but the live release is {'b' * 16}: its new cards were not judged against it") in lines
+
+
+def test_a_pointer_move_reads_the_live_config_once(setup, move, gate, monkeypatch):
+    from cardvision.cdn import publish as publish_mod
+    monkeypatch.setattr(publish_mod, "verify_release_live", lambda *a, **k: 0)
+    monkeypatch.setattr(publish_mod, "load_runtimes", lambda product: same_models(setup.refs))
+    urls: list[str] = []
+
+    def counting(url, **k):
+        urls.append(url)
+        return gate.off(url, **k)
+    args = publish_args(config=str(move.cfg_file), dry_run=True)
+    assert plan_or_publish(move.p, args, TGT, s3=FakeS3(), get=counting, log=quiet) == 0
+    assert sum(CONFIG_KEY in u for u in urls) == 1 and any(gate.ptr["path"] in u for u in urls), "the default pointer gate ran"
