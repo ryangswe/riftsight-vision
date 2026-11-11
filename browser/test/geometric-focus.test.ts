@@ -1313,4 +1313,86 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     expect(t.core.hitAt(PX(30), PY)).toBeNull(); // the boosted neighbour suppresses X, as in "all"
     expect(t.core.hitAt(PX(150), PY)?.cardId).toBe("D"); // and is itself named
   });
+
+  // ------------------------------------------------ a seek, then a pause
+  /** A video that was playing, then a seek: its frame comes a few tens of ms after the one before. */
+  const seekThenPause = (t: ReturnType<typeof live>): void => {
+    t.core.presented(1);
+    t.step(30);
+    t.core.discontinuity(false);
+    t.core.presented(1);
+  };
+
+  it("seek, pause, hover: the first repeat runs scope all, and a second card is named with no new look", async () => {
+    const stage = fakeStage();
+    const t = live(threeBoxes, three, { geometricScope: "focus" }, stage);
+    seekThenPause(t);
+    t.step(30);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus", focus: { x: 40, y: 100 } });
+    expect(stage.crops).toHaveLength(1);
+    t.step(260); // the first repeat, well inside a second of the seek's frame
+    await t.flush();
+    expect(t.sent).toHaveLength(2);
+    expect("focus" in t.sent[1]!).toBe(false);
+    expect("geometricScope" in t.sent[1]!).toBe(false);
+    expect(stage.crops).toHaveLength(1 + 3); // every applicable face
+    const looks = t.sent.length;
+    t.core.pointer(PX(340), PY, 1);
+    expect(t.core.fresh()?.cardId).toBe("C"); // named from the result on screen
+    t.core.pointer(PX(600), PY, 1);
+    expect(t.core.fresh()?.cardId).toBe("D");
+    expect(t.sent.length).toBe(looks); // and no look was asked for
+  });
+
+  it("a playing video after a seek: no look from the second frame on goes without focus", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.step(30);
+    t.core.discontinuity(false);
+    for (let i = 0; i < 20; i++) {
+      t.core.presented(1);
+      t.core.pointer([0.05, 0.4, 0.7][i % 3]!, PY, 1);
+      for (let k = 0; k < 3; k++) {
+        t.step(50); // a frame every 150 ms
+        await t.flush();
+      }
+    }
+    const later = t.sent.slice(1);
+    expect(later.length).toBeGreaterThanOrEqual(2);
+    expect(later.filter((r) => r.focus === undefined || r.geometricScope !== "focus")).toHaveLength(0);
+  });
+
+  it("frames 300 ms apart after a seek: at most the one repeat before the next frame runs scope all", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.step(30);
+    t.core.discontinuity(false);
+    for (let i = 0; i < 20; i++) {
+      t.core.presented(1);
+      t.core.pointer([0.05, 0.4, 0.7][i % 3]!, PY, 1);
+      for (let k = 0; k < 6; k++) {
+        t.step(50);
+        await t.flush();
+      }
+    }
+    const without = t.sent.map((r, i) => (r.focus === undefined ? i : -1)).filter((i) => i >= 0);
+    expect(without.every((i) => i <= 1)).toBe(true);
+  });
+
+  it("a pause without a seek, within a second of the last frames: the repeats keep their focus", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    for (let i = 0; i < 3; i++) {
+      t.core.presented(1);
+      t.step(30);
+    }
+    t.core.pointer(PX(40), PY, 1);
+    for (let k = 0; k < 16; k++) {
+      t.step(50); // 800 ms: both repeats
+      await t.flush();
+    }
+    expect(t.sent.length).toBeGreaterThanOrEqual(2);
+    expect(t.sent.filter((r) => r.focus === undefined || r.geometricScope !== "focus")).toHaveLength(0);
+  });
 });

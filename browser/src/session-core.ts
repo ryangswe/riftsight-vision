@@ -331,6 +331,7 @@ export class SessionCore {
     if (this.st.state === "stopped") return;
     this.generation += 1;
     if (newSource) this.sourceCount += 1;
+    this.discontinuityPending = true;
     this.scheduler.discontinuity();
     this.result = null;
     this.held = null;
@@ -621,21 +622,34 @@ export class SessionCore {
   /** `presentedCount` when the newest look that is not a repeat was asked for. */
   private lookPresentedCount = 0;
 
+  /** A seek or a new source happened and no frame has been presented since. */
+  private discontinuityPending = false;
+  /** The last frame presented was the first one after a seek or a new source. */
+  private lastFrameAfterDiscontinuity = false;
+
   private notePresented(): void {
     this.presentedCount += 1;
+    this.lastFrameAfterDiscontinuity = this.discontinuityPending;
+    this.discontinuityPending = false;
     this.prevPresentedAt = this.lastPresentedAt;
     this.lastPresentedAt = this.deps.now();
   }
 
   /**
    * Whether the repeat being asked for repeats a picture that really is still: no frame has been
-   * presented since the look it repeats, and either the last frame is a second old or more, or it
-   * came a second or more after the one before it. A video that presents a frame every 300 ms
-   * (a stall, a slide show) fails both, so its repeats between frames keep their focus.
+   * presented since the look it repeats, and the last frame was the first after a seek or a new
+   * source (a viewer who seeks and pauses), or is a second old or more, or came a second or more
+   * after the one before it. A video that presents a frame every 300 ms (a stall, a slide show)
+   * fails all three, so its repeats between frames keep their focus. Right after a seek, one
+   * repeat before the next frame arrives may still run "all" on such a video.
    */
   private stillRepeat(now: number): boolean {
     if (this.presentedCount !== this.lookPresentedCount) return false;
-    return now - this.lastPresentedAt >= STILL_PICTURE_MS || this.lastPresentedAt - this.prevPresentedAt >= STILL_PICTURE_MS;
+    return (
+      this.lastFrameAfterDiscontinuity ||
+      now - this.lastPresentedAt >= STILL_PICTURE_MS ||
+      this.lastPresentedAt - this.prevPresentedAt >= STILL_PICTURE_MS
+    );
   }
 
   private requestCapture(trigger?: "hover" | "cut"): void {
