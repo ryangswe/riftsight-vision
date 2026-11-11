@@ -18,6 +18,9 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   cycleSummary: (cycles: { workerMs: number; roundTripMs: number }[]) => Record<string, unknown>;
   buildReport: (input: { profile: object; lines: Record<string, unknown>[]; analysis: object }) => { profile: object; rests: unknown[]; summary: Record<string, unknown>; analysis: object };
   restScriptProblem: (script: unknown) => string | null;
+  restDelay: (rest: { pauseMs?: number; pauseAfterPreviousBeginMs?: number }, previousBegin: number | null, now: number) => { waitMs: number; lateMs: number | null };
+  pointGroup: (boxes: { box: number[]; score: number; cls: number; className: string; face: Record<string, unknown> | null }[], point: { x: number; y: number } | null) => { index: number; holdsPoint: boolean; box: number[]; face: Record<string, unknown> | null }[];
+  framePoint: (fraction: { fx: number; fy: number } | null, width: number, height: number) => { x: number; y: number } | null;
   requestAllowed: (url: string, origin: string) => boolean;
   byteRange: (header: string | undefined, size: number) => { start: number; end: number } | "unsatisfiable" | null;
   createRequestGuard: (origin: string) => { violations: string[]; handle: (request: FakeRequest) => unknown };
@@ -328,7 +331,7 @@ describe("a paused rest", () => {
 
   it("is wired into the script: paused before the seek and the move, and recorded per rest", () => {
     const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
-    expect(source).toMatch(/rest\.pause === true\) await tab\.evaluate\(\(\) => window\.harness\.pause\(\)\)[\s\S]*?window\.harness\.seek\(sec\), rest\.atSec\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
+    expect(source).toMatch(/rest\.pause === true\) pausedAtSec = \(await tab\.evaluate\(\(\) => window\.harness\.pause\(\)\)\)[\s\S]*?window\.harness\.seek\(sec\), rest\.atSec\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
     expect(source).toContain("paused: rest.pause === true");
     expect(readFileSync(fileOf("README.md"), "utf-8")).toContain('`"pause": true`');
   });
@@ -465,5 +468,57 @@ describe("moveAfterMs", () => {
     const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
     expect(source).toMatch(/window\.harness\.seek\(sec\), rest\.atSec\)[\s\S]*?setTimeout\(done, rest\.moveAfterMs\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
     expect(readFileSync(fileOf("README.md"), "utf-8")).toContain("`moveAfterMs`");
+  });
+});
+
+describe("pauseAfterPreviousBeginMs and the rest records", () => {
+  it("accepts ms after a previous rest, in place of pauseMs, and refuses the rest", () => {
+    const rest = { x: 0.1, y: 0.2, expect: "TOY-001" };
+    expect(core.restScriptProblem({ rests: [rest, { ...rest, pauseAfterPreviousBeginMs: 1800 }] })).toBeNull();
+    for (const bad of [-1, "1800"]) expect(core.restScriptProblem({ rests: [rest, { ...rest, pauseAfterPreviousBeginMs: bad }] })).toMatch(/must be a number of ms/);
+    expect(core.restScriptProblem({ rests: [rest, { ...rest, pauseAfterPreviousBeginMs: 1800, pauseMs: 300 }] })).toMatch(/not both/);
+    expect(core.restScriptProblem({ rests: [{ ...rest, pauseAfterPreviousBeginMs: 1800 }] })).toMatch(/needs a previous rest/);
+  });
+
+  it("starts pauseMs after the previous rest, or pauseAfterPreviousBeginMs after its begin, late when it ran past", () => {
+    expect(core.restDelay({}, 5000, 6000)).toEqual({ waitMs: 1000, lateMs: null });
+    expect(core.restDelay({ pauseMs: 300 }, 5000, 6000)).toEqual({ waitMs: 300, lateMs: null });
+    expect(core.restDelay({ pauseAfterPreviousBeginMs: 1800 }, 5000, 6000)).toEqual({ waitMs: 800, lateMs: 0 });
+    expect(core.restDelay({ pauseAfterPreviousBeginMs: 1800 }, 5000, 7250.4)).toEqual({ waitMs: 0, lateMs: 450 });
+    // A rest with no previous begin (the first) falls back to pauseMs' default.
+    expect(core.restDelay({ pauseAfterPreviousBeginMs: 1800 }, null, 6000)).toEqual({ waitMs: 1000, lateMs: null });
+  });
+
+  it("groups the boxes holding the point and, transitively, those overlapping them by IoU 0.3", () => {
+    const face = (id: string) => ({ topId: id, accepted: false, geometric: { verified: false, debug: { big: [1, 2, 3] } } });
+    const boxes = [
+      { box: [0, 0, 100, 100], score: 0.9, cls: 0, className: "face", face: face("A") }, // holds the point
+      { box: [40, 0, 100, 100], score: 0.8, cls: 0, className: "face", face: face("B") }, // IoU 60/140 = 0.43 with A
+      { box: [80, 0, 100, 100], score: 0.7, cls: 0, className: "face", face: face("C") }, // IoU 60/140 = 0.43 with B, 20/180 = 0.11 with A: joins through B
+      { box: [175, 0, 100, 100], score: 0.6, cls: 0, className: "face", face: null }, // IoU 500/19500 = 0.03 with C: out
+      { box: [500, 500, 50, 50], score: 0.5, cls: 1, className: "back", face: null }, // far away: out
+    ];
+    const group = core.pointGroup(boxes, { x: 10, y: 10 });
+    expect(group.map((g) => [g.index, g.holdsPoint])).toEqual([[0, true], [1, false], [2, false]]);
+    expect(group[0]!.face).toMatchObject({ topId: "A", accepted: false, geometric: { verified: false, debug: "(left out)" } });
+    expect(boxes[0]!.face!.geometric.debug).toEqual({ big: [1, 2, 3] });
+    expect(core.pointGroup(boxes, null)).toEqual([]);
+    expect(core.pointGroup(boxes, { x: 400, y: 400 })).toEqual([]);
+    expect(core.framePoint({ fx: 0.5, fy: 0.25 }, 1920, 1080)).toEqual({ x: 960, y: 270 });
+    expect(core.framePoint(null, 1920, 1080)).toBeNull();
+    // The worker wrapper is given their source text: they must run with nothing else in scope.
+    const isolated = new Function(`${core.pointGroup.toString()}; ${core.framePoint.toString()}; return { pointGroup, framePoint };`)() as Pick<typeof core, "pointGroup" | "framePoint">;
+    expect(isolated.pointGroup(boxes, { x: 10, y: 10 })).toEqual(group);
+    expect(isolated.framePoint({ fx: 0.5, fy: 0.25 }, 1920, 1080)).toEqual({ x: 960, y: 270 });
+  });
+
+  it("records frames only with --record-frames, after the reply, with the core's group rule", () => {
+    const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
+    expect(source).toContain('"--record-frames"');
+    expect(source).toContain("${pointGroup.toString()}");
+    expect(source).toMatch(/post\(\{ \.\.\.message, workerMs[^\n]*\n[\s\S]{0,200}?if \(RECORD_FRAMES\)/);
+    expect(source).toMatch(/restDelay\(rest, previousBegin, performance\.now\(\)\)[\s\S]*?window\.harness\.pause\(\)[\s\S]*?window\.harness\.begin\([\s\S]*?previousBegin = performance\.now\(\)/);
+    const readme = readFileSync(fileOf("README.md"), "utf-8");
+    for (const word of ["`pauseAfterPreviousBeginMs`", "`timing`", "`polled`", "`frames`", "--record-frames"]) expect(readme).toContain(word);
   });
 });
