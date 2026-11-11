@@ -241,7 +241,8 @@ cardvision cdn verify-geo --series --env-file .env --dir PACKED --folder SERIES1
 Only `shard-<16 hex>.bin` names whose 16 hex are the first of their own SHA-256 are taken.
 Only the shards the folder lacks are uploaded, then the manifest; nothing is overwritten
 (an object there with other bytes refuses the run). The run also prints the shard bytes
-uploaded (or, in a dry run, to upload) against the manifest's total. A folder that holds a
+uploaded (or, in a dry run, to upload) against the manifest's total, and what a returning
+browser downloads: the new shards plus the manifest, against the whole index. A folder that holds a
 flat index (`manifest.json` or `shard-N.bin`) is refused. A new series needs `--new-series` and a
 new, empty folder (a non-empty one is refused: the browser's cache would never free the old
 series' shards). Without `--new-series`, the folder must already hold at least one of the

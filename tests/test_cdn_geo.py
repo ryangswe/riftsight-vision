@@ -201,6 +201,10 @@ def test_a_series_pack_uploads_only_new_shards_then_the_manifest(series, tmp_pat
     assert {k: v for k, v in snapshot(s3).items() if k in first} == first, "old objects untouched"
     assert s3.copies == []
     assert any("uploaded 40 of 200 shard bytes (20.0% of the index)" in line for line in lines), lines
+    msize = len(next(f.data for f in files2 if f.name == M2))
+    pct = f"{100 * (40 + msize) / (200 + msize):.1f}"
+    assert any(f"a returning browser downloads {40 + msize} of {200 + msize} bytes ({pct}% of the whole index, "
+               "the manifest included)" in line for line in lines), lines
 
     p = product(GEO_CONFIG, tmp_path)
     served = {f"{BASE}/{folder}{f.name}": f.data for f in files2}
@@ -229,6 +233,10 @@ def test_a_series_dry_run_prints_the_byte_figure_and_writes_nothing(series):
     assert publish_geo(s3, "b", folder, files2, dry_run=True, series=True, log=lines.append) == 0
     assert len(s3.puts) == 3 and snapshot(s3) == before, "a dry run writes nothing"
     assert any("would upload 40 of 200 shard bytes (20.0% of the index)" in line for line in lines), lines
+    msize = len(next(f.data for f in files2 if f.name == M2))
+    pct = f"{100 * (40 + msize) / (200 + msize):.1f}"
+    assert any(f"a returning browser downloads {40 + msize} of {200 + msize} bytes ({pct}% of the whole index, "
+               "the manifest included)" in line for line in lines), lines
 
 
 def test_a_series_never_overwrites(series):

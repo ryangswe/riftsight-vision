@@ -263,13 +263,19 @@ def _series_folder_problem(s3, bucket: str, folder: str, files: list[GeoFile], n
 
 
 def _series_bytes_line(files: list[GeoFile], todo: list[GeoFile], dry_run: bool) -> str:
-    """The shard bytes uploaded (or to upload) against the manifest's total."""
+    """The shard bytes uploaded (or to upload) against the manifest's total, and what a browser that
+    holds the folder's other shards downloads: the new shards plus the manifest, against the whole
+    index (every shard plus the manifest)."""
     total = sum(len(f.data) for f in files if f.content_type != "application/json")
     new = sum(len(f.data) for f in todo if f.content_type != "application/json")
     manifest = sum(len(f.data) for f in todo if f.content_type == "application/json")
+    manifest_size = sum(len(f.data) for f in files if f.content_type == "application/json")
     pct = f"{100 * new / total:.1f}" if total else "0.0"
+    returning, whole = new + manifest_size, total + manifest_size
+    pct_returning = f"{100 * returning / whole:.1f}" if whole else "0.0"
     return (f"{'would upload' if dry_run else 'uploaded'} {new} of {total} shard bytes ({pct}% of the index), "
-            f"plus {manifest} manifest bytes")
+            f"plus {manifest} manifest bytes; a returning browser downloads {returning} of {whole} bytes "
+            f"({pct_returning}% of the whole index, the manifest included)")
 
 
 def publish_geo(s3, bucket: str, folder: str, files: list[GeoFile], dry_run: bool = False,

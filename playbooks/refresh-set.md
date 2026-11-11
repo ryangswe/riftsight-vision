@@ -209,7 +209,7 @@ cardvision cdn publish-geo --env-file "$ENV" --series --dir "$UPD/geo/packed" --
 ```
 
 - **Expect:** the check's two series P4 lines (extends the base, packs the live index) are true.
-  The dry run's last line gives the shard bytes to upload against the index's total.
+  The dry run's last line gives what a returning browser downloads (new shards plus the manifest).
 - **Know:** `publish-geo --series` uploads only the shards the folder lacks, then the manifest,
   and never overwrites. An append goes into the folder that holds the live shards (`SERIES16`
   stays the same). A new series needs `--new-series` and a new, empty folder. The first series

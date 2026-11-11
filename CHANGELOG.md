@@ -17,7 +17,7 @@ break the public surface; this file names each break and how to migrate.
   downloads a card set's new shards instead of the whole index. A folder with a flat index is
   refused; a new series needs `--new-series` and an empty folder, and an append needs a folder
   that already holds at least one of the manifest's shards. The
-  run prints the shard bytes uploaded against the manifest's total.
+  run prints the shard bytes uploaded against the manifest's total, and what a returning browser downloads.
 - `cardvision refresh check --packed MANIFEST [--base-packed MANIFEST]`: with `--base-packed`, a
   new P4 check that the candidate's packed `shards` and `cards` begin with the base's, entry for
   entry. Without the flags the check is unchanged.
