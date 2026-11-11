@@ -250,7 +250,8 @@ def _series_folder_problem(s3, bucket: str, folder: str, files: list[GeoFile], n
         raise Refused(f"{folder} holds a flat index ({flat[0]}); a series never goes into a flat folder")
     if new_series:
         if names:
-            raise Refused(f"{folder} is not empty; --new-series needs an empty folder (a new series always goes in a new folder)")
+            raise Refused(f"{folder} is not empty; --new-series needs an empty folder (a new series always goes in a new folder); "
+                          "if an earlier run of this series stopped part-way, re-run without --new-series")
         return
     shards = [f.name for f in files if f.content_type != "application/json"]
     if not names:
@@ -347,7 +348,9 @@ def publish_geo(s3, bucket: str, folder: str, files: list[GeoFile], dry_run: boo
             log(f"ok    {folder + f.name}")
     if bad:
         # A manifest is never live before every shard it names is there and right.
-        log(f"{bad} shard(s) failed; {manifest[0].name} NOT uploaded. Re-run to retry.")
+        again = ("Re-run without --new-series (the folder now holds the series' shards) to retry." if series
+                 else "Re-run to retry.")
+        log(f"{bad} shard(s) failed; {manifest[0].name} NOT uploaded. {again}")
         return bad
     for f in manifest:
         problem = put(f)

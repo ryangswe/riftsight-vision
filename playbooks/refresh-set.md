@@ -147,10 +147,9 @@ cardvision refresh check "$UPD/cand/release.json" --base "$LIVE/release.json" \
 ```
 
 Add `--bundled-id ID` when the live settings name no release, `--editable FIELDS` when the rule
-allows edits, and for a product with the geometric stage, after step 3.1,
-`--geometric "$UPD/geo/geo.json" --base-geometric "$LIVE_GEO"`. The candidate's settings must be
-`$UPD/geo/geo.json`, whose index is the file beside it with `packed/` next to it, not
-`$UPD/geometric.json`, whose index is an address on the host.
+allows edits, and for the geometric stage, after step 3.1, `--geometric "$UPD/geo/geo.json"
+--base-geometric "$LIVE_GEO"` (a series also `--packed "$UPD/geo/packed/manifest-$SRC16.json"`).
+The candidate's settings are `$UPD/geo/geo.json` (index beside it), not `$UPD/geometric.json`.
 
 - **Expect:** exit 0 and `"ok": true`. Any check false makes the update INVALID: fix the step it
   names and run it again; do not score.
@@ -316,8 +315,8 @@ cardvision cdn verify-geo --env-file "$ENV" --dir "$UPD/geo/packed" --expect-sha
 ```
 
 For a series (3.1a), add `--series --folder "$SERIES16" --manifest "manifest-$SRC16.json"` to
-all three; the folder stays the same from set to set. Older folders stay: a rollback and older
-installs need them.
+all three; the first publish of a series also takes `--new-series` on both publish-geo commands,
+not on verify-geo. Older folders stay: a rollback and older installs need them.
 
 **6.5 The release and the pointer.** `MINV` is the live pointer's `minimumExtensionVersion`,
 else the first version of the product that reads a pointer.

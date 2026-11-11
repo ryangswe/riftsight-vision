@@ -298,6 +298,13 @@ def test_a_content_name_of_digits_does_not_make_a_folder_flat(tmp_path):
     publish_geo(s3, "b", folder, geo_series_plan(tmp_path / "d", M1, "0123456789abcdef", sha1)[1], series=True, new_series=True, log=quiet)
     assert publish_geo(s3, "b", folder, files, series=True, log=quiet) == 0, "the digit-named shard is a series shard"
     assert folder + ents2[-1]["path"] in s3.objects
+    puts = len(s3.puts)
+    assert publish_geo(s3, "b", folder, files, series=True, log=quiet) == 0 and len(s3.puts) == puts, \
+        "a re-run into a folder that holds the digit-named shard is not refused and writes nothing"
+    shared = ents[0]["path"]
+    ok = ("application/octet-stream", GEO_CACHE)
+    held = FakeS3({folder + ents2[-1]["path"]: (digits, {}, *ok), folder + shared: ((tmp_path / "d" / shared).read_bytes(), {}, *ok)})
+    assert publish_geo(held, "b", folder, files, series=True, log=quiet) == 0, "a folder with a 16-digit shard and a shared one"
     flat = FakeS3({folder + "shard-123456789012345.bin": (b"x", {})})
     with pytest.raises(Refused, match="holds a flat index"):
         publish_geo(flat, "b", folder, files, series=True, log=quiet)
@@ -310,7 +317,12 @@ def test_a_series_shard_failure_leaves_the_manifest_out(series):
     broken = FakeS3(fail={ents1[1]["path"]})
     assert publish_geo(broken, "b", folder, files, series=True, new_series=True, log=lines.append) == 1
     assert folder + M1 not in broken.objects
-    assert any(f"{M1} NOT uploaded" in line for line in lines), lines
+    assert any(f"{M1} NOT uploaded" in line and "Re-run without --new-series" in line for line in lines), lines
+    with pytest.raises(Refused, match="re-run without --new-series"):
+        publish_geo(broken, "b", folder, files, series=True, new_series=True, log=quiet)
+    broken.fail.clear()
+    assert publish_geo(broken, "b", folder, files, series=True, log=quiet) == 0, "the retry without the flag finishes"
+    assert folder + M1 in broken.objects
     corrupt = FakeS3(corrupt=True)
     assert publish_geo(corrupt, "b", folder, files, series=True, new_series=True, log=quiet) == 2
     assert folder + M1 not in corrupt.objects
