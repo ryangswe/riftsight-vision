@@ -103,6 +103,13 @@ cardvision check-catalog "$UPD/cand/catalog.json" --art "$IMAGES"
 
 - **If an existing entry must change** (a rename, an erratum): the update is not bank-only;
   tell the maintainer before going on.
+- **If the game lists some cards first under temporary ids** and later under permanent ones: a
+  card already in the catalog under its temporary id is not a new card when it comes back under
+  the permanent id. Added again, it sits in the bank twice, once under each id, with the same art
+  (`refresh check` may report the pair as a near duplicate). Keep a map from each temporary id to
+  its permanent one with the product's own data, and apply it when you merge the new list, so a
+  returning card meets its existing entry instead of being added. Moving an entry to its
+  permanent id is an edit of an existing entry: see above.
 
 **2.3 The eye check (maintainer).** Copy a handful of the new cards' images (spread through the
 set, plus both cards of any near duplicate `refresh check` reports later) to a folder the
