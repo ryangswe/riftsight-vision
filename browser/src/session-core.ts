@@ -228,7 +228,23 @@ interface InFlight {
   analyzing: boolean;
   /** The pointer, in fractions of the picture, when the capture was asked for. */
   pointer: { x: number; y: number } | null;
+  /** The scheduler started this look as a repeat of a still picture. Whether the picture is
+   *  still is decided when it arrives (`frame`): in focus scope a repeat of an unchanged picture
+   *  is analyzed as scope "all", which checks every face for the next card. */
+  repeat: boolean;
 }
+
+/** The newest look that came back analyzed: its picture's time, generation and source. A repeat
+ *  whose captured picture has the same time, in the same generation and source, is of a picture
+ *  whose clock stood still (paused, frozen, stalled, ended, an image). */
+interface LastLook {
+  mediaTime: number;
+  generation: number;
+  videoKey: string;
+}
+
+/** Two video times closer than this are the same time. */
+const SAME_TIME_SEC = 0.001;
 
 export class SessionCore {
   readonly scheduler: FrameScheduler;
@@ -363,6 +379,19 @@ export class SessionCore {
     // The pointer as it was when the picture was asked for, in the picture's pixels (the bitmap
     // is already at analysis size). Sent only with the option on.
     const focus = sent.pointer ? { x: sent.pointer.x * bitmap.width, y: sent.pointer.y * bitmap.height } : null;
+    // A repeat of a picture whose time has not moved since the previous analyzed look (same
+    // generation and source) is analyzed as scope "all". Times are the captured pictures' own
+    // (`mediaTimeOf`), two captures at least REPEAT_INTERVAL_MS apart, so an equal time means the
+    // clock stood still. The presented events, which a seek reports two or three times, are not
+    // consulted.
+    const last = this.lastLook;
+    const still =
+      sent.repeat && last !== null && last.generation === sent.generation && last.videoKey === sent.videoKey && Math.abs(last.mediaTime - mediaTime) < SAME_TIME_SEC;
+    // The pointer's own card comes first: when the pointer's group is not verified in the newest
+    // result (a seek's look was asked for with the old pointer, and the pointer has moved since),
+    // this repeat is a focus look at the pointer, and the full pass follows on the next repeat.
+    const yields = still && focus !== null && this.result !== null && pointerGroupUnverified(this.result.analysis, focus.x, focus.y);
+    const full = still && !yields;
     try {
       this.deps.toWorker(
         {
@@ -370,7 +399,7 @@ export class SessionCore {
           bitmap,
           videoTimeSec: mediaTime,
           envelope,
-          ...(this.focusScope ? { geometricScope: "focus" as const, focus } : {}),
+          ...(this.focusScope && !full ? { geometricScope: "focus" as const, focus } : {}),
           ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}),
         },
         [bitmap],
@@ -468,6 +497,7 @@ export class SessionCore {
       return;
     }
     this.lastAcceptedRequestId = reply.envelope.requestId;
+    if (reply.analysis) this.lastLook = { mediaTime: reply.envelope.mediaTimeSec, generation: reply.envelope.generation, videoKey: reply.envelope.videoKey };
     this.st.lastFrameError = reply.error ?? null;
     this.st.lastWorkerMs = reply.workerMs;
     this.st.lastRoundTripMs = +(now - sent.sentAt).toFixed(2);
@@ -604,12 +634,16 @@ export class SessionCore {
     if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null)) this.requestCapture("hover");
   }
 
+  /** The newest look that came back analyzed (`LastLook`). */
+  private lastLook: LastLook | null = null;
+
   private requestCapture(trigger?: "hover" | "cut"): void {
     if (this.st.state !== "ready" || this.inFlight) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
-    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null };
+    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, repeat: false };
     this.scheduler.started(now, { videoTimeSec: this.videoTime(), ...(trigger ? { trigger } : {}) });
+    this.inFlight.repeat = this.scheduler.lastTrigger === "repeat";
     this.deps.capture(requestId, { ...this.analysisWidth });
   }
 

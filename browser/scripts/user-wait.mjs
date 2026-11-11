@@ -315,6 +315,19 @@ async function playClip() {
   while (video.videoWidth === 0 || video.readyState < 2) await new Promise((r) => setTimeout(r, 20));
 }
 
+/** Record the analysis the session has just finished, once. It runs from the 20 ms timer, from the
+ *  session's update callback and when a rest finishes, so the analysis that produced a rest's
+ *  answer is in cycles before the rest's record is read (the timer alone could notice it after). */
+function record() {
+  const s = session.status();
+  if (s.frames !== lastFrames && s.lastWorkerMs !== null) {
+    lastFrames = s.frames;
+    const analysis = session.analysis();
+    const verified = analysis ? analysis.boxes.filter((b) => b.face && b.face.geometric) : null;
+    cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs, geometricMs: analysis?.timings.geometricMs ?? null, verified: verified ? verified.length : null, at: performance.now(), verifiedBoxes: verified ? verified.map((b) => b.box) : null });
+  }
+}
+
 /** Create the session over the playing clip, as a product does. */
 function create() {
   createdAt = performance.now();
@@ -324,17 +337,12 @@ function create() {
     wasmPaths: location.origin + "/lib/",
     ...(GPU ? {} : { providers: ["wasm"] }),
     mode: "pointer",
+    onUpdate: () => { if (session) record(); },
     ...(GEOMETRIC ? { geometricUrl: location.origin + "/release/" + GEOMETRIC.path } : {}),
     ...(GEOMETRIC && GEOMETRIC.scope ? { geometricScope: GEOMETRIC.scope } : {}),
     ...(MEASURED_PACING ? { measuredPacing: MEASURED_PACING } : {}),
   });
-  setInterval(() => {
-    const s = session.status();
-    if (s.frames !== lastFrames && s.lastWorkerMs !== null) {
-      lastFrames = s.frames;
-      cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs, geometricMs: session.analysis()?.timings.geometricMs ?? null, verified: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).length ?? null, at: performance.now(), verifiedBoxes: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).map((b) => b.box) ?? null });
-    }
-  }, 20);
+  setInterval(record, 20);
 }
 
 /** Wait until the session is ready, and say how long it took from its creation. */
@@ -360,15 +368,16 @@ async function open(rate, readyTimeoutMs) {
 
 // One rest: armed before the pointer moves; the first pointer move after that is where the
 // pointer comes to rest, a second one is the pointer leaving.
-function arm(expect, limitMs) {
+function arm(expect, limitMs, holdMs) {
   return new Promise((resolve) => {
-    current = { expect, limitMs, start: null, movedAt: null, readings: [], last: undefined, createdAt: null, readyAt: null, resolve };
+    current = { expect, limitMs, holdMs, answeredAt: null, scored: null, timeline: [], start: null, movedAt: null, readings: [], last: undefined, createdAt: null, readyAt: null, resolve };
   });
 }
 function finish() {
   const rest = current;
   current = null;
-  rest.resolve({ readings: rest.readings, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session ? session.status().frames : 0, createdAtMs: rest.createdAt, readyAtMs: rest.readyAt, startAtMs: rest.start, endAtMs: performance.now() });
+  if (session) record();
+  rest.resolve({ readings: rest.scored ?? rest.readings, timeline: rest.timeline, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session ? session.status().frames : 0, createdAtMs: rest.createdAt, readyAtMs: rest.readyAt, startAtMs: rest.start, endAtMs: performance.now() });
 }
 function poll() {
   const rest = current;
@@ -378,9 +387,16 @@ function poll() {
   if (session && rest.createdAt !== null && rest.readyAt === null && session.status().state === "ready") rest.readyAt = t;
   if (cardId !== rest.last) {
     rest.readings.push({ t, cardId });
+    rest.timeline.push({ atMs: Math.round(t * 100) / 100, cardId });
     rest.last = cardId;
   }
-  if (cardId === rest.expect || t >= rest.limitMs) return finish();
+  if (rest.answeredAt === null && cardId === rest.expect) {
+    // The answer: what is scored is fixed here. With holdMs the rest keeps reading after it, so
+    // the timeline shows whether the shown card changes later (a repeat's result).
+    rest.answeredAt = t;
+    rest.scored = rest.readings.slice();
+  }
+  if (rest.answeredAt !== null ? t >= rest.answeredAt + rest.holdMs : t >= rest.limitMs) return finish();
   setTimeout(poll, 4);
 }
 document.addEventListener("pointermove", (event) => {
@@ -420,7 +436,7 @@ window.harness = {
   resume: async () => { if (video.paused) await video.play(); },
   seek: async (sec) => { video.currentTime = sec; await new Promise((r) => video.addEventListener("seeked", r, { once: true })); },
   control: (rate, c) => new BroadcastChannel("user-wait-control").postMessage({ rate, c }),
-  begin: (expect, limitMs) => { window.__rest = arm(expect, limitMs); },
+  begin: (expect, limitMs, holdMs) => { window.__rest = arm(expect, limitMs, holdMs); },
   result: () => window.__rest,
   status: () => session.status(),
   cycles: () => cycles,
@@ -612,7 +628,9 @@ try {
     if (rest.pause === true) await tab.evaluate(() => window.harness.pause());
     else await tab.evaluate(() => window.harness.resume());
     if (rest.atSec !== undefined) await tab.evaluate((sec) => window.harness.seek(sec), rest.atSec);
-    await tab.evaluate((expect, ms) => window.harness.begin(expect, ms), rest.expect, limit);
+    await tab.evaluate((expect, ms, hold) => window.harness.begin(expect, ms, hold), rest.expect, limit, rest.holdMs ?? 0);
+    // moveAfterMs: the pointer stays where the last rest left it for that long after the seek.
+    if (rest.moveAfterMs) await new Promise((done) => setTimeout(done, rest.moveAfterMs));
     await tab.mouse.move(...at(rest.x, rest.y));
     let left = null;
     if (rest.leaveAfterMs !== undefined) left = setTimeout(() => void tab.mouse.move(...park).catch(() => {}), rest.leaveAfterMs);
@@ -628,7 +646,7 @@ try {
         : (await tab.evaluate(() => window.harness.cycles()))
             .filter((c) => c.at >= measured.startAtMs && c.at <= measured.endAtMs + 50)
             .map((c) => ({ atMs: Math.round(c.at - measured.startAtMs), verified: c.verified, boxes: c.verifiedBoxes }));
-    lines.push({ index: index + 1, x: rest.x, y: rest.y, paused: rest.pause === true, ...(analyses ? { analyses } : {}), ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
+    lines.push({ index: index + 1, x: rest.x, y: rest.y, paused: rest.pause === true, ...(rest.holdMs ? { holdMs: rest.holdMs } : {}), shown: measured.timeline, ...(analyses ? { analyses } : {}), ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
     // Later rests meet a session that is ready, as in a cold run.
     if (loadOnHover && index === 0) {
       opened = await tab.evaluate((ms) => window.harness.ready(ms), readyTimeoutMs);

@@ -11,6 +11,14 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- Browser: in focus scope, the repeats of a look on a picture that is really still run scope
+  "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
+  still when the repeat's captured picture has the same video time as the previous look's (same
+  seek generation and source), whatever events were reported. When the pointer has moved onto a card the newest result did
+  not verify, that repeat is a focus look at the pointer first, and the full pass follows.
+  After that repeat, a move to another card is named at once with no new look; a move to a card
+  not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
+  extra look. Playing video, scope "all" and a session with no stage are unchanged.
 - In pointer mode, a pointer that rests where the newest look found no card is now looked at once
   every 2 seconds instead of at the fast rate. In the 10-second grace period that is about 5
   looks, against about 20 on WebGPU with fast analyses and 10 on WebAssembly, which saves most of
@@ -20,6 +28,15 @@ break the public surface; this file names each break and how to migrate.
   picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at
   once; the pointer leaving the picture does not. Nothing changes outside pointer mode or while a
   card shows.
+
+### Fixed
+
+- `npm run user-wait`: a rest can carry `moveAfterMs` to wait after its seek before the pointer
+  moves (the wait still counts from the move).
+- `npm run user-wait`: a rest's `analyses` now includes the analysis that produced its answer; it
+  was recorded by a 20 ms timer and could land after the rest's record was read. A rest can carry
+  `holdMs` to keep reading after the answer, and each rest line has `shown`, the timeline of the
+  card named at the pointer (`atMs`, `cardId`).
 
 ## [0.12.0] - 2026-11-11
 
