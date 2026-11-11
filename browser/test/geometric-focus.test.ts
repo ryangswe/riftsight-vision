@@ -7,7 +7,7 @@
 // embedding it gets, and the fake stage answers by the same value, so a test says what each
 // face is and what verifying it finds.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { EmbeddingBank } from "../src/bank.js";
 import { type AABB, type Candidate, iou, rectOf } from "../src/boxes.js";
@@ -24,7 +24,8 @@ import { hoverAt, Pipeline } from "../src/pipeline.js";
 import { focusChecked, type FocusCheckReport, focusCheckLines } from "../score/focus-check.js";
 import type { Analyzer } from "../score/video.js";
 import { ACCEPTED_NMS_IOU, focusGroup } from "../src/recognition.js";
-import { FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
+import { FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS, REPEAT_INTERVAL_MS } from "../src/frame-scheduler.js";
+import { MeasuredPacer } from "../src/cadence.js";
 import { SessionCore, SHOWN_HOLD } from "../src/session-core.js";
 import { watchVideo } from "../src/video-events.js";
 import { CONFIRM_FRAMES } from "../src/temporal-gate.js";
@@ -1013,6 +1014,9 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     let now = 1_000;
     const sent: Array<Extract<WorkerRequest, { kind: "frame" }>> = [];
     const pending: Promise<void>[] = [];
+    let lastAnalyzedId: number | null = null;
+    let analyzedCount = 0;
+    let reusedCount = 0;
     let core!: SessionCore;
     core = new SessionCore(
       {
@@ -1020,10 +1024,19 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
         toWorker: (r) => {
           if (r.kind !== "frame") return;
           sent.push(r);
+          // What the worker host does with `reuseOf` (worker-host.ts): reuse the newest analyzed frame when the pipeline can vouch for it.
+          const reused = r.reuseOf !== undefined && r.reuseOf === lastAnalyzedId ? pipeline.reuse(r.videoTimeSec) : null;
+          if (reused) {
+            reusedCount += 1;
+            pending.push(Promise.resolve().then(() => core.fromWorker({ kind: "frame-result", envelope: r.envelope, videoTimeSec: r.videoTimeSec, width: 800, height: 450, workerMs: 1, analysis: reused })));
+            return;
+          }
+          analyzedCount += 1;
           pending.push(
-            pipeline.analyze(frame, r.videoTimeSec, { ...(r.geometricScope ? { geometricScope: r.geometricScope } : {}), ...(r.focus !== undefined ? { focus: r.focus } : {}) }).then((analysis) =>
-              core.fromWorker({ kind: "frame-result", envelope: r.envelope, videoTimeSec: r.videoTimeSec, width: 800, height: 450, workerMs: 5, analysis }),
-            ),
+            pipeline.analyze(frame, r.videoTimeSec, { ...(r.geometricScope ? { geometricScope: r.geometricScope } : {}), ...(r.focus !== undefined ? { focus: r.focus } : {}) }).then((analysis) => {
+              lastAnalyzedId = r.envelope.requestId;
+              core.fromWorker({ kind: "frame-result", envelope: r.envelope, videoTimeSec: r.videoTimeSec, width: 800, height: 450, workerMs: 5, analysis });
+            }),
           );
         },
         capture: (id) => core.frame(id, { width: 800, height: 450, close() {} } as unknown as ImageBitmap, mediaOf ? mediaOf() : mediaSec),
@@ -1046,7 +1059,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
       now += ms;
       core.tick();
     };
-    return { core, sent, flush, settle, step, clock: () => now, setMedia: (sec: number) => { mediaSec = sec; } };
+    return { core, sent, pipeline, flush, settle, step, split: () => ({ analyzed: analyzedCount, reused: reusedCount }), clock: () => now, setMedia: (sec: number) => { mediaSec = sec; } };
   }
 
   // X at 20..120 and Y at 80..180: offset 60 % of a width, IoU 0.25, not one group.
@@ -1209,7 +1222,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
   const threeBoxes = three.map((c) => c.box);
   const cardAt = (core: SessionCore, x: number) => core.fresh() && core.hitAt(PX(x), PY)?.cardId;
 
-  it("repeats: the look on a still picture runs focus, its repeats run scope all", async () => {
+  it("repeats: the look on a still picture runs focus, its repeats run scope all (the first analyzed, the next reused)", async () => {
     const stage = fakeStage();
     const t = live(threeBoxes, three, { geometricScope: "focus" }, stage);
     t.core.presented(1);
@@ -1220,11 +1233,12 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     await t.settle();
     const repeats = t.sent.slice(1);
     expect(repeats.length).toBeGreaterThanOrEqual(2);
+    expect(t.split()).toEqual({ analyzed: 2, reused: repeats.length - 1 }); // the focus look and one full pass; the other repeats reuse it
     for (const r of repeats) {
       expect("focus" in r).toBe(false);
       expect("geometricScope" in r).toBe(false);
     }
-    expect(stage.crops).toHaveLength(1 + 3 * repeats.length); // every applicable face, per repeat
+    expect(stage.crops).toHaveLength(1 + 3); // every applicable face, in the one full pass; a reuse crops nothing
     // The answers at every face equal an all session's on the same picture.
     const all = live(threeBoxes, three, {}, fakeStage());
     all.core.presented(1);
@@ -1267,7 +1281,8 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     await t.flush(); // the repeat answers
     expect(t.core.fresh()?.cardId).toBe("C");
     await t.settle();
-    expect(t.sent.length).toBe(3); // only the second repeat followed: no re-look was queued
+    expect(t.sent.length).toBe(3); // only the second repeat (a reuse) followed: no re-look was queued
+    expect(t.split()).toEqual({ analyzed: 2, reused: 1 });
   });
 
   it("a paused picture still gets the full repeat", async () => {
@@ -1278,6 +1293,166 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     await t.settle();
     expect(t.sent.slice(1).every((r) => r.focus === undefined && r.geometricScope === undefined)).toBe(true);
     expect(t.sent.length).toBeGreaterThanOrEqual(3);
+    expect(t.split()).toEqual({ analyzed: 2, reused: t.sent.length - 2 }); // the focus look and one full pass; the rest reuse it
+  });
+
+  // ------------------------------------------------ pointer mode reuses the look for a still repeat
+  const repeatSpan = CONFIRM_FRAMES * REPEAT_INTERVAL_MS + 500;
+  /** Step the clock until the track layer is shown; the time it took, or null. */
+  const untilTracksShown = async (t: ReturnType<typeof live>, limitMs = 3_000): Promise<number | null> => {
+    const t0 = t.clock();
+    for (let ms = 0; ms <= limitMs; ms += 50) {
+      if (t.core.analysis()?.tracks.shown) return t.clock() - t0;
+      t.step(50);
+      await t.flush();
+    }
+    return null;
+  };
+
+  it("still repeats: scope all, a paused hover is one analysis and two reuses; the answer is unchanged", async () => {
+    const t = live(threeBoxes, three, {});
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent).toHaveLength(1);
+    const answer = cardAt(t.core, 40);
+    expect(answer).toBe("B");
+    await t.settle(repeatSpan + 2_000);
+    expect(t.sent).toHaveLength(CONFIRM_FRAMES);
+    expect(t.sent[0]!.reuseOf).toBeUndefined();
+    expect(t.sent.slice(1).map((r) => r.reuseOf)).toEqual([t.sent[0]!.envelope.requestId, t.sent[0]!.envelope.requestId]);
+    expect(t.split()).toEqual({ analyzed: 1, reused: CONFIRM_FRAMES - 1 });
+    expect(cardAt(t.core, 40)).toBe(answer);
+    expect(cardAt(t.core, 340)).toBe("C");
+    expect(t.core.status().lastFrameError).toBeNull();
+  });
+
+  it("still repeats: focus, a paused hover is the focus look and one full pass analyzed, then one reuse", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus" });
+    await t.settle(repeatSpan + 2_000);
+    expect(t.sent).toHaveLength(CONFIRM_FRAMES);
+    expect(t.split()).toEqual({ analyzed: 2, reused: 1 });
+    expect("geometricScope" in t.sent[1]!).toBe(false);
+    expect(t.sent[1]!.reuseOf).toBeUndefined(); // an unverified face: a real full pass
+    expect(t.sent[2]!.reuseOf).toBe(t.sent[1]!.envelope.requestId); // then nothing is unverified
+    const all = live(threeBoxes, three, {});
+    all.core.presented(1);
+    all.core.pointer(PX(40), PY, 1);
+    await all.flush();
+    await all.settle();
+    for (const x of [40, 340, 600]) expect(cardAt(t.core, x), `x ${x}`).toBe(cardAt(all.core, x));
+  });
+
+  it("still repeats: a focus look whose group is every face is followed by a full pass, then a reuse", async () => {
+    const one = [{ box: box(20, 20), red: 250 }];
+    const t = live(one.map((c) => c.box), one, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus" });
+    expect(t.core.analysis()?.boxes.some((b) => b.face?.unverified === true)).toBe(false); // nothing unverified after the focus look
+    await t.settle(repeatSpan + 2_000);
+    expect(t.sent).toHaveLength(CONFIRM_FRAMES);
+    expect(t.sent[1]!.reuseOf).toBeUndefined();
+    expect("geometricScope" in t.sent[1]!).toBe(false);
+    expect(t.sent[2]!.reuseOf).toBe(t.sent[1]!.envelope.requestId);
+    expect(t.split()).toEqual({ analyzed: 2, reused: 1 });
+  });
+
+  it("still repeats (a): the track layer confirms on a paused picture in pointer mode within the time it did before", async () => {
+    const sure = [{ box: box(20, 20), red: 250 }, { box: box(300, 20), red: 250 }]; // cards the recognizer names, so the gate counts them
+    const sureBoxes = sure.map((c) => c.box);
+    const t = live(sureBoxes, sure, {});
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.core.analysis()?.tracks.shown).toBe(false); // one frame: the gate (k = 3) does not hold yet
+    const took = await untilTracksShown(t);
+    expect(took).not.toBeNull();
+    expect(t.split()).toEqual({ analyzed: 1, reused: CONFIRM_FRAMES - 1 });
+    expect(t.core.analysis()?.reused).toBe(true);
+    expect(t.core.analysis()?.tracks.cards.length).toBe(2);
+    // The same session with every repeat analyzed (always-on's repeats are real analyses) confirms at the same point.
+    const every = live(sureBoxes, sure, { mode: "always-on" });
+    every.core.presented(1);
+    const tookEvery = await untilTracksShown(every, 6_000);
+    expect(every.split()).toEqual({ analyzed: CONFIRM_FRAMES, reused: 0 });
+    expect(took!).toBeLessThanOrEqual(2 * REPEAT_INTERVAL_MS + 100);
+    expect(tookEvery).not.toBeNull();
+  });
+
+  it("still repeats (b): a picture whose time changes with no presented report is analyzed by the next repeat", async () => {
+    let media = 1;
+    const t = live(threeBoxes, three, {}, fakeStage(), () => media);
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    t.step(REPEAT_INTERVAL_MS + 10);
+    await t.flush();
+    expect(t.split()).toEqual({ analyzed: 1, reused: 1 });
+    media = 1.04; // the video moved on, and nothing was reported
+    t.step(REPEAT_INTERVAL_MS + 10);
+    await t.flush();
+    expect(t.sent).toHaveLength(3);
+    expect(t.sent[2]!.reuseOf).toBeUndefined();
+    expect(t.split()).toEqual({ analyzed: 2, reused: 1 });
+  });
+
+  it("still repeats (c): a stage that joins after the look makes the next repeat a real analysis", async () => {
+    const t = live(threeBoxes, three, {});
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    t.pipeline.setGeometric(fakeStage()); // the worker sets a loaded stage between two frames
+    t.step(REPEAT_INTERVAL_MS + 10);
+    await t.flush();
+    expect(t.sent[1]!.reuseOf).toBeDefined(); // the session asked for a reuse
+    expect(t.split()).toEqual({ analyzed: 2, reused: 0 }); // the pipeline refused it
+    t.step(REPEAT_INTERVAL_MS + 10);
+    await t.flush();
+    expect(t.split()).toEqual({ analyzed: 2, reused: 1 }); // the real analysis can be reused again
+  });
+
+  it("still repeats (d): a reused reply neither feeds the pacer nor counts as a frame", async () => {
+    const record = vi.spyOn(MeasuredPacer.prototype, "record");
+    try {
+      const t = live(threeBoxes, three, { measuredPacing: true });
+      t.core.presented(1);
+      t.core.pointer(PX(40), PY, 1);
+      await t.flush();
+      await t.settle(repeatSpan + 2_000);
+      expect(t.split()).toEqual({ analyzed: 1, reused: CONFIRM_FRAMES - 1 });
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(t.core.status().frames).toBe(1);
+      expect(t.core.status().lastWorkerMs).toBe(5); // the analysis's, not a reuse's 1 ms
+    } finally {
+      record.mockRestore();
+    }
+  });
+
+  it("still repeats: a picture of a different time is analyzed, and a reuse leaves no back-off or retry", async () => {
+    const t = live(threeBoxes, three, {});
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    await t.settle(repeatSpan);
+    expect(t.split()).toEqual({ analyzed: 1, reused: CONFIRM_FRAMES - 1 });
+    expect(t.core.status().lastFrameError).toBeNull();
+    t.core.cut(); // due at once
+    t.step(0);
+    await t.flush();
+    expect(t.split().analyzed).toBe(2);
+    await t.settle(repeatSpan);
+    t.core.discontinuity(false);
+    t.core.presented(2);
+    t.core.pointer(PX(60), PY, 2);
+    t.step(0);
+    await t.flush();
+    expect(t.split().analyzed).toBe(3);
   });
 
   it("a first focus look at an accepted card gives all's answer wherever it is read, before any repeat", async () => {

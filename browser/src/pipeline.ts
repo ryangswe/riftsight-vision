@@ -106,6 +106,11 @@ export interface FrameAnalysis {
   /** How many faces had their turned looks computed, and how many embeddings were computed. */
   retried: number;
   embeddings: number;
+  /** True when this is not a new analysis: the previous frame's detections were fed to the
+   *  tracker and the temporal gate again (`Pipeline.reuse`). `tracks` and `timings` are new,
+   *  `discontinuity` is false, `retried` and `embeddings` are 0; every other field is the
+   *  previous analysis's. Absent on an analyzed frame. */
+  reused?: true;
   /** Where the time went, in ms. `geometricMs` and `tiltedMs`, parts of `recognizeMs`, are
    *  there only while a geometric stage is set and while the tilted retry runs. */
   timings: { detectorMs: number; recognizeMs: number; analyzeMs: number; geometricMs?: number; tiltedMs?: number };
@@ -194,6 +199,9 @@ export class Pipeline {
   private tiltedRetry: TiltedRetrySettings | null;
   /** Why the tilted retry failed during the last frame; taken by `takeTiltedFailure`. */
   private tiltedFailure: { error: unknown } | null = null;
+  /** What the newest analyzed frame left for `reuse`; null once anything that could change an
+   *  answer happened since (a reset, a stage or retry set, removed or failed). */
+  private lastRun: { analysis: FrameAnalysis; detections: Detection[]; recognized: boolean; ctx: SceneContext } | null = null;
 
   constructor(options: PipelineOptions) {
     this.detector = options.detector;
@@ -241,6 +249,7 @@ export class Pipeline {
   setTiltedRetry(settings: TiltedRetrySettings | null): void {
     this.tiltedRetry = settings;
     this.tiltedFailure = null;
+    this.lastRun = null;
   }
 
   /** The geometric stage in use, or null. */
@@ -253,6 +262,7 @@ export class Pipeline {
   setGeometric(stage: GeometricStage | null): void {
     this.geometric = stage;
     this.geometricFailure = null;
+    this.lastRun = null;
   }
 
   /** Forget everything carried between frames: tracks, the gate's run, the hover ids. Models
@@ -263,6 +273,62 @@ export class Pipeline {
     this.heldCards = [];
     this.hoverIds.reset();
     this.lastVideoTimeSec = null;
+    this.lastRun = null;
+  }
+
+  /**
+   * The newest analyzed frame again, for a picture that did not change: its detections go to the
+   * tracker and the temporal gate once more, as an analysis of the same picture would, and the
+   * result is the previous analysis with six fields set: `tracks` (this step of the tracker and
+   * the gate), `timings` (detector and recognize 0, `analyzeMs` the time of the reuse, no
+   * stage or retry times), `discontinuity: false`, `retried: 0`, `embeddings: 0` (no work was
+   * done) and `reused: true`. Every other field is the previous analysis's, and the nested
+   * objects (`boxes`, `hover`, `frame`) are shared with it, not cloned: do not modify them.
+   * No detector, recognizer or stage runs. Null (analyze instead) when nothing was analyzed
+   * since the last reset, or a stage or the tilted retry was set, removed or failed since.
+   */
+  reuse(videoTimeSec?: number): FrameAnalysis | null {
+    const last = this.lastRun;
+    if (last === null) return null;
+    const tStart = this.now();
+    if (videoTimeSec !== undefined) this.lastVideoTimeSec = videoTimeSec;
+    const tracks = this.trackLayer(last.detections, last.recognized, last.ctx);
+    const { geometricMs: _g, tiltedMs: _t, ...rest } = last.analysis.timings;
+    return {
+      ...last.analysis,
+      tracks,
+      discontinuity: false,
+      retried: 0,
+      embeddings: 0,
+      reused: true,
+      timings: { ...rest, detectorMs: 0, recognizeMs: 0, analyzeMs: this.now() - tStart },
+    };
+  }
+
+  /** One step of the tracker and the gate: the track layer for these detections. */
+  private trackLayer(detections: Detection[], recognized: boolean, ctx: SceneContext): { shown: boolean; cards: LayerCard[] } {
+    const tracks = this.tracker.update(detections);
+    const step = this.gate.observe(recognized);
+    let trackCards: LayerCard[];
+    if (!step.confirmed) {
+      this.heldCards = [];
+      trackCards = [];
+    } else if (!recognized) {
+      trackCards = this.heldCards;
+    } else {
+      trackCards = toLayerCards(
+        tracks.map((t) => ({
+          instanceId: t.instanceId,
+          aabb: t.detection.aabb,
+          rect: t.detection.rect,
+          ...(t.detection.outline ? { outline: t.detection.outline } : {}),
+          identity: t.identity,
+        })),
+        ctx,
+      );
+      this.heldCards = trackCards;
+    }
+    return { shown: step.confirmed, cards: trackCards };
   }
 
   /**
@@ -320,34 +386,14 @@ export class Pipeline {
       const p = tracked.proposals[i]!;
       return { aabb: p.aabb, rect: p.rect, cardId: p.topId, embedding: p.embedding!, ...(p.outline ? { outline: p.outline } : {}) };
     });
-    const tracks = this.tracker.update(detections);
     const recognized = detections.length > 0;
-    const step = this.gate.observe(recognized);
-    let trackCards: LayerCard[];
-    if (!step.confirmed) {
-      this.heldCards = [];
-      trackCards = [];
-    } else if (!recognized) {
-      trackCards = this.heldCards;
-    } else {
-      trackCards = toLayerCards(
-        tracks.map((t) => ({
-          instanceId: t.instanceId,
-          aabb: t.detection.aabb,
-          rect: t.detection.rect,
-          ...(t.detection.outline ? { outline: t.detection.outline } : {}),
-          identity: t.identity,
-        })),
-        ctx,
-      );
-      this.heldCards = trackCards;
-    }
+    const tracks = this.trackLayer(detections, recognized, ctx);
 
-    return {
+    const analysis: FrameAnalysis = {
       frame: { width: frame.width, height: frame.height },
       boxes: this.boxResults(valid, faces, scored),
       hover: { selection: this.hoverSelection, cards: hoverCards },
-      tracks: { shown: step.confirmed, cards: trackCards },
+      tracks,
       discontinuity,
       retried: scored.retried,
       embeddings: scored.embeddings,
@@ -359,6 +405,10 @@ export class Pipeline {
         ...(scored.tiltedMs !== undefined ? { tiltedMs: scored.tiltedMs } : {}),
       },
     };
+    // A frame on which the stage or the retry failed is not reusable: its answers are the
+    // fallback's, and the next frame is a real one.
+    this.lastRun = this.geometricFailure === null && this.tiltedFailure === null ? { analysis, detections, recognized, ctx } : null;
+    return analysis;
   }
 
   private boxResults(valid: readonly Candidate[], faces: readonly Candidate[], scored: ScoredFrame): BoxResult[] {

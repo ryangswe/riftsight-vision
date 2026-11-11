@@ -11,7 +11,10 @@
 //     is analyzed a few more times at `REPEAT_INTERVAL_MS`, because the tracker and the
 //     temporal gate count analyzed frames and a still picture never produces another. Then
 //     nothing runs until the next presented frame, or the retry of a look that came back with
-//     the picture not analyzed (below).
+//     the picture not analyzed (below). In "pointer" mode the session does not analyze such a
+//     repeat again when nothing in the newest result is unverified and the picture is unchanged:
+//     it asks the worker to feed the previous detections to the tracker and the gate once more
+//     (`reuseOf`, a matter of milliseconds). The schedule is the same; only the work differs.
 //
 // In "pointer" mode none of that runs unless the pointer says so:
 //   - "fast": within `POINTER_GRACE_MS` of the last pointer activity over the picture: a move,
