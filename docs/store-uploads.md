@@ -88,7 +88,7 @@ A release file:
 | --- | --- |
 | `version` | the version; the tag is `TAG_PREFIX` followed by it, `v<version>` by default (`--tag-prefix`) |
 | `chrome.submit` | `auto`: submit for review after the upload. `upload-only`: the Chrome listing text changes (the API cannot set "What's new" or the test instructions), so the account holder pastes it in the dashboard and submits |
-| `chrome.publish` | `default`: live once approved. `staged`: published by hand after approval |
+| `chrome.publish` | `default`: live once review passes; use it unless the account holder said otherwise before that release's process started. `staged`: published by hand after approval |
 | `firefox.releaseNotes` | locale → a notes file, beside the release file (a leading `<!-- SPDX-License-Identifier: … -->` line is left out) |
 | `firefox.approvalNotes` | a file with the notes to Mozilla's reviewers |
 | `permissionsChanged` | true when the permission surface changed since the previous release |

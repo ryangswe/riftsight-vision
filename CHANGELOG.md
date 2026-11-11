@@ -11,6 +11,11 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- A push to `main` that raises the version now tags it, publishes the GitHub release with the
+  changelog section as its notes (a release candidate as a pre-release) and starts the Publish
+  workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,
+  when the section is missing, the version is on the package index or the index cannot be asked,
+  or a higher version is already tagged. `RELEASING.md` has the steps that remain.
 - `npm run user-wait --load-on-hover` measures a first hover with the load included. The session
   is not opened before the rests: rest 1 starts its clock when the pointer comes to rest and
   creates the session then, so its wait includes the release fetch, the runtime's start-up, the

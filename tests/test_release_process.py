@@ -8,10 +8,10 @@ import re
 from pathlib import Path
 
 from cardvision.cli import SUBCOMMANDS
+from release_plan import HEADING, sections as sections_of
 
 ROOT = Path(__file__).resolve().parents[1]
 CHANGELOG = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-HEADING = re.compile(r"^## \[(?P<name>Unreleased|\d+\.\d+\.\d+(?:rc\d+)?)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?$", re.M)
 KINDS = {"Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"}
 
 
@@ -21,9 +21,7 @@ def version() -> str:
 
 
 def sections() -> dict[str, str]:
-    found = list(HEADING.finditer(CHANGELOG))
-    return {m["name"]: CHANGELOG[m.end(): found[i + 1].start() if i + 1 < len(found) else len(CHANGELOG)]
-            for i, m in enumerate(found)}
+    return sections_of(CHANGELOG)    # the parser is shared with tests/release_plan.py, which the release workflow runs
 
 
 def test_the_changelog_has_an_unreleased_section_and_one_for_every_released_version():
