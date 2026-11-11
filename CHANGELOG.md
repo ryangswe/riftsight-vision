@@ -18,7 +18,8 @@ break the public surface; this file names each break and how to migrate.
   whole group in focus scope, with no per-frame cap. It needs `mode: "pointer"` and is
   refused with another mode; it works in `createSession` and in the extension compute frame
   (`startComputeFrame`) with no new message and no protocol change. In focus scope nothing is named at a point whose overlapping faces include one the stage did not
-  verify (a held tooltip ends there), and `others` lists all faces, as under "all". On a paused
+  verify (a held tooltip ends there), and `others` is "all"'s exactly when no face is unverified, with the unverified faces' boxes added
+  when some are. On a paused
   or unchanged picture, a pointer that reaches a face the newest analysis left
   unverified makes the session look again with the pointer there (at most once per 250 ms, never
   while one is in flight, with a new picture's repeats; it waits for repeats and retries to finish, never follows a

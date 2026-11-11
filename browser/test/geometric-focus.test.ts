@@ -1074,6 +1074,13 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     await t.flush();
     await t.settle();
     expect(named(t.core)).toBe(hoverAt(all, 30, 100).cardId ?? null);
+    // Not blocked for good: the group's faces were verified by the re-look, and the card Y
+    // named is the one "all" names where it is not suppressed.
+    const faces = t.core.analysis()!.boxes.map((b) => b.face!);
+    expect([faces[0]!.unverified, faces[1]!.unverified]).toEqual([undefined, undefined]);
+    expect(faces[2]!.unverified).toBe(true);
+    expect(t.core.hitAt(PX(150), PY)?.cardId ?? null).toBe(hoverAt(all, 150, 100).cardId ?? null);
+    expect(t.core.hitAt(PX(150), PY)?.cardId).toBe("D");
   });
 
   it("leaves scope all as it was: the result is read at once wherever the pointer is", async () => {
@@ -1086,6 +1093,37 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     const all = await pipelineOf(fanBoxes, fakeStage()).analyze(scene(fan), 0);
     expect(t.core.fresh()?.cardId ?? null).toBe(hoverAt(all, strip, 100).cardId ?? null);
     expect(t.core.fresh()).not.toBeNull();
+  });
+
+  /** The `others` of the card shown with the pointer at px, for a scope. */
+  async function othersAt(cards: Array<{ box: Candidate; red: number }>, px: number, options: ConstructorParameters<typeof SessionCore>[1], stage: GeometricStage | null) {
+    const t = live(cards.map((c) => c.box), cards, options, stage as GeometricStage);
+    t.core.presented(1);
+    t.core.pointer(PX(px), PY, 1);
+    await t.flush();
+    await t.settle();
+    const shown = t.core.fresh();
+    return { shown, others: shown?.others.map((b) => JSON.stringify(b)) ?? [] };
+  }
+  // Two boxes above the suppression threshold (IoU 0.43) and a far card.
+  const dup = (red: number) => [{ box: box(300, 20), red }, { box: box(340, 20), red }, { box: box(600, 20), red: 250 }];
+
+  it("row 10 v6: a frame with no unverified face lists exactly what all lists, duplicates suppressed", async () => {
+    const all = await othersAt(dup(250), 650, {}, fakeStage());
+    expect(all.shown?.cardId).toBe("A");
+    expect(all.others).toHaveLength(1); // the pair's kept box, not its suppressed duplicate
+    for (const stage of [fakeStage(), null]) {
+      const focus = await othersAt(dup(250), 650, { geometricScope: "focus" }, stage);
+      expect(focus.others, stage ? "a stage that applies to nothing" : "no stage").toEqual(all.others);
+    }
+  });
+
+  it("row 10 v6: an unverified group is listed whole, so a tooltip avoids every face of it", async () => {
+    const focus = await othersAt(dup(100), 650, { geometricScope: "focus" }, fakeStage());
+    expect(focus.shown?.cardId).toBe("A");
+    expect(focus.others).toHaveLength(2);
+    const want = [box(300, 20), box(340, 20)].map((b) => JSON.stringify({ x: b.aabb.x / 800, y: b.aabb.y / 450, width: b.aabb.width / 800, height: b.aabb.height / 450 })).sort();
+    expect([...focus.others].sort()).toEqual(want);
   });
 
   it("row 10: the neighbours of a shown card are the same boxes as under all", async () => {

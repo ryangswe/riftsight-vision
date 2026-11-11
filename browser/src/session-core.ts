@@ -160,20 +160,24 @@ export function neighborBoxes(analysis: FrameAnalysis, box: FractionBox, limit =
     .map((b) => ({ x: b.x, y: b.y, width: b.width, height: b.height }));
 }
 
-/** `neighborBoxes` for focus scope: the hover layer then holds only the pointer's group, so the
- *  neighbours come from every face box of the analysis, the same boxes a full analysis lists. */
+/** `neighborBoxes` for focus scope. A frame with no unverified face is listed exactly as a full
+ *  analysis lists it. Otherwise the faces the stage left unverified have no hover card, so
+ *  their boxes follow the layer's own (in its stacking order), as a full analysis would have
+ *  listed them. The limit applies to the whole list. */
 function neighborFaceBoxes(analysis: FrameAnalysis, box: FractionBox, limit: number): FractionBox[] {
-  return faceBoxesOf(analysis)
-    .filter((b) => !(Math.abs(b.x - box.x) < 1e-6 && Math.abs(b.y - box.y) < 1e-6 && Math.abs(b.width - box.width) < 1e-6))
-    .slice(0, limit);
+  const own = neighborBoxes(analysis, box, Infinity);
+  const same = (a: FractionBox, b: FractionBox): boolean => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.width - b.width) < 1e-6;
+  const missing = unverifiedBoxesOf(analysis).filter((b) => !same(b, box) && !own.some((o) => same(o, b)));
+  return [...own, ...missing].slice(0, limit);
 }
 
-/** The face boxes of an analysis in fractions of its frame, clamped as the layer's are. */
-function faceBoxesOf(analysis: FrameAnalysis): FractionBox[] {
+/** The boxes of the faces the stage applies to and did not verify, in fractions of the frame,
+ *  clamped as the layer's are. */
+function unverifiedBoxesOf(analysis: FrameAnalysis): FractionBox[] {
   const { width, height } = analysis.frame;
   const clamp = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
   return (analysis.boxes ?? [])
-    .filter((b) => b.face !== null)
+    .filter((b) => b.face !== null && b.face.unverified === true)
     .map((b) => ({ x: clamp(b.box[0] / width), y: clamp(b.box[1] / height), width: clamp(b.box[2] / width), height: clamp(b.box[3] / height) }));
 }
 
