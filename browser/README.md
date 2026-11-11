@@ -1547,10 +1547,11 @@ another mode, because the pointer is what says which faces to verify.
   `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight, and the look gets the
   repeats a newly presented picture gets. It marks nothing stale and clears nothing shown, and it
   stops once the face is verified. The repeats of a look on a
-  picture that really is still (no frame presented since the look, and its last frame the first
-  after a seek or new source, or a second old or more, or arriving a second or more after the
-  one before; a video presenting a frame every
-  300 ms is not still) run as scope `"all"`: no
+  picture that is still run scope `"all"`. A picture counts as still when the repeat's captured
+  picture has the same video time (within a millisecond) as the previous analyzed look's, in the
+  same seek generation and source: the video's clock stood still (paused, frozen, stalled, ended,
+  an image). The presented events a seek reports two or three times play no part, and a video
+  whose time moves between the looks keeps the focus on its repeats. No
   `focus` is sent and every face the stage applies to is verified, so after the first repeat a
   move to another card is named at once from the result on screen, with no new look. A move to a
   not yet verified card while that repeat is in flight shows nothing until it answers (about a

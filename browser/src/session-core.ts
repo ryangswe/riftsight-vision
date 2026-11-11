@@ -228,15 +228,23 @@ interface InFlight {
   analyzing: boolean;
   /** The pointer, in fractions of the picture, when the capture was asked for. */
   pointer: { x: number; y: number } | null;
-  /** A repeat of a picture that really is still (`stillRepeat`): in focus scope it is analyzed as
-   *  scope "all", since it adds nothing to a name otherwise and checks every face for the next
-   *  card. */
-  full: boolean;
+  /** The scheduler started this look as a repeat of a still picture. Whether the picture is
+   *  still is decided when it arrives (`frame`): in focus scope a repeat of an unchanged picture
+   *  is analyzed as scope "all", which checks every face for the next card. */
+  repeat: boolean;
 }
 
-/** A picture counts as still for the focus scope's full repeats when its last frame is this old,
- *  or came this long after the one before. */
-const STILL_PICTURE_MS = 1_000;
+/** The newest look that came back analyzed: its picture's time, generation and source. A repeat
+ *  whose captured picture has the same time, in the same generation and source, is of a picture
+ *  whose clock stood still (paused, frozen, stalled, ended, an image). */
+interface LastLook {
+  mediaTime: number;
+  generation: number;
+  videoKey: string;
+}
+
+/** Two video times closer than this are the same time. */
+const SAME_TIME_SEC = 0.001;
 
 export class SessionCore {
   readonly scheduler: FrameScheduler;
@@ -320,7 +328,6 @@ export class SessionCore {
   /** The video presented a frame (playback, a seek ended, a re-arm on canplay/playing). */
   presented(mediaTime: number): void {
     if (this.st.state === "stopped") return;
-    this.notePresented();
     this.mediaTime = mediaTime;
     this.scheduler.framePresented();
     this.publish();
@@ -331,14 +338,10 @@ export class SessionCore {
     if (this.st.state === "stopped") return;
     this.generation += 1;
     if (newSource) this.sourceCount += 1;
-    this.discontinuityPending = true;
     this.scheduler.discontinuity();
     this.result = null;
     this.held = null;
-    if (newSource) {
-      this.notePresented();
-      this.scheduler.framePresented();
-    }
+    if (newSource) this.scheduler.framePresented();
     this.publish();
   }
 
@@ -376,6 +379,14 @@ export class SessionCore {
     // The pointer as it was when the picture was asked for, in the picture's pixels (the bitmap
     // is already at analysis size). Sent only with the option on.
     const focus = sent.pointer ? { x: sent.pointer.x * bitmap.width, y: sent.pointer.y * bitmap.height } : null;
+    // A repeat of a picture whose time has not moved since the previous analyzed look (same
+    // generation and source) is analyzed as scope "all". Times are the captured pictures' own
+    // (`mediaTimeOf`), two captures at least REPEAT_INTERVAL_MS apart, so an equal time means the
+    // clock stood still. The presented events, which a seek reports two or three times, are not
+    // consulted.
+    const last = this.lastLook;
+    const full =
+      sent.repeat && last !== null && last.generation === sent.generation && last.videoKey === sent.videoKey && Math.abs(last.mediaTime - mediaTime) < SAME_TIME_SEC;
     try {
       this.deps.toWorker(
         {
@@ -383,7 +394,7 @@ export class SessionCore {
           bitmap,
           videoTimeSec: mediaTime,
           envelope,
-          ...(this.focusScope && !sent.full ? { geometricScope: "focus" as const, focus } : {}),
+          ...(this.focusScope && !full ? { geometricScope: "focus" as const, focus } : {}),
           ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}),
         },
         [bitmap],
@@ -481,6 +492,7 @@ export class SessionCore {
       return;
     }
     this.lastAcceptedRequestId = reply.envelope.requestId;
+    if (reply.analysis) this.lastLook = { mediaTime: reply.envelope.mediaTimeSec, generation: reply.envelope.generation, videoKey: reply.envelope.videoKey };
     this.st.lastFrameError = reply.error ?? null;
     this.st.lastWorkerMs = reply.workerMs;
     this.st.lastRoundTripMs = +(now - sent.sentAt).toFixed(2);
@@ -615,51 +627,16 @@ export class SessionCore {
     if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null)) this.requestCapture("hover");
   }
 
-  /** Frames presented, and when the last two were: what tells a still picture from a slow video. */
-  private presentedCount = 0;
-  private lastPresentedAt = -Infinity;
-  private prevPresentedAt = -Infinity;
-  /** `presentedCount` when the newest look that is not a repeat was asked for. */
-  private lookPresentedCount = 0;
-
-  /** A seek or a new source happened and no frame has been presented since. */
-  private discontinuityPending = false;
-  /** The last frame presented was the first one after a seek or a new source. */
-  private lastFrameAfterDiscontinuity = false;
-
-  private notePresented(): void {
-    this.presentedCount += 1;
-    this.lastFrameAfterDiscontinuity = this.discontinuityPending;
-    this.discontinuityPending = false;
-    this.prevPresentedAt = this.lastPresentedAt;
-    this.lastPresentedAt = this.deps.now();
-  }
-
-  /**
-   * Whether the repeat being asked for repeats a picture that really is still: no frame has been
-   * presented since the look it repeats, and the last frame was the first after a seek or a new
-   * source (a viewer who seeks and pauses), or is a second old or more, or came a second or more
-   * after the one before it. A video that presents a frame every 300 ms (a stall, a slide show)
-   * fails all three, so its repeats between frames keep their focus. Right after a seek, one
-   * repeat before the next frame arrives may still run "all" on such a video.
-   */
-  private stillRepeat(now: number): boolean {
-    if (this.presentedCount !== this.lookPresentedCount) return false;
-    return (
-      this.lastFrameAfterDiscontinuity ||
-      now - this.lastPresentedAt >= STILL_PICTURE_MS ||
-      this.lastPresentedAt - this.prevPresentedAt >= STILL_PICTURE_MS
-    );
-  }
+  /** The newest look that came back analyzed (`LastLook`). */
+  private lastLook: LastLook | null = null;
 
   private requestCapture(trigger?: "hover" | "cut"): void {
     if (this.st.state !== "ready" || this.inFlight) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
-    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, full: false };
+    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, repeat: false };
     this.scheduler.started(now, { videoTimeSec: this.videoTime(), ...(trigger ? { trigger } : {}) });
-    if (this.scheduler.lastTrigger === "repeat") this.inFlight.full = this.stillRepeat(now);
-    else this.lookPresentedCount = this.presentedCount;
+    this.inFlight.repeat = this.scheduler.lastTrigger === "repeat";
     this.deps.capture(requestId, { ...this.analysisWidth });
   }
 
