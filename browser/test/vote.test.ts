@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { cpuVoter, DESCRIPTOR_BYTES, NO_DISTANCE, NO_ROW, type KnnResult } from "../src/geometric/vote.js";
+import { cpuVoter, DESCRIPTOR_BYTES, NO_DISTANCE, NO_ROW, writeInPieces, type KnnResult } from "../src/geometric/vote.js";
 import { queriesFrom, randomDescriptors, tiedDescriptors } from "./vote-fixtures.js";
 
 /** The two nearest rows by sorting every row by (distance, row), bit by bit. */
@@ -90,5 +90,61 @@ describe("cpuVoter", () => {
   it("refuses a length that is not whole descriptors", async () => {
     expect(() => cpuVoter(new Uint8Array(33))).toThrow(/32-byte/);
     await expect(cpuVoter(new Uint8Array(32)).knn2(new Uint8Array(31))).rejects.toThrow(/32-byte/);
+  });
+});
+
+describe("writeInPieces", () => {
+  /** A queue that records each write's bytes and where they land, and each wait between them. */
+  function recordingQueue(size: number) {
+    const target = new Uint8Array(size);
+    const log: string[] = [];
+    const queue = {
+      writeBuffer(_buffer: GPUBuffer, at: number, data: Uint8Array, dataOffset: number, bytes: number): void {
+        log.push(`write ${at} ${bytes}`);
+        target.set(data.subarray(dataOffset, dataOffset + bytes), at);
+      },
+      async onSubmittedWorkDone(): Promise<void> {
+        log.push("wait");
+      },
+    };
+    return { target, log, queue: queue as unknown as Pick<GPUQueue, "writeBuffer" | "onSubmittedWorkDone"> };
+  }
+  const buffer = {} as GPUBuffer;
+
+  it("copies the same bytes in pieces of at most the piece size, waiting after each", async () => {
+    const src = randomDescriptors(100, 31);
+    const { target, log, queue } = recordingQueue(70 * DESCRIPTOR_BYTES);
+    await writeInPieces(queue, buffer, src, 30 * DESCRIPTOR_BYTES, 70 * DESCRIPTOR_BYTES, 32 * DESCRIPTOR_BYTES);
+    expect(target).toEqual(src.subarray(30 * DESCRIPTOR_BYTES, 100 * DESCRIPTOR_BYTES));
+    expect(log).toEqual(["write 0 1024", "wait", "write 1024 1024", "wait", "write 2048 192", "wait"]);
+  });
+
+  it("writes once when the bytes fit in one piece, and not at all for none", async () => {
+    const src = randomDescriptors(4, 32);
+    const one = recordingQueue(src.length);
+    await writeInPieces(one.queue, buffer, src, 0, src.length, 4 * 1024 * 1024);
+    expect(one.target).toEqual(src);
+    expect(one.log).toEqual([`write 0 ${src.length}`, "wait"]);
+    const none = recordingQueue(0);
+    await writeInPieces(none.queue, buffer, src, 0, 0, 1024);
+    expect(none.log).toEqual([]);
+  });
+
+  it("does not start the next piece before the wait resolves", async () => {
+    const src = randomDescriptors(8, 33);
+    const log: string[] = [];
+    let release: () => void = () => undefined;
+    const queue = {
+      writeBuffer(_b: GPUBuffer, at: number): void { log.push(`write ${at}`); },
+      onSubmittedWorkDone: () => new Promise<void>((done) => { release = done; }),
+    } as unknown as Pick<GPUQueue, "writeBuffer" | "onSubmittedWorkDone">;
+    const writing = writeInPieces(queue, buffer, src, 0, src.length, 4 * DESCRIPTOR_BYTES);
+    await new Promise((done) => setTimeout(done, 0));
+    expect(log).toEqual(["write 0"]);
+    release();
+    await new Promise((done) => setTimeout(done, 0));
+    expect(log).toEqual(["write 0", "write 128"]);
+    release();
+    await writing;
   });
 });

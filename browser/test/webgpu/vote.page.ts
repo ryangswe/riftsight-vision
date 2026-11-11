@@ -46,6 +46,10 @@ function cases(): Case[] {
   const split = tiedDescriptors(65_536 + 999, 40, 17);
   add("index split over buffers", split, queriesFrom(split, 300, 18), { chunkRows: 2048, maxRowsPerBuffer: 10_000 });
   add("queries split over dispatches", odd, queriesFrom(odd, 1000, 19), { maxQueriesPerDispatch: 300 });
+  add("index uploaded in small pieces", odd, queriesFrom(odd, 200, 21), { uploadPieceBytes: 32 * 100 });
+  add("index split over buffers, uploaded in pieces that do not divide a buffer", split, queriesFrom(split, 300, 22), {
+    chunkRows: 2048, maxRowsPerBuffer: 10_000, uploadPieceBytes: 32 * 3001,
+  });
   const unaligned = new Uint8Array(32 * 50 + 1).subarray(1);
   unaligned.set(queriesFrom(odd, 50, 20));
   add("queries at an unaligned offset", odd, unaligned);

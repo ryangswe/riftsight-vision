@@ -134,6 +134,8 @@ export interface GpuVoterOptions {
   maxQueriesPerDispatch?: number;
   /** Most rows in one storage buffer (at most the device's limit allows). For tests of the split. */
   maxRowsPerBuffer?: number;
+  /** Bytes the index is copied to the GPU in at a time, a multiple of 32 ("writeInPieces"). */
+  uploadPieceBytes?: number;
 }
 
 const DEFAULTS: Required<Omit<GpuVoterOptions, "maxRowsPerBuffer">> = {
@@ -142,7 +144,29 @@ const DEFAULTS: Required<Omit<GpuVoterOptions, "maxRowsPerBuffer">> = {
   tileRows: 256,
   chunkRows: 8192,
   maxQueriesPerDispatch: 6144,
+  uploadPieceBytes: 4 * 1024 * 1024,
 };
+
+/**
+ * Copies `bytes` bytes of `src`, from byte `srcOffset`, to the start of `buffer`, at most
+ * `pieceBytes` at a time, and waits for the queue after each piece. Chrome stages a write in
+ * memory mapped by both the page and the GPU process, and that memory stays after the write is
+ * done. One write of a whole index kept about its size in each process (about 50 MB each for a
+ * 52 MB index); 4 MiB pieces with a wait kept about a piece and took no longer.
+ */
+export async function writeInPieces(
+  queue: Pick<GPUQueue, "writeBuffer" | "onSubmittedWorkDone">,
+  buffer: GPUBuffer,
+  src: Uint8Array,
+  srcOffset: number,
+  bytes: number,
+  pieceBytes: number,
+): Promise<void> {
+  for (let done = 0; done < bytes; done += pieceBytes) {
+    queue.writeBuffer(buffer, done, src as Uint8Array<ArrayBuffer>, srcOffset + done, Math.min(pieceBytes, bytes - done));
+    await queue.onSubmittedWorkDone();
+  }
+}
 
 /**
  * The device limits to ask for when creating the device the vote runs on: the adapter's own
@@ -235,8 +259,8 @@ interface Segment {
 }
 
 /**
- * The voter on a WebGPU device. The index is copied to the GPU once, split over several storage
- * buffers when it is larger than the device allows in one binding.
+ * The voter on a WebGPU device. The index is copied to the GPU once, in pieces, split over
+ * several storage buffers when it is larger than the device allows in one binding.
  */
 export async function gpuVoter(device: GPUDevice, desc: Uint8Array, options: GpuVoterOptions = {}): Promise<Voter> {
   const rows = rowCount(desc);
@@ -246,6 +270,7 @@ export async function gpuVoter(device: GPUDevice, desc: Uint8Array, options: Gpu
     if (value !== undefined && (!Number.isInteger(value) || value < 1)) throw new Error(`gpuVoter: ${name} must be a positive integer`);
   }
   if (o.chunkRows % o.tileRows !== 0) throw new Error("gpuVoter: chunkRows must be a multiple of tileRows");
+  if (o.uploadPieceBytes % DESCRIPTOR_BYTES !== 0) throw new Error(`gpuVoter: uploadPieceBytes must be a multiple of ${DESCRIPTOR_BYTES}`);
   const limits = device.limits;
   const bindingBytes = Math.min(limits.maxStorageBufferBindingSize, limits.maxBufferSize);
   // Whole chunks per buffer, so that a chunk never straddles two buffers.
@@ -278,7 +303,7 @@ export async function gpuVoter(device: GPUDevice, desc: Uint8Array, options: Gpu
     const n = Math.min(rowsPerBuffer, rows - base);
     // A zero-row index still gets a (one-row, unread) buffer: a binding cannot be empty.
     const buffer = device.createBuffer({ size: Math.max(n, 1) * DESCRIPTOR_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    if (n > 0) device.queue.writeBuffer(buffer, 0, desc as Uint8Array<ArrayBuffer>, base * DESCRIPTOR_BYTES, n * DESCRIPTOR_BYTES);
+    if (n > 0) await writeInPieces(device.queue, buffer, desc, base * DESCRIPTOR_BYTES, n * DESCRIPTOR_BYTES, o.uploadPieceBytes);
     const params = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     segments.push({ buffer, rows: n, base, firstChunk: base / o.chunkRows, chunks: Math.max(1, Math.ceil(n / o.chunkRows)), params });
     if (n <= 0) break;
