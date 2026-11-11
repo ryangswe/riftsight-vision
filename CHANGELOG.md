@@ -9,6 +9,12 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Changed
+
+- With `whenIdle`, a page-wide pointer move (`intent: "page"`) no longer rebuilds a dropped compute
+  frame; only a trusted move or tap over the video does. Rebuilding on any page move cost more than
+  it saved for viewers who don't hover. `intent` still reloads the worker of a frame that was kept.
+
 ## [0.12.0] - 2026-11-11
 
 The browser runtime can verify only the cards at the pointer, which cuts the geometric stage's
