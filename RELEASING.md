@@ -37,6 +37,14 @@ should be worth their reading the changelog.
    with the target `pypi`, then approve the upload. The workflow checks that the tag matches the
    version in `pyproject.toml`. A version uploaded there can never be replaced.
 
+Steps 3 and 4 happen on their own when the pull request of step 1 is merged: the Release
+workflow (`.github/workflows/release.yml`) tags the merge commit, publishes the release (a
+version with `rcN` is a pre-release) and starts Publish with the target `pypi`. What is left is
+to approve the upload. It refuses, and creates nothing, when the changelog has no dated section
+for the version, the version is already on the index or the index cannot be asked, or the
+version is lower than the newest version tag. A re-run does only what is still missing. The
+commands above stay as the fallback when it did not run or was refused.
+
 ## Patch and docs-only releases
 
 Steps 1, 3 and 4. A patch never breaks the public surface.
@@ -53,3 +61,6 @@ Publish its measured numbers beside the previous release's, and make sure
 - CI is green on `main`, and `python -m pytest -n auto --dist loadfile` passes.
 - `CHANGELOG.md` has a section for the version in `pyproject.toml`
   (`tests/test_release_process.py` checks this).
+- Never land a change to the release automation in the same pull request as a version bump.
+- Only the maintainer merges a pull request that raises the version, since the merge is what
+  tags and releases.

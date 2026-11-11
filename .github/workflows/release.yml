@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# A push to main that raises the version in pyproject.toml tags it, publishes the GitHub release
+# with the changelog section as its notes, and starts the Publish workflow for the package
+# index. Publish still waits for the maintainer's approval of the `pypi` environment; nothing here
+# reaches the index. A push that leaves the version alone does nothing.
+#
+# tests/release_plan.py decides, before anything is written: it refuses a version with no dated
+# changelog section, one already on the index, one the index cannot be asked about, and one lower
+# than the newest version tag. A re-run does only what is still missing. A tag made with the
+# workflow token starts no workflow, so the upload is started by a dispatch.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Tag, release and start the upload
+    if: github.repository == 'ryangswe/riftsight-vision'
+    runs-on: ubuntu-latest
+    concurrency: release
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Gather the facts
+        run: |
+          version="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
+          git ls-remote --tags origin 'refs/tags/v*' > "${RUNNER_TEMP}/tags.txt"
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 "https://pypi.org/pypi/cardvision/${version}/json" || true)"
+          if gh release view "v${version}" > /dev/null 2>&1; then exists=true; else exists=false; fi
+          runs="$(gh run list --workflow publish.yml --branch "v${version}" --json databaseId --jq length)"
+          {
+            echo "VERSION=${version}"
+            echo "COMMIT=${GITHUB_SHA}"
+            echo "TAGS_FILE=${RUNNER_TEMP}/tags.txt"
+            echo "PYPI_STATUS=${status:-000}"
+            echo "RELEASE_EXISTS=${exists}"
+            echo "PUBLISH_RUNS=${runs}"
+          } >> "$GITHUB_ENV"
+      - name: Decide
+        id: plan
+        run: python3 tests/release_plan.py --notes "${RUNNER_TEMP}/notes.md"
+      - name: Create the release
+        if: steps.plan.outputs.create == 'true'
+        run: |
+          if [ "${{ steps.plan.outputs.prerelease }}" = "true" ]; then
+            gh release create "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md" --prerelease
+          else
+            gh release create "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md"
+          fi
+      - name: Start the upload, which waits for approval
+        if: steps.plan.outputs.dispatch == 'true'
+        run: gh workflow run publish.yml --ref "v${VERSION}" -f target=pypi

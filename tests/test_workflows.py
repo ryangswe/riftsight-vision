@@ -478,3 +478,58 @@ def test_publish_runs_only_by_hand():
     assert "github.event_name" not in text
     assert "    if: inputs.target == 'testpypi'\n" in text
     assert "    if: inputs.target == 'pypi' && github.ref_type == 'tag'\n" in text
+
+
+# ---------------------------------------------------------------------------------- release.yml
+def test_the_release_workflow_decides_before_it_creates_or_dispatches_and_holds_little_power():
+    """A push to main runs one job that decides first (``tests/release_plan.py``) and then creates the
+    release and starts Publish with exactly these commands. It can write contents and start
+    workflows, and nothing else: no token for the package index, no environment, no install."""
+    text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert "\non:\n  push:\n    branches: [main]\n\npermissions:\n  contents: read\n" in text
+    trigger = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert "paths" not in trigger and "pull_request" not in trigger and "workflow_dispatch" not in trigger
+    assert text.count("\njobs:\n  release:\n") == 1
+    assert "    if: github.repository == 'ryangswe/riftsight-vision'\n" in text
+    assert "    concurrency: release\n" in text and "cancel-in-progress" not in text
+    # Read-only at the top, contents and actions write on the job, nothing else anywhere.
+    lines = text.splitlines()
+    granted = []
+    for at, line in enumerate(lines):
+        if line.strip() == "permissions:":
+            indent = len(line) - len(line.lstrip())
+            block = []
+            for following in lines[at + 1:]:
+                if len(following) - len(following.lstrip()) <= indent:
+                    break
+                block.append(following.strip())
+            granted.append(sorted(block))
+    assert granted == [["contents: read"], ["actions: write", "contents: write"]]
+    assert "id-token" not in text and "environment:" not in text and "pip install" not in text and "secrets." not in text
+    # The only action is the checkout, pinned to the commit the other workflows pin.
+    assert [line.strip() for line in lines if "uses: " in line] == [f"- uses: {CHECKOUT}"]
+    # The decision comes first; every create and dispatch follows it and runs only on its outputs.
+    steps = steps_of("release.yml")
+    names = list(steps)
+    assert names == ["Gather the facts", "Decide", "Create the release", "Start the upload, which waits for approval"]
+    assert steps["Decide"]["run"] == 'python3 tests/release_plan.py --notes "${RUNNER_TEMP}/notes.md"\n'
+    create, dispatch = steps["Create the release"], steps["Start the upload, which waits for approval"]
+    assert create["if"] == "steps.plan.outputs.create == 'true'" and dispatch["if"] == "steps.plan.outputs.dispatch == 'true'"
+    assert "      - name: Decide\n        id: plan\n" in text
+    for at, line in enumerate(lines):
+        if "gh release create" in line or "gh workflow run" in line:
+            assert at > text[:text.index("tests/release_plan.py")].count("\n")
+    assert text.count("gh release create") == 2 and text.count("gh workflow run") == 1
+    assert 'gh release create "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md" --prerelease\n' in create["run"]
+    assert 'gh release create "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md"\n' in create["run"]
+    assert dispatch["run"] == 'gh workflow run publish.yml --ref "v${VERSION}" -f target=pypi\n'
+    # The facts it hands the decision.
+    facts = steps["Gather the facts"]["run"]
+    for expected in ("git ls-remote --tags origin 'refs/tags/v*'", "https://pypi.org/pypi/cardvision/${version}/json",
+                     'gh release view "v${version}"', "gh run list --workflow publish.yml --branch", "tomllib"):
+        assert expected in facts
+
+
+def test_publish_stays_a_dispatch_with_its_gate_and_names_the_workflow_that_starts_it():
+    text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
+    assert "    environment: pypi\n    permissions:\n      id-token: write\n" in text and "started by release.yml" in text
