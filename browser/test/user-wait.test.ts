@@ -453,3 +453,17 @@ describe("the answering analysis, hold and the shown timeline", () => {
     for (const word of ["`holdMs`", "`shown`", "`analyses`"]) expect(readme).toContain(word);
   });
 });
+
+describe("moveAfterMs", () => {
+  it("accepts a whole number of ms, 0 or more, and refuses the rest", () => {
+    const rest = { x: 0.1, y: 0.2, expect: "TOY-001" };
+    for (const ok of [0, 100]) expect(core.restScriptProblem({ rests: [{ ...rest, moveAfterMs: ok }] })).toBeNull();
+    for (const bad of [-1, 1.5, "100"]) expect(core.restScriptProblem({ rests: [{ ...rest, moveAfterMs: bad }] })).toMatch(/`moveAfterMs` must be a whole number/);
+  });
+
+  it("is wired in after the seek and before the move, which is where the wait counts from", () => {
+    const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
+    expect(source).toMatch(/window\.harness\.seek\(sec\), rest\.atSec\)[\s\S]*?setTimeout\(done, rest\.moveAfterMs\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
+    expect(readFileSync(fileOf("README.md"), "utf-8")).toContain("`moveAfterMs`");
+  });
+});

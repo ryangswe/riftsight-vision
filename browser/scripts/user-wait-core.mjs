@@ -155,6 +155,7 @@ export function restScriptProblem(script) {
     const fraction = (v) => typeof v === "number" && v >= 0 && v <= 1;
     if (!rest || typeof rest.expect !== "string" || !fraction(rest.x) || !fraction(rest.y)) return `rest ${at + 1} needs \`expect\` (a card id) and \`x\`, \`y\` (fractions of the picture, 0 to 1)`;
     if (rest.pause !== undefined && typeof rest.pause !== "boolean") return `rest ${at + 1}: \`pause\` must be true or false`;
+    if (rest.moveAfterMs !== undefined && !(Number.isInteger(rest.moveAfterMs) && rest.moveAfterMs >= 0)) return `rest ${at + 1}: \`moveAfterMs\` must be a whole number of ms, 0 or more`;
     for (const key of ["pauseMs", "leaveAfterMs", "limitMs", "holdMs"]) if (rest[key] !== undefined && !(typeof rest[key] === "number" && rest[key] >= 0)) return `rest ${at + 1}: \`${key}\` must be a number of ms`;
   }
   return null;

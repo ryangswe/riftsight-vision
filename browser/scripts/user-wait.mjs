@@ -629,6 +629,8 @@ try {
     else await tab.evaluate(() => window.harness.resume());
     if (rest.atSec !== undefined) await tab.evaluate((sec) => window.harness.seek(sec), rest.atSec);
     await tab.evaluate((expect, ms, hold) => window.harness.begin(expect, ms, hold), rest.expect, limit, rest.holdMs ?? 0);
+    // moveAfterMs: the pointer stays where the last rest left it for that long after the seek.
+    if (rest.moveAfterMs) await new Promise((done) => setTimeout(done, rest.moveAfterMs));
     await tab.mouse.move(...at(rest.x, rest.y));
     let left = null;
     if (rest.leaveAfterMs !== undefined) left = setTimeout(() => void tab.mouse.move(...park).catch(() => {}), rest.leaveAfterMs);

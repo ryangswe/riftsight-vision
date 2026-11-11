@@ -22,6 +22,8 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- `npm run user-wait`: a rest can carry `moveAfterMs` to wait after its seek before the pointer
+  moves (the wait still counts from the move).
 - `npm run user-wait`: a rest's `analyses` now includes the analysis that produced its answer; it
   was recorded by a 20 ms timer and could land after the rest's record was read. A rest can carry
   `holdMs` to keep reading after the answer, and each rest line has `shown`, the timeline of the

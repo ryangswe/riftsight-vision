@@ -1200,6 +1200,10 @@ pointer coming to rest (`cardId` null for nothing). With a stage, `analyses` lis
 that finished during the rest. The analysis that produced the answer is included: the harness
 records an analysis when the session reports it and when the rest ends, not only on a timer.
 
+`moveAfterMs` (a whole number of ms, default 0) waits that long after the seek before the pointer
+moves; meanwhile the pointer stays where the previous rest left it. The rest's wait still counts
+from the move, so "seek, then move about 100 ms later" is `"atSec": 12, "moveAfterMs": 100`.
+
 `"pause": true` pauses the clip before the rest's `atSec` seek (so the picture is exactly that
 time) and before the pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
 card does. A later rest without `pause` plays the clip on. Each line of the report has `paused`
