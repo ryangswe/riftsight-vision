@@ -750,8 +750,8 @@ on that analysis instead of being named by the embedding alone; the hover layer 
 them, and the track layer behaves as in a full analysis. Nothing is named at a point whose
 overlapping faces include one that was not verified, and a held tooltip ends there, so the card
 beneath an unverified neighbour never shows in its place. The `others` boxes that come with a
-shown card are those of a full analysis when no face is unverified, plus the unverified faces' boxes
-when some are. This changes how much work one analysis does and which faces it names, not what the
+shown card are those of a full analysis when no face is unverified, and, when some are unverified,
+every face of their overlap groups. This changes how much work one analysis does and which faces it names, not what the
 stage computes for a face; the Python package's `evaluate` still verifies every face, so replay
 results do not move.
 

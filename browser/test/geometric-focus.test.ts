@@ -940,6 +940,18 @@ describe("row 8: FrameScheduler.relookDue", () => {
     expect(s.relookDue(2_800, false)).toBe(true);
   });
 
+  it("is not due inside the minimum gap when nothing else blocks it", () => {
+    const s = new FrameScheduler(500, 1, "pointer", 1000); // one analysis per picture: no repeats
+    s.framePresented();
+    s.pointerMoved(0);
+    s.started(0);
+    s.pointerMoved(2_000);
+    s.started(2_000, { trigger: "hover" });
+    expect(s.idle).toBe(true);
+    expect(s.relookDue(2_000 + HOVER_TRIGGER_MIN_GAP_MS - 1, false)).toBe(false);
+    expect(s.relookDue(2_000 + HOVER_TRIGGER_MIN_GAP_MS, false)).toBe(true);
+  });
+
   it("is not due once the pointer's grace period is over", () => {
     const s = still(2_000);
     expect(s.relookDue(2_000 + POINTER_GRACE_MS - 1, false)).toBe(true);
@@ -1124,6 +1136,40 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     expect(focus.others).toHaveLength(2);
     const want = [box(300, 20), box(340, 20)].map((b) => JSON.stringify({ x: b.aabb.x / 800, y: b.aabb.y / 450, width: b.aabb.width / 800, height: b.aabb.height / 450 })).sort();
     expect([...focus.others].sort()).toEqual(want);
+  });
+
+  const fr = (b: Candidate) => JSON.stringify({ x: b.aabb.x / 800, y: b.aabb.y / 450, width: b.aabb.width / 800, height: b.aabb.height / 450 });
+
+  it("row 10 v6: a group with an unverified face lists every face, one that focus suppresses and all keeps included", async () => {
+    // U (unverified, boosted once verified) overlaps X, X overlaps Z, U and Z do not overlap. In
+    // "all" the boosted U suppresses X and Z is kept; in focus U has no card, X wins and Z is
+    // suppressed. F, far away, is the shown card.
+    const cards = [{ box: box(100, 20), red: 120 }, { box: box(140, 20), red: 250 }, { box: box(180, 20), red: 250 }, { box: box(600, 20), red: 250 }];
+    const all = await othersAt(cards, 650, {}, fakeStage());
+    expect(all.others).toContain(fr(cards[2]!.box)); // "all" keeps Z
+    expect(all.others).not.toContain(fr(cards[1]!.box)); // and suppresses X
+    const focus = await othersAt(cards, 650, { geometricScope: "focus" }, fakeStage());
+    expect(focus.shown?.cardId).toBe("A");
+    expect([...focus.others].sort()).toEqual(cards.slice(0, 3).map((c) => fr(c.box)).sort());
+  });
+
+  it("row 10 v6: the limit does not cut a group's faces, and the layer's other boxes follow in the room left", async () => {
+    // A chain of three faces with an unverified one, and the shown card.
+    const group = [{ box: box(100, 20), red: 100 }, { box: box(140, 20), red: 250 }, { box: box(180, 20), red: 250 }];
+    const cards = [...group, { box: box(600, 20), red: 250 }];
+    const focus = await othersAt(cards, 650, { geometricScope: "focus", maxOtherBoxes: 1 }, fakeStage());
+    expect(focus.others).toHaveLength(3); // the group, whole, past the limit of 1
+    expect([...focus.others].sort()).toEqual(group.map((c) => fr(c.box)).sort());
+  });
+
+  it("the limit on others holds when no face is unverified", async () => {
+    const cards = [100, 250, 400, 550].map((x) => ({ box: box(x, 20), red: 250 }));
+    const full = await othersAt(cards, 130, {}, fakeStage());
+    expect(full.others).toHaveLength(3);
+    for (const options of [{ maxOtherBoxes: 2 }, { geometricScope: "focus" as const, maxOtherBoxes: 2 }]) {
+      const capped = await othersAt(cards, 130, options, fakeStage());
+      expect(capped.others).toEqual(full.others.slice(0, 2));
+    }
   });
 
   it("row 10: the neighbours of a shown card are the same boxes as under all", async () => {

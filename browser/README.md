@@ -1499,9 +1499,11 @@ another mode, because the pointer is what says which faces to verify.
   `session.analysis()` read with the exported `hoverAt` is not covered, as it reads the analysis as is.
 - **`others`.** When the result has no unverified face (always, with no stage), the `others` of
   what `atPointer()` returns are exactly `"all"`'s for the same frame, in the same order and with
-  the same cap. When it has some, the boxes of the faces the stage left unverified are added after
-  them, so a tooltip avoids every face of such a group, including any that `"all"` would have
-  suppressed as duplicates.
+  the same cap. When it has some, every face of each overlap group (boxes joined by an IoU of 0.3
+  or more) that holds an unverified face is listed, whether a full analysis would have kept,
+  suppressed or verified it, so a tooltip avoids all of them. These come first and the session's
+  `maxOtherBoxes` does not cut them; the layer's other boxes follow, in its order, in the room the
+  limit leaves.
 - **A paused or unchanged picture.** A still picture is analyzed when presented and a few times
   more, then not again, so a card the pointer reaches later would stay unnamed. In focus scope,
   when the pointer is on a face (or a group) the newest analysis left unverified, the session

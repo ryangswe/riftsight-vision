@@ -36,14 +36,14 @@
 // was detected and not named. With the optional hold (`SHOWN_HOLD`), a shown card survives short
 // gaps; without it (the default), what is shown is exactly the newest result at the pointer.
 
-import type { AABB } from "./boxes.js";
+import { type AABB, iou } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
 import { analyzeIntervalMs, cadenceMs, type GeometricScope, MeasuredPacer, resolveGeometricScope, type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
 import { hoverAt } from "./hover-at.js";
-import { focusGroup } from "./recognition.js";
+import { ACCEPTED_NMS_IOU, focusGroup } from "./recognition.js";
 import type { LayerCard } from "./hover-geometry.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { SessionStatus } from "./session.js";
@@ -161,24 +161,48 @@ export function neighborBoxes(analysis: FrameAnalysis, box: FractionBox, limit =
 }
 
 /** `neighborBoxes` for focus scope. A frame with no unverified face is listed exactly as a full
- *  analysis lists it. Otherwise the faces the stage left unverified have no hover card, so
- *  their boxes follow the layer's own (in its stacking order), as a full analysis would have
- *  listed them. The limit applies to the whole list. */
+ *  analysis lists it. Otherwise, every face of each overlap group (boxes joined by an IoU of
+ *  `ACCEPTED_NMS_IOU` or more, as the suppression joins them) that holds an unverified face is
+ *  listed, kept, suppressed, verified or not, since nobody knows which a full analysis would
+ *  have kept. Those come first and are not cut by the limit; the layer's other boxes follow, in
+ *  its stacking order, up to the room the limit leaves. */
 function neighborFaceBoxes(analysis: FrameAnalysis, box: FractionBox, limit: number): FractionBox[] {
   const own = neighborBoxes(analysis, box, Infinity);
+  const groups = unverifiedGroupBoxesOf(analysis);
+  if (groups.length === 0) return own.slice(0, limit);
   const same = (a: FractionBox, b: FractionBox): boolean => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.width - b.width) < 1e-6;
-  const missing = unverifiedBoxesOf(analysis).filter((b) => !same(b, box) && !own.some((o) => same(o, b)));
-  return [...own, ...missing].slice(0, limit);
+  const first = groups.filter((b) => !same(b, box));
+  const rest = own.filter((o) => !first.some((g) => same(g, o)));
+  return [...first, ...rest.slice(0, Math.max(0, limit - first.length))];
 }
 
-/** The boxes of the faces the stage applies to and did not verify, in fractions of the frame,
- *  clamped as the layer's are. */
-function unverifiedBoxesOf(analysis: FrameAnalysis): FractionBox[] {
+/** The boxes of every face in the overlap groups that hold a face the stage applies to and did
+ *  not verify, in fractions of the frame, clamped as the layer's are. */
+function unverifiedGroupBoxesOf(analysis: FrameAnalysis): FractionBox[] {
   const { width, height } = analysis.frame;
   const clamp = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
-  return (analysis.boxes ?? [])
-    .filter((b) => b.face !== null && b.face.unverified === true)
-    .map((b) => ({ x: clamp(b.box[0] / width), y: clamp(b.box[1] / height), width: clamp(b.box[2] / width), height: clamp(b.box[3] / height) }));
+  const faces = (analysis.boxes ?? []).filter((b) => b.face !== null);
+  const aabbs = faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] }));
+  const seen = new Set<number>();
+  const taken: number[] = [];
+  faces.forEach((f, start) => {
+    if (f.face!.unverified !== true || seen.has(start)) return;
+    const queue = [start];
+    seen.add(start);
+    for (let q = 0; q < queue.length; q++) {
+      aabbs.forEach((b, i) => {
+        if (!seen.has(i) && iou(aabbs[queue[q]!]!, b) >= ACCEPTED_NMS_IOU) {
+          seen.add(i);
+          queue.push(i);
+        }
+      });
+    }
+    taken.push(...queue);
+  });
+  return [...new Set(taken)].sort((a, b) => a - b).map((i) => {
+    const [x, y, w, h] = faces[i]!.box;
+    return { x: clamp(x / width), y: clamp(y / height), width: clamp(w / width), height: clamp(h / height) };
+  });
 }
 
 /** Whether, in this analysis, the pointer at (px, py) in the frame's pixels is on a group of
@@ -550,12 +574,12 @@ export class SessionCore {
    * look verifies the pointer's group, so nothing is unverified there any more.
    */
   private relookForUnverified(): void {
-    if (!this.focusScope || this.st.state !== "ready" || this.inFlight || !this.pointerAt || !this.result) return;
+    if (!this.focusScope || this.st.state !== "ready" || !this.pointerAt || !this.result) return;
     const { analysis } = this.result;
     const { width, height } = analysis.frame;
     if (!(width > 0 && height > 0)) return;
     if (!pointerGroupUnverified(analysis, this.pointerAt.x * width, this.pointerAt.y * height)) return;
-    if (this.scheduler.relookDue(this.deps.now(), false)) this.requestCapture("hover");
+    if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null)) this.requestCapture("hover");
   }
 
   private requestCapture(trigger?: "hover" | "cut"): void {
