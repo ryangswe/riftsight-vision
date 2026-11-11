@@ -95,14 +95,15 @@ export interface CaptureControlOptions {
   /** Opt in to dropping the whole compute frame when it goes idle. When the frame reports the
    *  status `idle` (start it with `idleUnloadMs`), the control calls `remove()` once and sends
    *  nothing more to that frame. The next trusted pointer move over the watched video calls
-   *  `make()` once, and so does an `intent` moment (a trusted move anywhere while the video plays,
-   *  with `intent: "page"`); in that state no `intent` message is sent. The control then connects
+   *  `make()` once. An `intent` moment (a trusted move anywhere while the video plays, with
+   *  `intent: "page"`) does not: while the frame is removed it does nothing and sends nothing,
+   *  because rebuilding on any page move cost more than it saved for viewers who do not hover. The control then connects
    *  to the new frame as it does for any replaced iframe, so `frame()` must return the new frame's
    *  window once `make()` returns. A trusted `pointerdown` over the picture (a touch tap) makes the
    *  frame too. After `make()` the usual `no-answer` problem can fire if the frame never answers;
    *  the product handles it as it does for its first frame. If `make()` throws, the control stays
-   *  in the removed state (the throw is not reported: no problem kind fits) and the next trusted
-   *  move tries again. A frame the product makes and connects itself also ends the removed state,
+   *  in the removed state (the throw is not reported: no problem kind fits) and only the next
+   *  trusted move or tap over the video tries again (a move elsewhere on the page does not). A frame the product makes and connects itself also ends the removed state,
    *  so do not make the frame on your own load triggers while `control.frameRemoved` is true:
    *  `loadWhen` fires once, so it is safe, but a reload on every `playing` event (a looping clip
    *  fires one) would quietly undo the unload.
@@ -410,7 +411,9 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     if (stopped || options.intent !== "page" || event.isTrusted !== true || !watch) return;
     const video = watch.video;
     if (video.paused || video.ended) return;
-    if (frameRemoved) return makeFrame();
+    // A dropped frame is not rebuilt by a move elsewhere on the page: only a move or tap over the
+    // picture does (onPointer). There is no frame to message either.
+    if (frameRemoved) return;
     const target = connectedFrame();
     if (!target) return;
     const at = now();

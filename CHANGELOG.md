@@ -19,6 +19,9 @@ break the public surface; this file names each break and how to migrate.
   After that repeat, a move to another card is named at once with no new look; a move to a card
   not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
   extra look. Playing video, scope "all" and a session with no stage are unchanged.
+- With `whenIdle`, a page-wide pointer move (`intent: "page"`) no longer rebuilds a dropped compute
+  frame; only a trusted move or tap over the video does. Rebuilding on any page move cost more than
+  it saved for viewers who don't hover. `intent` still reloads the worker of a frame that was kept.
 - In pointer mode, a pointer that rests where the newest look found no card is now looked at once
   every 2 seconds instead of at the fast rate. In the 10-second grace period that is about 5
   looks, against about 20 on WebGPU with fast analyses and 10 on WebAssembly, which saves most of
@@ -31,6 +34,12 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- `npm run user-wait`: a rest can carry `pauseAfterPreviousBeginMs` to start that long after the
+  previous rest began, so a pause with no seek comes at about the same clip time however fast the
+  previous rest answered. Each rest line has `timing` (the video's time at the pause, seek, begin,
+  move and end) and `pointer`. `--record-frames` also records `polled` (every change of what
+  `atPointer()` returned) and `frames` (each answered frame's request, and the boxes at the
+  pointer with whole faces); without it the run measures as before.
 - `npm run user-wait`: a rest can carry `moveAfterMs` to wait after its seek before the pointer
   moves (the wait still counts from the move).
 - `npm run user-wait`: a rest's `analyses` now includes the analysis that produced its answer; it

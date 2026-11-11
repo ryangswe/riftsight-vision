@@ -1022,8 +1022,11 @@ By default an idle frame stays and reloads its worker in place. Ending the worke
 frame's own renderer process running, which on a real release costs about 90 MB of footprint more
 than no frame. `createCaptureControl({ whenIdle: { remove, make } })` drops the whole frame
 instead: on the `idle` status it calls `remove()` (delete the iframe), and the next trusted pointer
-move or `pointerdown` (a tap) over the video, or an `intent` moment while the video plays, calls `make()` (create a new
-iframe; the function you give `loadWhen` works) and connects to it. `startComputeFrame` returns a
+move or `pointerdown` (a tap) over the video calls `make()`, which creates a new iframe (the
+function you give `loadWhen` works); the control then connects to it. An `intent` moment does not
+call `make()`: rebuilding on any page move cost more than it saved for viewers who don't hover. If
+`make()` throws, the control stays removed and only the next trusted move or tap over the video
+tries again, not a move elsewhere on the page. `startComputeFrame` returns a
 `state` that reads `idle` while idle (`core` still reads `loading` then). The control's
 `frameRemoved` is true from `remove()` until the next accepted handshake. A product must not make
 the frame on its own load triggers while it is true: `loadWhen` fires once, so it is safe, but a
@@ -1203,6 +1206,40 @@ records an analysis when the session reports it and when the rest ends, not only
 `moveAfterMs` (a whole number of ms, default 0) waits that long after the seek before the pointer
 moves; meanwhile the pointer stays where the previous rest left it. The rest's wait still counts
 from the move, so "seek, then move about 100 ms later" is `"atSec": 12, "moveAfterMs": 100`.
+
+`pauseAfterPreviousBeginMs` (ms, in place of `pauseMs`, not on the first rest) starts the rest that
+long after the previous rest began, not `pauseMs` after it ended. A rest that pauses with no seek
+then pauses at about the same clip time however fast the previous rest answered; the pause still
+comes after two calls into the page, so on a playing clip it can differ by a frame. Make it longer
+than the previous rest can take (its `moveAfterMs`, `limitMs` and `holdMs`, and a margin): a
+previous rest that runs past it starts this one at once, and `timing.lateMs` says how late.
+
+Each rest line has `timing`: `pausedAtSec` and `seekedToSec` (the video's `currentTime` after the
+rest's pause and seek, or null), `beganTimeSec`, `movedTimeSec` and `endTimeSec` (its `currentTime`
+when the rest began, when the pointer came to rest and when the rest ended), `moveAfterBeginMs`, and
+`lateMs` with `pauseAfterPreviousBeginMs`. `pointer` is the move's client position, the pointer as
+fractions of the picture (`fx`, `fy`), and the picture's box on the page.
+
+`--record-frames` records more, for diagnosing one rest rather than for timing (without it the run
+measures as before). Each rest line then also has:
+- `polled`: every change of what `session.atPointer()` returned (card id, name and frame box), with
+  its time and the video's `currentTime`. `shown` keeps only the card id.
+- `frames`: each frame the worker answered from the rest's begin() to its end (`atMs` from the
+  pointer coming to rest, so a frame answered between begin() and the move is negative). Each has
+  `request` (`requestId`, `generation`, `mediaTimeSec` of the captured picture, `videoTimeSec`, the
+  `focus` point in frame pixels or null, and `scope`, "focus" or "all"), `point` (the request's
+  focus, or with none the rest's pointer from the page when the result came back, null once the
+  pointer has left, and which one as `source`), the frame's
+  `width` and `height`, `error`, the worker's `rawMs`, the counts of `boxes`, `faces`, `verified`
+  faces (the geometric stage ran on them, which is not that it accepted them) and `unverified`
+  faces, `group`, and the page's `currentTimeSec` and `paused` when the result arrived. `group` is
+  the boxes holding `point` and, transitively, those overlapping them by IoU 0.3 or more (as
+  `focusGroup` in recognition.ts, over every box), each with `index`, `holdsPoint`, its box, score,
+  class and whole face (a geometric debug record is left out). What started an analysis (a hover,
+  a repeat, the cadence or a cut) is not in the request, so it is not recorded.
+
+The frames are read once, after the last rest, so no rest waits for them. A report with them is
+larger, about 2 to 8 KB a frame, and it is printed as well as written to `--out`.
 
 `"pause": true` pauses the clip before the rest's `atSec` seek (so the picture is exactly that
 time) and before the pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
