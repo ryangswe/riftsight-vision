@@ -1488,7 +1488,8 @@ another mode, because the pointer is what says which faces to verify.
   looks at the picture again with the pointer there, at most once per
   `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight, and the look gets the
   repeats a newly presented picture gets. It marks nothing stale and clears nothing shown, and it
-  stops once the face is verified. With the option off nothing changes.
+  stops once the face is verified. It waits for the picture's repeats and any retry to finish,
+  never follows a refused capture, and stops after the pointer's 10 s grace period. With the option off nothing changes.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.
 - **Browser runtime only.** The Python package's `evaluate` is unchanged.

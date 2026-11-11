@@ -929,9 +929,47 @@ describe("row 8: FrameScheduler.relookDue", () => {
     expect(refused.relookDue(2_000, false)).toBe(false);
   });
 
+  it("is not due while the repeats of a look are left, with nothing else blocking", () => {
+    const s = still(2_000);
+    s.started(2_000, { trigger: "hover" }); // the re-look: it gets a presented picture's repeats
+    expect(s.idle).toBe(false);
+    expect(s.relookDue(2_300, false)).toBe(false);
+    s.started(2_300); // repeat 1
+    s.started(2_550); // repeat 2: none left
+    expect(s.idle).toBe(true);
+    expect(s.relookDue(2_800, false)).toBe(true);
+  });
+
   it("is not due once the pointer's grace period is over", () => {
     const s = still(2_000);
     expect(s.relookDue(2_000 + POINTER_GRACE_MS - 1, false)).toBe(true);
     expect(s.relookDue(2_000 + POINTER_GRACE_MS + 1, false)).toBe(false);
+  });
+});
+
+describe("row 8: the session's group is the recognizer's", () => {
+  it("agrees on which faces are in the pointer's group, with backs, a too-small box and a clipped box in the frame", async () => {
+    const back = { ...box(300, 20), cls: 1 };
+    const tiny = box(450, 300);
+    tiny.aabb = { x: 450, y: 300, width: 5, height: 5 };
+    const cards = [
+      { box: box(20, 20), red: 100 },
+      { box: box(60, 20), red: 110 },
+      { box: back, red: 120 },
+      { box: box(560, 20), red: 120 },
+      { box: box(720, 20), red: 100 }, // runs past the frame's right edge: clipped
+    ];
+    const boxes = [...cards.map((c) => c.box), tiny];
+    for (const pointer of [{ x: 30, y: 100 }, { x: 600, y: 100 }, { x: 780, y: 100 }, { x: 350, y: 100 }]) {
+      const analysis = await pipelineOf(boxes, fakeStage()).analyze(scene(cards.filter((c) => c.box.cls === 0)), 0, { geometricScope: "focus", focus: pointer });
+      // The session's computation (session-core.ts relookForUnverified), over analysis.boxes.
+      const faces = analysis.boxes.filter((b) => b.face !== null);
+      const group = focusGroup(faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] })), pointer);
+      faces.forEach((b, i) => {
+        const inGroup = group.has(i);
+        expect(b.face!.unverified === true, `pointer ${pointer.x}, face ${i}`).toBe(!inGroup);
+      });
+      expect(faces.length).toBe(4); // the back and the too-small box are not faces
+    }
   });
 });
