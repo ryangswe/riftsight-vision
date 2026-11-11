@@ -9,41 +9,56 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-11
+
+The browser runtime can verify only the cards at the pointer, which cuts the geometric stage's
+time on a busy table, and can unload its compute frame when idle and load it when the video plays.
+Merging a version raise now tags and releases it. Two changes need action:
+
+- The compute-frame protocol is at version 2. A product vendors the content-script and
+  compute-frame halves of this version together; a mismatch is reported as a version error, as
+  before.
+- `cardvision cdn publish --config` refuses to point at a release uploaded without the refresh
+  verdicts, so upload new releases with `publish-release --config` and their verdicts. Releases
+  from before this version still pass, with a note, so a rollback stays one command.
+
+Both new browser options are off by default. No model, release document or recognizer decision
+changes.
+
 ### Added
 
 - The compute frame can end its worker when idle: the `idleUnloadMs` option of `startComputeFrame`
-  (off by default) ends the worker after that long with no pointer over the picture, no `intent`, no card
-  shown and no analysis in flight, reports the new status `idle`, and loads the same release again
-  on the next `pointer` or the new `intent` message. It is not a crash, so the restart stays
-  available. The content script's `createCaptureControl({ intent: "page" })` sends `intent` on a
+  (off by default) ends the worker after that long with no pointer over the picture, no `intent`,
+  no card shown and no analysis in flight, reports the new status `idle`, and loads the same
+  release again on the next `pointer` or the new `intent` message. It is not a crash, so the
+  restart stays available. The object `startComputeFrame` returns has a `state` that reads `idle`
+  while idle. The content script's `createCaptureControl({ intent: "page" })` sends `intent` on a
   trusted pointer move anywhere in the page, at most once a second, while the video plays, and the
   helper `loadWhen(video, "play", make)` lets a product make the frame at play. With
   `createCaptureControl({ whenIdle: { remove, make } })` the page drops the whole frame on `idle`
-  (freeing its renderer, about 90 MB on a real release) and makes a new one on the next trusted
-  pointer move over the video or an `intent` moment (`control.frameRemoved` tells a product the frame is dropped, so it does not remake it on its own triggers); the object `startComputeFrame` returns has a
-  `state` that reads `idle` while idle. See
+  (freeing its renderer as well, about 90 MB on a real release) and makes a new one on the next
+  trusted pointer move or tap over the video, or an `intent` moment; `control.frameRemoved` tells
+  a product the frame is dropped, so it does not remake it on its own triggers meanwhile. See
   [docs/extension-session.md](docs/extension-session.md).
 - Browser: the session option `geometricScope: "focus"` (default `"all"`) makes the geometric
   stage verify only the faces at the pointer on each analysis: the boxes holding the pointer and
   the boxes joined to them by overlaps the suppression acts on. A face the stage applies to and
-  did not verify is not named until an analysis verifies it. A release's tilted retry takes the
-  whole group in focus scope, with no per-frame cap. It needs `mode: "pointer"` and is
-  refused with another mode; it works in `createSession` and in the extension compute frame
-  (`startComputeFrame`) with no new message and no protocol change. In focus scope nothing is named at a point whose overlapping faces include one the stage did not
-  verify (a held tooltip ends there), and `others` is "all"'s exactly when no face is unverified; otherwise every face of a group
-  with an unverified face is listed first, past `maxOtherBoxes`. On a paused
-  or unchanged picture, a pointer that reaches a face the newest analysis left
-  unverified makes the session look again with the pointer there (at most once per 250 ms, never
-  while one is in flight, with a new picture's repeats; it waits for repeats and retries to finish, never follows a
-  refused capture, and stops after the pointer's 10 s grace period). `user-wait` rests can carry
-  `"pause": true`. With the option off nothing changes and no `focus` is sent. With no stage (none set, or one removed after a failure) the
-  worker ignores the scope and the pointer, and the frame is analyzed exactly as with the option
-  off. Also in `browser/`: `npm run user-wait` takes `--gpu`,
-  `--geometric FILE` and `--geometric-scope all|focus`, and records the backend, the stage's
-  state and the crops verified per analysis in its report (also with `--load-on-hover`); the
-  scoring page has a development check, `?focusCheck`, that compares focus-scope answers with
-  full ones. See `browser/README.md`, "Verifying the faces at the
-  pointer".
+  did not verify is not named until an analysis verifies it, and nothing is named at a point whose
+  overlapping faces include one (a held tooltip ends there). A release's tilted retry takes the
+  whole group, with no per-frame cap. `others` is "all"'s exactly when no face is unverified;
+  otherwise every face of a group with an unverified face is listed first, past `maxOtherBoxes`.
+  On a paused or unchanged picture, a pointer that reaches an unverified face makes the session
+  look again with the pointer there: at most once per 250 ms, only once repeats and retries have
+  finished, never after a refused capture, and not after the pointer's 10 s grace period. It needs
+  `mode: "pointer"` and is refused with another mode; it works in `createSession` and in the
+  extension compute frame (`startComputeFrame`) with no new message. With the option off nothing
+  changes and no `focus` is sent; with no stage (none set, or one removed after a failure) the
+  frame is analyzed exactly as with the option off. Also in `browser/`: `npm run user-wait` takes
+  `--gpu`, `--geometric FILE` and `--geometric-scope all|focus`, rests can carry `"pause": true`,
+  and the report records the backend, the stage's state, the median, 90th percentile and largest
+  number of crops verified per analysis, and each rest's analyses (also with `--load-on-hover`);
+  the scoring page has a development check, `?focusCheck`, that compares focus-scope answers with
+  full ones. See `browser/README.md`, "Verifying the faces at the pointer".
 - A push to `main` that raises the version now tags it, publishes the GitHub release with the
   changelog section as its notes (a release candidate as a pre-release) and starts the Publish
   workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,
