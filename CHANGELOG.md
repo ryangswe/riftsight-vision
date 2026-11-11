@@ -11,6 +11,8 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- Browser demo: on a still picture the panels show the times of the analysis its repeats reuse,
+  and the quickstart's sample now reads `frames analyzed: 1` (a still picture is analyzed once).
 - Browser: the geometric stage copies its index to the GPU 4 MiB at a time and waits for the
   queue after each piece, instead of in one write. Chrome kept the staging memory of the whole
   write in both the page and the GPU process. With a 62.6 MiB index in headless Chrome, the page

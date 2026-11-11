@@ -855,9 +855,10 @@ release document and repeats the steps above on ONNX Runtime Web: WebGPU where t
 has it, WebAssembly otherwise. It adds what only a player needs:
 
 - **When a frame is analyzed.** Only around pointer activity: at a fast cadence for ten seconds
-  after the pointer last moved over the picture, at a slow cadence while it rests on a card
-  that is being shown, and not at all otherwise. A pointer that moves over a picture whose
-  newest result is stale asks for an analysis at once.
+  after the pointer last moved over the picture (every 2 s while it rests where the newest look
+  found no card), at a slow cadence while it rests on a card that is being shown, and not at all
+  otherwise. A pointer that moves over a picture whose newest result is stale asks for an
+  analysis at once. A still picture is analyzed once, and its repeats reuse that analysis.
 - **Layout registration.** For a product that already knows the board from another source, the
   runtime can find where that board sits in the picture from the cards it names, and say when
   the placement can be trusted ([browser/README.md](../browser/README.md#layout-registration)).

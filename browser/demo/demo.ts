@@ -327,8 +327,21 @@ function facts(): RunFacts {
   };
 }
 
+/** The newest analysis the worker ran. A still picture's repeats reuse it (`reused`: no
+ *  timings, no embeddings), so the panels show the times of the analysis they repeat. */
+let lastRun: { session: Session; analysis: FrameAnalysis } | null = null;
+function timedAnalysis(): FrameAnalysis | null {
+  const analysis = session?.analysis() ?? null;
+  if (!session || !analysis) return analysis;
+  if (analysis.reused !== true) {
+    lastRun = { session, analysis };
+    return analysis;
+  }
+  return lastRun && lastRun.session === session ? lastRun.analysis : analysis;
+}
+
 function panelFrame(): PanelFrame | null {
-  const analysis = session?.analysis();
+  const analysis = timedAnalysis();
   if (!analysis) return null;
   const faces = analysis.boxes.filter((item) => item.face !== null);
   return {
@@ -448,7 +461,7 @@ function render(): void {
 
   noteFrameTime();
   const status = session?.status() ?? null;
-  const analysis = view.ready ? session?.analysis() ?? null : null;
+  const analysis = view.ready ? timedAnalysis() : null;
   const next = detailsView(view, model, media, detailsFile(), status, facts().frameError, analysis, frameTimes, view.ready ? boxUnderPointer(analysis) : null);
   if (detailsShown === null || JSON.stringify(next) !== JSON.stringify(detailsShown)) {
     detailsShown = next;
