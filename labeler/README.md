@@ -708,6 +708,30 @@ frame": that is what Enter does there. A loupe shows the pixels under the pointe
 `development` and `test` sets only. It is a fast way to count and locate every card on
 held-out frames.
 
+**Optional probe (`--probe`).** Started with `--probe`, the center pass also asks for two
+measurements per frame: Alt/Option+drag along the long edge of a typical card face sets its
+**card height** in frame pixels, and the keys **7**, **8** and **9** set the **angle class** of
+the camera (`<=30`, `30-45`, `>45` degrees). The header shows both, and a frame cannot be
+confirmed until it has both (the server refuses it too); a frame with no card marker needs no
+probe and gets no entry. A `probes.json` that cannot be read in full is never written over: the
+tool refuses the measurement until the file is corrected or removed. The values are kept in `probes.json`
+in the labels folder, one entry per `<set id>/<frame name>`; the label rows and the manifest export do not change, and
+without `--probe` nothing here applies:
+
+```json
+{"probes": {"<set id>/<frame name>": {"cardHeightPx": 140, "angleClass": "<=30"}}}
+```
+
+**Keys that are not answers.** In the point pass, Enter and Space never skip a point that has no
+answer (an answered point they move on from); in the check-names pass they never skip a card
+with no answer and do nothing on one that has it. In the search of the names and check-names passes, Enter picks only a
+card you chose: after you typed, set a filter or moved with the arrow keys. `]`, `[` and the
+arrow keys are the explicit way to move, `J` goes to the next card still open, and the side
+buttons do what they say.
+
+An answer typed in the search is recorded as `verifiedBy: "picked"` even when it matches a
+suggestion, so `verifiedBy` must not be read as an acceptance rate.
+
 ### `verify`: naming a census (Check names)
 
 A pass over a census that names every face center, built so that a model's proposal cannot
@@ -826,7 +850,7 @@ Corner and training mode: click four corners · Shift+click a hidden corner · d
 Tab next target · `j` next incomplete · Delete · Enter confirm the frame · ← → frames · the
 answer keys of identify mode.
 
-Point mode: the answer keys of identify mode · Enter, → next point · ← previous · Space next
+Point mode: the answer keys of identify mode · Enter, → next point (Enter and Space wait for an answer) · ← previous · Space next
 frame with points left · PageDown / PageUp frames · `z` zoom out and back · Backspace clear ·
 a click on the whole frame opens it large (Esc closes it).
 
@@ -834,8 +858,8 @@ Center mode: click a face center · Shift+click a back center · click or drag a
 or move it · `b` face ↔ back · Delete · Tab next marker · Enter confirm the frame · Shift+Enter
 unconfirm · Cmd/Ctrl+Z undo.
 
-Verify mode: `y` / `m` / `n` the name is legible in the crop (first) · Space or Enter show the proposals,
-or go to the next open center · `1` / `2` accept that arm · `a` accept both · `/` or `i` another
+Verify mode: `y` / `m` / `n` the name is legible in the crop (first) · Space or Enter show the proposals
+(they do nothing on a card already checked) · `j` the next open center · `1` / `2` accept that arm · `a` accept both · `/` or `i` another
 card · `u` Unknown · `x` not a card · `b` a back · ← → previous / next · Backspace clear · `z` /
 Shift+Z the next / previous crop size, round.
 
@@ -1252,12 +1276,13 @@ boxes and identities for each active hour from your own timing log.
 | --- | --- |
 | `serve.py` | the server |
 | `labelcore.py` | the label format's rules: validation, geometry, modes and roles |
+| `probes.py` | the optional `--probe` side file `probes.json` |
 | `labelfiles.py` | how the tool reads a sample and a label set from disk: one reader for the server, the project's screen and the export |
 | `project.py` | what a project holds, worked out from its files: its locations, its role, how far each pass is |
 | `index.html`, `sources.js`, `sources.css` | the labeling page |
 | `hub.html`, `hub.js`, `hub.css` | the start screen and the project's screen |
 | `theme.css` | the page's look: colors, spacing and corner radii, in one place |
-| `boxgeom.js`, `boxedit.js`, `boxsize.js`, `labeltools.js`, `snap.js`, `quadsnap.js`, `picker.js`, `names.js`, `filters.js`, `centergeom.js`, `verifycore.js`, `timinglog.js`, `uistate.js`, `hubstate.js`, `keyroute.js`, `savegate.js` | the pages' helpers, each tested under Node |
+| `boxgeom.js`, `boxedit.js`, `boxsize.js`, `labeltools.js`, `snap.js`, `quadsnap.js`, `picker.js`, `names.js`, `filters.js`, `centergeom.js`, `verifycore.js`, `timinglog.js`, `uistate.js`, `hubstate.js`, `keyroute.js`, `savegate.js`, `probecore.js`, `straykeys.js` | the pages' helpers, each tested under Node |
 | `make_sample.py`, `decklist_from_text.py` | prepare a sample and deck lists |
 | `export.py` | the COCO export and the manifest export |
 | `make_repeat_set.py`, `compare_repeat.py`, `report_throughput.py` | checks on the labeling |

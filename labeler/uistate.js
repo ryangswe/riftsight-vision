@@ -224,7 +224,8 @@
   const KEYS_VERIFY = [
     ["step 1", "the crop: a fixed part of the frame around the clicked center, and the whole frame beside it; no name is shown"],
     ["Y / M / N", "step 1: is the name legible in this crop? yes / unsure / no. Knowing the card from its art, the catalog or the game does not count. The answer comes before any name and is fixed once a suggestion is shown"],
-    ["Space / Enter", "after step 1: show the suggestion if it is not up; on a card already checked: the next one still open"],
+    ["Space / Enter", "after step 1: show the suggestion if it is not up; on a card already checked they do nothing"],
+    ["J", "the next card still open (on a card already checked)"],
     ["1", "accept the first model's name"], ["2", "accept the second model's name, when two are compared"], ["A", "accept, when both models show the same name"],
     ["/ or I", "after step 1: put the keys in the search box (T / 0 show one kind of card; ↑ ↓ cards, ← → their printings, Enter picks, Esc leaves the search)"],
     ["U", "after step 1: unknown card"],
@@ -432,8 +433,8 @@
     if (!v.count) return { text: "No card centers to check in this set.", primary: null };
     if (!v.center) return { text: "No center to show.", primary: null };
     if (v.complete) {
-      return { text: "Checked. {{Space}} goes to the next card still open · {{Backspace}} clears the answer.",
-        primary: { label: "Next card still open", key: "Space", act: "space" } };
+      return { text: "Checked. {{J}} goes to the next card still open · {{Backspace}} clears the answer.",
+        primary: { label: "Next card still open", key: "J", act: "next-open" } };
     }
     const again = v.stale ? "This card was answered for another position or another set of suggestions: answer it again. " : "";
     const keys = "{{Y}} yes · {{M}} unsure · {{N}} no";
