@@ -9,7 +9,7 @@ import type { AnalysisWidth } from "../src/capture.js";
 import { ANALYSIS_WATCHDOG_MS, DRIVER_TICK_MS, FIRST_ANALYSIS_WATCHDOG_MS, LOOK_RETRY_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import type { FrameResult, GeometricStatus, ReleaseStatus, WorkerReply, WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
-import { neighborBoxes, SessionCore, type SessionCoreDeps, type SessionCoreOptions, type Shown, SHOWN_HOLD } from "../src/session-core.js";
+import { neighborBoxes, READING_HOLD, SessionCore, type SessionCoreDeps, type SessionCoreOptions, type Shown, SHOWN_HOLD } from "../src/session-core.js";
 import type { SessionStatus } from "../src/session.js";
 
 /** What a host posts to the content script. */
@@ -121,18 +121,40 @@ const detected: { box: "card" | "other" | "none" } = { box: "card" };
 const analysisNow = (): FrameAnalysis =>
   ({
     frame: { width: 1000, height: 500 },
-    hover: { selection: "accepted-nms", cards: [] },
-    boxes:
-      detected.box === "card" ? [{ box: [100, 100, 200, 300] }] : detected.box === "other" ? [{ box: [150, 200, 60, 80] }] : [],
+    hover: {
+      selection: "accepted-nms",
+      cards: (scene.cards ?? [])
+        .filter((c) => !c.unnamed)
+        .map((c) => ({ cardId: c.cardId, name: c.name, bounds: { x: c.box[0] / 1000, y: c.box[1] / 500, width: c.box[2] / 1000, height: c.box[3] / 500 } })),
+    },
+    boxes: scene.cards
+      ? scene.cards.map((c) => ({ box: c.box }))
+      : detected.box === "card" ? [{ box: [100, 100, 200, 300] }] : detected.box === "other" ? [{ box: [150, 200, 60, 80] }] : [],
   }) as unknown as FrameAnalysis;
 
 /** A hit test with one card: by default T-001 in the box x 100..300, y 100..400 of a
  *  1000 x 500 frame. `scene.card` changes what the next analyses see there (null: nothing). */
-const scene: { card: { cardId: string; name: string } | null } = { card: { cardId: "T-001", name: "Card One" } };
-const hit = (_: FrameAnalysis, x: number, y: number) =>
-  scene.card && x >= 100 && x <= 300 && y >= 100 && y <= 400
+const scene: {
+  card: { cardId: string; name: string } | null;
+  /** When set, the scene instead: named cards at boxes [x, y, w, h] in pixels, the last on top. */
+  cards?: Array<{ cardId: string; name: string; box: [number, number, number, number]; unnamed?: boolean }>;
+} = { card: { cardId: "T-001", name: "Card One" } };
+const hit = (_: FrameAnalysis, x: number, y: number) => {
+  if (scene.cards) {
+    for (let i = scene.cards.length - 1; i >= 0; i -= 1) {
+      const c = scene.cards[i]!;
+      if (c.unnamed) continue;
+      const [bx, by, bw, bh] = c.box;
+      if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+        return { card: null, boxIndex: i, box: { x: bx, y: by, width: bw, height: bh }, cardId: c.cardId, name: c.name };
+      }
+    }
+    return { card: null, boxIndex: null, box: null, cardId: null, name: null };
+  }
+  return scene.card && x >= 100 && x <= 300 && y >= 100 && y <= 400
     ? { card: null, boxIndex: 0, box: { x: 100, y: 100, width: 200, height: 300 }, ...scene.card }
     : { card: null, boxIndex: null, box: null, cardId: null, name: null };
+};
 
 let clock = 0;
 let toWorker: Array<{ request: WorkerRequest; transfer?: Transferable[] }>;
@@ -166,6 +188,7 @@ function analyzeAt(x: number, y: number, mediaTime = 1): void {
 
 beforeEach(() => {
   scene.card = { cardId: "T-001", name: "Card One" };
+  delete scene.cards;
   detected.box = "card";
   clock = 1_000;
   toWorker = [];
@@ -604,6 +627,349 @@ describe("HostSession hysteresis (a live stream)", () => {
     analyzeAt(0.2, 0.5, 1);
     session.fromContent({ kind: "discontinuity", newSource: false });
     expect(lastShown()).toBeNull();
+  });
+});
+
+describe("HostSession with a reading hold", () => {
+  beforeEach(() => {
+    session = new HostLike(
+      { now: () => clock, toWorker: (request, transfer) => toWorker.push({ request, transfer }), toContent: (m) => toContent.push(m), hoverAt: hit as never },
+      { hold: READING_HOLD },
+    );
+  });
+
+  /** The pointer moves a little inside the card's spot, which asks for a look at once; the look
+   *  is answered with what `scene` and `detected` say. */
+  function nudgeAndAnalyze(mediaTime: number, x = 0.2): void {
+    clock += 2100;
+    const n = captures().length;
+    session.fromContent({ kind: "presented", mediaTime });
+    session.fromContent({ kind: "pointer", x, y: 0.5, mediaTime, touch: false });
+    session.tick();
+    expect(captures().length).toBe(n + 1);
+    const capture = captures().at(-1)!;
+    session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
+  }
+
+  it("keeps the card, marked held, while the pointer stays on its spot after the card has gone, with no limit", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    expect(lastShown()).toMatchObject({ cardId: "T-001" });
+    expect(lastShown()?.held).toBeUndefined();
+    scene.card = null;
+    detected.box = "none";
+    for (let i = 0; i < 2 * SHOWN_HOLD.misses + 2; i += 1) nudgeAndAnalyze(1.3 + i * 0.3, 0.2 + i * 0.005);
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true, box: { x: 0.1, y: 0.2, width: 0.2, height: 0.6 } });
+    clock += 10 * 60_000;
+    session.tick();
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+  });
+
+  it("keeps the first card when another card is named on its spot", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = { cardId: "T-002", name: "Card Two" };
+    nudgeAndAnalyze(1.3);
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+    detected.box = "other";
+    nudgeAndAnalyze(1.6);
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+  });
+
+  it("shows the card as seen again, without held, when it is back on the spot", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = null;
+    detected.box = "none";
+    nudgeAndAnalyze(1.3);
+    expect(lastShown()?.held).toBe(true);
+    scene.card = { cardId: "T-001", name: "Card One" };
+    detected.box = "card";
+    nudgeAndAnalyze(1.6);
+    expect(lastShown()).toMatchObject({ cardId: "T-001" });
+    expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("ends when the pointer leaves the spot, and then shows what is there", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = null;
+    detected.box = "none";
+    nudgeAndAnalyze(1.3);
+    expect(lastShown()?.held).toBe(true);
+    session.fromContent({ kind: "pointer", x: 0.8, y: 0.5, mediaTime: 1.3, touch: false });
+    expect(lastShown()).toBeNull();
+    // Back on the spot: the hold has ended, and nothing is seen there now.
+    session.fromContent({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1.3, touch: false });
+    expect(lastShown()).toBeNull();
+  });
+
+  it("ends when the pointer leaves the picture", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    session.fromContent({ kind: "leave" });
+    expect(lastShown()).toBeNull();
+  });
+
+  it("survives a cut and the look it asks for, and ends on a seek", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    session.core.cut();
+    // Nothing is known about the new picture yet: the card stays, not marked held.
+    expect(lastShown()).toMatchObject({ cardId: "T-001" });
+    expect(lastShown()?.held).toBeUndefined();
+    // The cut asks for a look at once; the camera now shows something else there.
+    scene.card = { cardId: "T-002", name: "Card Two" };
+    const n = captures().length;
+    session.tick();
+    expect(captures().length).toBe(n + 1);
+    const capture = captures().at(-1)!;
+    session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime: 1.1 });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+    session.fromContent({ kind: "discontinuity", newSource: false });
+    expect(lastShown()).toBeNull();
+  });
+
+  it("ends on a new source", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    session.fromContent({ kind: "discontinuity", newSource: true });
+    expect(lastShown()).toBeNull();
+  });
+
+  it("shows an overlapping card the viewer moves onto while the first is still where it was", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    expect(lastShown()?.cardId).toBe("A-001");
+    // x 0.28 is on B (on top) and inside A's box: A is still there, so the viewer chose B.
+    session.fromContent({ kind: "pointer", x: 0.28, y: 0.5, mediaTime: 1, touch: false });
+    expect(lastShown()).toMatchObject({ cardId: "B-001" });
+    expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("hands over to the next card of a fan even when the host reports no other boxes (maxOtherBoxes 0)", () => {
+    session = new HostLike(
+      { now: () => clock, toWorker: (request, transfer) => toWorker.push({ request, transfer }), toContent: (m) => toContent.push(m), hoverAt: hit as never },
+      { hold: READING_HOLD, maxOtherBoxes: 0 },
+    );
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [140, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.12, 0.5, 1);
+    expect(lastShown()?.cardId).toBe("A-001");
+    expect(lastShown()?.others).toEqual([]);
+    session.fromContent({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1, touch: false });
+    expect(lastShown()?.cardId).toBe("B-001");
+  });
+
+  it("in a tight fan, shows the card on top the viewer moves onto, though it covers the first card's center", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [140, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.12, 0.5, 1); // A's visible strip
+    expect(lastShown()?.cardId).toBe("A-001");
+    session.fromContent({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1, touch: false });
+    expect(lastShown()).toMatchObject({ cardId: "B-001" });
+    expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("does not mark a followed card held while it is detected, unnamed, at its new box", () => {
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [150, 100, 200, 300] }];
+    nudgeAndAnalyze(1.3);
+    // The pointer is now in the old part of the area; the card is detected there but not named.
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [150, 100, 200, 300], unnamed: true }];
+    nudgeAndAnalyze(1.6, 0.12);
+    expect(lastShown()).toMatchObject({ cardId: "A-001" });
+    expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("after a seek during a long rest on a playing video, looks again at the new picture", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    clock += POINTER_GRACE_MS + 1;
+    session.tick();
+    for (let i = 1; i <= 16; i += 1) {
+      clock += 500;
+      session.fromContent({ kind: "presented", mediaTime: 1 + i * 0.5 });
+      session.tick();
+    }
+    expect(session.fresh()).toBeNull(); // the analysis is too old for the picture on screen
+    const n = captures().length;
+    session.fromContent({ kind: "discontinuity", newSource: false });
+    clock += 1000;
+    session.fromContent({ kind: "presented", mediaTime: 30 });
+    session.tick();
+    expect(captures().length).toBe(n + 1);
+  });
+
+  it("keeps the first card when a card that arrived later covers most of it, its edge still showing", () => {
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [115, 100, 200, 300] },
+    ];
+    nudgeAndAnalyze(1.3);
+    expect(lastShown()?.cardId).toBe("A-001");
+  });
+
+  it("keeps the first card when another card covers its spot", () => {
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.cards = [{ cardId: "B-001", name: "Card B", box: [120, 120, 200, 300] }];
+    nudgeAndAnalyze(1.3);
+    expect(lastShown()).toMatchObject({ cardId: "A-001", held: true });
+  });
+
+  it("follows the card while it is seen moving under the pointer, and keeps the whole area it covered", () => {
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [150, 100, 200, 300] }];
+    nudgeAndAnalyze(1.3);
+    expect(lastShown()).toMatchObject({ cardId: "A-001", box: { x: 0.15, y: 0.2, width: 0.2, height: 0.6 } });
+    expect(lastShown()?.held).toBeUndefined();
+    // The player takes the card away.
+    scene.cards = [];
+    nudgeAndAnalyze(1.6);
+    expect(lastShown()).toMatchObject({ cardId: "A-001", held: true, box: { x: 0.15, y: 0.2, width: 0.2, height: 0.6 } });
+    // x 0.12 is outside the card's last box but inside where it was first: the hold stays.
+    session.fromContent({ kind: "pointer", x: 0.12, y: 0.5, mediaTime: 1.6, touch: false });
+    expect(lastShown()).toMatchObject({ cardId: "A-001", held: true });
+    session.fromContent({ kind: "pointer", x: 0.05, y: 0.5, mediaTime: 1.6, touch: false });
+    expect(lastShown()).toBeNull();
+  });
+
+  it("does not mark a card held while its box is still detected there, unnamed", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = null;
+    detected.box = "card";
+    nudgeAndAnalyze(1.3);
+    expect(lastShown()).toMatchObject({ cardId: "T-001" });
+    expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("does not mark a card held when no recent analysis can tell (a long rest on a playing video)", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    clock += POINTER_GRACE_MS + 1;
+    session.tick();
+    // The video plays on with no look: the analysis grows older than hover.maxAgeMs.
+    for (let i = 1; i <= 10; i += 1) {
+      clock += 500;
+      session.fromContent({ kind: "presented", mediaTime: 1 + i * 0.5 });
+      session.tick();
+    }
+    expect(session.fresh()).toBeNull();
+    expect(lastShown()).toMatchObject({ cardId: "T-001" });
+    expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("after a seek while the pointer rests past the grace period, looks again and finds the card there", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    clock += POINTER_GRACE_MS + 1;
+    session.tick();
+    const n = captures().length;
+    session.fromContent({ kind: "discontinuity", newSource: false });
+    expect(lastShown()).toBeNull();
+    clock += 1000;
+    session.tick();
+    expect(captures().length).toBe(n + 1);
+    const capture = captures().at(-1)!;
+    session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime: 1 });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
+    expect(lastShown()?.cardId).toBe("T-001");
+  });
+
+  it("looks at a spot the kept card has left at the empty-spot gap, not the fast rate", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = null;
+    detected.box = "none";
+    clock += 2100;
+    session.fromContent({ kind: "presented", mediaTime: 1.3 });
+    session.tick();
+    const capture = captures().at(-1)!;
+    session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime: 1.3 });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+    expect(session.scheduler.intervalInEffectMs(clock)).toBeGreaterThanOrEqual(2000);
+  });
+
+  it("ends when the worker stops", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    session.core.workerStopped({ restart: true });
+    expect(lastShown()).toBeNull();
+  });
+
+  it("analyzes nothing once the pointer has rested past the grace period, and keeps the card", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    clock += POINTER_GRACE_MS + 1;
+    session.tick();
+    const n = captures().length;
+    for (let i = 0; i < 120; i += 1) {
+      clock += 500;
+      session.fromContent({ kind: "presented", mediaTime: 2 + i * 0.5 });
+      session.tick();
+    }
+    expect(captures().length).toBe(n);
+    expect(lastShown()?.cardId).toBe("T-001");
+    // A move looks again at once.
+    session.fromContent({ kind: "pointer", x: 0.21, y: 0.5, mediaTime: 62, touch: false });
+    session.tick();
+    expect(captures().length).toBe(n + 1);
+  });
+
+  it("the usual hold, by contrast, keeps analyzing a resting pointer with a card shown", () => {
+    session = new HostLike({ now: () => clock, toWorker: (request, transfer) => toWorker.push({ request, transfer }), toContent: (m) => toContent.push(m), hoverAt: hit as never });
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    clock += POINTER_GRACE_MS + 1;
+    session.tick();
+    const n = captures().length;
+    for (let i = 0; i < 20; i += 1) {
+      clock += 500;
+      session.fromContent({ kind: "presented", mediaTime: 2 + i * 0.5 });
+      session.tick();
+    }
+    expect(captures().length).toBeGreaterThan(n);
+  });
+});
+
+describe("HostSession: the usual hold is unchanged by the reading hold", () => {
+  it("never marks a card held, and sends nothing new while it bridges a miss", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    const before = shownMessages().length;
+    scene.card = null;
+    clock += 2100;
+    session.fromContent({ kind: "presented", mediaTime: 1.3 });
+    session.tick();
+    const capture = captures().at(-1)!;
+    session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime: 1.3 });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
+    expect(lastShown()?.cardId).toBe("T-001");
+    expect(lastShown()?.held).toBeUndefined();
+    expect(shownMessages().length).toBe(before);
   });
 });
 

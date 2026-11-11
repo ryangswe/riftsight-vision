@@ -30,7 +30,7 @@ Each side vendors one entry from `browser/dist/` ([extension.md](extension.md#th
 | Entry | Side | Main exports |
 | --- | --- | --- |
 | `dist/page-capture.js` | content script | `createCaptureControl`, `fromExtensionFrame`, `acceptComputeOut`, `postWithTransfer`; the parts it is built from: `watchVideo`, `grabFrame`, `captureAllowed`, `pictureBox`, `fractionIn`; `computeProtocol`, `PROTOCOL_VERSION` |
-| `dist/compute-session.js` | compute frame | `startComputeFrame`, `computeProtocol`, `PROTOCOL_VERSION`, `DRIVER_TICK_MS`, `SHOWN_HOLD`; `createWorkerSession` and `SessionCore` for a product that hosts them itself |
+| `dist/compute-session.js` | compute frame | `startComputeFrame`, `computeProtocol`, `PROTOCOL_VERSION`, `DRIVER_TICK_MS`, `SHOWN_HOLD`, `READING_HOLD`; `createWorkerSession` and `SessionCore` for a product that hosts them itself |
 
 Neither entry contains ONNX Runtime, WebAssembly or OpenCV; `browser/test/bundle-purity.test.ts`
 checks it. The compute frame also vendors `dist/worker.js` and the files the worker loads:
@@ -66,7 +66,7 @@ tag. A parser keeps only the fields it knows: extra fields are ignored.
 | `ready` | `version`, `instance` | `version` a positive integer: the frame's `PROTOCOL_VERSION`; `instance` 16 lowercase hexadecimal characters |
 | `status` | `state`, `error`, `backend` | `state` is `loading`, `ready`, `failed` or `idle` (version 2: the worker was ended on purpose, see "Idle unload"); `error` and `backend` a string, cut to `MAX_TEXT_LENGTH` (200) characters, or `null` |
 | `capture` | `requestId`, `analysisWidth` | `requestId` a positive integer; `analysisWidth` `{ min, max }`, whole numbers from 1 to `MAX_FRAME_SIDE` (4096), `max` at least `min` |
-| `shown` | `card` | `null`, or `{ cardId, name, box, others, releaseId? }`: `cardId` and `name` 1 to `MAX_TEXT_LENGTH` (200) characters; `box` four finite numbers (`x`, `y`, `width`, `height`), width and height above 0; at most `MAX_OTHER_BOXES` (40) `others`, a malformed one dropped; a `releaseId` other than 16 lowercase hexadecimal characters dropped |
+| `shown` | `card` | `null`, or `{ cardId, name, box, others, releaseId?, held? }`: `cardId` and `name` 1 to `MAX_TEXT_LENGTH` (200) characters; `box` four finite numbers (`x`, `y`, `width`, `height`), width and height above 0; at most `MAX_OTHER_BOXES` (40) `others`, a malformed one dropped; a `releaseId` other than 16 lowercase hexadecimal characters dropped; `held` kept only when `true` |
 
 A message with another tag, an unknown `kind` or a field out of range parses to `null`.
 
@@ -93,7 +93,9 @@ What the messages mean:
   script answers with `frame` or `capture-failed`, with the same `requestId`. `retry: true`
   means the picture itself could not be had (not ready yet, or blank) and is worth asking again.
 - `shown` is what a tooltip shows for the pointer's position now, sent when it changes. `others`
-  are the boxes of the other cards of the same analysis, for placing a tooltip off them.
+  are the boxes of the other cards of the same analysis, for placing a tooltip off them. `held:
+  true` (a reading hold only) says a recent analysis shows the card gone from where it was last
+  seen: `box` is where it was, and the card has moved or been covered, so draw no outline for it.
 - `status`: the content script assumes `loading` until told otherwise. `backend` is set only
   while `ready`. A status is posted when the state, the error or the backend changes, `loading`
   again whenever a remote release's files start to download, and in every answer to a `hello`.
@@ -379,6 +381,27 @@ than 0.7.0 leaves it out.
   is not one of the two: only the 5 s end the hold then. Another card at the pointer,
   or the pointer leaving the card's box, ends it at once. It keeps a tooltip from flickering on a
   live stream, and is off when absent.
+- **The reading hold.** `hold: READING_HOLD` keeps a shown card for as long as the pointer stays
+  on the area the card was seen in, so that a viewer can read it after a player has moved the
+  card. The area is every box the card was seen in at the pointer since it was first shown, so
+  a small move that follows the card does not end it.
+  - **No limit.** There is no time limit and no count of misses, and a cut does not end it.
+  - **What ends it:** the pointer leaving that area or the picture, a seek, a new source, or a
+    worker that stops.
+  - **Another card.** A card the pointer moves onto that was already there when the kept card
+    was last seen replaces it at once, as on a fan of overlapping cards. A card that arrived
+    since (laid on the kept card's spot, even partly, or after it moved away) does not.
+  - **The outline.** `shown` carries `held: true` once a recent analysis shows the card gone from
+    where it was (another card named there, or nothing named or detected there). Hide the outline
+    then, and keep the tooltip. A card whose box is still detected there, or which no recent
+    analysis can judge (a long rest on a playing video), is not marked.
+  - **Analysis.** In pointer mode, once the pointer has rested for its grace period (10 s) on a
+    card the hold shows, nothing is analyzed and no picture is asked for until it moves. A
+    pointer resting where the kept card was found gone is looked at every 2 s within the grace
+    period, as any empty spot is.
+  - **Touch.** A tapped card stays until a tap elsewhere, since touch sends no `leave`.
+  - **Memory.** A shown card keeps the worker loaded: `idleUnloadMs` counts it as activity, so a
+    pointer left on a kept card keeps the memory in use until it moves.
 
 Without the controller, a content script built from `watchVideo` and `grabFrame` must also:
 - **send `discontinuity` with `newSource: true` on every switch of video,** a switch to no video

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeProtocol, type ShownCard } from "../src/compute-messages.js";
 import { startComputeFrame, type ComputeFrameEnv } from "../src/compute-frame.js";
 import type { LayerCard } from "../src/hover-geometry.js";
-import { SessionCore, type Shown } from "../src/session-core.js";
+import { READING_HOLD, SessionCore, type Shown } from "../src/session-core.js";
 import type { ReleaseStatus, WorkerReply, WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
 import type { WorkerLike } from "../src/worker-session.js";
@@ -41,12 +41,12 @@ const card = (turn: { rotation: number; localWidth: number; localHeight: number 
   name: "Card One",
   boxIndex: 0,
 });
-const analysisOf = (c: LayerCard): FrameAnalysis =>
-  ({ frame: { width: 1000, height: 500 }, hover: { selection: "accepted-nms", cards: [c] }, boxes: [{ box: [100, 100, 200, 300] }] }) as unknown as FrameAnalysis;
+const analysisOf = (c: LayerCard | null): FrameAnalysis =>
+  ({ frame: { width: 1000, height: 500 }, hover: { selection: "accepted-nms", cards: c ? [c] : [] }, boxes: c ? [{ box: [100, 100, 200, 300] }] : [] }) as unknown as FrameAnalysis;
 
 const TURN = { rotation: 12, localWidth: 0.15, localHeight: 0.5 };
 
-function run(c: LayerCard) {
+function run(c: LayerCard, extra: Partial<ComputeFrameEnv> = {}) {
   const clock = { now: 1_000 };
   let moves = 0;
   const posted: Array<Record<string, unknown>> = [];
@@ -74,6 +74,7 @@ function run(c: LayerCard) {
     createWorker: () => worker,
     loadRequest: { kind: "load", releaseUrl: "r.json", wasmPaths: "w/" },
     now: () => clock.now,
+    ...extra,
   };
   const frame = startComputeFrame(env)!;
   const reply = (data: unknown) => worker.onmessage?.({ data } as MessageEvent<WorkerReply>);
@@ -87,7 +88,7 @@ function run(c: LayerCard) {
     } as unknown as NonNullable<ReleaseStatus["release"]>,
   });
   /** The pointer on the card, a picture taken, and an analysis holding `next` back. */
-  const step = (next: LayerCard) => {
+  const step = (next: LayerCard | null) => {
     const before = posted.filter((m) => m.kind === "capture").length;
     // The scheduler asks for a picture after a pointer move over a stale one; move until it does.
     for (let i = 0; i < 4 && posted.filter((m) => m.kind === "capture").length === before; i += 1) {
@@ -226,5 +227,29 @@ describe("the shown card's outline", () => {
     step(card(null));
     expect(calls).toHaveLength(n + 2);
     expect(calls.at(-1)).not.toHaveProperty("rotation");
+  });
+});
+
+describe("a card shown by the hold is marked held over the message", () => {
+  it("carries held: true while a reading hold keeps a card the newest analysis does not see, and drops it when seen again", () => {
+    const t = run(card(TURN), { hold: READING_HOLD });
+    expect((t.shown.card as ShownCard).held).toBeUndefined();
+    t.step(null);
+    const held = t.shownMessages().at(-1)!;
+    expect(held).toStrictEqual(
+      tag({ kind: "shown", card: { cardId: "T-001", name: "Card One", box: { x: 0.1, y: 0.2, width: 0.2, height: 0.6 }, others: [], ...TURN, held: true } }),
+    );
+    expect(protocol.parseComputeOut(held)).toStrictEqual({ kind: "shown", card: { cardId: "T-001", name: "Card One", box: { x: 0.1, y: 0.2, width: 0.2, height: 0.6 }, others: [], ...TURN, held: true } });
+    t.step(card(TURN));
+    expect((t.shownMessages().at(-1)!.card as ShownCard).held).toBeUndefined();
+  });
+
+  it("the parser keeps only held: true; 0.10.0's parser ignores the field", () => {
+    const base = { cardId: "T-001", name: "Card One", box: { x: 0.1, y: 0.2, width: 0.2, height: 0.6 } };
+    for (const odd of [false, "true", 1, null]) {
+      expect(protocol.parseComputeOut(tag({ kind: "shown", card: { ...base, held: odd } }))).toStrictEqual({ kind: "shown", card: { ...base, others: [] } });
+    }
+    const old = oldProtocol("example");
+    expect(old.parseComputeOut(old.tag({ kind: "shown", card: { ...base, held: true } }))).toMatchObject({ kind: "shown", card: { cardId: "T-001" } });
   });
 });

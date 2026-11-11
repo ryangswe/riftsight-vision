@@ -158,6 +158,7 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
           ...(shown.rotation !== undefined && shown.localWidth !== undefined && shown.localHeight !== undefined
             ? { rotation: shown.rotation, localWidth: shown.localWidth, localHeight: shown.localHeight }
             : {}),
+          ...(shown.held ? { held: true as const } : {}),
         }
       : null;
     postShown(card);

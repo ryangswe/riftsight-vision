@@ -11,6 +11,8 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- Browser demo: on a still picture the panels show the times of the analysis its repeats reuse,
+  and the quickstart's sample now reads `frames analyzed: 1` (a still picture is analyzed once).
 - Browser: the geometric stage copies its index to the GPU 4 MiB at a time and waits for the
   queue after each piece, instead of in one write. Chrome kept the staging memory of the whole
   write in both the page and the GPU process. With a 62.6 MiB index in headless Chrome, the page
@@ -58,6 +60,14 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
+  stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
+  can finish reading it after a player has moved the card. A card laid on its spot later does not
+  replace it, and a cut does not end it; an overlapping card that was already there, which the
+  pointer moves onto, does replace it. The pointer leaving the area or the picture, a seek or
+  a new source ends it. While it lasts, `shown` carries `held: true` once a recent analysis shows the card
+  gone, so a host can hide its outline. While the pointer rests past its grace period on a card it
+  shows, nothing is analyzed. Off unless a host passes it; `SHOWN_HOLD` is unchanged.
 - Browser: `FrameAnalysis` faces carry `tiltedSkipped: true` when the tilted retry would have tried
   them but its cap (`maxFacesPerFrame`) left them out on that frame, in any scope. A focus-scope
   session with a ready stage looks again when the pointer moves onto one.
