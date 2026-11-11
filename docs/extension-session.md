@@ -52,6 +52,7 @@ tag. A parser keeps only the fields it knows: extra fields are ignored.
 | `hello` | `version` | a positive integer: the content script's `PROTOCOL_VERSION` |
 | `pointer` | `x`, `y`, `mediaTime`, `touch` | `x` and `y` in fractions of the picture, from 0 to 1; `mediaTime` a finite number of seconds; `touch` a boolean |
 | `leave` | none | |
+| `intent` | none | the viewer is probably about to want recognition; sent only with the controller's `intent: "page"` (below). A frame that unloaded its worker when idle loads it again; otherwise it counts as activity. Added in version 2. |
 | `presented` | `mediaTime` | a finite number |
 | `discontinuity` | `newSource` | a boolean: `false` for a seek, `true` for another source |
 | `cut` | none | reserved: no page helper sends it yet |
@@ -63,7 +64,7 @@ tag. A parser keeps only the fields it knows: extra fields are ignored.
 | `kind` | Fields | Checked on arrival |
 | --- | --- | --- |
 | `ready` | `version`, `instance` | `version` a positive integer: the frame's `PROTOCOL_VERSION`; `instance` 16 lowercase hexadecimal characters |
-| `status` | `state`, `error`, `backend` | `state` is `loading`, `ready` or `failed`; `error` and `backend` a string, cut to `MAX_TEXT_LENGTH` (200) characters, or `null` |
+| `status` | `state`, `error`, `backend` | `state` is `loading`, `ready`, `failed` or `idle` (version 2: the worker was ended on purpose, see "Idle unload"); `error` and `backend` a string, cut to `MAX_TEXT_LENGTH` (200) characters, or `null` |
 | `capture` | `requestId`, `analysisWidth` | `requestId` a positive integer; `analysisWidth` `{ min, max }`, whole numbers from 1 to `MAX_FRAME_SIDE` (4096), `max` at least `min` |
 | `shown` | `card` | `null`, or `{ cardId, name, box, others, releaseId? }`: `cardId` and `name` 1 to `MAX_TEXT_LENGTH` (200) characters; `box` four finite numbers (`x`, `y`, `width`, `height`), width and height above 0; at most `MAX_OTHER_BOXES` (40) `others`, a malformed one dropped; a `releaseId` other than 16 lowercase hexadecimal characters dropped |
 
@@ -96,6 +97,8 @@ What the messages mean:
 - `status`: the content script assumes `loading` until told otherwise. `backend` is set only
   while `ready`. A status is posted when the state, the error or the backend changes, `loading`
   again whenever a remote release's files start to download, and in every answer to a `hello`.
+- `idle`: the frame has ended its worker to give the memory back and is waiting for a `pointer`
+  or an `intent` (see "Idle unload"). `error` and `backend` are `null`.
 - `ready` says the frame can take messages, not that the model has loaded: `status` says that.
 
 ## The handshake
@@ -109,8 +112,10 @@ The content script may also ask, with `hello {version}`, any number of times: af
 replaced the iframe, or when it starts late beside a frame that is already running. Once a
 session exists, the frame answers each `hello` with `ready`, the current status and the current
 shown card, whatever the hello's version, and calls `onShown` again before that card. Only the
-content side enforces the version: a content script from before version 1 beside a version 1
-frame still works, with no check. A hello changes nothing else: no worker or session is made
+content side enforces the version: a content script from before version 1 beside a frame of
+version 1 or later still works, with no check. The contract is at version 2 (version 1 had no
+`idle` state and no `intent` message); a product vendors both halves together, and a content
+script and a frame of different versions report the mismatch above. A hello changes nothing else: no worker or session is made
 again. While the frame chooses a release it
 ignores a hello; its own `ready` follows once the session exists. It answers after it has
 failed, with the `failed` status.
@@ -279,6 +284,43 @@ loading restarts once on the bundled release.
 skip-list and the log reasons. While the release is chosen there is no session: messages are
 dropped and a picture is closed.
 
+### Idle unload
+
+A ready session holds the models' memory, and WebAssembly memory never shrinks, so only ending
+the worker gives it back. `startComputeFrame({ idleUnloadMs })` (a positive finite number of
+milliseconds; any other value throws a `RangeError`; off when absent, which is the behavior of
+version 1) ends the worker when, for that long, there has been no `pointer` message, no `intent`
+message, no card shown and no look in flight. Time is counted from `ready`, by `now()`, on each
+`tick()`.
+
+- The frame stays, with its handshake. The status is `idle`, the driver tick does nothing and no
+  picture is asked for. A `hello` is answered with `ready` and the `idle` status.
+- A `pointer` or an `intent` message loads a new worker with exactly the load request in effect
+  (a remote release included, with nothing chosen or read again). The status goes `loading`, then
+  `ready`.
+- It is not a crash: the restart is not used up (`restarts` is unchanged), the bundled release is
+  not substituted, and a crash after a successful resume still gets its one restart.
+- If the resumed load itself fails (the worker refuses the release, or stops while it loads), that
+  takes the one restart, as a crash after `ready` does: the frame loads the bundled release with
+  the plain request, `release` reads `bundled` with the reason `worker-restart` (and the decision
+  line is logged for a remote release), nothing is skip-listed, and nothing is chosen again. Only
+  with the restart already used is recognition off for the page.
+- A geometric stage the worker had turned off stays off for the rest of the session: the resume
+  loads the request without the stage. A stage that was running is reported off with the reason
+  `idle-unload` while idle (to the status and to `onGeometricStatus`), and loading again on resume.
+  The tilted retry is a setting of the release, not of the request: the new worker starts with it
+  on, as after any restart.
+- The frame keeps the load request in effect while idle, so a remote release's files (its Blobs)
+  stay held in memory; they are a small part of what the worker held. With `idleUnloadMs` off the
+  request is not kept, as before.
+- In the `"always-on"` mode, each look the cadence asks for counts as activity, so a video that
+  keeps presenting frames never unloads there. A paused or stalled video presents none, and the
+  frame unloads after `idleUnloadMs`.
+- The object `startComputeFrame` returns has a `state`: `idle` while idle, else `loading`, `ready`
+  or `failed`, as the posted status says (the core's own status reads `loading` while idle).
+- `createWorkerSession` has the calls for it, `suspend()` and `resume()`, and `suspended`; its
+  `keepLoadRequest` option (set by the compute frame when `idleUnloadMs` is) keeps the request.
+
 ### Where a load's time goes
 
 Once a release loads, the session's status says where the time went:
@@ -389,11 +431,44 @@ control.attach(document.querySelector("video"));   // again on every switch of v
 
 `control.stop()` removes the listeners, the watch and the timers.
 
+**Intent.** With `intent: "page"`, a trusted pointer move anywhere in the document, while the
+watched video is playing (not paused, not ended), sends an `intent` message, at most once a
+second (`INTENT_INTERVAL_MS`). An untrusted move, a paused or ended video, or the option off sends
+nothing. It gives no capture authority. Pair it with the frame's `idleUnloadMs`.
+
+**Dropping the frame when idle.** Ending the worker keeps the frame, and the frame's renderer
+process with it: on a real release that is about 90 MB of footprint more than a page with no frame,
+and a reload in place is no faster than a new frame. A product that wants the memory back passes
+`whenIdle: { remove, make }`. When the frame reports the status `idle`, the control calls
+`remove()` once (delete the iframe) and sends nothing more to that frame. The next trusted pointer
+move over the watched video calls `make()` once (create a new iframe; the function given to
+`loadWhen` works), and so does an `intent` moment (with `intent: "page"`, a trusted move anywhere
+while the video plays), in which case no `intent` message is sent. `frame()` must return the new
+window once `make()` returns. The control then connects as it does for any replaced iframe: it
+says `hello`, takes the new `ready`, and tells the frame the pointer again. A second `make()`
+waits until the new frame has itself gone idle and been removed; `stop()` during either call
+leaves nothing sent. A trusted `pointerdown` over the picture (a touch tap) makes the frame too.
+After `make()` the usual `no-answer` problem can fire, and the product handles it as it does for
+its first frame. If `make()` throws, the control stays in the removed state and the next trusted
+move tries again; the throw is not reported. A frame the product makes and connects itself ends
+the removed state, so the next `idle` removes it. For that reason a product must not make the
+frame on its own load triggers while `control.frameRemoved` (true from `remove()` until the next
+accepted handshake) is true: `loadWhen` fires once, so it is safe, but a reload on every `playing`
+event (a looping clip fires one) would quietly undo the unload. Without the option nothing changes: the frame stays and reloads in place.
+
+**Making the frame at play.** `loadWhen(video, "play", make)` calls `make` once: at once if the
+video is already playing, else at its next `playing` event; never for a paused or ended video.
+`stop()` on the result removes the listener.
+
+```js
+const handle = loadWhen(video, "play", () => document.documentElement.append(iframe));
+```
+
 ## Wiring: the compute frame
 
 The extension page in the iframe. `startComputeFrame` takes the options of
 `createWorkerSession` too (`mode`, `hold`, `chooseRelease`, `recordSkip`, `onDecision`,
-`onGeometricStatus`, ...).
+`onGeometricStatus`, ...) and `idleUnloadMs`.
 
 **Verifying only the faces at the pointer.** `geometricScope: "focus"` is one of those options
 (`"all"` is the default): the geometric stage then verifies only the faces at the pointer, and a

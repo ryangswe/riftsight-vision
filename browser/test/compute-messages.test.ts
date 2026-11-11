@@ -120,11 +120,11 @@ describe("frame size cap", () => {
   });
 });
 
-describe("contract v1", () => {
+describe("contract v2", () => {
   const INSTANCE = "0123456789abcdef";
 
-  it("is version 1", () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+  it("is version 2", () => {
+    expect(PROTOCOL_VERSION).toBe(2);
   });
 
   it("takes a hello with a positive whole version, and refuses any other", () => {

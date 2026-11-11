@@ -26,6 +26,12 @@
 //     card's details by a channel of its own (from `release.table`) has them out before the card.
 //     A card of a remote release whose id the worker confirmed carries that id (`releaseId`).
 //
+//   - With `idleUnloadMs`, a ready frame that has seen no `pointer` message, no `intent`, no shown
+//     card and no look in flight for that long ends its worker (the memory of a ready session only
+//     goes with the worker), reports the status `idle`, and its `tick` does nothing. A `pointer`
+//     or an `intent` loads the same load request again: status `loading`, then `ready`. It is not
+//     a restart and not a fallback (worker-session.ts `suspend`, `resume`).
+//
 // Nothing here runs on its own: the caller calls `tick()` every `DRIVER_TICK_MS`.
 
 import { type ComputeIn, type ComputeOut, type ComputeProtocol, MAX_FRAME_SIDE, MAX_TEXT_LENGTH, PROTOCOL_VERSION, type ShownCard } from "./compute-messages.js";
@@ -56,11 +62,18 @@ export interface ComputeFrameEnv extends Omit<WorkerSessionEnv, "capture" | "onS
   onShown?(card: ShownCard | null, release: ReleaseInEffect): void;
   /** Makes the frame's `instance` (16 lowercase hex characters); random by default. For tests. */
   instanceId?(): string;
+  /** End the worker after this many ms with no pointer over the picture, no `intent`, no card
+   *  shown and no look in flight, and load it again on the next pointer or intent. A positive
+   *  finite number; off when absent. Measured by `now()`, checked on each `tick()`. */
+  idleUnloadMs?: number;
 }
 
 export interface ComputeFrame {
   /** Null only while `chooseRelease` decides. */
   readonly core: SessionCore | null;
+  /** `idle` while the worker is ended for idleness (the core's own status reads `loading` then), else the state the last
+   *  status posted: `loading`, `ready` or `failed`. */
+  readonly state: "loading" | "ready" | "failed" | "idle";
   /** Recognition is off for good in this page. */
   readonly stopped: boolean;
   readonly restarts: number;
@@ -83,6 +96,10 @@ function randomInstance(): string {
 
 /** Start the compute frame, or return null when it is not inside a page it may serve. */
 export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
+  const idleUnloadMs = env.idleUnloadMs;
+  if (idleUnloadMs !== undefined && !(typeof idleUnloadMs === "number" && Number.isFinite(idleUnloadMs) && idleUnloadMs > 0)) {
+    throw new RangeError(`startComputeFrame: idleUnloadMs must be a positive finite number: ${String(idleUnloadMs)}`);
+  }
   const parentOrigin = env.parentOrigin;
   if (!env.framed || parentOrigin === null || !env.allowedParentOrigin(parentOrigin)) return null;
   const { win, protocol } = env;
@@ -98,7 +115,7 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     postReady();
   };
 
-  type StatusState = "loading" | "ready" | "failed";
+  type StatusState = "loading" | "ready" | "failed" | "idle";
   /** What the content script was last told (it assumes "loading" until told otherwise). */
   let lastStatus: { state: StatusState; error: string | null; backend: string | null } = { state: "loading", error: null, backend: null };
   const cut = (text: string | null): string | null => (text === null ? null : text.slice(0, MAX_TEXT_LENGTH));
@@ -108,8 +125,11 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     lastStatus = next;
     post({ kind: "status", ...next });
   };
+  /** The worker is ended on purpose: the core's own "loading" is not reported. */
+  let idle = false;
+  let lastActivityAt = env.now();
   const onStatus = (status: SessionStatus): void => {
-    if (status.state === "stopped") return;
+    if (status.state === "stopped" || idle) return;
     // The backend only once ready: a restarted worker's core keeps the old one until it answers,
     // and the content script is told "loading" with none, as for the first load.
     postStatus(status.state, status.error, status.state === "ready" ? status.backend : null);
@@ -151,10 +171,14 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     protocol: _protocol,
     onShown: _onShown,
     instanceId: _instanceId,
+    idleUnloadMs: _idleUnloadMs,
+    keepLoadRequest: _keep,
     ...rest
   } = env;
+
   const ws = createWorkerSession({
     ...rest,
+    keepLoadRequest: idleUnloadMs !== undefined,
     // The worker session makes its core before its first worker: a core exists from here on, so
     // the content script may send (a failed start still reports its status after `ready`).
     createWorker: () => {
@@ -163,6 +187,8 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     },
     // A release may allow a wider frame than this contract carries: ask for at most MAX_FRAME_SIDE.
     capture: (requestId, analysisWidth) => {
+      // A look asked for is activity: with a cadence that keeps asking ("always-on"), nothing unloads.
+      lastActivityAt = env.now();
       const max = Math.min(analysisWidth.max, MAX_FRAME_SIDE);
       post({ kind: "capture", requestId, analysisWidth: { min: Math.min(analysisWidth.min, max), max } });
     },
@@ -184,9 +210,39 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     postShown(lastCard);
   };
 
+  const resume = (): void => {
+    lastActivityAt = env.now();
+    if (!idle) return;
+    idle = false;
+    postStatus("loading", null, null);
+    ws.resume();
+  };
+
+  const checkIdle = (): void => {
+    const core = ws.core;
+    if (idleUnloadMs === undefined || idle || ws.stopped || !core) return;
+    const now = env.now();
+    if (core.status().state !== "ready" || core.analysisInFlight() || core.shown() !== null) {
+      lastActivityAt = now;
+      return;
+    }
+    if (now - lastActivityAt < idleUnloadMs) return;
+    idle = true;
+    if (!ws.suspend()) {
+      idle = false;
+      lastActivityAt = now;
+      return;
+    }
+    postStatus("idle", null, null);
+  };
+
   const deliver = (core: SessionCore, message: Exclude<ComputeIn, { kind: "hello" }>): void => {
     switch (message.kind) {
+      case "intent":
+        resume();
+        return;
       case "pointer":
+        resume();
         core.pointer(message.x, message.y, message.mediaTime, message.touch);
         return;
       case "leave":
@@ -235,6 +291,9 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     get core() {
       return ws.core;
     },
+    get state() {
+      return idle ? "idle" : lastStatus.state;
+    },
     get stopped() {
       return ws.stopped;
     },
@@ -246,7 +305,9 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     },
     instance,
     tick() {
+      if (idle) return;
       ws.tick();
+      checkIdle();
     },
     stop() {
       // The listener goes first: a product hook that throws while the session stops must not
