@@ -1192,6 +1192,14 @@ the rest meets a new picture. The local server answers range requests, so a seek
 what the browser has buffered. The clip plays on from there, so keep each picture on screen for
 longer than the rest's wait limit.
 
+`holdMs` keeps a rest reading that long after the answer (default 0, which ends the rest at the
+answer): what is scored is fixed at the answer, and the timeline shows whether the shown card
+changes afterwards, for example when a repeat's result arrives. Each rest line has `shown`, the
+timeline: every change of the card the session names at the pointer, as `{ atMs, cardId }` from the
+pointer coming to rest (`cardId` null for nothing). With a stage, `analyses` lists the analyses
+that finished during the rest. The analysis that produced the answer is included: the harness
+records an analysis when the session reports it and when the rest ends, not only on a timer.
+
 `"pause": true` pauses the clip before the rest's `atSec` seek (so the picture is exactly that
 time) and before the pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
 card does. A later rest without `pause` plays the clip on. Each line of the report has `paused`
@@ -1538,7 +1546,15 @@ another mode, because the pointer is what says which faces to verify.
   looks at the picture again with the pointer there, at most once per
   `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight, and the look gets the
   repeats a newly presented picture gets. It marks nothing stale and clears nothing shown, and it
-  stops once the face is verified. It waits for the picture's repeats and any retry to finish,
+  stops once the face is verified. The repeats of a look on a
+  picture that really is still (no frame presented since the look, and its last frame a second old
+  or more, or arriving a second or more after the one before; a video presenting a frame every
+  300 ms is not still) run as scope `"all"`: no
+  `focus` is sent and every face the stage applies to is verified, so after the first repeat a
+  move to another card is named at once from the result on screen, with no new look. A move to a
+  not yet verified card while that repeat is in flight shows nothing until it answers (about a
+  second on the measured clips), and queues no extra look. A playing video has no such repeats and
+  is unchanged. It waits for the picture's repeats and any retry to finish,
   never follows a refused capture, and stops after the pointer's 10 s grace period. With the option off nothing changes.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.

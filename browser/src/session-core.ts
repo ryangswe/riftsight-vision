@@ -228,7 +228,15 @@ interface InFlight {
   analyzing: boolean;
   /** The pointer, in fractions of the picture, when the capture was asked for. */
   pointer: { x: number; y: number } | null;
+  /** A repeat of a picture that really is still (`stillRepeat`): in focus scope it is analyzed as
+   *  scope "all", since it adds nothing to a name otherwise and checks every face for the next
+   *  card. */
+  full: boolean;
 }
+
+/** A picture counts as still for the focus scope's full repeats when its last frame is this old,
+ *  or came this long after the one before. */
+const STILL_PICTURE_MS = 1_000;
 
 export class SessionCore {
   readonly scheduler: FrameScheduler;
@@ -312,6 +320,7 @@ export class SessionCore {
   /** The video presented a frame (playback, a seek ended, a re-arm on canplay/playing). */
   presented(mediaTime: number): void {
     if (this.st.state === "stopped") return;
+    this.notePresented();
     this.mediaTime = mediaTime;
     this.scheduler.framePresented();
     this.publish();
@@ -325,7 +334,10 @@ export class SessionCore {
     this.scheduler.discontinuity();
     this.result = null;
     this.held = null;
-    if (newSource) this.scheduler.framePresented();
+    if (newSource) {
+      this.notePresented();
+      this.scheduler.framePresented();
+    }
     this.publish();
   }
 
@@ -370,7 +382,7 @@ export class SessionCore {
           bitmap,
           videoTimeSec: mediaTime,
           envelope,
-          ...(this.focusScope ? { geometricScope: "focus" as const, focus } : {}),
+          ...(this.focusScope && !sent.full ? { geometricScope: "focus" as const, focus } : {}),
           ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}),
         },
         [bitmap],
@@ -602,12 +614,38 @@ export class SessionCore {
     if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null)) this.requestCapture("hover");
   }
 
+  /** Frames presented, and when the last two were: what tells a still picture from a slow video. */
+  private presentedCount = 0;
+  private lastPresentedAt = -Infinity;
+  private prevPresentedAt = -Infinity;
+  /** `presentedCount` when the newest look that is not a repeat was asked for. */
+  private lookPresentedCount = 0;
+
+  private notePresented(): void {
+    this.presentedCount += 1;
+    this.prevPresentedAt = this.lastPresentedAt;
+    this.lastPresentedAt = this.deps.now();
+  }
+
+  /**
+   * Whether the repeat being asked for repeats a picture that really is still: no frame has been
+   * presented since the look it repeats, and either the last frame is a second old or more, or it
+   * came a second or more after the one before it. A video that presents a frame every 300 ms
+   * (a stall, a slide show) fails both, so its repeats between frames keep their focus.
+   */
+  private stillRepeat(now: number): boolean {
+    if (this.presentedCount !== this.lookPresentedCount) return false;
+    return now - this.lastPresentedAt >= STILL_PICTURE_MS || this.lastPresentedAt - this.prevPresentedAt >= STILL_PICTURE_MS;
+  }
+
   private requestCapture(trigger?: "hover" | "cut"): void {
     if (this.st.state !== "ready" || this.inFlight) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
-    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null };
+    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, full: false };
     this.scheduler.started(now, { videoTimeSec: this.videoTime(), ...(trigger ? { trigger } : {}) });
+    if (this.scheduler.lastTrigger === "repeat") this.inFlight.full = this.stillRepeat(now);
+    else this.lookPresentedCount = this.presentedCount;
     this.deps.capture(requestId, { ...this.analysisWidth });
   }
 
