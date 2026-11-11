@@ -945,20 +945,19 @@ function slowFirstLookThroughCore(firstMs: number, endMs: number): { sent: numbe
 }
 
 describe("SessionCore reproduces the scheduler's session loop", () => {
-  // The same times as scheduler.test.ts (PINNED_SLOW_FIRST_LOOK), except that pointer mode no longer
-  // analyzes a still picture again: the repeat captured at the first look's end is dropped.
+  // The same times as scheduler.test.ts (PINNED_SLOW_FIRST_LOOK).
   it("a first look of 6 s", () => {
-    expect(slowFirstLookThroughCore(6_000, 20_000)).toEqual({ sent: [0, 6_000], analyzed: [6_000] });
+    expect(slowFirstLookThroughCore(6_000, 20_000)).toEqual({ sent: [0, 6_000, 6_250], analyzed: [6_000, 6_250, 6_500] });
   });
 
   it("a first look of 12 s", () => {
-    expect(slowFirstLookThroughCore(12_000, 20_000)).toEqual({ sent: [0, 12_000], analyzed: [12_000] });
+    expect(slowFirstLookThroughCore(12_000, 20_000)).toEqual({ sent: [0, 12_000, 12_250], analyzed: [12_000, 12_250, 12_500] });
   });
 
   it("a first look of 18 s, given up on at FIRST_ANALYSIS_WATCHDOG_MS", () => {
     expect(slowFirstLookThroughCore(18_000, 30_000)).toEqual({
-      sent: [0, 15_250, 16_250, 17_500, 19_750, 20_000],
-      analyzed: [20_000],
+      sent: [0, 15_250, 16_250, 17_500, 19_750, 20_000, 20_250],
+      analyzed: [20_000, 20_250, 20_500],
     });
   });
 });

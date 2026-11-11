@@ -65,6 +65,8 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
    *  up on a slow one it may send the next; that frame is answered at once with an error, so
    *  that two analyses never interleave in the pipeline's state. */
   let busy = false;
+  /** The request number of the newest frame that was analyzed (not reused): what `reuseOf` may name. */
+  let lastAnalyzedRequestId: number | null = null;
   /** A geometric stage that has loaded and waits for the end of the frame in flight. */
   let pendingStage: GeometricStage | null = null;
   /** Once off for the session, the stage never comes back. */
@@ -255,7 +257,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
   }
 
   async function frame(request: Extract<WorkerRequest, { kind: "frame" }>): Promise<void> {
-    const { bitmap, videoTimeSec, envelope, tilted, focus, geometricScope, rotatedOutlines } = request;
+    const { bitmap, videoTimeSec, envelope, tilted, focus, geometricScope, rotatedOutlines, reuseOf } = request;
     const t0 = now();
     const { width, height } = bitmap;
     // Every frame gets an answer: the session waits for one before it sends the next.
@@ -271,6 +273,15 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
         fail("no-release");
         return;
       }
+      if (reuseOf !== undefined && reuseOf === lastAnalyzedRequestId) {
+        // A repeat of the newest analyzed frame: its detections go to the tracker and the gate
+        // again, if the pipeline can vouch that nothing changed an answer since.
+        const reused = loaded.pipeline.reuse(videoTimeSec);
+        if (reused) {
+          deps.post(frameResult(reused, { envelope, videoTimeSec, width, height, t0 }));
+          return;
+        }
+      }
       const image = deps.readBitmap(bitmap);
       if (!image) {
         fail("no-2d-context");
@@ -282,9 +293,11 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
         ...(geometricScope === "focus" ? { geometricScope } : {}),
         ...(rotatedOutlines === true ? { rotatedOutlines } : {}),
       });
+      lastAnalyzedRequestId = envelope.requestId;
       watch(analysis);
       deps.post(frameResult(analysis, { envelope, videoTimeSec, width: image.width, height: image.height, t0 }));
     } catch (error) {
+      lastAnalyzedRequestId = null;
       fail(`analysis-failed: ${String(error)}`);
     } finally {
       bitmap.close();

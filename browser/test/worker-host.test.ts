@@ -356,3 +356,58 @@ describe("the frame request's geometric scope", () => {
     expect(Object.keys(analyze.mock.calls[2]![2]!)).toEqual([]);
   });
 });
+
+describe("the frame request's reuseOf", () => {
+  const send = async (w: ReturnType<typeof host>, id: number, t: number, reuseOf?: number): Promise<FrameResult> => {
+    await w.h.handle({
+      kind: "frame", bitmap: { width: 200, height: 150, close() {} } as ImageBitmap, videoTimeSec: t,
+      envelope: { requestId: id, mediaTimeSec: t, generation: 0, videoKey: "v" }, ...(reuseOf !== undefined ? { reuseOf } : {}),
+    });
+    return w.replies.filter((r): r is FrameResult => r.kind === "frame-result").find((r) => r.envelope.requestId === id)!;
+  };
+  const strip = (a: FrameResult["analysis"]) => JSON.stringify({ ...a, tracks: null, timings: null, reused: null });
+
+  it("feeds the newest analyzed frame to the tracker and the gate again: the same analysis but tracks and timings, marked reused", async () => {
+    const detector = vi.fn();
+    const w = host({ gate: async () => detector() });
+    await w.load();
+    const first = await send(w, 1, 5);
+    expect(first.analysis?.reused).toBeUndefined();
+    expect(first.analysis?.tracks.shown).toBe(false);
+    const second = await send(w, 2, 5, 1);
+    const third = await send(w, 3, 5, 1); // the repeats name the analyzed frame, not each other
+    expect(detector).toHaveBeenCalledTimes(1); // no detector, recognizer or stage ran for the reuses
+    expect(second.analysis?.reused).toBe(true);
+    expect(third.analysis?.reused).toBe(true);
+    expect(strip(second.analysis)).toBe(strip(first.analysis));
+    expect(strip(third.analysis)).toBe(strip(first.analysis));
+    expect([first, second, third].map((r) => r.analysis!.tracks.shown)).toEqual([false, false, true]); // the gate counted three frames
+  });
+
+  it("is refused, and the picture analyzed, when it names another frame, or the pipeline was reset", async () => {
+    const detector = vi.fn();
+    const w = host({ gate: async () => detector() });
+    await w.load();
+    await send(w, 1, 5);
+    const wrong = await send(w, 2, 5, 99);
+    expect(wrong.analysis?.reused).toBeUndefined();
+    expect(detector).toHaveBeenCalledTimes(2);
+    w.pipeline.reset(); // a seek's discontinuity resets the pipeline
+    const afterReset = await send(w, 3, 5, 2);
+    expect(afterReset.analysis?.reused).toBeUndefined();
+    expect(detector).toHaveBeenCalledTimes(3);
+    const again = await send(w, 4, 5, 3);
+    expect(again.analysis?.reused).toBe(true);
+    expect(detector).toHaveBeenCalledTimes(3);
+  });
+
+  it("is refused after the geometric stage joined: the picture is analyzed with it", async () => {
+    const w = host({});
+    await w.h.handle({ kind: "load", releaseUrl: "https://x/release.json" }); // no stage requested
+    await send(w, 1, 5);
+    w.pipeline.setGeometric(fakeStage()); // what the worker does when a loaded stage joins between frames
+    const joined = await send(w, 2, 5, 1);
+    expect(joined.analysis?.reused).toBeUndefined();
+    expect(joined.analysis?.timings.geometricMs).toBeDefined();
+  });
+});

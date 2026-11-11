@@ -11,13 +11,16 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
-- Browser: in pointer mode, a repeat of a still picture is no longer analyzed when the newest
-  result has no unverified face: the capture is dropped before the worker, no more repeats run
-  for that picture, and nothing counts as an unanswered look. A paused hover in scope "all" is
-  one analysis instead of three, and in focus scope the focus look and one full pass instead of
-  the look and two. A picture whose video time differs from the last look's is still analyzed. The
-  track layer may not fill on a paused picture in pointer mode. Always-on and layout modes are
-  unchanged.
+- Browser: in pointer mode, a repeat of a still picture whose newest result has no unverified
+  face and whose video time has not moved is no longer analyzed again. The session sends the
+  worker the picture with `reuseOf`, the request number of the newest analyzed look, and the
+  worker feeds that look's detections to the tracker and the temporal gate again, in
+  milliseconds, if nothing that changes an answer happened since (no reset, and the stage and
+  the tilted retry neither set, removed nor failed); otherwise it analyzes the picture. The
+  track layer fills on a paused picture as before, a paused hover is one analysis in scope "all"
+  (two in focus scope) instead of three, and a picture whose time changed is analyzed. A reused
+  reply is not counted in `status().frames` and not recorded for measured pacing. Always-on and
+  layout modes are unchanged.
 - Browser: in focus scope, the repeats of a look on a picture that is really still run scope
   "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
   still when the repeat's captured picture has the same video time as the previous look's (same
@@ -26,6 +29,11 @@ break the public surface; this file names each break and how to migrate.
   After that repeat, a move to another card is named at once with no new look; a move to a card
   not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
   extra look. Playing video, scope "all" and a session with no stage are unchanged.
+
+### Added
+
+- Browser: `FrameAnalysis.reused` (`true` on a reused analysis), the frame request's optional
+  `reuseOf` and `Pipeline.reuse`.
 
 ### Fixed
 

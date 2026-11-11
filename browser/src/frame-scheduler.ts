@@ -11,10 +11,10 @@
 //     is analyzed a few more times at `REPEAT_INTERVAL_MS`, because the tracker and the
 //     temporal gate count analyzed frames and a still picture never produces another. Then
 //     nothing runs until the next presented frame, or the retry of a look that came back with
-//     the picture not analyzed (below). In "pointer" mode nothing reads the tracker or the gate,
-//     so a repeat is analyzed only when the picture changed since the last analysis or a face is
-//     still unverified (`geometricScope: "focus"`); a repeat that finds the picture unchanged and
-//     nothing unverified is dropped by the session, which calls `stillSettled` to end the repeats.
+//     the picture not analyzed (below). In "pointer" mode the session does not analyze such a
+//     repeat again when nothing in the newest result is unverified and the picture is unchanged:
+//     it asks the worker to feed the previous detections to the tracker and the gate once more
+//     (`reuseOf`, a matter of milliseconds). The schedule is the same; only the work differs.
 //
 // In "pointer" mode none of that runs unless the pointer says so:
 //   - "fast": within `POINTER_GRACE_MS` of the last pointer activity over the picture: a move,
@@ -325,12 +325,6 @@ export class FrameScheduler {
     this.unanswered = 0;
     this.retryAt = null;
     this.lastUnansweredCapture = false;
-  }
-
-  /** A repeat of a still picture was found to need nothing (pointer mode, nothing unverified): no
-   *  more repeats run for it. A retry, a pending frame or a later trigger are untouched. */
-  stillSettled(): void {
-    this.repeatsLeft = 0;
   }
 
   /** Has the back-off of an unanswered look run out? */

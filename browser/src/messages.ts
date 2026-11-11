@@ -141,6 +141,12 @@ export type WorkerRequest =
       /** True: named cards on this frame follow their outline (pipeline.ts `AnalyzeOptions`).
        *  Default false. */
       rotatedOutlines?: boolean;
+      /** The request number of the newest frame the worker analyzed, when this picture is a
+       *  repeat of that one (same video time, nothing unverified in its result). The worker
+       *  feeds that frame's detections to the tracker and the gate again instead of analyzing,
+       *  and only while nothing that changes an answer happened since; otherwise it analyzes
+       *  this picture. The reply's analysis then has `reused: true`. */
+      reuseOf?: number;
     };
 
 /** A frame result's `error` when the frame arrived while another was still being analyzed. */
