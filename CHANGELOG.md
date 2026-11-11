@@ -22,6 +22,12 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- `npm run user-wait`: a rest can carry `pauseAfterPreviousBeginMs` to start that long after the
+  previous rest began, so a pause with no seek comes at about the same clip time however fast the
+  previous rest answered. Each rest line has `timing` (the video's time at the pause, seek, begin,
+  move and end) and `pointer`. `--record-frames` also records `polled` (every change of what
+  `atPointer()` returned) and `frames` (each answered frame's request, and the boxes at the
+  pointer with whole faces); without it the run measures as before.
 - `npm run user-wait`: a rest can carry `moveAfterMs` to wait after its seek before the pointer
   moves (the wait still counts from the move).
 - `npm run user-wait`: a rest's `analyses` now includes the analysis that produced its answer; it
