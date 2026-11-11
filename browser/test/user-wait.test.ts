@@ -382,8 +382,8 @@ describe("the geometric flags (--gpu, --geometric, --geometric-scope)", () => {
 
   it("summarizes the stage's time over all analyses and over those that verified a crop", () => {
     const cycles = [{ geometricMs: 0, verified: 0 }, { geometricMs: 10, verified: 1 }, { geometricMs: 30, verified: 3 }, { geometricMs: null }, {}];
-    expect(core.geometricSummary(cycles)).toEqual({ geometricCycles: 3, medianGeometricMs: 10, verifyingCycles: 2, medianGeometricMsVerifying: 20, medianCropsVerified: 1 });
-    expect(core.geometricSummary([{}])).toEqual({ geometricCycles: 0, medianGeometricMs: null, verifyingCycles: 0, medianGeometricMsVerifying: null, medianCropsVerified: null });
+    expect(core.geometricSummary(cycles)).toEqual({ geometricCycles: 3, medianGeometricMs: 10, verifyingCycles: 2, medianGeometricMsVerifying: 20, medianCropsVerified: 1, p90CropsVerified: 3, maxCropsVerified: 3 });
+    expect(core.geometricSummary([{}])).toEqual({ geometricCycles: 0, medianGeometricMs: null, verifyingCycles: 0, medianGeometricMsVerifying: null, medianCropsVerified: null, p90CropsVerified: null, maxCropsVerified: null });
   });
 });
 

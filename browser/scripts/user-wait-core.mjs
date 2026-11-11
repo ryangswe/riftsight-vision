@@ -129,13 +129,16 @@ export function geometricGate(status, backend) {
  */
 export function geometricSummary(cycles) {
   const timed = cycles.filter((c) => typeof c.geometricMs === "number");
+  const counted = timed.filter((c) => typeof c.verified === "number").map((c) => c.verified);
   const verifying = timed.filter((c) => typeof c.verified === "number" && c.verified >= 1);
   return {
     geometricCycles: timed.length,
     medianGeometricMs: median(timed.map((c) => c.geometricMs)),
     verifyingCycles: verifying.length,
     medianGeometricMsVerifying: median(verifying.map((c) => c.geometricMs)),
-    medianCropsVerified: median(timed.filter((c) => typeof c.verified === "number").map((c) => c.verified)),
+    medianCropsVerified: median(counted),
+    p90CropsVerified: percentile(counted, 90),
+    maxCropsVerified: counted.length === 0 ? null : Math.max(...counted),
   };
 }
 

@@ -747,9 +747,10 @@ does when every face is verified. The tilted retry, if a release has one, takes 
 not-yet-accepted face of that group without its per-frame cap, so the answer at the pointer is
 the one a full analysis gives with no cap. The other faces the stage applies to are left unnamed
 on that analysis instead of being named by the embedding alone; the hover layer draws nothing for
-them, and the track layer behaves as in a full analysis. The `others` boxes that come with a
-shown card are then those of the kept, named cards, which can leave out nearby cards that were
-not verified. This changes how much work one analysis does and which faces it names, not what the
+them, and the track layer behaves as in a full analysis. Nothing is named at a point whose
+overlapping faces include one that was not verified, and a held tooltip ends there, so the card
+beneath an unverified neighbour never shows in its place. The `others` boxes that come with a
+shown card are those of all the faces, as in a full analysis. This changes how much work one analysis does and which faces it names, not what the
 stage computes for a face; the Python package's `evaluate` still verifies every face, so replay
 results do not move.
 

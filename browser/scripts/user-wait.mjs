@@ -332,7 +332,7 @@ function create() {
     const s = session.status();
     if (s.frames !== lastFrames && s.lastWorkerMs !== null) {
       lastFrames = s.frames;
-      cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs, geometricMs: session.analysis()?.timings.geometricMs ?? null, verified: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).length ?? null });
+      cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs, geometricMs: session.analysis()?.timings.geometricMs ?? null, verified: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).length ?? null, at: performance.now(), verifiedBoxes: session.analysis()?.boxes.filter((b) => b.face && b.face.geometric).map((b) => b.box) ?? null });
     }
   }, 20);
 }
@@ -368,7 +368,7 @@ function arm(expect, limitMs) {
 function finish() {
   const rest = current;
   current = null;
-  rest.resolve({ readings: rest.readings, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session ? session.status().frames : 0, createdAtMs: rest.createdAt, readyAtMs: rest.readyAt });
+  rest.resolve({ readings: rest.readings, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session ? session.status().frames : 0, createdAtMs: rest.createdAt, readyAtMs: rest.readyAt, startAtMs: rest.start, endAtMs: performance.now() });
 }
 function poll() {
   const rest = current;
@@ -620,7 +620,15 @@ try {
     if (left !== null) clearTimeout(left);
     const scored = scoreRest({ expect: rest.expect, readings: measured.readings, movedAtMs: measured.movedAtMs, limitMs: limit });
     const described = describeRest(scored, { scene: rest.scene ?? null, framesStart: measured.framesStart, framesEnd: measured.framesEnd, readings: measured.readings });
-    lines.push({ index: index + 1, x: rest.x, y: rest.y, paused: rest.pause === true, ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
+    // With a stage: each analysis that finished during the rest, with the faces it verified (the
+    // pointer's group) as boxes [x, y, width, height] in the analyzed picture's pixels.
+    const analyses =
+      geometric === null
+        ? undefined
+        : (await tab.evaluate(() => window.harness.cycles()))
+            .filter((c) => c.at >= measured.startAtMs && c.at <= measured.endAtMs + 50)
+            .map((c) => ({ atMs: Math.round(c.at - measured.startAtMs), verified: c.verified, boxes: c.verifiedBoxes }));
+    lines.push({ index: index + 1, x: rest.x, y: rest.y, paused: rest.pause === true, ...(analyses ? { analyses } : {}), ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
     // Later rests meet a session that is ready, as in a cold run.
     if (loadOnHover && index === 0) {
       opened = await tab.evaluate((ms) => window.harness.ready(ms), readyTimeoutMs);

@@ -1170,6 +1170,14 @@ card does. A later rest without `pause` plays the clip on. Each line of the repo
 (true or false). With `--geometric-scope focus`, paused rests are how a card reached after the
 picture's analyses is measured.
 
+**Rests for the focus scope.** The rest format above can express the cases that matter for
+`--geometric-scope focus`. A paused picture and a card reached later: one rest with `"pause": true`
+and `atSec` on the first card, then rests on a second card with `"pause": true`, no `atSec` (so the
+picture stays the same still one) and a `pauseMs` of 500, 1500 and 3000, and a last rest back on the
+first card. A rest in the strip where two overlapping cards meet, placed after a rest on the
+neighbour so the pointer arrives from it. Playing: rests with no `pause` and no `atSec`, card to
+card. The rests are yours to write for your clip.
+
 **Warm-up.** `warmUpCycles` (default 3) first moves the pointer a little over the first rest
 until that many frames beyond the first have been analyzed, unthrottled, so the models' first
 runs are not in the numbers; those cycles also give the baseline below. `--cold` (or
@@ -1280,7 +1288,10 @@ backend that ran, and `profile.geometric` records `scope`, `stateAtOpen`, `state
 `reasonAtEnd`. `analysis.medianGeometricMs` is the median time of the stage over all analyses,
 `analysis.medianGeometricMsVerifying` the same over the analyses that verified at least one crop
 (`verifyingCycles` of `geometricCycles`), and `analysis.medianCropsVerified` the median number of
-crops verified per analysis (the faces with `geometric` evidence). In focus scope an analysis with
+crops verified per analysis (the faces with `geometric` evidence), with `p90CropsVerified` and
+`maxCropsVerified` beside it. With a stage, each rest line also has `analyses`: for each analysis
+that finished during the rest, `atMs` from the pointer coming to rest, the number `verified` and
+the `boxes` verified (the pointer's group), `[x, y, width, height]` in the analyzed picture's pixels. In focus scope an analysis with
 the pointer over no face verifies none, which is why both medians are given. `analysis.medianWorkerMs`
 is the whole analysis, as for any run. The CPU
 throttle still applies to the page and, through the wrapper, to the worker's reported times, but
@@ -1479,9 +1490,14 @@ another mode, because the pointer is what says which faces to verify.
   previous frame's tracked cards again. The embedding alone never names an unverified face. A face
   the stage does not apply to (for example, one the accept rule already accepted, with
   `gate.belowAccept`) is named as before.
-- **`others`.** The `others` of what `atPointer()` returns hold the boxes of the other kept,
-  named cards of the analysis. Under focus scope that leaves out the boxes of nearby cards that
-  were not verified, so a tooltip placed off `others` can overlap them.
+- **Reading a result.** A focus result is valid where its faces were verified, so
+  `atPointer()` and `at()` name nothing at a point whose overlap group (the boxes holding it and
+  those joined to them by IoU 0.3 or more) holds a face the stage applies to that the result did
+  not verify, and a held tooltip ends there. Without this, the card beneath an unverified
+  neighbour could show where a full analysis shows the neighbour. Once the group is verified (the
+  re-look below) the answer is the full analysis's. Scope `"all"` reads as before.
+- **`others`.** The `others` of what `atPointer()` returns list the boxes of the other faces of
+  the analysis, verified or not, the same boxes as under `"all"` for the same frame.
 - **A paused or unchanged picture.** A still picture is analyzed when presented and a few times
   more, then not again, so a card the pointer reaches later would stay unnamed. In focus scope,
   when the pointer is on a face (or a group) the newest analysis left unverified, the session

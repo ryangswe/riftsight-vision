@@ -25,7 +25,7 @@ import { focusChecked, type FocusCheckReport, focusCheckLines } from "../score/f
 import type { Analyzer } from "../score/video.js";
 import { ACCEPTED_NMS_IOU, focusGroup } from "../src/recognition.js";
 import { FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
-import { SessionCore } from "../src/session-core.js";
+import { SessionCore, SHOWN_HOLD } from "../src/session-core.js";
 import { CONFIRM_FRAMES } from "../src/temporal-gate.js";
 import { createSession } from "../src/session.js";
 import { createWorkerSession, type WorkerLike } from "../src/worker-session.js";
@@ -971,5 +971,138 @@ describe("row 8: the session's group is the recognizer's", () => {
       });
       expect(faces.length).toBe(4); // the back and the too-small box are not faces
     }
+  });
+});
+
+// ---------------------------------------------- rows 9 and 10: reading a focus result
+describe("rows 9 and 10: a focus result is read only where its group is verified", () => {
+  const PX = (x: number) => x / 800;
+  const PY = 100 / 450;
+
+  /** The real Pipeline behind a SessionCore, frame by frame, with the clock stepped by hand. */
+  function live(boxes: Candidate[], cards: Array<{ box: Candidate; red: number }>, options: ConstructorParameters<typeof SessionCore>[1], stage: GeometricStage = fakeStage()) {
+    const frame = scene(cards);
+    const pipeline = pipelineOf(boxes, stage);
+    let now = 1_000;
+    const sent: Array<Extract<WorkerRequest, { kind: "frame" }>> = [];
+    const pending: Promise<void>[] = [];
+    let core!: SessionCore;
+    core = new SessionCore(
+      {
+        now: () => now,
+        toWorker: (r) => {
+          if (r.kind !== "frame") return;
+          sent.push(r);
+          pending.push(
+            pipeline.analyze(frame, r.videoTimeSec, { ...(r.geometricScope ? { geometricScope: r.geometricScope } : {}), ...(r.focus !== undefined ? { focus: r.focus } : {}) }).then((analysis) =>
+              core.fromWorker({ kind: "frame-result", envelope: r.envelope, videoTimeSec: r.videoTimeSec, width: 800, height: 450, workerMs: 5, analysis }),
+            ),
+          );
+        },
+        capture: (id) => core.frame(id, { width: 800, height: 450, close() {} } as unknown as ImageBitmap, 1),
+      },
+      options,
+    );
+    core.fromWorker({ kind: "release-status", ok: true, error: null, release: { analysisWidth: { min: 720, max: 1920 }, hoverMaxAgeMs: 2000, recognizer: { ep: "wasm" } } as never, cards: [] });
+    const flush = async (): Promise<void> => {
+      while (pending.length) await pending.shift();
+    };
+    /** Let the picture settle: its analyses and repeats run, with the clock stepping. */
+    const settle = async (ms = 3_000): Promise<void> => {
+      for (let t = 0; t < ms; t += 50) {
+        now += 50;
+        core.tick();
+        await flush();
+      }
+    };
+    return { core, sent, flush, settle, clock: () => now };
+  }
+
+  // X at 20..120 and Y at 80..180: offset 60 % of a width, IoU 0.25, not one group.
+  const fan = [{ box: box(20, 20), red: 100 }, { box: box(80, 20), red: 110 }];
+  const fanBoxes = fan.map((c) => c.box);
+  const strip = 100; // x inside both boxes
+
+  it("never shows the card beneath in the strip: only Y or nothing, and Y after the re-look", async () => {
+    const t = live(fanBoxes, fan, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1); // on X only
+    await t.flush();
+    await t.settle();
+    expect(t.core.fresh()?.cardId).toBe("B"); // X, verified with the pointer there
+    expect(t.sent.at(-1)!.focus).toEqual({ x: 40, y: 100 });
+    t.core.pointer(PX(strip), PY, 1); // into the strip
+    expect(t.core.fresh()?.cardId ?? null).not.toBe("B"); // never X
+    expect(t.core.hitAt(PX(strip), PY)).toBeNull();
+    await t.flush();
+    await t.settle();
+    const allPipeline = pipelineOf(fanBoxes, fakeStage());
+    const all = await allPipeline.analyze(scene(fan), 0);
+    expect(t.core.fresh()?.cardId ?? null).toBe(hoverAt(all, strip, 100).cardId ?? null);
+    expect(t.core.fresh()?.cardId).toBe("C"); // Y
+  });
+
+  it("ends a held tooltip when the pointer enters a strip with an unverified face", async () => {
+    const t = live(fanBoxes, fan, { geometricScope: "focus", hold: SHOWN_HOLD });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    await t.settle();
+    expect(t.core.shown()?.cardId).toBe("B");
+    t.core.pointer(PX(strip), PY, 1);
+    expect(t.core.shown()).toBeNull(); // not the held X
+    expect(t.core.shown()).toBeNull();
+    await t.flush();
+    await t.settle();
+    expect(t.core.shown()?.cardId).toBe("C");
+  });
+
+  it("does not name a face the stage does not apply to where a boosted neighbour would suppress it", async () => {
+    // X is accepted (not applied), Y overlaps it by IoU 0.43 and is boosted; Z is far away.
+    const cards = [{ box: box(20, 20), red: 250 }, { box: box(60, 20), red: 120 }, { box: box(500, 20), red: 100 }];
+    const boxes = cards.map((c) => c.box);
+    const t = live(boxes, cards, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(550), PY, 1); // the result is taken with the pointer on Z
+    await t.flush();
+    await t.settle(600);
+    const named = (c: SessionCore) => c.hitAt(PX(30), PY)?.cardId ?? null;
+    const all = await pipelineOf(boxes, fakeStage()).analyze(scene(cards), 0);
+    expect(hoverAt(all, 30, 100).cardId ?? null).toBeNull(); // "all": the boosted neighbour suppresses X
+    t.core.pointer(PX(30), PY, 1); // onto X alone, which Y overlaps
+    expect(named(t.core)).toBeNull();
+    await t.flush();
+    await t.settle();
+    expect(named(t.core)).toBe(hoverAt(all, 30, 100).cardId ?? null);
+  });
+
+  it("leaves scope all as it was: the result is read at once wherever the pointer is", async () => {
+    const t = live(fanBoxes, fan, {});
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    await t.settle();
+    t.core.pointer(PX(strip), PY, 1);
+    const all = await pipelineOf(fanBoxes, fakeStage()).analyze(scene(fan), 0);
+    expect(t.core.fresh()?.cardId ?? null).toBe(hoverAt(all, strip, 100).cardId ?? null);
+    expect(t.core.fresh()).not.toBeNull();
+  });
+
+  it("row 10: the neighbours of a shown card are the same boxes as under all", async () => {
+    const cards = [{ box: box(20, 20), red: 100 }, { box: box(300, 20), red: 110 }, { box: box(560, 20), red: 120 }];
+    const boxes = cards.map((c) => c.box);
+    const others = async (options: ConstructorParameters<typeof SessionCore>[1]) => {
+      const t = live(boxes, cards, options);
+      t.core.presented(1);
+      t.core.pointer(PX(40), PY, 1);
+      await t.flush();
+      await t.settle();
+      const shown = t.core.fresh()!;
+      expect(shown.cardId).toBe("B");
+      return shown.others.map((b) => JSON.stringify(b)).sort();
+    };
+    const all = await others({});
+    expect(all).toHaveLength(2);
+    expect(await others({ geometricScope: "focus" })).toEqual(all);
   });
 });

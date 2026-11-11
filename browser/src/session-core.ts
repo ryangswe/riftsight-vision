@@ -160,6 +160,36 @@ export function neighborBoxes(analysis: FrameAnalysis, box: FractionBox, limit =
     .map((b) => ({ x: b.x, y: b.y, width: b.width, height: b.height }));
 }
 
+/** `neighborBoxes` for focus scope: the hover layer then holds only the pointer's group, so the
+ *  neighbours come from every face box of the analysis, the same boxes a full analysis lists. */
+function neighborFaceBoxes(analysis: FrameAnalysis, box: FractionBox, limit: number): FractionBox[] {
+  return faceBoxesOf(analysis)
+    .filter((b) => !(Math.abs(b.x - box.x) < 1e-6 && Math.abs(b.y - box.y) < 1e-6 && Math.abs(b.width - box.width) < 1e-6))
+    .slice(0, limit);
+}
+
+/** The face boxes of an analysis in fractions of its frame, clamped as the layer's are. */
+function faceBoxesOf(analysis: FrameAnalysis): FractionBox[] {
+  const { width, height } = analysis.frame;
+  const clamp = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
+  return (analysis.boxes ?? [])
+    .filter((b) => b.face !== null)
+    .map((b) => ({ x: clamp(b.box[0] / width), y: clamp(b.box[1] / height), width: clamp(b.box[2] / width), height: clamp(b.box[3] / height) }));
+}
+
+/** Whether, in this analysis, the pointer at (px, py) in the frame's pixels is on a group of
+ *  overlapping faces (`focusGroup`) that holds a face the stage applies to and did not verify
+ *  (geometricScope "focus"). Such a group is not answered: the analysis was taken with the
+ *  pointer elsewhere, and a verified face beside an unverified one could be the card beneath. */
+function pointerGroupUnverified(analysis: FrameAnalysis, px: number, py: number): boolean {
+  const faces = (analysis.boxes ?? []).filter((b) => b.face !== null);
+  const group = focusGroup(
+    faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] })),
+    { x: px, y: py },
+  );
+  return [...group].some((i) => faces[i]!.face!.unverified === true);
+}
+
 interface InFlight {
   requestId: number;
   /** When the capture was asked for: the watchdog and the round trip count from here. */
@@ -520,12 +550,7 @@ export class SessionCore {
     const { analysis } = this.result;
     const { width, height } = analysis.frame;
     if (!(width > 0 && height > 0)) return;
-    const faces = (analysis.boxes ?? []).filter((b) => b.face !== null);
-    const group = focusGroup(
-      faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] })),
-      { x: this.pointerAt.x * width, y: this.pointerAt.y * height },
-    );
-    if (![...group].some((i) => faces[i]!.face!.unverified === true)) return;
+    if (!pointerGroupUnverified(analysis, this.pointerAt.x * width, this.pointerAt.y * height)) return;
     if (this.scheduler.relookDue(this.deps.now(), false)) this.requestCapture("hover");
   }
 
@@ -563,11 +588,14 @@ export class SessionCore {
     const x = fx * width;
     const y = fy * height;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    // Focus scope: a result is valid where its faces were verified, so nothing is named in a
+    // group that holds a face it did not verify (the card beneath could show through).
+    if (this.focusScope && pointerGroupUnverified(result.analysis, x, y)) return null;
     const hit = this.hitTest(result.analysis, x, y);
     if (!hit.box || hit.cardId === null || hit.name === null) return null;
     const box = { x: hit.box.x / width, y: hit.box.y / height, width: hit.box.width / width, height: hit.box.height / height };
     const frameBox = { x: hit.box.x, y: hit.box.y, width: hit.box.width, height: hit.box.height };
-    return { cardId: hit.cardId, name: hit.name, box, frameBox, others: neighborBoxes(result.analysis, box, this.maxOtherBoxes), ...turnedOutline(hit.card) };
+    return { cardId: hit.cardId, name: hit.name, box, frameBox, others: this.focusScope ? neighborFaceBoxes(result.analysis, box, this.maxOtherBoxes) : neighborBoxes(result.analysis, box, this.maxOtherBoxes), ...turnedOutline(hit.card) };
   }
 
   /** The card at the pointer in the newest result that may still be shown; null for nothing, or
@@ -587,6 +615,11 @@ export class SessionCore {
     const fresh = this.fresh();
     const hold = this.hold;
     if (!hold) return fresh;
+    if (!fresh && this.focusScope && this.pointerGroupHoldsUnverified()) {
+      // The pointer is on a group the newest result did not fully verify: a held card ends too.
+      this.held = null;
+      return null;
+    }
     const now = this.deps.now();
     if (fresh) {
       this.held = { card: fresh, misses: 0, seenAt: now };
@@ -603,6 +636,14 @@ export class SessionCore {
       return null;
     }
     return held.card;
+  }
+
+  /** Whether the pointer is, in the newest result, on a group that holds an unverified face. */
+  private pointerGroupHoldsUnverified(): boolean {
+    const result = this.current();
+    if (!result || !this.pointerAt) return false;
+    const { width, height } = result.analysis.frame;
+    return width > 0 && height > 0 && pointerGroupUnverified(result.analysis, this.pointerAt.x * width, this.pointerAt.y * height);
   }
 
   private current(): { analysis: FrameAnalysis; videoTimeSec: number } | null {
