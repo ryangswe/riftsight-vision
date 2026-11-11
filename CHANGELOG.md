@@ -11,6 +11,11 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- A push to `main` that raises the version now tags it, publishes the GitHub release with the
+  changelog section as its notes (a release candidate as a pre-release) and starts the Publish
+  workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,
+  when the section is missing, the version is on the package index or the index cannot be asked,
+  or a higher version is already tagged. `RELEASING.md` has the steps that remain.
 - The labeller's optional `--probe`: in the center pass, each frame with a card marker also
   takes a card height in frame pixels (Alt/Option+drag) and a camera angle class (keys 7, 8, 9),
   kept in `probes.json` beside the labels. The label rows and the manifest export don't change.
