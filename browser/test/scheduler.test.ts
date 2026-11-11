@@ -7,6 +7,7 @@ import {
   FIRST_ANALYSIS_WATCHDOG_MS,
   type AnalysisState,
   DRIVER_TICK_MS,
+  EMPTY_SPOT_INTERVAL_MS,
   FrameScheduler,
   HOVER_MAX_AGE_MS,
   HOVER_TRIGGER_MIN_GAP_MS,
@@ -849,6 +850,128 @@ describe("the session loop with prompt retries and pictures received", () => {
     expect(twelve).toEqual(PINNED_SLOW_FIRST_LOOK[12_000]);
     const eighteen = pausedWithSlowFirstLook({ firstMs: 18_000, endMs: 30_000, pointerAt: moving, pictureReceived: true });
     expect(eighteen).toEqual(PINNED_SLOW_FIRST_LOOK[18_000]);
+  });
+});
+
+describe("FrameScheduler: a pointer resting where the last look found no card", () => {
+  /** A playing video, a tick every DRIVER_TICK_MS from `fromMs`; every look it starts comes back
+   *  analyzed, with a card at the pointer from `cardFromMs` on. */
+  function rest(s: FrameScheduler, fromMs: number, untilMs: number, cardFromMs = Infinity): number[] {
+    const starts: number[] = [];
+    for (let t = fromMs; t <= untilMs; t += DRIVER_TICK_MS) {
+      s.framePresented();
+      if (s.due(t)) {
+        s.started(t);
+        starts.push(t);
+        if (t >= cardFromMs) s.setTooltipShowing(true, t);
+        else s.lookFoundNoCard();
+      }
+    }
+    return starts;
+  }
+  const movedTo = (s: FrameScheduler, t: number): void => {
+    s.pointerMoved(t);
+    s.started(t, { trigger: "hover" });
+    s.lookFoundNoCard();
+  };
+
+  it("looks once a second for the grace period: 5 looks in 10 s, against 20 at the fast rate", () => {
+    const s = pointerScheduler();
+    movedTo(s, 0);
+    const starts = [0, ...rest(s, DRIVER_TICK_MS, POINTER_GRACE_MS)];
+    expect(starts).toEqual([0, 2000, 4000, 6000, 8000]);
+    expect(EMPTY_SPOT_INTERVAL_MS).toBe(2000);
+    const fast = pointerScheduler();
+    fast.pointerMoved(0);
+    fast.started(0, { trigger: "hover" });
+    const fastStarts: number[] = [0];
+    for (let t = DRIVER_TICK_MS; t <= POINTER_GRACE_MS; t += DRIVER_TICK_MS) {
+      fast.framePresented();
+      if (fast.due(t)) {
+        fast.started(t);
+        fastStarts.push(t);
+      }
+    }
+    expect(fastStarts).toHaveLength(20);
+  });
+
+  it("a card found at the pointer returns to the fast rate at once", () => {
+    const s = pointerScheduler();
+    movedTo(s, 0);
+    expect(rest(s, DRIVER_TICK_MS, 6000, 4000)).toEqual([2000, 4000, 4500, 5000, 5500, 6000]);
+    expect(s.intervalInEffectMs(6000)).toBe(500);
+  });
+
+  it("a pointer move returns to the fast rate at once, and a look that began before the move does not bring the slow rate back", () => {
+    const s = pointerScheduler();
+    movedTo(s, 0);
+    rest(s, DRIVER_TICK_MS, 2000);
+    expect(s.intervalInEffectMs(2000)).toBe(2000);
+    s.pointerMoved(2250);
+    expect(s.intervalInEffectMs(2250)).toBe(500);
+    expect(rest(s, 2250, 2750)).toEqual([2500]);
+    // A look in flight when the pointer moved says nothing about where it is now.
+    const t = pointerScheduler();
+    t.pointerMoved(0);
+    t.started(0, { trigger: "hover" });
+    t.pointerMoved(100);
+    t.lookFoundNoCard();
+    expect(t.intervalInEffectMs(100)).toBe(500);
+  });
+
+  it("a seek, a new source or a cut returns to the fast rate", () => {
+    for (const end of [(s: FrameScheduler) => s.discontinuity(), (s: FrameScheduler) => s.requestLook()]) {
+      const s = pointerScheduler();
+      movedTo(s, 0);
+      expect(s.intervalInEffectMs(10)).toBe(2000);
+      end(s);
+      expect(s.intervalInEffectMs(10)).toBe(500);
+    }
+  });
+
+  it("an unanswered look returns to the fast rate; its retry keeps the back-off", () => {
+    const s = pointerScheduler();
+    movedTo(s, 0);
+    s.lookUnanswered(0);
+    expect(s.intervalInEffectMs(0)).toBe(500);
+  });
+
+  it("the pointer leaving keeps the slow rate for the grace period, and the grace itself is unchanged", () => {
+    const s = pointerScheduler();
+    movedTo(s, 0);
+    s.pointerLeft(1000);
+    expect(rest(s, 1000, 11_000)).toEqual([2000, 4000, 6000, 8000, 10000]);
+    expect(s.analysisActive(11_000)).toBe(false);
+  });
+
+  it("a longer measured gap wins, and a shorter one is raised to two seconds", () => {
+    const paced = pointerScheduler();
+    paced.setIntervalMs(3600);
+    movedTo(paced, 0);
+    expect(paced.intervalInEffectMs(10)).toBe(3600);
+    const shorter = pointerScheduler();
+    shorter.setIntervalMs(250);
+    movedTo(shorter, 0);
+    expect(shorter.intervalInEffectMs(10)).toBe(2000);
+  });
+
+  it("changes nothing outside the fast state: always-on, reading", () => {
+    const always = new FrameScheduler(1000);
+    always.lookFoundNoCard();
+    expect(always.intervalInEffectMs(0)).toBe(1000);
+    const reading = new FrameScheduler(500, CONFIRM_FRAMES, "pointer", 1500);
+    reading.pointerMoved(0);
+    reading.setTooltipShowing(true, 20_000);
+    expect(reading.intervalInEffectMs(20_000)).toBe(1500);
+  });
+
+  it("a still picture's repeats keep their spacing", () => {
+    const s = pointerScheduler();
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0);
+    s.lookFoundNoCard();
+    expect(s.due(250)).toBe(true);
   });
 });
 

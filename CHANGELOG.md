@@ -33,6 +33,15 @@ break the public surface; this file names each break and how to migrate.
 - With `whenIdle`, a page-wide pointer move (`intent: "page"`) no longer rebuilds a dropped compute
   frame; only a trusted move or tap over the video does. Rebuilding on any page move cost more than
   it saved for viewers who don't hover. `intent` still reloads the worker of a frame that was kept.
+- In pointer mode, a pointer that rests where the newest look found no card is now looked at once
+  every 2 seconds instead of at the fast rate. In the 10-second grace period that is about 5
+  looks, against about 20 on WebGPU with fast analyses and 10 on WebAssembly, which saves most of
+  the analysis time spent on an empty spot after the pointer leaves a card. A card that arrives
+  under the resting pointer shows up to about 1.5 seconds later than before on WebGPU (1 second
+  on WebAssembly), and at most about 2 seconds plus one analysis after it arrives. A move over the
+  picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at
+  once; the pointer leaving the picture does not. Nothing changes outside pointer mode or while a
+  card shows.
 
 ### Added
 
