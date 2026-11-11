@@ -280,9 +280,10 @@ runs first, a dry run included:
    is none yet, a new one is started. Each entry may carry a `refreshGate` record of how the
    release cleared the refresh gate (see Safety checks).
 
-Then, without `--dry-run`: the pinned and legal files, `geometric.json`, `release.json` last in
-the folder (each checked by HEAD); the release index, when this run uploaded files or the index
-does not list the release yet (a run after a crash that found every file there); a live check of the folder
+Then, without `--dry-run`: the release's `refreshGate` state in the index (before the folder, so that
+a crash after it cannot leave a folder with no state); the pinned and legal files, `geometric.json`, `release.json` last in
+the folder (each checked by HEAD); the release index again (`publishedAt`, `bytes`), when this run uploaded files or the index
+does not list the release fully yet (a run after a crash that found every file there); a live check of the folder
 (`verify-release-live`); the data files; `config.json` last; and `verify`. Without `--config`
 the folder is published and the pointer does not move; verdict options given without `--config`
 are checked the same way and recorded in the index.
@@ -320,7 +321,9 @@ JSON. With a geometric pointer it also checks `geometric.json` and its index's b
   refuses (exit 3, a dry run too): the release "was uploaded without the refresh verdicts", so
   run `publish-release --config` for it with `--verdict-r/--verdict-n` or `--no-refresh-gate`.
   An index that cannot be read, or an entry that is not understood, passes with a warning, so
-  a rollback never depends on that file. The live pointer again never reads the index.
+  a rollback never depends on that file. The live pointer again never reads the index. The log
+  names the verdict hashes that cleared the release, and warns when an R-alone record was made
+  against another release than the live one.
 - **A pointer only moves to a folder that verifies live.** `publish --config` with a `release`
   field checks it live first, unless it is the live pointer already (so an emergency
   `namesOnly` never waits). A rollback is checked the same way.

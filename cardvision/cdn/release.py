@@ -203,17 +203,21 @@ def read_release_index(product: CdnConfig, s3, bucket: str) -> dict:
 
 
 def write_release_index(product: CdnConfig, s3, bucket: str, lr: LocalRelease, log: Callable[[str], None] = print, *,
-                        idx: Optional[dict] = None, uploaded: bool = True, refresh_gate: Optional[dict] = None) -> None:
+                        idx: Optional[dict] = None, uploaded: bool = True, refresh_gate: Optional[dict] = None,
+                        gate_only: bool = False, now: Optional[str] = None) -> None:
     """Record this release in `idx`, the index read before the uploads (`read_release_index`; read
     now when not given): when files were uploaded (`--fix-metadata` included, which sets a new
-    publishedAt), or when the index does not list it yet (a run after a crash that found every file
-    already there). `refresh_gate` is how the run cleared the refresh gate (None: it did not; the
-    hashes of the verdicts, or ``waived``), written with an `at`. The entry is merged, never replaced: a listed entry keeps its `refreshGate`, and only a
-    record can fill a `refreshGate` that is null or absent (written even when nothing was uploaded);
-    a new entry without a record gets `refreshGate: null`, and a listed one without the key (from
-    before the gate) is not given one. Otherwise a listed entry is left as it is. Two runs for
-    different releases at once can drop each other's entry; a later run of that release, with
-    nothing to upload, adds it back."""
+    publishedAt), or when the index does not list it yet or lists it without a publishedAt (a run
+    after a crash that found every file already there). `refresh_gate` is how the run cleared the
+    refresh gate (None: it did not; the hashes of the verdicts, or ``waived``), written with an `at`.
+    `gate_only` writes just that state, before the uploads, so that a crash between the folder and
+    the index cannot leave a folder with no state. The entry is merged, never replaced: a listed
+    entry keeps its `refreshGate`, and only a record can fill a `refreshGate` that is null or absent
+    (written even when nothing was uploaded); a new entry without a record gets `refreshGate: null`,
+    and a listed one without the key (from before the gate) is not given one. Otherwise a listed
+    entry is left as it is. Two runs for different releases at once can drop each other's entry; a
+    later run of that release, with nothing to upload, adds it back. `now` is the time to write
+    (one per run, so that the two writes of a run agree)."""
     key = product.releases_index_key
     if idx is None:
         idx = read_release_index(product, s3, bucket)
@@ -221,11 +225,12 @@ def write_release_index(product: CdnConfig, s3, bucket: str, lr: LocalRelease, l
     entry = releases.get(lr.id)
     listed = isinstance(entry, dict)
     upgrade = listed and refresh_gate is not None and entry.get("refreshGate") is None
-    if listed and not uploaded and not upgrade:
+    complete = listed and "publishedAt" in entry
+    if listed and not upgrade and (gate_only or (complete and not uploaded)):
         return
-    now = _config.utc_now()
+    now = now or _config.utc_now()
     merged = dict(entry) if listed else {}
-    if uploaded or not listed:
+    if not gate_only and (uploaded or not complete):
         merged["publishedAt"] = now
         merged["bytes"] = {f.key.rsplit("/", 1)[1]: len(f.data) for f in lr.pinned}
     if upgrade or not listed:
@@ -237,23 +242,34 @@ def write_release_index(product: CdnConfig, s3, bucket: str, lr: LocalRelease, l
 
 
 def refresh_gate_problem(product: CdnConfig, s3, bucket: str, release_id: str,
-                         log: Callable[[str], None] = print) -> Optional[str]:
+                         log: Callable[[str], None] = print, live_id: Optional[str] = None) -> Optional[str]:
     """A pointer about to move to `release_id` (not the live one): why the index says it may not,
     or None. A record passes; so does an entry or key from before the gate (said so). Uploaded
     without the refresh verdicts (`refreshGate: null`) refuses. An index that cannot be read, or an
-    entry that is not understood, passes with a warning, so a rollback never depends on that file."""
+    entry that is not understood, passes with a warning, so a rollback never depends on that file.
+    A record made against another live release than `live_id` (R alone) passes with a warning."""
     key = product.releases_index_key
     try:
         entry = read_release_index(product, s3, bucket).get("releases", {}).get(release_id)
     except Refused as e:
-        log(f"WARNING: the refresh gate record of release {release_id} was not checked: {e}")
+        log(f"WARNING: the refresh gate record of release {release_id} was not checked: {str(e).removesuffix('; nothing written')}")
         return None
     if entry is None or (isinstance(entry, dict) and "refreshGate" not in entry):
         log(f"refresh gate: release {release_id} recorded before the gate; not checked")
         return None
     rec = entry.get("refreshGate") if isinstance(entry, dict) else 0
     if isinstance(rec, dict):
-        log(f"refresh gate: release {release_id} cleared {rec.get('at', 'at an unknown time')}")
+        if rec.get("waived"):
+            how = "waived"
+        else:
+            how = f"rule {rec.get('rule')}, R sha256 {rec.get('r')}, N sha256 {rec.get('n')}"
+            if rec.get("againstLive"):
+                how += f", against live release {rec['againstLive']}"
+        log(f"refresh gate: release {release_id} cleared {rec.get('at', 'at an unknown time')} ({how})")
+        against = rec.get("againstLive")
+        if against and against != live_id:
+            log(f"WARNING: release {release_id} was cleared with R alone against release {against}, "
+                f"but the live release is {live_id or 'none'}: its new cards were not judged against it")
         return None
     if rec is None:
         return (f"release {release_id} was uploaded without the refresh verdicts: run publish-release --config for it "

@@ -521,3 +521,17 @@ def test_a_folder_upload_with_a_failing_or_rehearsal_verdict_is_refused_before_a
     with pytest.raises(Refused, match=reason):
         run(setup, folder_args(setup, dry_run=dry_run), s3)
     assert not s3.puts and not s3.objects
+
+
+def test_refusals_for_an_upload_without_config_do_not_speak_of_moving_the_pointer(setup):
+    s3 = FakeS3()
+    with pytest.raises(Refused, match=r"recording the verdicts for this upload needs the refresh verdicts: --verdict-r missing") as e:
+        run(setup, folder_args(setup, verdict_r=None), s3)
+    assert "moving the pointer" not in str(e.value) and not s3.puts
+    candidate_catalog(setup, ["TOY-001"])
+    with pytest.raises(Refused, match=r"recording the verdicts for this upload needs the refresh verdicts: --verdict-n missing "
+                                       r"\(the live config.json has no release") as e:
+        run(setup, folder_args(setup, verdict_n=None), s3)
+    assert "moving the pointer" not in str(e.value) and not s3.puts
+    with pytest.raises(Refused, match=r"moving the pointer \(--config\) needs the refresh verdicts: --verdict-n missing"):
+        run(setup, with_args(setup, verdict_n=None), s3)

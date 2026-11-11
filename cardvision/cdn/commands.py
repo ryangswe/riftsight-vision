@@ -12,7 +12,7 @@ pages, settings file and remote releases on its own Cloudflare R2 bucket.
     cardvision cdn verify-geo  --dir PACKED --expect-sha256 SHA
     cardvision cdn publish-release --release DIR --min-version X [--max-version Y] [--legal DIR]
                    [--geometric FILE --geo-manifest-sha256 SHA] [--data-file F]
-                   [--config F [--set-pointer] (--verdict-r F --verdict-n F | --no-refresh-gate REASON)]
+                   [--config F [--set-pointer]] [--verdict-r F --verdict-n F | --no-refresh-gate REASON]
                    [--sessions] [--fix-metadata] [--dry-run]
     cardvision cdn verify-release-live [--candidate ID | --config-url U] [--expect-id ID] [--sessions]
 
@@ -74,14 +74,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--geo-manifest-sha256", help="publish-release: the SHA-256 of that index's manifest")
     parser.add_argument("--set-pointer", action="store_true",
                         help="publish-release: write the pointer (and the data files' entries) into --config first")
-    parser.add_argument("--verdict-r", help="publish-release with --config: the update's VERDICT-R.json (cardvision refresh "
+    parser.add_argument("--verdict-r", help="publish-release: the update's VERDICT-R.json (cardvision refresh "
                                             "verdict replay); it must be a PASS that is not a rehearsal. Without --verdict-n it is "
                                             "accepted only when the candidate's catalog has no card id the live release's "
-                                            "catalog lacks (checked after the live release is read, before any write)")
-    parser.add_argument("--verdict-n", help="publish-release with --config: the update's VERDICT-N.json (cardvision refresh "
+                                            "catalog lacks (checked after the live release is read, before any write). Needed with --config; "
+                                            "without it, read the same way and recorded in the release index")
+    parser.add_argument("--verdict-n", help="publish-release: the update's VERDICT-N.json (cardvision refresh "
                                             "verdict newcard), under the same rule; needed when the release adds cards")
     parser.add_argument("--no-refresh-gate", metavar="REASON",
-                        help="publish-release with --config, in place of the verdicts: why this release is not a gated card "
+                        help="publish-release, in place of the verdicts: why this release is not a gated card "
                              "refresh (a first release, new models); logged")
     parser.add_argument("--sessions", action="store_true", help="also start the ONNX Runtime sessions in Node (a new model)")
     parser.add_argument("--candidate", help="verify-release-live: a release id on the CDN, without a pointer")

@@ -295,7 +295,7 @@ def test_the_index_check_for_a_pointer_move(panel):
         return json.dumps({"schemaVersion": 1, "releases": {RID: entry}}).encode()
 
     problem, lines = check(index({"publishedAt": "t", "bytes": {}, "refreshGate": {"at": "2026-11-01T00:00:00Z", "waived": True}}))
-    assert problem is None and lines == [f"refresh gate: release {RID} cleared 2026-11-01T00:00:00Z"]
+    assert problem is None and lines == [f"refresh gate: release {RID} cleared 2026-11-01T00:00:00Z (waived)"]
     problem, lines = check(index({"publishedAt": "t", "bytes": {}}))
     assert problem is None and "recorded before the gate" in lines[0]
     problem, lines = check(index({}), "f" * 16)
@@ -303,6 +303,18 @@ def test_the_index_check_for_a_pointer_move(panel):
     problem, _ = check(index({"publishedAt": "t", "bytes": {}, "refreshGate": None}))
     assert "was uploaded without the refresh verdicts" in problem
     assert "publish-release --config" in problem and "--verdict-r/--verdict-n" in problem and "--no-refresh-gate" in problem
+    cleared = {"at": "t", "rule": "1" * 64, "r": "2" * 64, "n": None, "againstLive": "a" * 16}
+    problem, lines = check(index({"publishedAt": "t", "bytes": {}, "refreshGate": cleared}))
+    assert problem is None and f"R sha256 {'2' * 64}, N sha256 None, against live release {'a' * 16}" in lines[0]
+    assert len(lines) == 2 and lines[1].startswith("WARNING") and "a" * 16 in lines[1] and "live release is none" in lines[1]
+    s3 = FakeS3(objects={key: (index({"publishedAt": "t", "bytes": {}, "refreshGate": cleared}), {})})
+    lines = []
+    assert refresh_gate_problem(panel, s3, "b", RID, lines.append, live_id="a" * 16) is None and len(lines) == 1, "same live release: no warning"
+    lines = []
+    assert refresh_gate_problem(panel, s3, "b", RID, lines.append, live_id="b" * 16) is None
+    assert lines[1] == (f"WARNING: release {RID} was cleared with R alone against release {'a' * 16}, "
+                        f"but the live release is {'b' * 16}: its new cards were not judged against it")
     for body in (b"{not json", b"[]", b'{"releases": []}', index("junk"), index({"refreshGate": "yes"})):
         problem, lines = check(body)
         assert problem is None and lines[0].startswith("WARNING"), body
+        assert not lines[0].endswith("nothing written"), "a warning does not say a refusal's words"
