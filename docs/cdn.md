@@ -281,7 +281,7 @@ runs first, a dry run included:
    release cleared the refresh gate (see Safety checks).
 
 Then, without `--dry-run`: the release's `refreshGate` state in the index (before the folder, so that
-a crash after it cannot leave a folder with no state); the pinned and legal files, `geometric.json`, `release.json` last in
+a crash after it cannot leave a folder with no state; when that write fails the run is refused and nothing is uploaded); the pinned and legal files, `geometric.json`, `release.json` last in
 the folder (each checked by HEAD); the release index again (`publishedAt`, `bytes`), when this run uploaded files or the index
 does not list the release fully yet (a run after a crash that found every file there); a live check of the folder
 (`verify-release-live`); the data files; `config.json` last; and `verify`. Without `--config`

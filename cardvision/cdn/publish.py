@@ -402,8 +402,7 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
     try:  # the gate state first: a crash after the folder must not leave a folder with no state
         write_release_index(product, s3, t.bucket, lr, log, idx=index, refresh_gate=record or None, gate_only=True, now=now)
     except Exception as e:
-        log(f"WARNING: the release index could not be written before the upload ({type(e).__name__}: {e}); "
-            "it is written again after it")
+        raise Refused(f"the release index could not be written ({type(e).__name__}: {e}), so nothing was uploaded") from e
     if upload_release(s3, t.bucket, lr, todo, log):
         return 1
     write_release_index(product, s3, t.bucket, lr, log, idx=index, uploaded=bool(todo), refresh_gate=record or None, now=now)

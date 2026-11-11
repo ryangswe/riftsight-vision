@@ -198,14 +198,23 @@ def test_no_gate_without_config_or_for_a_rollback(setup):
 
 
 # ------------------------------------------------------------------------------- the index
+class FailsAfterFirstIndexPut(FakeS3):
+    """The first write of the index (the gate state, before the folder) lands; `fail` applies after it."""
+
+    def _fails(self, key: str) -> bool:
+        return super()._fails(key) and key in self.put_keys
+
+
 def test_a_run_after_a_crash_records_the_release_once(setup, monkeypatch):
     times = iter(["2026-11-01T00:00:00Z", "2026-11-02T00:00:00Z", "2026-11-03T00:00:00Z"])
     monkeypatch.setattr(cdn_config, "utc_now", lambda: next(times))
     args = with_args(setup, dry_run=False)
-    s3 = FakeS3(fail=("index.json",))
+    s3 = FailsAfterFirstIndexPut(fail=("index.json",))
     with pytest.raises(RuntimeError, match="boom"):
         run(setup, args, s3)
-    assert INDEX not in s3.objects and f"vision/releases/{RID}/release.json" in s3.objects, "the crash: files, no index"
+    entry = json.loads(s3.objects[INDEX]["Body"])["releases"][RID]
+    assert "refreshGate" in entry and "publishedAt" not in entry and f"vision/releases/{RID}/release.json" in s3.objects, \
+        "the crash: files, an incomplete index entry"
     s3.fail = set()
     setup.cfg_file.write_text(json.dumps(EXAMPLE_SETTINGS))
     uploads = len(s3.puts)
@@ -535,3 +544,18 @@ def test_refusals_for_an_upload_without_config_do_not_speak_of_moving_the_pointe
     assert "moving the pointer" not in str(e.value) and not s3.puts
     with pytest.raises(Refused, match=r"moving the pointer \(--config\) needs the refresh verdicts: --verdict-n missing"):
         run(setup, with_args(setup, verdict_n=None), s3)
+
+
+class NoIndexWrites(FakeS3):
+    def put_object(self, *, Bucket, Key, **k):
+        if Key == INDEX:
+            raise RuntimeError("index down")
+        return super().put_object(Bucket=Bucket, Key=Key, **k)
+
+
+def test_an_upload_whose_first_index_write_fails_is_refused_before_the_folder(setup):
+    s3 = NoIndexWrites()
+    with pytest.raises(Refused, match=r"the release index could not be written \(RuntimeError: index down\), so nothing was uploaded"):
+        run(setup, with_args(setup, dry_run=False), s3)
+    assert not s3.puts and not s3.objects, "no folder file, no config.json"
+    assert setup.cfg_file.read_text() == json.dumps(EXAMPLE_SETTINGS)
