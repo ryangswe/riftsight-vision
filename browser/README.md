@@ -1516,7 +1516,9 @@ events file's header records the settings and the stage's state. `examples/score
 takes the same `--geometric FILE` (give Chrome what it needs for WebGPU with `--chrome-arg`).
 
 **WebGPU only.** The vote runs on WebGPU, on a device the worker asks for with
-`voteDeviceLimits(adapter)`. Without WebGPU the stage is off (`no-webgpu`) and recognition is
+`voteDeviceLimits(adapter)`. The index is copied to that device once, 4 MiB at a time with a
+wait after each piece, so Chrome does not keep a staging copy of the whole index mapped in the
+page and the GPU process. Without WebGPU the stage is off (`no-webgpu`) and recognition is
 the embedding's alone: it never votes on the CPU in a page. It is also off when any part fails
 to load (`load-failed: ...`), and for the rest of the session when it fails during a frame
 (`runtime: ...`; that frame is answered exactly as without the stage), when its GPU device is
@@ -1686,7 +1688,7 @@ npm run test:webgpu -- --chrome "$CHROME" --bench --runs 20
 You should see something like:
 
 ```
-13 of 13 checks agree with the CPU voter
+15 of 15 checks agree with the CPU voter
 {"rows":1500000,"setupMs":12,"options":{},"q500":{"firstMs":13,"medianMs":5.2,"minMs":5.1,"maxMs":6.1},"q6000":{"firstMs":52.1,"medianMs":52.3,"minMs":51.6,"maxMs":52.8},"adapter":"apple metal-3"}
 ```
 
