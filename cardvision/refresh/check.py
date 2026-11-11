@@ -49,7 +49,8 @@ P4
     SHA-256 and names the candidate's bank; ``packed/manifest.json`` next to the settings (or
     ``--packed``, for a series' ``manifest-<16 hex>.json``) is a packing of that index. With
     ``--base-packed``, the live packed manifest: the candidate's ``shards`` and ``cards`` begin
-    with the base's, entry for entry (an appended pack; a full repack fails this check).
+    with the base's, entry for entry (an appended pack; a full repack fails this check), and the
+    base manifest's source is the index the live settings pin.
 
 Prints one JSON verdict (``ok``, ``bankOnly``, ``p0Checked``, ``newCards``, ``catalogEdits``,
 ``nearDuplicates``, ``checks``); exit 0 only when every check that ran holds.
@@ -290,7 +291,12 @@ def check_release(release: str | Path, base: str | Path, *, live_config: str | P
                   f"manifest sha256 {_sha(manifest)}")
             if base_packed is not None:
                 if Path(base_packed).exists():
-                    check("P4 packed manifest extends the base's shards and cards", *_extends(m, _read(base_packed)))
+                    bm = _read(base_packed)
+                    check("P4 packed manifest extends the base's shards and cards", *_extends(m, bm))
+                    live_sha = (_read(base_geometric).get("index") or {}).get("sha256")
+                    base_src = (bm.get("source") or {}).get("sha256") if isinstance(bm.get("source"), dict) else None
+                    check("P4 base packed manifest packs the live index", live_sha is not None and base_src == live_sha,
+                          f"the base manifest's source is {base_src}, the live settings pin {live_sha}")
                 else:
                     check("P4 packed manifest extends the base's shards and cards", False, f"{base_packed}: missing")
         else:

@@ -259,14 +259,61 @@ def test_a_series_is_refused_in_a_flat_folder_or_a_stranger_folder(series):
 
     stranger = FakeS3({folder + "shard-ffffffffffffffff.bin": (b"x", {}), folder + "manifest-ffffffffffffffff.json": (b"{}", {})})
     before = snapshot(stranger)
-    with pytest.raises(Refused, match="holds none of this manifest's shards"):
-        publish_geo(stranger, "b", folder, files, series=True, log=quiet)
-    assert stranger.puts == [] and snapshot(stranger) == before, "nothing written"
-    assert publish_geo(stranger, "b", folder, files, series=True, new_series=True, log=quiet) == 0, "--new-series allows it"
-    assert len(stranger.puts) == 3
+    for new in (False, True):
+        with pytest.raises(Refused, match="holds none of this manifest's shards" if not new else "is not empty; --new-series needs an empty folder"):
+            publish_geo(stranger, "b", folder, files, series=True, new_series=new, log=quiet)
+        assert stranger.puts == [] and snapshot(stranger) == before, "nothing written"
 
     empty = FakeS3()
-    assert publish_geo(empty, "b", folder, files, series=True, log=quiet) == 0, "an empty folder takes a series"
+    with pytest.raises(Refused, match="a new series needs --new-series and an empty folder"):
+        publish_geo(empty, "b", folder, files, series=True, log=quiet)
+    assert empty.puts == [] and empty.objects == {}, "an empty folder without --new-series: nothing written"
+    assert publish_geo(empty, "b", folder, files, series=True, new_series=True, log=quiet) == 0, "--new-series into an empty folder"
+    assert len(empty.puts) == 3
+    other_empty = FakeS3()
+    other_folder = "vision/geo/fedcba9876543210/"
+    with pytest.raises(Refused, match="needs --new-series and an empty folder"):
+        publish_geo(other_empty, "b", other_folder, files, series=True, log=quiet)
+    assert other_empty.puts == [], "an empty folder of another name is refused too"
+
+    grown = FakeS3()
+    publish_geo(grown, "b", folder, files, series=True, new_series=True, log=quiet)
+    with pytest.raises(Refused, match="is not empty; --new-series"):
+        publish_geo(grown, "b", folder, files, series=True, new_series=True, log=quiet)
+
+
+def test_a_content_name_of_digits_does_not_make_a_folder_flat(tmp_path):
+    digits = None
+    for i in range(200000):
+        blob = str(i).encode() * 3
+        if hashlib.sha256(blob).hexdigest()[:16].isdigit():
+            digits = blob
+            break
+    assert digits is not None
+    sha1, ents = write_series(tmp_path / "d", M1, [b"\x01" * 64])
+    sha2, ents2 = write_series(tmp_path / "d", M2, [digits], base_shards=ents)
+    folder, files = geo_series_plan(tmp_path / "d", M2, "0123456789abcdef", sha2)
+    assert ents2[-1]["path"][6:-4].isdigit()
+    s3 = FakeS3()
+    publish_geo(s3, "b", folder, geo_series_plan(tmp_path / "d", M1, "0123456789abcdef", sha1)[1], series=True, new_series=True, log=quiet)
+    assert publish_geo(s3, "b", folder, files, series=True, log=quiet) == 0, "the digit-named shard is a series shard"
+    assert folder + ents2[-1]["path"] in s3.objects
+    flat = FakeS3({folder + "shard-123456789012345.bin": (b"x", {})})
+    with pytest.raises(Refused, match="holds a flat index"):
+        publish_geo(flat, "b", folder, files, series=True, log=quiet)
+
+
+def test_a_series_shard_failure_leaves_the_manifest_out(series):
+    live, _, (sha1, _), (ents1, _) = series
+    folder, files = geo_series_plan(live, M1, "0123456789abcdef", sha1)
+    lines = []
+    broken = FakeS3(fail={ents1[1]["path"]})
+    assert publish_geo(broken, "b", folder, files, series=True, new_series=True, log=lines.append) == 1
+    assert folder + M1 not in broken.objects
+    assert any(f"{M1} NOT uploaded" in line for line in lines), lines
+    corrupt = FakeS3(corrupt=True)
+    assert publish_geo(corrupt, "b", folder, files, series=True, new_series=True, log=quiet) == 2
+    assert folder + M1 not in corrupt.objects
 
 
 def test_a_series_plan_takes_only_content_named_shards(series, tmp_path):

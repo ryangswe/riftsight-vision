@@ -349,6 +349,10 @@ def series_manifest(geo: Path, shards: list[dict], cards: list[dict], name: str 
     return path
 
 
+def verdict_ok_src(verdict, name):
+    return verdict["checks"][name]["ok"]
+
+
 def test_p4_base_packed_needs_an_appended_pack(made, tmp_path, capsys):
     *_, base, cand = made
     base_sha = json.loads(base.read_text())["bank"]["sha256"]
@@ -373,6 +377,13 @@ def test_p4_base_packed_needs_an_appended_pack(made, tmp_path, capsys):
     moved = series_manifest(good, [a, b], [{**c1, "offset": 9}, c2], "moved.json")
     assert failed(check_release(cand, base, geometric=good, base_geometric=base_geo, packed=moved, base_packed=live)) == [name], \
         "a base card entry that changed fails"
+
+    src = "P4 base packed manifest packs the live index"
+    assert verdict_ok_src(check_release(cand, base, geometric=good, base_geometric=base_geo, packed=appended, base_packed=live), src)
+    wrong_live = tmp_path / "wrong-live.json"
+    wrong_live.write_text(json.dumps({**json.loads(live.read_text()), "source": {"sha256": "9" * 64}}), encoding="utf-8")
+    wrong = check_release(cand, base, geometric=good, base_geometric=base_geo, packed=appended, base_packed=wrong_live)
+    assert failed(wrong) == [src] and "9" * 64 in wrong["checks"][src]["detail"], "a base manifest of another index fails"
 
     plain = check_release(cand, base, geometric=good, base_geometric=base_geo)
     assert plain["ok"] and name not in plain["checks"], "without the flag P4 is unchanged"

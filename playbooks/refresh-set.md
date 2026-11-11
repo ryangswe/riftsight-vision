@@ -45,6 +45,10 @@ LIVE=...      # the live release's folder as you kept it: the previous update's 
               # first update the folder the store build's bundled release was built in. A copy
               # fetched from the host will not do: it has no accept.json
 LIVE_GEO=...  # geometric stage only: the live geometric settings, the previous update's $UPD/geo/geo.json
+LIVE_GEO_INDEX=...  # series only: the live index file (index.features.json) the live pack was made from
+LIVE_MANIFEST=...   # series only: the live series manifest (manifest-<16 hex>.json), its shards beside it
+SRC16=...     # series only: the first 16 hex of this update's index file's SHA-256 (recomputed per set)
+SERIES16=...  # series only: the series folder under vision/geo/, named once after the series' first index
 LIVE_BANK="$LIVE/bank.json"   # or "$LIVE/bank.bin" when the live release's bank is binary
 UPD=...       # this update's folder, outside the repository: a new one for every update
 IMAGES=...    # the card images folder; catalog art paths are relative to it
@@ -174,48 +178,50 @@ shasum -a 256 "$UPD/geo/packed/manifest.json"
   `build-features --base` may save time; it writes the same bytes.
 
 **3.1a A series, for a product that publishes its index as one** (users then download only a
-set's new shards). Paths below are the live series' manifest `LIVE_MANIFEST` (with its shards
-beside it) and its folder `SERIES16` under `vision/geo/`.
+set's new shards). This step only builds, checks and dry-runs. It publishes nothing: the real
+`publish-geo`, `verify-geo --series` and `publish-release` are in 6.4 and 6.5, after Gate R,
+Gate N, the eye check and the maintainer's go.
 
 ```
-# Once, to start the series (a full download for users, as any flat index is); SRC16 is the
-# first 16 hex of the index file's SHA-256, and SERIES16 = SRC16 for this first index:
+# After build-features (below, or step 3.1), for every set:
+SRC16=$(shasum -a 256 "$UPD/geo/index.features.json" | cut -c1-16)
+
+# Once, to start the series; SERIES16 is this first index's SRC16 and the folder must be empty:
 cardvision pack-features --index "$UPD/geo/index.features.json" --config "$UPD/geo/geo.json" \
     --out "$UPD/geo/packed" --content-names --manifest-name "manifest-$SRC16.json"
-cardvision cdn publish-geo --series --new-series --dir "$UPD/geo/packed" --folder "$SERIES16" \
-    --manifest "manifest-$SRC16.json" --expect-sha256 MANIFEST_SHA --dry-run
+SERIES16=$SRC16
+MANIFEST_SHA=$(shasum -a 256 "$UPD/geo/packed/manifest-$SRC16.json" | cut -d' ' -f1)
+cardvision cdn publish-geo --env-file "$ENV" --series --new-series --dir "$UPD/geo/packed" \
+    --folder "$SERIES16" --manifest "manifest-$SRC16.json" --expect-sha256 "$MANIFEST_SHA" --dry-run
 
-# Every later set: extend the live index, then the live pack, then check, then publish.
+# Every later set: extend the live index and pack, check, dry-run.
 cardvision build-features --base "$LIVE_GEO_INDEX" --config "$UPD/geo/geo.json" \
     --catalog "$UPD/cand/catalog.json" --art "$IMAGES" --bank "$UPD/cand/bank.json" \
     --out "$UPD/geo/index.features.json" --pin
+SRC16=$(shasum -a 256 "$UPD/geo/index.features.json" | cut -c1-16)
 cardvision pack-features --index "$UPD/geo/index.features.json" --config "$UPD/geo/geo.json" \
     --base "$LIVE_MANIFEST" --out "$UPD/geo/packed" --manifest-name "manifest-$SRC16.json"
+MANIFEST_SHA=$(shasum -a 256 "$UPD/geo/packed/manifest-$SRC16.json" | cut -d' ' -f1)
 cardvision refresh check "$UPD/cand/release.json" --base "$LIVE/release.json" \
     --geometric "$UPD/geo/geo.json" --base-geometric "$LIVE_GEO" \
     --packed "$UPD/geo/packed/manifest-$SRC16.json" --base-packed "$LIVE_MANIFEST"
-cardvision cdn publish-geo --series --dir "$UPD/geo/packed" --folder "$SERIES16" \
-    --manifest "manifest-$SRC16.json" --expect-sha256 MANIFEST_SHA --dry-run
+cardvision cdn publish-geo --env-file "$ENV" --series --dir "$UPD/geo/packed" --folder "$SERIES16" \
+    --manifest "manifest-$SRC16.json" --expect-sha256 "$MANIFEST_SHA" --dry-run
 ```
 
-Run `publish-geo` again without `--dry-run`, then `verify-geo --series` with the same options,
-then `publish-release --geometric` as in 6.5 (its `index.path` names the series manifest).
-
-- **Expect:** the check lists `P4 packed manifest extends the base's shards and cards` as true.
-  The dry run's last line gives the shard bytes to upload against the index's total; a set that
-  adds few cards uploads a small share. `publish-geo --series` uploads only the shards the folder
-  lacks, then the manifest, and never overwrites.
-- **Limits:** the first series is one full download (the browser's cache is keyed by address, so
-  a flat or bundled index cannot become a series). An appended pack keeps every earlier card as
-  it was, so a card whose image changed is refused by `build-features --base`: a set with
-  preview-to-final art swaps starts a new series (a new folder and `--new-series`).
-  `--new-series` is also what lets `publish-geo` write into a folder that is not empty and holds
-  none of the manifest's shards; without it that is refused as a likely mistyped folder.
+- **Expect:** the check's two series P4 lines (extends the base, packs the live index) are true.
+  The dry run's last line gives the shard bytes to upload against the index's total.
+- **Know:** `publish-geo --series` uploads only the shards the folder lacks, then the manifest,
+  and never overwrites. An append goes into the folder that holds the live shards (`SERIES16`
+  stays the same). A new series needs `--new-series` and a new, empty folder. The first series
+  is one full download (a flat or bundled index cannot become a series), and a card whose image
+  changed is refused by `build-features --base`, so a set with art swaps starts a new series.
 
 **3.2 The pointer's settings file.** Copy `$UPD/geo/geo.json` to `$UPD/geometric.json` and set
 its `index.path` to the manifest's address on the host,
 `https://cdn.example.org/vision/geo/<first 16 hex of the manifest's source.sha256>/manifest.json`.
-Leave `index.sha256` as `--pin` wrote it.
+Leave `index.sha256` as `--pin` wrote it. For a series, the address is
+`https://cdn.example.org/vision/geo/$SERIES16/manifest-$SRC16.json`.
 
 ## 4. Gate R: the replay
 

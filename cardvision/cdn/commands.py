@@ -76,7 +76,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--manifest", metavar="NAME",
                         help="--series: the manifest's file name in --dir (manifest-<16 hex>.json)")
     parser.add_argument("--new-series", action="store_true",
-                        help="publish-geo --series: allow a non-empty folder that holds none of the manifest's shards")
+                        help="publish-geo --series: start a new series; the folder must be empty (an append omits this and goes into "
+                             "the folder that holds its base's shards)")
     parser.add_argument("--fix-metadata", action="store_true",
                         help="publish-geo/publish-release: rewrite the metadata of objects already there with the right "
                              "bytes (bytes never change)")

@@ -239,16 +239,26 @@ def geo_layout_problem(s3, bucket: str, folder: str, flat: bool) -> Optional[str
 
 
 def _series_folder_problem(s3, bucket: str, folder: str, files: list[GeoFile], new_series: bool) -> None:
-    """Refuse a series folder that holds a flat index, or (without `new_series`) one that is not
-    empty and shares no shard with the manifest."""
+    """The series folder guard. A flat index is refused. A new series (`new_series`) needs an empty
+    folder: the browser's cache keeps everything under the loaded manifest's folder, so a second
+    series in an occupied folder would never free the first one's shards. Without it, the folder
+    must already hold at least one of the manifest's shards: an empty or unrelated folder is most
+    likely a mistyped one and would cost users a full download."""
     names = _folder_names(s3, bucket, folder)
-    flat = [n for n in names if n == "manifest.json" or GEO_SHARD.fullmatch(n)]
+    flat = [n for n in names if n == "manifest.json" or re.fullmatch(r"shard-[0-9]{1,15}\.bin", n)]
     if flat:
         raise Refused(f"{folder} holds a flat index ({flat[0]}); a series never goes into a flat folder")
+    if new_series:
+        if names:
+            raise Refused(f"{folder} is not empty; --new-series needs an empty folder (a new series always goes in a new folder)")
+        return
     shards = [f.name for f in files if f.content_type != "application/json"]
-    if names and not new_series and not any(n in names for n in shards):
-        raise Refused(f"{folder} is not empty and holds none of this manifest's shards: a mistyped --folder would cost "
-                      "a full download. Check the folder, or pass --new-series to start another series here")
+    if not names:
+        raise Refused(f"{folder} is empty: a new series needs --new-series and an empty folder; an append goes into the "
+                      "folder that holds its base's shards (check --folder)")
+    if not any(n in names for n in shards):
+        raise Refused(f"{folder} holds none of this manifest's shards: a mistyped --folder would cost a full download. "
+                      "An append shares at least one shard with its folder; a new series goes in a new, empty folder with --new-series")
 
 
 def _series_bytes_line(files: list[GeoFile], todo: list[GeoFile], dry_run: bool) -> str:
@@ -337,7 +347,7 @@ def publish_geo(s3, bucket: str, folder: str, files: list[GeoFile], dry_run: boo
             log(f"ok    {folder + f.name}")
     if bad:
         # A manifest is never live before every shard it names is there and right.
-        log(f"{bad} shard(s) failed; manifest.json NOT uploaded. Re-run to retry.")
+        log(f"{bad} shard(s) failed; {manifest[0].name} NOT uploaded. Re-run to retry.")
         return bad
     for f in manifest:
         problem = put(f)
