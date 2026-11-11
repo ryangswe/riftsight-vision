@@ -160,6 +160,20 @@ describe("FrameScheduler with a resting pointer", () => {
         expect(states(s, [POINTER_GRACE_MS - 1, POINTER_GRACE_MS])).toEqual(["fast", "idle"]);
       });
 
+      it("a reading hold that shows a card stops the looks of a resting pointer once the grace ends", () => {
+        const s = pointerScheduler(ep);
+        s.pointerMoved(0);
+        s.setTooltipShowing(true, POINTER_GRACE_MS - 1);
+        s.setReadingHoldShowing(true);
+        expect(states(s, [POINTER_GRACE_MS - 1, POINTER_GRACE_MS, POINTER_GRACE_MS + 60_000])).toEqual(["fast", "idle", "idle"]);
+        // Once it shows nothing (a seek ended it), the usual reading linger applies again.
+        s.setReadingHoldShowing(false);
+        expect(s.analysisState(POINTER_GRACE_MS)).toBe("reading");
+        s.pointerMoved(POINTER_GRACE_MS + 100);
+        s.setReadingHoldShowing(true);
+        expect(s.analysisState(POINTER_GRACE_MS + 200)).toBe("fast");
+      });
+
       it("resting on a showing tooltip continues at the slow cadence, never the fast one", () => {
         const s = pointerScheduler(ep);
         s.pointerMoved(0);

@@ -29,7 +29,9 @@
 //     showing, or was showing less than `READING_LINGER_MS` ago. Analysis continues at the slow
 //     cadence so that the tooltip keeps up with the picture. The linger lets it survive a short
 //     loss (one frame in which the card is not recognized); it never starts analysis for a
-//     pointer resting on nothing, and the pointer leaving ends it.
+//     pointer resting on nothing, and the pointer leaving ends it. While a reading hold shows a
+//     card (`setReadingHoldShowing(true)`) there is no such state: nothing a look finds would
+//     change what is shown until the pointer moves.
 //   - "idle": otherwise. Nothing is analyzed. Any pointer activity returns to "fast" at once.
 // "always-on" mode has no such states: the cadence alone decides.
 //
@@ -173,6 +175,7 @@ export class FrameScheduler {
   /** The last pointer activity: a move, press or tap over the picture, or the pointer leaving. */
   private lastPointerAt = -Infinity;
   private tooltipShowing = false;
+  private readingHoldShowing = false;
   /** The last time a showing tooltip was reported while the pointer was inside. */
   private lastTooltipAt = -Infinity;
   private lastHoverTriggerAt = -Infinity;
@@ -238,6 +241,14 @@ export class FrameScheduler {
 
   setReadingIntervalMs(ms: number): void {
     this.readingIntervalMs = ms;
+  }
+
+  /** A reading hold shows a card (true) or nothing (false, the default). While it does, a
+   *  resting pointer past the grace period is not analyzed: the hold keeps the card until the
+   *  pointer moves, so no look could change it. Report the card the hold shows here, and whether
+   *  the newest analysis sees a card at the pointer with `setTooltipShowing`. */
+  setReadingHoldShowing(showing: boolean): void {
+    this.readingHoldShowing = showing;
   }
 
   /** Is a tooltip showing at the resting pointer? Report it before each evaluation and after
@@ -407,7 +418,7 @@ export class FrameScheduler {
 
   private pointerState(now: number): "fast" | "reading" | "idle" {
     if (this.pointerActive(now)) return "fast";
-    if (!this.pointerInside) return "idle";
+    if (!this.pointerInside || this.readingHoldShowing) return "idle";
     return this.tooltipShowing || now - this.lastTooltipAt < READING_LINGER_MS ? "reading" : "idle";
   }
 
