@@ -54,6 +54,14 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
+  stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
+  can finish reading it after a player has moved the card. A card laid on its spot later does not
+  replace it, and a cut does not end it; an overlapping card that was already there, which the
+  pointer moves onto, does replace it. The pointer leaving the area or the picture, a seek or
+  a new source ends it. While it lasts, `shown` carries `held: true` once a recent analysis shows the card
+  gone, so a host can hide its outline. While the pointer rests past its grace period on a card it
+  shows, nothing is analyzed. Off unless a host passes it; `SHOWN_HOLD` is unchanged.
 - Browser: `FrameAnalysis.reused` (`true` on a reused analysis), the frame request's optional
   `reuseOf` and `Pipeline.reuse`.
 

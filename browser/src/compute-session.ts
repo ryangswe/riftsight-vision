@@ -24,6 +24,7 @@ export {
   SessionCore,
   type SessionCoreDeps,
   type SessionCoreOptions,
+  READING_HOLD,
   SHOWN_HOLD,
   type Shown,
   type ShownHold,

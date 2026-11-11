@@ -36,6 +36,10 @@ export interface ShownCard {
   rotation?: number;
   localWidth?: number;
   localHeight?: number;
+  /** Under a reading hold: true when a recent analysis shows the card gone from where it was last
+   *  seen. `box` is where it was; the card has moved or been covered, so the host should not draw
+   *  its outline. Absent while it is seen there, or while nothing recent can tell. */
+  held?: true;
 }
 
 /** The two-frame contract's version. A content script and a compute frame work together only
@@ -249,7 +253,7 @@ export function computeProtocol(tag = "cardvision"): ComputeProtocol {
         if (!(c && isText(c.cardId) && isText(c.name) && box)) return null;
         const others = Array.isArray(c.others) ? c.others.slice(0, MAX_OTHER_BOXES).map(parseBox).filter((b): b is FractionBox => b !== null) : [];
         const releaseId = typeof c.releaseId === "string" && RELEASE_ID.test(c.releaseId) ? c.releaseId : undefined;
-        return { kind: "shown", card: { cardId: c.cardId, name: c.name, ...(releaseId ? { releaseId } : {}), box, others, ...parseOutline(c) } };
+        return { kind: "shown", card: { cardId: c.cardId, name: c.name, ...(releaseId ? { releaseId } : {}), box, others, ...parseOutline(c), ...(c.held === true ? { held: true as const } : {}) } };
       }
       default:
         return null;
