@@ -16,6 +16,8 @@
 // bank SHA-256, and a row for every bank card). Any failure is a `GeometricIndexError`; the
 // caller turns the stage off. Nothing is loaded in part.
 
+import { readResponseBytes } from "../response-bytes.js";
+
 export const PACKED_KIND = "geometric-index-packed";
 export const PACKED_SCHEMA_VERSION = 1;
 export const DESCRIPTOR_BYTES = 32;
@@ -255,7 +257,7 @@ export async function loadPackedIndex(manifestUrl: string, opts: LoadOptions): P
   };
 
   let doc: unknown;
-  const manifestBytes = await (await get(manifestUrl, "manifest")).arrayBuffer().catch((error: unknown) => {
+  const manifestBytes = await readResponseBytes(await get(manifestUrl, "manifest")).catch((error: unknown) => {
     throw new GeometricIndexError("shard", `manifest: ${error instanceof Error ? error.message : String(error)}`);
   });
   if (opts.manifestSha256 !== undefined) {
@@ -281,11 +283,11 @@ export async function loadPackedIndex(manifestUrl: string, opts: LoadOptions): P
     const absolute = new URL(info.path, manifestBase).href;
     const cached = cache ? await cache.match(absolute).catch(() => undefined) : undefined;
     if (cached) {
-      const bytes = await cached.arrayBuffer();
+      const bytes = await readResponseBytes(cached);
       if ((await sha256Hex(bytes)) === info.sha256) return bytes;
       await cache?.delete(absolute).catch(() => false);
     }
-    const bytes = await (await get(absolute, info.path)).arrayBuffer();
+    const bytes = await readResponseBytes(await get(absolute, info.path));
     const actual = await sha256Hex(bytes);
     if (actual !== info.sha256) throw new GeometricIndexError("hash", `${info.path}: SHA-256 ${actual.slice(0, 16)} is not the manifest's ${info.sha256.slice(0, 16)}`);
     await cache?.put(absolute, new Response(bytes.slice(0))).catch(() => undefined);

@@ -234,4 +234,23 @@ describe("loadRemoteRelease", () => {
     routes[`${BASE}vision/releases/${ID}/identity-groups.json`] = (_, n) => new Response(n === 1 ? enc('{"g":9}') : NEW["identity-groups.json"]);
     expect(await loadRemoteRelease(pointer, deps(server(routes).fetch))).toMatchObject({ ok: true });
   });
+
+  it("reads a response with no body stream through blob() when it has one, and arrayBuffer() when not", async () => {
+    for (const withBlob of [true, false]) {
+      const calls = { blob: 0, arrayBuffer: 0 };
+      const routes = defaultRoutes();
+      for (const [name, b] of Object.entries(REMOTE)) {
+        routes[`${BASE}vision/releases/${ID}/${name}`] = () => {
+          const fake: Record<string, unknown> = { ok: true, status: 200, body: null, arrayBuffer: async () => (calls.arrayBuffer++, new Uint8Array(b).buffer) };
+          if (withBlob) fake.blob = async () => (calls.blob++, new Blob([b as unknown as BlobPart]));
+          return fake as unknown as Response;
+        };
+      }
+      const r = await loadRemoteRelease(pointer, deps(server(routes).fetch));
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(await r.catalog.text()).toBe(new TextDecoder().decode(NEW["catalog.json"]));
+      expect(calls).toEqual(withBlob ? { blob: 3, arrayBuffer: 0 } : { blob: 0, arrayBuffer: 3 });
+    }
+  });
 });

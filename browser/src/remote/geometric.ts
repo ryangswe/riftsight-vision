@@ -18,6 +18,7 @@
 // page would download it again (about 45 MB).
 
 import type { LoadRequest } from "./choose.js";
+import { readResponseBytes } from "../response-bytes.js";
 
 export interface GeometricPointer {
   path: string;
@@ -84,7 +85,7 @@ export async function checkRemoteGeometric(field: GeometricField, stageOn: boole
   try {
     const response = await deps.fetch(url, { ...FETCH_OPTIONS, signal: controller.signal });
     if (!response.ok) return { ok: false, reason: "geo-unreachable" };
-    bytes = await response.arrayBuffer();
+    bytes = await readResponseBytes(response);
   } catch {
     return { ok: false, reason: "geo-unreachable" };
   } finally {

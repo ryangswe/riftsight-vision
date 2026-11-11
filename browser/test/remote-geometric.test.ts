@@ -155,3 +155,25 @@ describe("which bundled request a page uses", () => {
     expect(fallbackRequest(bundled, pointer(BUNDLED_PIN))).toBe(bundled);
   });
 });
+
+describe("checkRemoteGeometric reads the settings file through blob() when the response has one", () => {
+  it("passes the same checks on both paths, and the readers differ", async () => {
+    const { bytes, field } = fixture("https://cdn.example.test/vision/geo/fedcba9876543210/manifest.json");
+    for (const withBlob of [true, false]) {
+      const calls = { blob: 0, arrayBuffer: 0 };
+      const fetchFn = (async () => {
+        const fake: Record<string, unknown> = { ok: true, status: 200, arrayBuffer: async () => (calls.arrayBuffer++, bytes.slice().buffer) };
+        if (withBlob) fake.blob = async () => (calls.blob++, new Blob([bytes as unknown as BlobPart]));
+        return fake as unknown as Response;
+      }) as typeof fetch;
+      expect(await check(field, fetchFn)).toMatchObject({ ok: true });
+      expect(calls).toEqual(withBlob ? { blob: 1, arrayBuffer: 0 } : { blob: 0, arrayBuffer: 1 });
+    }
+  });
+
+  it("still refuses wrong bytes on the blob() path", async () => {
+    const { field } = fixture("https://cdn.example.test/vision/geo/fedcba9876543210/manifest.json");
+    const fetchFn = (async () => ({ ok: true, status: 200, blob: async () => new Blob(["{}"]) })) as unknown as typeof fetch;
+    expect(await check(field, fetchFn)).toEqual({ ok: false, reason: "geo-sha" });
+  });
+});

@@ -42,6 +42,10 @@ break the public surface; this file names each break and how to migrate.
   picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at
   once; the pointer leaving the picture does not. Nothing changes outside pointer mode or while a
   card shows.
+- The browser runtime reads release, manifest and shard bytes through `blob().arrayBuffer()` when
+  the response has `blob()`, because in Chrome `Response.arrayBuffer()` in a worker leaves about 1.5
+  times the file size resident after garbage collection (about 27 MB on a mid-size release) and
+  `blob().arrayBuffer()` leaves nothing; the bytes and their size and SHA-256 checks are unchanged.
 
 ### Added
 
