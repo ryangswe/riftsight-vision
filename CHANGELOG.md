@@ -11,6 +11,11 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- A push to `main` that raises the version now tags it, publishes the GitHub release with the
+  changelog section as its notes (a release candidate as a pre-release) and starts the Publish
+  workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,
+  when the section is missing, the version is on the package index or the index cannot be asked,
+  or a higher version is already tagged. `RELEASING.md` has the steps that remain.
 - `cardvision cdn publish-geo --series` and `verify-geo --series` (with `--folder`, `--manifest`
   and `--new-series`) publish a geometric index as a series: only the content-named shards the
   folder lacks are uploaded, then the manifest, and nothing is overwritten, so a returning user
@@ -29,9 +34,10 @@ break the public surface; this file names each break and how to migrate.
   entry whether it cleared the refresh gate (an optional `refreshGate` key; `schemaVersion` stays
   1), and the pointer move reads that record. The record is written before the release's files,
   so an upload that stops part-way still counts as uncleared, and an upload whose release index
-  cannot be written stops before any file is uploaded. Releases from before this change, and an unreadable
-  index, pass with a note or a warning, so a rollback is still one command. Verdict options given
-  to `publish-release` without `--config` are now read and recorded; before, they were ignored.
+  cannot be written stops before any file is uploaded. Releases from before this change, and an
+  unreadable index, pass with a note or a warning, so a rollback is still one command. Verdict
+  options given to `publish-release` without `--config` are now read and recorded; before, they
+  were ignored.
 
 ### Fixed
 
