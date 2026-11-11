@@ -574,3 +574,54 @@ describe("building the pipeline a release describes", () => {
     expect(none).toHaveLength(1);
   });
 });
+
+describe("release bytes read through blob() when the response has one", () => {
+  /** The test deps, with each response's reader counted and `blob()` present or not. */
+  function counted(files: Files, withBlob: boolean) {
+    const calls = { blob: 0, arrayBuffer: 0 };
+    const base = deps(files);
+    const fetchFn: ReleaseDeps["fetchFn"] = async (url) => {
+      const response = await base.fetchFn(url);
+      const out: Awaited<ReturnType<ReleaseDeps["fetchFn"]>> = {
+        ok: response.ok,
+        status: response.status,
+        arrayBuffer: async () => (calls.arrayBuffer++, response.arrayBuffer()),
+      };
+      if (withBlob) out.blob = async () => (calls.blob++, new Blob([await response.arrayBuffer()]));
+      return out;
+    };
+    return { deps: { ...base, fetchFn }, calls };
+  }
+
+  it("loads the same bytes with and without blob(), and the paths differ by reader", async () => {
+    const files = await toyRelease();
+    const plain = counted(files, false);
+    const blobbed = counted(files, true);
+    const a = await loadReleaseData(RELEASE_URL, plain.deps);
+    const b = await loadReleaseData(RELEASE_URL, blobbed.deps);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    expect(JSON.stringify(b)).toBe(JSON.stringify(a));
+    expect(plain.calls.blob).toBe(0);
+    expect(plain.calls.arrayBuffer).toBeGreaterThan(0);
+    expect(blobbed.calls.arrayBuffer).toBe(0);
+    expect(blobbed.calls.blob).toBe(plain.calls.arrayBuffer);
+  });
+
+  it("still refuses a checksum mismatch and a wrong size on the blob() path", async () => {
+    const files = await toyRelease();
+    const tampered = new Uint8Array(files.get("detector.onnx")!);
+    tampered[0] = tampered[0]! ^ 0xff;
+    files.set("detector.onnx", tampered);
+    const mismatch = await loadReleaseData(RELEASE_URL, counted(files, true).deps);
+    expect(mismatch.ok).toBe(false);
+    expect(mismatch.ok ? "" : mismatch.reason).toContain("sha256 of detector.onnx does not match");
+
+    const longer = await toyRelease();
+    longer.set("detector.onnx", new Uint8Array([...longer.get("detector.onnx")!, 1]));
+    const sized = counted(longer, true);
+    const result = await loadReleaseData(RELEASE_URL, sized.deps);
+    expect(result.ok ? "" : result.reason).toMatch(/detector\.onnx is \d+ bytes, the release says \d+/);
+    expect(sized.calls.blob).toBeGreaterThan(0);
+  });
+});

@@ -9,6 +9,10 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Changed
+
+- The browser runtime reads release, manifest and shard bytes through `blob().arrayBuffer()` when the response has `blob()`, because in Chrome `Response.arrayBuffer()` in a worker leaves about 1.5 times the file size resident after garbage collection (about 27 MB on a mid-size release) and `blob().arrayBuffer()` leaves nothing; the bytes and their size and SHA-256 checks are unchanged.
+
 ## [0.12.0] - 2026-11-11
 
 The browser runtime can verify only the cards at the pointer, which cuts the geometric stage's

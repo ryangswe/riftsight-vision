@@ -18,6 +18,7 @@
 
 import { BANK_BINARY_VERSION, binaryBankVersion, type EmbeddingBank, isBinaryBank, parseBank, parseBankBinary } from "./bank.js";
 import { FACE_CLASS } from "./detector/decode.js";
+import { readResponseBytes } from "./response-bytes.js";
 import type { DetectorSettings, FrameDetector } from "./detector/detector.js";
 import type { BatchEmbedder, EmbedderSettings } from "./embedder.js";
 import { type HoverSelection, isHoverSelection } from "./hover-layer.js";
@@ -355,7 +356,7 @@ export async function releaseIdOf(text: string, digestSha256Hex: (bytes: ArrayBu
 
 /** How bytes are fetched and hashed. The defaults are `fetch` and the Web Crypto API. */
 export interface ReleaseDeps {
-  fetchFn: (url: string) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
+  fetchFn: (url: string) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer>; blob?(): Promise<Blob> }>;
   digestSha256Hex: (bytes: ArrayBuffer) => Promise<string>;
 }
 
@@ -435,7 +436,7 @@ async function fetchBytes(deps: ReleaseDeps, url: string, label: string): Promis
     throw new ReleaseFailure(`${label}: fetch failed (${String(error)})`);
   }
   if (!response.ok) throw new ReleaseFailure(`${label}: HTTP ${response.status}`);
-  return response.arrayBuffer();
+  return readResponseBytes(response);
 }
 
 async function fetchPinned(deps: ReleaseDeps, base: string, ref: PinnedFile, label: string): Promise<ArrayBuffer> {

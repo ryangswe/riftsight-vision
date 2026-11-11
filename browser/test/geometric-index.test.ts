@@ -369,3 +369,60 @@ describe("an index with cards added (pack-features --base)", () => {
     expect([...entries.keys()].sort()).toEqual(added.manifest.shards.map((entry: { path: string }) => `${FOLDER}${entry.path}`).sort());
   });
 });
+
+describe("loadPackedIndex reads through blob() when the response has one", () => {
+  /** A response whose readers are counted; `withBlob: false` hides blob() like a bare fake. */
+  function counting(response: Response, calls: { blob: number; arrayBuffer: number }, withBlob: boolean): Response {
+    const fake: Record<string, unknown> = {
+      ok: response.ok,
+      status: response.status,
+      arrayBuffer: async () => (calls.arrayBuffer++, response.arrayBuffer()),
+    };
+    if (withBlob) fake.blob = async () => (calls.blob++, response.blob());
+    return fake as unknown as Response;
+  }
+
+  it("gives the same index with and without blob(), and the readers differ", async () => {
+    const results: PackedIndex[] = [];
+    const seen: Array<{ blob: number; arrayBuffer: number }> = [];
+    for (const withBlob of [true, false]) {
+      const calls = { blob: 0, arrayBuffer: 0 };
+      const inner = serve().fetchFn;
+      const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => counting(await inner(input, init), calls, withBlob)) as typeof fetch;
+      results.push(await loadPackedIndex(MANIFEST_URL, options(fetchFn)));
+      seen.push(calls);
+    }
+    expect(hex(results[0]!.desc)).toBe(hex(results[1]!.desc));
+    expect(seen[0]).toEqual({ blob: 9, arrayBuffer: 0 });
+    expect(seen[1]).toEqual({ blob: 0, arrayBuffer: 9 });
+  });
+
+  it("still refuses a shard whose hash is wrong, and a manifest of the wrong pin, on the blob() path", async () => {
+    const calls = { blob: 0, arrayBuffer: 0 };
+    const wrong = new Uint8Array(shardFile(2));
+    wrong[0] = wrong[0]! ^ 1;
+    const server = serve({ [`${BASE}shard-2.bin`]: () => new Response(wrong) });
+    const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => counting(await server.fetchFn(input, init), calls, true)) as typeof fetch;
+    expect(await rejectionCode(() => loadPackedIndex(MANIFEST_URL, options(fetchFn)))).toBe("hash");
+    expect(await rejectionCode(() => loadPackedIndex(MANIFEST_URL, { ...options(fetchFn), manifestSha256: "e".repeat(64) }))).toBe("manifest-sha");
+    expect(calls.blob).toBeGreaterThan(0);
+    expect(calls.arrayBuffer).toBe(0);
+  });
+
+  it("reads a Cache Storage-style cached response, and refetches one that no longer hashes", async () => {
+    const calls = { blob: 0, arrayBuffer: 0 };
+    const { storage } = memoryCaches();
+    await loadPackedIndex(MANIFEST_URL, options(serve().fetchFn, storage));
+    const cache = await storage.open(INDEX_CACHE_NAME);
+    const realMatch = cache.match.bind(cache);
+    cache.match = (async (url: RequestInfo | URL) => {
+      const hit = await realMatch(url);
+      return hit && counting(hit, calls, true);
+    }) as typeof cache.match;
+    const second = serve();
+    const index = await loadPackedIndex(MANIFEST_URL, options(second.fetchFn, storage));
+    expect(index.rows).toBe(section.rows);
+    expect(calls).toEqual({ blob: 8, arrayBuffer: 0 });
+    expect(second.log.filter((url) => url.endsWith(".bin"))).toEqual([]);
+  });
+});

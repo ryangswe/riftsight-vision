@@ -15,6 +15,7 @@
 // Network failures are never recorded: the next page tries again.
 
 import type { ReleasePointer } from "./pointer.js";
+import { readResponseBytes } from "../response-bytes.js";
 
 /** A pinned file's name: no folder, no `..`, nothing but letters, digits, `.`, `_` and `-`. */
 export const FLAT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -90,7 +91,7 @@ export function pinnedFiles(doc: unknown): PinnedFile[] | null {
  */
 async function readBody(response: Response, controller: AbortController, stallMs: number | null, maxBytes: number): Promise<ArrayBuffer> {
   if (!response.body) {
-    const all = await response.arrayBuffer();
+    const all = await readResponseBytes(response);
     return all.byteLength > maxBytes ? all.slice(0, maxBytes + 1) : all;
   }
   const reader = response.body.getReader();
