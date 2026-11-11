@@ -13,11 +13,11 @@ break the public surface; this file names each break and how to migrate.
 
 - Browser: in focus scope, the repeats of a look on a picture that is really still run scope
   "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
-  still when no frame has been presented since the look and its last frame is at least a second
-  old, or came at least a second after the one before. After that repeat, a move to another card
-  is named at once with no new look; a move to a card not yet verified waits for the repeat in
-  flight (nothing shows there meanwhile) and queues no extra look. Playing video, scope "all" and
-  a session with no stage are unchanged.
+  still when no frame has been presented since the look and its last frame was the first after a
+  seek or a new source, is at least a second old, or came at least a second after the one before.
+  After that repeat, a move to another card is named at once with no new look; a move to a card
+  not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
+  extra look. Playing video, scope "all" and a session with no stage are unchanged.
 
 ### Fixed
 
