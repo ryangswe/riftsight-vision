@@ -425,3 +425,45 @@ describe("the first hover with the load included", () => {
     expect(core.loadSummary([])).toEqual({ loads: 0, rawMs: null, emulatedMs: null, heldMs: null, appliedFactor: null });
   });
 });
+
+describe("the answering analysis, hold and the shown timeline", () => {
+  const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
+
+  it("records the analysis before a rest's record is read: on update and when the rest finishes", () => {
+    expect(source).toContain("onUpdate: () => { if (session) record(); }");
+    expect(source).toMatch(/function finish\(\) \{[\s\S]*?if \(session\) record\(\);[\s\S]*?rest\.resolve\(/);
+    expect(source).toContain("setInterval(record, 20)");
+  });
+
+  it("holds for holdMs after the answer, scores what was read up to it, and reports the timeline", () => {
+    expect(source).toMatch(/rest\.answeredAt = t;\s*rest\.scored = rest\.readings\.slice\(\);/);
+    expect(source).toContain("t >= rest.answeredAt + rest.holdMs");
+    expect(source).toContain("window.harness.begin(expect, ms, hold), rest.expect, limit, rest.holdMs ?? 0");
+    expect(source).toContain("shown: measured.timeline");
+  });
+
+  it("accepts holdMs as a number of ms and refuses another value", () => {
+    const rest = { x: 0.1, y: 0.2, expect: "TOY-001" };
+    expect(core.restScriptProblem({ rests: [{ ...rest, holdMs: 1500 }] })).toBeNull();
+    expect(core.restScriptProblem({ rests: [{ ...rest, holdMs: "long" }] })).toMatch(/`holdMs` must be a number of ms/);
+  });
+
+  it("the README documents holdMs, shown and the analyses record", () => {
+    const readme = readFileSync(fileOf("README.md"), "utf-8");
+    for (const word of ["`holdMs`", "`shown`", "`analyses`"]) expect(readme).toContain(word);
+  });
+});
+
+describe("moveAfterMs", () => {
+  it("accepts a whole number of ms, 0 or more, and refuses the rest", () => {
+    const rest = { x: 0.1, y: 0.2, expect: "TOY-001" };
+    for (const ok of [0, 100]) expect(core.restScriptProblem({ rests: [{ ...rest, moveAfterMs: ok }] })).toBeNull();
+    for (const bad of [-1, 1.5, "100"]) expect(core.restScriptProblem({ rests: [{ ...rest, moveAfterMs: bad }] })).toMatch(/`moveAfterMs` must be a whole number/);
+  });
+
+  it("is wired in after the seek and before the move, which is where the wait counts from", () => {
+    const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
+    expect(source).toMatch(/window\.harness\.seek\(sec\), rest\.atSec\)[\s\S]*?setTimeout\(done, rest\.moveAfterMs\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
+    expect(readFileSync(fileOf("README.md"), "utf-8")).toContain("`moveAfterMs`");
+  });
+});

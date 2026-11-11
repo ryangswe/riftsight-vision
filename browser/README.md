@@ -1195,6 +1195,18 @@ the rest meets a new picture. The local server answers range requests, so a seek
 what the browser has buffered. The clip plays on from there, so keep each picture on screen for
 longer than the rest's wait limit.
 
+`holdMs` keeps a rest reading that long after the answer (default 0, which ends the rest at the
+answer): what is scored is fixed at the answer, and the timeline shows whether the shown card
+changes afterwards, for example when a repeat's result arrives. Each rest line has `shown`, the
+timeline: every change of the card the session names at the pointer, as `{ atMs, cardId }` from the
+pointer coming to rest (`cardId` null for nothing). With a stage, `analyses` lists the analyses
+that finished during the rest. The analysis that produced the answer is included: the harness
+records an analysis when the session reports it and when the rest ends, not only on a timer.
+
+`moveAfterMs` (a whole number of ms, default 0) waits that long after the seek before the pointer
+moves; meanwhile the pointer stays where the previous rest left it. The rest's wait still counts
+from the move, so "seek, then move about 100 ms later" is `"atSec": 12, "moveAfterMs": 100`.
+
 `"pause": true` pauses the clip before the rest's `atSec` seek (so the picture is exactly that
 time) and before the pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
 card does. A later rest without `pause` plays the clip on. Each line of the report has `paused`
@@ -1541,7 +1553,17 @@ another mode, because the pointer is what says which faces to verify.
   looks at the picture again with the pointer there, at most once per
   `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight, and the look gets the
   repeats a newly presented picture gets. It marks nothing stale and clears nothing shown, and it
-  stops once the face is verified. It waits for the picture's repeats and any retry to finish,
+  stops once the face is verified. The repeats of a look on a
+  picture that is still run scope `"all"`. A picture counts as still when the repeat's captured
+  picture has the same video time (within a millisecond) as the previous analyzed look's, in the
+  same seek generation and source: the video's clock stood still (paused, frozen, stalled, ended,
+  an image). When the pointer has moved to a card the newest result did not verify (a seek's look is asked for with the old pointer), that repeat is a focus look at the pointer and the full pass follows on the next. The presented events a seek reports two or three times play no part, and a video
+  whose time moves between the looks keeps the focus on its repeats. No
+  `focus` is sent and every face the stage applies to is verified, so after the first repeat a
+  move to another card is named at once from the result on screen, with no new look. A move to a
+  not yet verified card while that repeat is in flight shows nothing until it answers (about a
+  second on the measured clips), and queues no extra look. A playing video has no such repeats and
+  is unchanged. It waits for the picture's repeats and any retry to finish,
   never follows a refused capture, and stops after the pointer's 10 s grace period. With the option off nothing changes.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.

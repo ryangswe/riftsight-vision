@@ -26,6 +26,7 @@ import type { Analyzer } from "../score/video.js";
 import { ACCEPTED_NMS_IOU, focusGroup } from "../src/recognition.js";
 import { FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import { SessionCore, SHOWN_HOLD } from "../src/session-core.js";
+import { watchVideo } from "../src/video-events.js";
 import { CONFIRM_FRAMES } from "../src/temporal-gate.js";
 import { createSession } from "../src/session.js";
 import { createWorkerSession, type WorkerLike } from "../src/worker-session.js";
@@ -704,12 +705,13 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
     const answer = (): boolean => {
       const id = captured;
       if (answered >= id) return false;
-      core.frame(id, bitmap, 1);
+      core.frame(id, bitmap, 1 + id * 0.01); // a clock that creeps: its repeats are not of an unchanged picture
       const request = sent.at(-1)!;
       const f = request.focus;
       if (options?.geometricScope === "focus" && f && !neverVerify) {
         for (const [card, x] of [["B", 600], ["C", 350]] as const) if (f.x >= x && f.x <= x + 200 && !verified.includes(card)) verified = [...verified, card];
       }
+      if (!f && !neverVerify) verified = ["B", "C"]; // a look with no focus verifies every face, as the pipeline does
       core.fromWorker({ kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysisOf(verified) });
       answered = id;
       return true;
@@ -724,7 +726,13 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
   /** The picture is paused: presented once, then analyzed with its repeats, with the pointer on A. */
   function paused(options: ConstructorParameters<typeof SessionCore>[1]) {
     const t = setup(options);
-    t.core.presented(1);
+    // The video was playing and is paused on its last frame: the repeats come within a second of
+    // frames that were presented close together, so they keep the focus (a picture that is
+    // still from the seek on gets full repeats instead, and has no unverified face to look for).
+    for (let i = 0; i < 3; i++) {
+      t.core.presented(1);
+      t.step(30);
+    }
     t.core.pointer(0.2, 0.5, 1); // on A
     for (let i = 0; i < 12; i++) {
       t.answer();
@@ -859,8 +867,13 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
     t.core.pointer(0.7, 0.5, 1); // B: the re-look, then its repeats
     t.answer();
     const begun = t.captured();
+    // A picture that has been still for a second gets full repeats, which leave nothing for this
+    // path to look for. This stands in for repeats that did not verify C (a stage that ran out of
+    // time on them, say): the re-look remains the safety net.
+    t.neverVerify(true);
     // Run to the last repeat and leave it in flight.
-    while (t.captured() < begun + CONFIRM_FRAMES - 1) {
+    for (let spins = 0; t.captured() < begun + CONFIRM_FRAMES - 1; spins++) {
+      if (spins > 200) throw new Error(`the repeats did not run: ${t.captured() - begun} of ${CONFIRM_FRAMES - 1} after 200 steps`);
       t.step(50);
       if (t.captured() < begun + CONFIRM_FRAMES - 1) t.answer();
     }
@@ -868,11 +881,12 @@ describe("row 8: a card reached on a paused picture is looked at again", () => {
     expect(t.captured()).toBe(begun + CONFIRM_FRAMES - 1);
     t.answer(); // the repeat (which asked with the pointer on B) comes back; C is not verified
     expect(t.core.hitAt(0.45, 0.5)?.cardId ?? null).toBeNull();
+    t.neverVerify(false);
     for (let i = 0; i < 20; i++) {
       t.step(50); // the pointer rests: only tick can look again
       t.answer();
     }
-    expect(t.sent.at(-1)!.focus).toEqual({ x: 450, y: 250 });
+    expect(t.sent.filter((r) => r.focus).at(-1)!.focus).toEqual({ x: 450, y: 250 }); // the re-look; repeats send no focus
     expect(t.core.hitAt(0.45, 0.5)?.cardId).toBe("C");
   });
 
@@ -992,8 +1006,9 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
   const PY = 100 / 450;
 
   /** The real Pipeline behind a SessionCore, frame by frame, with the clock stepped by hand. */
-  function live(boxes: Candidate[], cards: Array<{ box: Candidate; red: number }>, options: ConstructorParameters<typeof SessionCore>[1], stage: GeometricStage = fakeStage()) {
+  function live(boxes: Candidate[], cards: Array<{ box: Candidate; red: number }>, options: ConstructorParameters<typeof SessionCore>[1], stage: GeometricStage = fakeStage(), mediaOf?: () => number) {
     const frame = scene(cards);
+    let mediaSec = 1;
     const pipeline = pipelineOf(boxes, stage);
     let now = 1_000;
     const sent: Array<Extract<WorkerRequest, { kind: "frame" }>> = [];
@@ -1011,7 +1026,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
             ),
           );
         },
-        capture: (id) => core.frame(id, { width: 800, height: 450, close() {} } as unknown as ImageBitmap, 1),
+        capture: (id) => core.frame(id, { width: 800, height: 450, close() {} } as unknown as ImageBitmap, mediaOf ? mediaOf() : mediaSec),
       },
       options,
     );
@@ -1027,7 +1042,11 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
         await flush();
       }
     };
-    return { core, sent, flush, settle, clock: () => now };
+    const step = (ms: number): void => {
+      now += ms;
+      core.tick();
+    };
+    return { core, sent, flush, settle, step, clock: () => now, setMedia: (sec: number) => { mediaSec = sec; } };
   }
 
   // X at 20..120 and Y at 80..180: offset 60 % of a width, IoU 0.25, not one group.
@@ -1039,15 +1058,14 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     const t = live(fanBoxes, fan, { geometricScope: "focus" });
     t.core.presented(1);
     t.core.pointer(PX(40), PY, 1); // on X only
-    await t.flush();
-    await t.settle();
+    await t.flush(); // the focus look only: a still picture's repeats now check every card
     expect(t.core.fresh()?.cardId).toBe("B"); // X, verified with the pointer there
     expect(t.sent.at(-1)!.focus).toEqual({ x: 40, y: 100 });
     t.core.pointer(PX(strip), PY, 1); // into the strip
     expect(t.core.fresh()?.cardId ?? null).not.toBe("B"); // never X
     expect(t.core.hitAt(PX(strip), PY)).toBeNull();
     await t.flush();
-    await t.settle();
+    await t.settle(); // the next look is the full repeat, which verifies every card
     const allPipeline = pipelineOf(fanBoxes, fakeStage());
     const all = await allPipeline.analyze(scene(fan), 0);
     expect(t.core.fresh()?.cardId ?? null).toBe(hoverAt(all, strip, 100).cardId ?? null);
@@ -1058,14 +1076,13 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     const t = live(fanBoxes, fan, { geometricScope: "focus", hold: SHOWN_HOLD });
     t.core.presented(1);
     t.core.pointer(PX(40), PY, 1);
-    await t.flush();
-    await t.settle();
+    await t.flush(); // the focus look only: a still picture's repeats now check every card
     expect(t.core.shown()?.cardId).toBe("B");
     t.core.pointer(PX(strip), PY, 1);
     expect(t.core.shown()).toBeNull(); // not the held X
     expect(t.core.shown()).toBeNull();
     await t.flush();
-    await t.settle();
+    await t.settle(); // the next look is the full repeat, which verifies every card
     expect(t.core.shown()?.cardId).toBe("C");
   });
 
@@ -1076,21 +1093,20 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     const t = live(boxes, cards, { geometricScope: "focus" });
     t.core.presented(1);
     t.core.pointer(PX(550), PY, 1); // the result is taken with the pointer on Z
-    await t.flush();
-    await t.settle(600);
+    await t.flush(); // the focus look only: a still picture's repeats now check every card
     const named = (c: SessionCore) => c.hitAt(PX(30), PY)?.cardId ?? null;
     const all = await pipelineOf(boxes, fakeStage()).analyze(scene(cards), 0);
     expect(hoverAt(all, 30, 100).cardId ?? null).toBeNull(); // "all": the boosted neighbour suppresses X
     t.core.pointer(PX(30), PY, 1); // onto X alone, which Y overlaps
     expect(named(t.core)).toBeNull();
     await t.flush();
-    await t.settle();
+    await t.settle(); // the next look is the full repeat, which verifies every card
     expect(named(t.core)).toBe(hoverAt(all, 30, 100).cardId ?? null);
     // Not blocked for good: the group's faces were verified by the re-look, and the card Y
     // named is the one "all" names where it is not suppressed.
     const faces = t.core.analysis()!.boxes.map((b) => b.face!);
     expect([faces[0]!.unverified, faces[1]!.unverified]).toEqual([undefined, undefined]);
-    expect(faces[2]!.unverified).toBe(true);
+    expect(faces[2]!.unverified).toBeUndefined(); // the full repeat verified the far card too
     expect(t.core.hitAt(PX(150), PY)?.cardId ?? null).toBe(hoverAt(all, 150, 100).cardId ?? null);
     expect(t.core.hitAt(PX(150), PY)?.cardId).toBe("D");
   });
@@ -1112,8 +1128,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     const t = live(cards.map((c) => c.box), cards, options, stage as GeometricStage);
     t.core.presented(1);
     t.core.pointer(PX(px), PY, 1);
-    await t.flush();
-    await t.settle();
+    await t.flush(); // the focus look only: a still picture's repeats now check every card
     const shown = t.core.fresh();
     return { shown, others: shown?.others.map((b) => JSON.stringify(b)) ?? [] };
   }
@@ -1179,8 +1194,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
       const t = live(boxes, cards, options);
       t.core.presented(1);
       t.core.pointer(PX(40), PY, 1);
-      await t.flush();
-      await t.settle();
+      await t.flush(); // the focus look only: a still picture's repeats now check every card
       const shown = t.core.fresh()!;
       expect(shown.cardId).toBe("B");
       return shown.others.map((b) => JSON.stringify(b)).sort();
@@ -1188,5 +1202,278 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     const all = await others({});
     expect(all).toHaveLength(2);
     expect(await others({ geometricScope: "focus" })).toEqual(all);
+  });
+
+  // ------------------------------------------------ the repeats of a still picture check every card
+  const three = [{ box: box(20, 20), red: 100 }, { box: box(300, 20), red: 110 }, { box: box(560, 20), red: 120 }];
+  const threeBoxes = three.map((c) => c.box);
+  const cardAt = (core: SessionCore, x: number) => core.fresh() && core.hitAt(PX(x), PY)?.cardId;
+
+  it("repeats: the look on a still picture runs focus, its repeats run scope all", async () => {
+    const stage = fakeStage();
+    const t = live(threeBoxes, three, { geometricScope: "focus" }, stage);
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(stage.crops).toHaveLength(1); // the look: the card at the pointer
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus", focus: { x: 40, y: 100 } });
+    await t.settle();
+    const repeats = t.sent.slice(1);
+    expect(repeats.length).toBeGreaterThanOrEqual(2);
+    for (const r of repeats) {
+      expect("focus" in r).toBe(false);
+      expect("geometricScope" in r).toBe(false);
+    }
+    expect(stage.crops).toHaveLength(1 + 3 * repeats.length); // every applicable face, per repeat
+    // The answers at every face equal an all session's on the same picture.
+    const all = live(threeBoxes, three, {}, fakeStage());
+    all.core.presented(1);
+    all.core.pointer(PX(40), PY, 1);
+    await all.flush();
+    await all.settle();
+    for (const x of [40, 340, 600]) expect(cardAt(t.core, x), `x ${x}`).toBe(cardAt(all.core, x));
+    expect(cardAt(t.core, 340)).toBe("C");
+  });
+
+  it("repeats: after the full repeat, a move to another card is named at once with no new look", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    await t.settle();
+    t.step(1_000);
+    const looks = t.sent.length;
+    t.core.pointer(PX(340), PY, 1);
+    expect(t.core.fresh()?.cardId).toBe("C");
+    t.core.pointer(PX(600), PY, 1);
+    expect(t.core.fresh()?.cardId).toBe("D");
+    await t.flush();
+    t.step(1_000);
+    expect(t.sent.length).toBe(looks);
+  });
+
+  it("repeats: a move to an unverified card during the full repeat shows nothing until it answers, and queues no extra look", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    t.step(260); // the first repeat is asked for and left in flight
+    const looks = t.sent.length;
+    expect(looks).toBe(2);
+    expect("focus" in t.sent[1]!).toBe(false);
+    t.core.pointer(PX(340), PY, 1); // Y, unverified in the result on screen
+    expect(t.core.fresh()).toBeNull();
+    expect(t.sent.length).toBe(looks); // nothing added behind the repeat
+    await t.flush(); // the repeat answers
+    expect(t.core.fresh()?.cardId).toBe("C");
+    await t.settle();
+    expect(t.sent.length).toBe(3); // only the second repeat followed: no re-look was queued
+  });
+
+  it("a paused picture still gets the full repeat", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    await t.settle();
+    expect(t.sent.slice(1).every((r) => r.focus === undefined && r.geometricScope === undefined)).toBe(true);
+    expect(t.sent.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("a first focus look at an accepted card gives all's answer wherever it is read, before any repeat", async () => {
+    // X is accepted (the stage does not apply to it); Y overlaps it by IoU 0.43 and is boosted
+    // once verified, which suppresses X in "all". The pointer is on X, so the look verifies Y.
+    const cards = [{ box: box(20, 20), red: 250 }, { box: box(60, 20), red: 120 }, { box: box(500, 20), red: 100 }];
+    const boxes = cards.map((c) => c.box);
+    const t = live(boxes, cards, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(30), PY, 1);
+    await t.flush(); // the focus look only
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus", focus: { x: 30, y: 100 } });
+    const all = await pipelineOf(boxes, fakeStage()).analyze(scene(cards), 0);
+    for (const x of [30, 70, 100, 150]) {
+      expect(t.core.hitAt(PX(x), PY)?.cardId ?? null, `x ${x}`).toBe(hoverAt(all, x, 100).cardId ?? null);
+    }
+    expect(t.core.hitAt(PX(30), PY)).toBeNull(); // the boosted neighbour suppresses X, as in "all"
+    expect(t.core.hitAt(PX(150), PY)?.cardId).toBe("D"); // and is itself named
+  });
+
+  // ------------------------------------------------ a repeat is full when the clock stood still
+  type Live = ReturnType<typeof live>;
+  const isFull = (r: { geometricScope?: string; focus?: unknown }): boolean => r.geometricScope === undefined && r.focus === undefined;
+  /** Run the clock for `ms` in 50 ms steps, answering what is asked. */
+  const run = async (t: Live, ms: number): Promise<void> => {
+    for (let k = 0; k < ms / 50; k++) {
+      t.step(50);
+      await t.flush();
+    }
+  };
+
+  it("seek while paused: the seek reports three presented frames, and the first repeat is still full", async () => {
+    const stage = fakeStage();
+    const t = live(threeBoxes, three, { geometricScope: "focus" }, stage);
+    t.core.presented(4);
+    t.step(30);
+    t.core.discontinuity(false);
+    t.setMedia(5);
+    for (let i = 0; i < 3; i++) t.core.presented(5); // rVFC, timeupdate and seeked, in the same ms
+    t.core.pointer(PX(40), PY, 5);
+    await t.flush();
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus", focus: { x: 40, y: 100 } });
+    expect(stage.crops).toHaveLength(1);
+    await run(t, 300); // the first repeat
+    expect(isFull(t.sent[1]!)).toBe(true);
+    expect(stage.crops).toHaveLength(1 + 3);
+    const looks = t.sent.length;
+    t.core.pointer(PX(340), PY, 5);
+    expect(t.core.fresh()?.cardId).toBe("C"); // a second card, named at once
+    expect(t.sent.length).toBe(looks);
+  });
+
+  it("a seek to the time the video was at: its repeat is full", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.setMedia(5);
+    t.core.presented(5);
+    t.core.pointer(PX(40), PY, 5);
+    await t.flush();
+    t.core.discontinuity(false); // a seek to the same time
+    t.core.presented(5);
+    t.core.presented(5);
+    await run(t, 1_500);
+    const flags = t.sent.map((r) => (isFull(r) ? "full" : "focus"));
+    expect(flags[0]).toBe("focus");
+    expect(flags).toContain("full");
+  });
+
+  it("play, pause, seek, and a late stale report: a full look follows (the cadence look, then its repeat)", async () => {
+    let frozenAt: number | null = null;
+    let t0 = 0;
+    const t: Live = live(threeBoxes, three, { geometricScope: "focus" }, fakeStage(), () => frozenAt ?? 4 + (t.clock() - t0) / 1000);
+    t0 = t.clock();
+    for (let i = 0; i < 6; i++) {
+      t.core.presented(4 + i * 0.2); // playing: the clock moves
+      t.step(200);
+    }
+    t.core.discontinuity(false);
+    t.core.presented(5.489); // rVFC's stale time
+    frozenAt = 5.5; // paused at the seek's frame
+    t.core.presented(5.5);
+    t.core.presented(5.5);
+    t.core.pointer(PX(40), PY, 5.5);
+    await t.flush();
+    const before = t.sent.length;
+    t.core.presented(5.489); // a late rVFC after the look
+    await run(t, 2_000); // the cadence of the wasm backend is 1 s, then the repeat 250 ms on
+    expect(t.sent.slice(before).some(isFull)).toBe(true);
+  });
+
+  it("a pause without a seek: the first repeat is full", async () => {
+    let frozenAt: number | null = null;
+    let t0 = 0;
+    const t: Live = live(threeBoxes, three, { geometricScope: "focus" }, fakeStage(), () => frozenAt ?? 1 + (t.clock() - t0) / 1000);
+    t0 = t.clock();
+    for (let i = 0; i < 3; i++) {
+      t.core.presented(1 + i * 0.03);
+      t.step(30);
+    }
+    frozenAt = 1.09; // paused here: the clock stands still
+    t.core.pointer(PX(40), PY, 1.09);
+    await t.flush();
+    await run(t, 300);
+    expect(t.sent.length).toBeGreaterThanOrEqual(2);
+    expect(isFull(t.sent[1]!)).toBe(true);
+  });
+
+  it("a video whose time moves between the looks keeps the focus on its repeats (a frame every 250 ms, and every 500 ms)", async () => {
+    for (const every of [250, 500]) {
+      let t0 = 0;
+      const t: Live = live(threeBoxes, three, { geometricScope: "focus" }, fakeStage(), () => 1 + (t.clock() - t0) / 1000);
+      t0 = t.clock();
+      for (let i = 0; i < 16; i++) {
+        t.core.presented(1 + (i * every) / 1000);
+        t.core.pointer([0.05, 0.4, 0.7][i % 3]!, PY, 1 + (i * every) / 1000);
+        await run(t, every);
+      }
+      expect(t.sent.length, `every ${every} ms`).toBeGreaterThanOrEqual(5);
+      expect(t.sent.filter(isFull), `every ${every} ms`).toHaveLength(0);
+    }
+  });
+
+  it("a seek between the look and its repeat, with equal times: the repeat is not full", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.setMedia(5);
+    t.core.presented(5);
+    t.core.pointer(PX(40), PY, 5);
+    await t.flush();
+    t.core.discontinuity(false); // the repeat that follows is of another generation
+    await run(t, 300);
+    expect(t.sent.length).toBeGreaterThanOrEqual(2);
+    expect(isFull(t.sent[1]!)).toBe(false);
+  });
+
+  it("through watchVideo: one seek's duplicate events still give a full first repeat", async () => {
+    type Listener = () => void;
+    const listeners = new Map<string, Listener[]>();
+    const video = {
+      paused: true,
+      readyState: 4,
+      currentTime: 4,
+      addEventListener: (type: string, l: Listener) => listeners.set(type, [...(listeners.get(type) ?? []), l]),
+      removeEventListener: () => {},
+    };
+    const fire = (type: string): void => (listeners.get(type) ?? []).forEach((l) => l());
+    let core!: SessionCore;
+    const watch = watchVideo(video as unknown as HTMLVideoElement, { presented: (t) => core.presented(t), discontinuity: (n) => core.discontinuity(n) });
+    const t = live(threeBoxes, three, { geometricScope: "focus" }, fakeStage(), () => watch.mediaTime());
+    core = t.core;
+    video.currentTime = 5;
+    fire("seeking");
+    fire("timeupdate"); // the browser reports the same seek again and again
+    fire("seeked");
+    fire("canplay");
+    t.core.pointer(PX(40), PY, watch.mediaTime());
+    await t.flush();
+    await run(t, 300);
+    expect(t.sent.length).toBeGreaterThanOrEqual(2);
+    expect(isFull(t.sent[1]!)).toBe(true);
+  });
+
+  it("a seek's look was asked for with the old pointer and the pointer moved: the next repeat is a focus look there, then the full pass", async () => {
+    const stage = fakeStage();
+    const t = live(threeBoxes, three, { geometricScope: "focus" }, stage);
+    t.setMedia(5);
+    t.core.discontinuity(false);
+    t.core.presented(5);
+    t.core.presented(5);
+    t.core.pointer(PX(40), PY, 5); // the seek's look, asked for with this pointer
+    t.step(100);
+    t.core.pointer(PX(340), PY, 5); // and 100 ms later the pointer is on another card
+    await t.flush(); // the look answers: only the old card is verified
+    expect(t.sent[0]!.focus).toEqual({ x: 40, y: 100 });
+    expect(t.core.fresh()).toBeNull(); // the new card is unverified: nothing shows
+    await run(t, 300); // the next repeat
+    expect(t.sent[1]).toMatchObject({ geometricScope: "focus", focus: { x: 340, y: 100 } });
+    expect(t.core.fresh()?.cardId).toBe("C"); // named by that one focus look
+    await run(t, 300); // the repeat after it is the full pass
+    expect(isFull(t.sent[2]!)).toBe(true);
+    const looks = t.sent.length;
+    t.core.pointer(PX(600), PY, 5);
+    expect(t.core.fresh()?.cardId).toBe("D"); // a later card needs no look
+    expect(t.sent.length).toBe(looks);
+  });
+
+  it("a look that is not a repeat keeps the focus on a paused picture, even at the same video time", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.setMedia(5);
+    t.core.presented(5);
+    t.core.pointer(PX(40), PY, 5);
+    await t.flush();
+    const before = t.sent.length;
+    t.core.presented(5); // a late report of the same picture: a look by the cadence, not a repeat
+    await run(t, 1_500);
+    const next = t.sent[before];
+    expect(next).toBeDefined();
+    expect(next).toMatchObject({ geometricScope: "focus" });
   });
 });
