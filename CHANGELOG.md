@@ -11,6 +11,13 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- Browser: in pointer mode, a repeat of a still picture is no longer analyzed when the newest
+  result has no unverified face: the capture is dropped before the worker, no more repeats run
+  for that picture, and nothing counts as an unanswered look. A paused hover in scope "all" is
+  one analysis instead of three, and in focus scope the focus look and one full pass instead of
+  the look and two. A picture whose video time differs from the last look's is still analyzed. The
+  track layer may not fill on a paused picture in pointer mode. Always-on and layout modes are
+  unchanged.
 - Browser: in focus scope, the repeats of a look on a picture that is really still run scope
   "all": no `focus` is sent and every face the stage applies to is verified. A picture counts as
   still when the repeat's captured picture has the same video time as the previous look's (same

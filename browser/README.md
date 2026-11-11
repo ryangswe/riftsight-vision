@@ -1074,7 +1074,7 @@ picture) and returns a `FrameAnalysis`:
 | `boxes` | Every valid detection, best detector score first: `box` (`[x, y, width, height]`, clipped to the frame), `score`, `cls`, `className`, and `face` |
 | `boxes[].face` | For a face: `topId`, `topName`, `similarity`, `margin`, `look` (0 upright, k quarter turns counter-clockwise), `retried`, `tauPassed`, `accepted`, `cardId`, `name`, `kept`; with the tilted retry, on a face it was tried on, `tilted` (`tilt`, `scale` or null, `before`). `null` for a back. |
 | `hover` | The hover layer under the release's selection: the cards a pointer is resolved against, bottom of the stack first |
-| `tracks` | The track layer: cards with ids that persist between frames and pooled identities, shown once the temporal gate holds |
+| `tracks` | The track layer: cards with ids that persist between frames and pooled identities, shown once the temporal gate holds; in pointer mode a still picture is analyzed again only while a face is unverified or the picture has changed, so on a paused picture the layer may not fill |
 | `discontinuity`, `retried`, `embeddings`, `timings` | Whether the state between frames was reset; how many faces were retried and embeddings computed; milliseconds per stage (`tiltedMs` while the tilted retry runs) |
 
 `hoverAt(analysis, x, y, selection?)` resolves a pointer against an analyzed frame, under the
@@ -1130,7 +1130,7 @@ By default a session analyzes at fixed rates: every 500 ms while the pointer is 
   tooltip, at most the release's `hover.maxAgeMs` plus 5000 ms less one driver tick (6750 ms by
   default), so the resting state cannot end before the next analysis is due.
 - Until 3 analyses have been measured, the fixed rate applies.
-- The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
+- The repeats of a still picture (every 250 ms, a few times; in pointer mode only while a face is unverified or the picture has changed) are not paced: they stay as before.
 - The session learns within its own run and stores nothing.
 
 For example, analyses of 900 ms on WebAssembly give a wait of 900 / 0.25 = 3600 ms. The user-wait
@@ -1594,7 +1594,13 @@ another mode, because the pointer is what says which faces to verify.
   move to another card is named at once from the result on screen, with no new look. A move to a
   not yet verified card while that repeat is in flight shows nothing until it answers (about a
   second on the measured clips), and queues no extra look. A playing video has no such repeats and
-  is unchanged. It waits for the picture's repeats and any retry to finish,
+  is unchanged. In pointer mode a repeat of a still picture is analyzed only while a face of the
+  newest result is unverified or the captured picture has changed (a different video time);
+  otherwise it is dropped without reaching the worker and no more repeats run for that picture.
+  So in scope "all" a paused hover is one analysis, in focus scope the focus look and one full
+  pass, and the track layer (`tracks`, which counts analyzed frames) may not fill on a paused
+  picture. A dropped repeat is not an unanswered look: no back-off, no retry. Always-on and
+  layout modes are unchanged. It waits for the picture's repeats and any retry to finish,
   never follows a refused capture, and stops after the pointer's 10 s grace period. With the option off nothing changes.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.

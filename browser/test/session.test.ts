@@ -323,19 +323,20 @@ async function slowFirstLook(firstMs: number, endMs: number): Promise<{ sent: nu
 }
 
 describe("createSession reproduces the scheduler's session loop", () => {
-  // The same times as scheduler.test.ts (PINNED_SLOW_FIRST_LOOK) and session-core.test.ts.
+  // The same times as scheduler.test.ts (PINNED_SLOW_FIRST_LOOK) and session-core.test.ts, except that
+  // pointer mode drops the repeats of a still picture (no worker request for them).
   it("a first look of 6 s", async () => {
-    expect(await slowFirstLook(6_000, 20_000)).toEqual({ sent: [0, 6_000, 6_250], analyzed: [6_000, 6_250, 6_500] });
+    expect(await slowFirstLook(6_000, 20_000)).toEqual({ sent: [0], analyzed: [6_000] });
   });
 
   it("a first look of 12 s", async () => {
-    expect(await slowFirstLook(12_000, 20_000)).toEqual({ sent: [0, 12_000, 12_250], analyzed: [12_000, 12_250, 12_500] });
+    expect(await slowFirstLook(12_000, 20_000)).toEqual({ sent: [0], analyzed: [12_000] });
   });
 
   it("a first look of 18 s, given up on at FIRST_ANALYSIS_WATCHDOG_MS", async () => {
     expect(await slowFirstLook(18_000, 30_000)).toEqual({
-      sent: [0, 15_250, 16_250, 17_500, 19_750, 20_000, 20_250],
-      analyzed: [20_000, 20_250, 20_500],
+      sent: [0, 15_250, 16_250, 17_500, 19_750],
+      analyzed: [20_000],
     });
   });
 });

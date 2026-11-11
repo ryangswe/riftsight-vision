@@ -24,7 +24,7 @@ import { hoverAt, Pipeline } from "../src/pipeline.js";
 import { focusChecked, type FocusCheckReport, focusCheckLines } from "../score/focus-check.js";
 import type { Analyzer } from "../score/video.js";
 import { ACCEPTED_NMS_IOU, focusGroup } from "../src/recognition.js";
-import { FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
+import { FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS, REPEAT_INTERVAL_MS } from "../src/frame-scheduler.js";
 import { SessionCore, SHOWN_HOLD } from "../src/session-core.js";
 import { watchVideo } from "../src/video-events.js";
 import { CONFIRM_FRAMES } from "../src/temporal-gate.js";
@@ -1209,7 +1209,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
   const threeBoxes = three.map((c) => c.box);
   const cardAt = (core: SessionCore, x: number) => core.fresh() && core.hitAt(PX(x), PY)?.cardId;
 
-  it("repeats: the look on a still picture runs focus, its repeats run scope all", async () => {
+  it("repeats: the look on a still picture runs focus, its one full pass runs scope all", async () => {
     const stage = fakeStage();
     const t = live(threeBoxes, three, { geometricScope: "focus" }, stage);
     t.core.presented(1);
@@ -1219,7 +1219,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     expect(t.sent[0]).toMatchObject({ geometricScope: "focus", focus: { x: 40, y: 100 } });
     await t.settle();
     const repeats = t.sent.slice(1);
-    expect(repeats.length).toBeGreaterThanOrEqual(2);
+    expect(repeats).toHaveLength(1); // the next repeat finds nothing unverified and is dropped
     for (const r of repeats) {
       expect("focus" in r).toBe(false);
       expect("geometricScope" in r).toBe(false);
@@ -1267,7 +1267,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     await t.flush(); // the repeat answers
     expect(t.core.fresh()?.cardId).toBe("C");
     await t.settle();
-    expect(t.sent.length).toBe(3); // only the second repeat followed: no re-look was queued
+    expect(t.sent.length).toBe(2); // nothing followed the full pass: no re-look was queued
   });
 
   it("a paused picture still gets the full repeat", async () => {
@@ -1277,7 +1277,89 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     await t.flush();
     await t.settle();
     expect(t.sent.slice(1).every((r) => r.focus === undefined && r.geometricScope === undefined)).toBe(true);
-    expect(t.sent.length).toBeGreaterThanOrEqual(3);
+    expect(t.sent).toHaveLength(2); // the focus look and one full pass
+  });
+
+  // ------------------------------------------------ pointer mode drops the repeats nothing reads
+  const repeatSpan = CONFIRM_FRAMES * REPEAT_INTERVAL_MS + 500;
+
+  it("still repeats: scope all, a paused hover is one analysis, the repeat is dropped and the answer is unchanged", async () => {
+    const t = live(threeBoxes, three, {});
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent).toHaveLength(1);
+    const answer = cardAt(t.core, 40);
+    expect(answer).toBe("B");
+    await t.settle(repeatSpan + 2_000);
+    expect(t.sent).toHaveLength(1);
+    expect(cardAt(t.core, 40)).toBe(answer);
+    expect(cardAt(t.core, 340)).toBe("C");
+    expect(t.core.status().lastFrameError).toBeNull();
+  });
+
+  it("still repeats: focus, a paused hover is the focus look and one full pass, then nothing", async () => {
+    const t = live(threeBoxes, three, { geometricScope: "focus" });
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]).toMatchObject({ geometricScope: "focus" });
+    await t.settle(repeatSpan + 2_000);
+    expect(t.sent).toHaveLength(2);
+    expect("geometricScope" in t.sent[1]!).toBe(false);
+    const all = live(threeBoxes, three, {});
+    all.core.presented(1);
+    all.core.pointer(PX(40), PY, 1);
+    await all.flush();
+    await all.settle();
+    for (const x of [40, 340, 600]) expect(cardAt(t.core, x), `x ${x}`).toBe(cardAt(all.core, x));
+  });
+
+  it("still repeats: a repeat whose picture differs in time is analyzed, until one finds the picture still", async () => {
+    let media = 1;
+    const t = live(threeBoxes, three, {}, fakeStage(), () => media);
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    expect(t.sent).toHaveLength(1);
+    media = 1.04; // the pause landed a frame after the look
+    t.step(REPEAT_INTERVAL_MS + 10);
+    await t.flush();
+    expect(t.sent).toHaveLength(2); // different picture: analyzed
+    await t.settle(repeatSpan + 2_000); // media stands at 1.04 now: the next repeat is dropped
+    expect(t.sent).toHaveLength(2);
+  });
+
+  it("still repeats: always-on repeats a still picture as before", async () => {
+    // Layout mode never repeats a still picture (scheduler.test.ts), and the drop is guarded by
+    // `mode === "pointer"`.
+    const t = live(threeBoxes, three, { mode: "always-on" });
+    t.core.presented(1);
+    await t.settle(8_000);
+    expect(t.sent).toHaveLength(CONFIRM_FRAMES);
+  });
+
+  it("still repeats: a dropped repeat leaves no back-off or retry; a cut and a seek are due at once", async () => {
+    const t = live(threeBoxes, three, {});
+    t.core.presented(1);
+    t.core.pointer(PX(40), PY, 1);
+    await t.flush();
+    await t.settle(repeatSpan);
+    expect(t.sent).toHaveLength(1);
+    expect(t.core.status().lastFrameError).toBeNull();
+    t.core.cut(); // due at once
+    t.step(0);
+    await t.flush();
+    expect(t.sent).toHaveLength(2);
+    await t.settle(repeatSpan);
+    expect(t.sent).toHaveLength(2); // the cut's own repeat is dropped too
+    t.core.discontinuity(false);
+    t.core.presented(2);
+    t.core.pointer(PX(60), PY, 2);
+    t.step(0);
+    await t.flush();
+    expect(t.sent).toHaveLength(3);
   });
 
   it("a first focus look at an accepted card gives all's answer wherever it is read, before any repeat", async () => {

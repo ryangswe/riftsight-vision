@@ -374,6 +374,17 @@ export class SessionCore {
       this.publish();
       return;
     }
+    // Pointer mode, a repeat of a still picture, and nothing unverified in the newest result: the
+    // repeat would only count a frame for the tracker and the temporal gate, which pointer mode
+    // never reads. It is not sent; it is no unanswered look (no back-off, no retry), and the
+    // scheduler runs no more repeats for this picture.
+    if (this.mode === "pointer" && this.stillNeedsNothing(sent, mediaTime)) {
+      this.inFlight = null;
+      bitmap.close();
+      this.scheduler.stillSettled();
+      this.publish();
+      return;
+    }
     sent.analyzing = true;
     const envelope: FrameEnvelope = { requestId: sent.requestId, mediaTimeSec: mediaTime, generation: sent.generation, videoKey: sent.videoKey };
     // The pointer as it was when the picture was asked for, in the picture's pixels (the bitmap
@@ -384,9 +395,7 @@ export class SessionCore {
     // (`mediaTimeOf`), two captures at least REPEAT_INTERVAL_MS apart, so an equal time means the
     // clock stood still. The presented events, which a seek reports two or three times, are not
     // consulted.
-    const last = this.lastLook;
-    const still =
-      sent.repeat && last !== null && last.generation === sent.generation && last.videoKey === sent.videoKey && Math.abs(last.mediaTime - mediaTime) < SAME_TIME_SEC;
+    const still = this.isStillRepeat(sent, mediaTime);
     // The pointer's own card comes first: when the pointer's group is not verified in the newest
     // result (a seek's look was asked for with the old pointer, and the pointer has moved since),
     // this repeat is a focus look at the pointer, and the full pass follows on the next repeat.
@@ -412,6 +421,18 @@ export class SessionCore {
       this.scheduler.lookUnanswered(this.deps.now());
     }
     this.publish();
+  }
+
+  /** Is this capture a repeat of the picture the newest analyzed look was taken at? */
+  private isStillRepeat(sent: InFlight, mediaTime: number): boolean {
+    const last = this.lastLook;
+    return sent.repeat && last !== null && last.generation === sent.generation && last.videoKey === sent.videoKey && Math.abs(last.mediaTime - mediaTime) < SAME_TIME_SEC;
+  }
+
+  /** A still repeat with no unverified face in the newest result has nothing to add. */
+  private stillNeedsNothing(sent: InFlight, mediaTime: number): boolean {
+    if (!this.isStillRepeat(sent, mediaTime) || this.result === null) return false;
+    return !(this.result.analysis.boxes ?? []).some((b) => b.face?.unverified === true);
   }
 
   /** The capture for `requestId` failed. `retry`: the picture could not be had (not ready yet, or
