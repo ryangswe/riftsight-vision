@@ -43,6 +43,8 @@
   // The server behavior this page needs (serve.py's PAGE_API); an older running serve.py lacks it.
   const PAGE_API = 2;
   const KR = root.LabelerKeyRoute; // who handles a key press
+  const PR = root.LabelerProbe; // the card height and angle class of a center frame (only with --probe)
+  const SK = root.LabelerStrayKeys; // keys that are not answers never move the work on
   const SG = root.LabelerSaveGate; // may this frame be changed, may this change be saved, is this still the same run
   const BS = root.LabelerBoxSize; // the size of a new box, and what a click on the frame does
   // This page, among the pages open on this tool: it tells the server whether it holds unsaved
@@ -96,6 +98,8 @@
     // center mode: the selected marker, a press/drag in progress, the hovered marker,
     // undo / redo stacks per frame (snapshots of `centers`; `centerSeq` is never rolled back)
     csel: null, cdrag: null, chover: null, cundo: new Map(), credo: new Map(),
+    // with --probe: the set's probes (frame name → {cardHeightPx, angleClass}), the card-height drag in progress, the last probe save
+    probes: {}, pdrag: null, probeWait: Promise.resolve(),
     // verify mode: the walk ([{frame, id}]) and the position in it, the server's
     // per-center info ("frame#id" → {blind, sha, arms?}), the centers revealed this session, when
     // the current one was shown, backs in the walk, the crop window level
@@ -103,7 +107,7 @@
     // the page around the editor: a frame picture that did not load ({name, src, path}), whether
     // the server answers, the finish card on show, the keys overlay, the Names pass's count per
     // set (set id → {done, total}), whether each card of the Names pass starts in the search box
-    imgFailed: null, connected: true, finish: null, helpOpen: false, named: new Map(), searchFirst: false,
+    imgFailed: null, connected: true, finish: null, helpOpen: false, named: new Map(), searchFirst: false, vSearchFirst: false,
     // the tool was started again on other work while this page held changes: nothing more is saved
     otherRun: false, switching: false,
   };
@@ -134,7 +138,7 @@
   const REVIEW_EDGE_PX = 22; // view px: the same in the review walk's zoom view
   const REVIEW_FILL = 0.6; // the review zoom fits the box in this share of the view (room for the TOP arrow)
   const HISTORY_CAP = 100;
-  const LS = { filters: "labeler-picker-filters", hover: "labeler-hover-art", carry: "labeler-carry-over", defaultBox: "labeler-default-box", boxesOnly: "labeler-boxes-only", verifyBacks: "labeler-verify-backs", searchFirst: "labeler-search-first" };
+  const LS = { filters: "labeler-picker-filters", hover: "labeler-hover-art", carry: "labeler-carry-over", defaultBox: "labeler-default-box", boxesOnly: "labeler-boxes-only", verifyBacks: "labeler-verify-backs", searchFirst: "labeler-search-first", verifySearchFirst: "labeler-verify-search-first" };
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } }
@@ -148,7 +152,7 @@
   }
 
   async function boot() {
-    if (!G || !BE0 || !Tools || !Filters || !Picker || !Names || !TL || !U || !KR || !SG || !BS) {
+    if (!G || !BE0 || !Tools || !Filters || !Picker || !Names || !TL || !U || !KR || !SG || !BS || !SK) {
       // a serve.py older than this page serves it but 404s some of its scripts
       const b = $("banner");
       b.hidden = false;
@@ -166,6 +170,12 @@
       return;
     }
     if (S.config.mode === "center" && !C) {
+      const b = $("banner");
+      b.hidden = false;
+      b.textContent = "This pass needs a script that the running serve.py does not serve. Restart serve.py (Ctrl+C, then the same command) and reload.";
+      return;
+    }
+    if (S.config.probe && !PR) {
       const b = $("banner");
       b.hidden = false;
       b.textContent = "This pass needs a script that the running serve.py does not serve. Restart serve.py (Ctrl+C, then the same command) and reload.";
@@ -277,6 +287,7 @@
     S.boxesOnly = lsGet(LS.boxesOnly) !== "off"; // box pass = boxes only, names in the identity pass
     S.vIncludeBacks = lsGet(LS.verifyBacks) === "on";
     S.searchFirst = lsGet(LS.searchFirst) === "on";
+    S.vSearchFirst = lsGet(LS.verifySearchFirst) === "on";
   }
 
   async function openSet(setId) {
@@ -296,6 +307,7 @@
     if ($("setSelect").value !== setId) $("setSelect").value = setId;
     S.meta = p.meta || p.effectiveMeta;
     S.readOnly = p.readOnly;
+    S.probes = p.probes || {}; S.pdrag = null;
     const frameNames = new Set(S.set.frames.map((f) => f.name));
     S.idq = (p.identifyQueue || []).filter((e) => frameNames.has(e.frame));
     S.qIdx = 0;
@@ -675,7 +687,13 @@
     const row = rowFor(currentFrame());
     // point mode: a frame whose points are all answered is finished at once, never looped over
     //: go to the next frame or set with points left and say so
-    if (mode() === "point" && pointsComplete(row)) { finishPointFrame(); return; }
+    if (mode() === "point") {
+      const step = SK.afterAnswer(S.pIdx, row.points.length, pointsComplete(row));
+      if (step === "frame") { finishPointFrame(); return; }
+      if (step === "point") { S.pIdx++; render(); markShown(); return; }
+      nextUnlabeled();
+      return;
+    }
     if (S.pIdx < row.points.length - 1) { S.pIdx++; render(); markShown(); return; }
     nextUnlabeled();
   }
@@ -2323,9 +2341,8 @@
     arriveAtCard();
   }
 
-  // The Names pass, on arrival at a card. The search box takes the focus only when the labeler
-  // asked for that (Options, off at start): with the focus in a text field the letter keys type,
-  // so the single-key answers (x, u, w ...) would need Esc first.
+  // The Names pass, on arrival at a card. The search box takes the focus only when asked for (Options, off at start):
+  // in a text field the letter keys type, so the single-key answers (x, u, w ...) would need Esc first.
   function arriveAtCard() {
     if (mode() !== "identify" || !S.searchFirst || !editable() || S.imgFailed || S.finish) return;
     const e = S.idq[S.qIdx];
@@ -2650,6 +2667,7 @@
     const needFix = S.frames.filter((x) => issuesOf(x.name, x.name === f.name).length).length;
     $("frameInfo").textContent = U.frameLabel(S.frameIdx + 1, S.frames.length);
     $("frameInfo").title = `${f.name}, at ${f.t} s in the video${row.done ? ", done" : ""}`;
+    if (probing()) $("frameInfo").textContent += ` · ${PR.text(S.probes[f.name])}`;
     Names.renderSource(document, $("recSource"), Names.sourceLine(Object.assign({}, S.set.source, f), f.t)); // where it comes from
     const issues = issuesOf(f.name);
     $("frameIssue").hidden = !issues.length;
@@ -2706,6 +2724,7 @@
     $("removeFrameWhy").textContent = noRemove || "";
     $("removeFrameWhy").hidden = !noRemove;
     $("searchFirstToggle").checked = S.searchFirst;
+    $("verifySearchFirstToggle").checked = S.vSearchFirst;
     $("verifyBacksToggle").checked = S.vIncludeBacks;
     $("hoverToggle").checked = S.hoverArt;
     $("boxesOnlyToggle").checked = S.boxesOnly;
@@ -3442,6 +3461,28 @@
 
   const CENTER_COLOR = {}; // readTheme() fills it
   function centerRow() { return rowFor(currentFrame()); }
+
+  // With --probe: Alt+drag measures a card's height, 7 / 8 / 9 set the angle class; the server keeps both in probes.json.
+  function probing() { return !!(S.config && S.config.probe) && mode() === "center" && !!PR; }
+  function probeNow() { const f = currentFrame(); return f ? S.probes[f.name] : null; }
+  function setProbe(patch) {
+    if (!editable()) return;
+    const name = currentFrame().name, setId = S.set.setId;
+    const send = async () => {
+      let r, j = {};
+      try {
+        r = await fetch(`/api/probe/${encodeURIComponent(setId)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: saveBody(Object.assign({ frame: name }, patch)),
+        });
+        try { j = await r.json(); } catch (e) { j = { error: `HTTP ${r.status}` }; }
+      } catch (e) { j = { error: e.message }; }
+      if (r && SG.isOtherRun(r.status, j) && await checkRun() === "adopt") return send();
+      if (!r || !r.ok) { setStatus(`Not saved: ${j.error || "the server did not answer"}`); return; }
+      if (S.set && S.set.setId === setId) { S.probes[name] = j.probe; setStatus(PR.text(j.probe)); render(); }
+    };
+    S.probeWait = S.probeWait.then(send, send);
+    return S.probeWait;
+  }
   function centerList(row) { if (!row.centers) row.centers = []; return row.centers; }
   function centerById(row, id) { return centerList(row).find((c) => c.id === id) || null; }
   function centerTol() { return C.HIT_PX / (S.view.s || 1); } // frame px
@@ -3521,6 +3562,10 @@
 
   async function confirmCenterFrame() {
     if (!editable() || S.cdrag || !imgReady()) return;
+    if (probing()) {
+      await S.probeWait; // a measurement just made reaches the server first
+      if (centerList(centerRow()).length && !PR.isFull(probeNow())) { setStatus(`Not confirmed yet: set the ${PR.missing(probeNow()).join(" and the ")}.`); render(); return; }
+    }
     const row = centerRow();
     const [W, H] = frameSize();
     row.frameW = W; row.frameH = H;
@@ -3551,6 +3596,7 @@
 
   function centerMouseDown(p, ev) {
     if (!imgReady() || S.busy) return;
+    if (ev.altKey && probing() && editable()) { S.pdrag = { a: p, b: p }; render(); return; }
     const row = centerRow();
     const [W, H] = frameSize();
     const hit = C.hitCenter(centerList(row), p, W, H, centerTol());
@@ -3573,6 +3619,7 @@
     const d = S.cdrag;
     const row = centerRow();
     const [W, H] = frameSize();
+    if (S.pdrag) { S.pdrag.b = p; render(); return; }
     if (!d) {
       if (ev.target !== cv) { if (S.chover) { S.chover = null; render(); } else renderLoupe(); return; }
       const h = imgReady() ? C.hitCenter(centerList(row), p, W, H, centerTol()) : null;
@@ -3593,6 +3640,12 @@
   }
 
   function centerMouseUp() {
+    if (S.pdrag) {
+      const h = PR.heightOfDrag(S.pdrag.a, S.pdrag.b);
+      S.pdrag = null;
+      if (h) setProbe({ cardHeightPx: h }); else { setStatus("Too short: drag along a card's long edge."); render(); }
+      return;
+    }
     const d = S.cdrag;
     if (!d) return;
     S.cdrag = null;
@@ -3616,7 +3669,8 @@
     if (k === "Enter") { if (ev.shiftKey) unconfirmCenterFrame(); else confirmCenterFrame(); return true; }
     if (k === "Escape") {
       const d = S.cdrag;
-      if (d) {
+      if (S.pdrag) { S.pdrag = null; setStatus("Canceled."); }
+      else if (d) {
         S.cdrag = null;
         const c = centerById(centerRow(), d.id);
         if (c) { c.x = d.orig.x; c.y = d.orig.y; }
@@ -3624,6 +3678,7 @@
       } else S.csel = null;
       render(); return true;
     }
+    if (probing()) { const cls = PR.classForKey(ev); if (cls) { setProbe({ angleClass: cls }); return true; } }
     if (k === "b" || k === "B") { toggleCenterKind(); return true; }
     if (k === "Delete" || k === "Backspace") { deleteCenter(); return true; }
     if (k === "Tab") { S.csel = C.cycle(centerList(centerRow()), S.csel, ev.shiftKey ? -1 : 1); render(); return true; }
@@ -3667,6 +3722,10 @@
     }
     const sel = centerById(row, S.csel); // the selected one on top
     if (sel) drawCenter(ctx, sel, sel.x * W * s, sel.y * H * s, C.idNumber(sel.id) || "?", true, false);
+    if (S.pdrag) { // the card height being measured
+      ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = T.open; ctx.beginPath();
+      ctx.moveTo(S.pdrag.a.x * s, S.pdrag.a.y * s); ctx.lineTo(S.pdrag.b.x * s, S.pdrag.b.y * s); ctx.stroke(); ctx.restore();
+    }
     if (row.done) { // a confirmed frame says so on the canvas too
       ctx.font = "bold 12px sans-serif"; const t = "✓ frame confirmed";
       ctx.fillStyle = T.halo; ctx.fillRect(6, 6, ctx.measureText(t).width + 10, 18);
@@ -3807,7 +3866,6 @@
     logEvent({ ev: "verify-shown", center: it.id, blind: !!info.blind, kind: c ? c.kind : null, stale });
     if (!c || !editable() || (V.isVerified(c, info.sha))) return;
     setStatus("");
-    // a card without suggestions: the search takes the focus, but only once step 1 has its answer
     if (V.readability(c) && info.blind && (!V.hasAnswer(c) || stale)) openPicker();
   }
 
@@ -3815,8 +3873,9 @@
     const it = vItem(), c = vCenter(it);
     if (!c) return;
     const info = vInfo(it);
-    if (V.isVerified(c, info.sha)) { verifyAdvance(); return; }
-    if (!V.readability(c)) { setStatus(READ_PROMPT); return; }
+    const act = SK.verifyEnter(V.isVerified(c, info.sha) ? "done" : !V.readability(c) ? "read" : "name");
+    if (act === "stay") { setStatus("Answered. ] goes to the next card; Backspace clears it."); return; }
+    if (act === "prompt") { setStatus(READ_PROMPT); return; }
     if (V.needsReadability(c) && !V.isStale(c, info.sha)) { setStatus(`${cardWho(c.identity)} is named. Now Y, M or N: is its name legible in this crop?`); return; }
     if (info.blind) { setStatus(""); openPicker(); return; }
     if (!info.proposals) { setStatus("There is no suggestion for this card."); return; }
@@ -3909,6 +3968,8 @@
     if (!info.proposals) { render(); return; }
     setStatus("Fetching the suggestion…");
     render();
+    // the focus goes to the search at once: no letter typed while the suggestion loads reaches the answer keys
+    if (S.vSearchFirst) openPicker();
     verifyFetchArms(it);
   }
 
@@ -3973,6 +4034,8 @@
     return msg;
   }
 
+  function verifyNextOpen() { verifyAdvance(); }
+
   function verifyOpenPicker() {
     const c = vCenter(vItem());
     if (c && !V.readability(c)) { setStatus(READ_PROMPT); return; }
@@ -3983,7 +4046,7 @@
     const k = ev.key;
     if (k === " " || k === "Enter") { verifyReveal(); return true; }
     if (k === "ArrowLeft" || k === "[") { if (S.vIdx > 0) verifyGo(S.vIdx - 1); else setStatus("This is the first card of this set."); return true; }
-    if (k === "ArrowRight" || k === "]") { if (S.vIdx < S.vq.length - 1) verifyGo(S.vIdx + 1); else setStatus("This is the last card of this set. Space goes to the next one still open."); return true; }
+    if (k === "ArrowRight" || k === "]") { if (S.vIdx < S.vq.length - 1) verifyGo(S.vIdx + 1); else setStatus("This is the last card of this set. Answer the cards still open, or choose another set in the menu."); return true; }
     if (k === "z" || k === "Z") { S.vZoom = Names.cycleLevel(S.vZoom, V.WINDOWS.length, k === "Z"); render(); return true; }
     if (k === "p") { setHoverArt(!S.hoverArt); return true; }
     if (!editable()) return k.length === 1;
@@ -3995,6 +4058,7 @@
       x: () => verifyAnswer("not-card"), b: () => verifyAnswer("back"),
       y: () => verifyReadability("y"), m: () => verifyReadability("m"), n: () => verifyReadability("n"),
       Backspace: verifyClear, Delete: verifyClear,
+      j: verifyNextOpen,
     };
     if (map[k]) { map[k](); return true; }
     if (onFilterKey(k)) return true;
@@ -4223,6 +4287,8 @@
   function runAct(act) {
     if (act === "enter") pressKey("Enter");
     else if (act === "space") pressKey(" ");
+    else if (act === "next-open") pressKey("j");
+    else if (act === "next-frame-open") nextUnlabeled();
     else if (act === "search") pressKey("/");
     else if (act === "pick") pickHighlighted();
     else if (act === "search-all") choose({ kind: "not-in-list" });
@@ -4358,8 +4424,8 @@
           [A("Zoom the card", "z"), A("Zoom back", "Z", { cap: "Shift+Z" })])]];
     }
     if (st.point) {
-      return [["Other answers", other], ["Move on", [A("Previous point", "ArrowLeft", { cap: "←" }), A("Next point", "Enter"),
-        A("Next frame with points left", " ", { cap: "Space", wide: true }), A("Clear the answer", "Backspace", { wide: true }), A("Wider view", "z")]]];
+      return [["Other answers", other], ["Move on", [A("Previous point", "ArrowLeft", { cap: "←" }), A("Next point", "ArrowRight", { cap: "→" }),
+        A("Next frame with points left", null, { act: "next-frame-open", cap: "Space", wide: true }), A("Clear the answer", "Backspace", { wide: true }), A("Wider view", "z")]]];
     }
     if (st.center) {
       return [["Selected marker", [A("Face or back", "b", { off: !st.center.selected }), A("Remove", "Delete", { off: !st.center.selected })]],
@@ -4827,7 +4893,7 @@
   function insidePoly(q, p) { return G.pointInQuad(q, p); }
 
   function wireUi() {
-    $("pickerInput").addEventListener("input", () => { S.picker.fresh = true; renderPicker(); renderChrome(); });
+    $("pickerInput").addEventListener("input", () => { S.picker.touched = true; S.picker.fresh = true; renderPicker(); renderChrome(); });
     $("pickerInput").addEventListener("focus", () => { S.pickerOpenedAt = S.pickerOpenedAt || Date.now(); renderChrome(); });
     $("pickerInput").addEventListener("blur", (ev) => { if (!(ev.relatedTarget && ev.relatedTarget.closest("#kindChips"))) S.pickerOpenedAt = null; renderChrome(); });
     // A click on a control does not take the keyboard focus from the frame (a text field and a
@@ -4853,6 +4919,10 @@
     $("helpBtn").addEventListener("click", () => toggleHelp());
     $("keysClose").addEventListener("click", () => toggleHelp(false));
     $("keys").addEventListener("mousedown", (ev) => { if (ev.target === $("keys")) toggleHelp(false); });
+    $("verifySearchFirstToggle").addEventListener("change", (ev) => {
+      S.vSearchFirst = ev.target.checked; lsSet(LS.verifySearchFirst, S.vSearchFirst ? "on" : "off");
+      setStatus(S.vSearchFirst ? "After Y, M or N the search box takes the focus. The letter keys type there: Esc leaves the search." : "After Y, M or N the keys stay on the frame again. / opens the search.");
+    });
     $("searchFirstToggle").addEventListener("change", (ev) => {
       S.searchFirst = ev.target.checked; lsSet(LS.searchFirst, S.searchFirst ? "on" : "off");
       setStatus(S.searchFirst ? "Each card now starts in the search box. The letter keys type there: Esc leaves the search." : "Each card starts with the keys on the frame again. / opens the search.");
@@ -5382,7 +5452,9 @@
     else if (k === "v") cycleVis();
     else if (pointMode) {
       const row = rowFor(currentFrame());
-      if (k === "ArrowRight" || k === "]" || k === "Enter") {
+      const unanswered = !!row.points[S.pIdx] && SK.pointMove(k, complete(row.points[S.pIdx])) === "stay";
+      if (unanswered) setStatus("No answer yet: Enter and Space wait. Answer it, or ] moves on.");
+      else if (k === "ArrowRight" || k === "]" || k === "Enter") {
         if (S.pIdx < row.points.length - 1) { S.pIdx++; render(); markShown(); } else gotoFrame(S.frameIdx + 1, "first");
       } else if (k === "ArrowLeft" || k === "[") {
         if (S.pIdx > 0) { S.pIdx--; render(); markShown(); } else gotoFrame(S.frameIdx - 1, "last");

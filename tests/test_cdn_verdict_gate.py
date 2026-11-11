@@ -198,14 +198,23 @@ def test_no_gate_without_config_or_for_a_rollback(setup):
 
 
 # ------------------------------------------------------------------------------- the index
+class FailsAfterFirstIndexPut(FakeS3):
+    """The first write of the index (the gate state, before the folder) lands; `fail` applies after it."""
+
+    def _fails(self, key: str) -> bool:
+        return super()._fails(key) and key in self.put_keys
+
+
 def test_a_run_after_a_crash_records_the_release_once(setup, monkeypatch):
     times = iter(["2026-11-01T00:00:00Z", "2026-11-02T00:00:00Z", "2026-11-03T00:00:00Z"])
     monkeypatch.setattr(cdn_config, "utc_now", lambda: next(times))
     args = with_args(setup, dry_run=False)
-    s3 = FakeS3(fail=("index.json",))
+    s3 = FailsAfterFirstIndexPut(fail=("index.json",))
     with pytest.raises(RuntimeError, match="boom"):
         run(setup, args, s3)
-    assert INDEX not in s3.objects and f"vision/releases/{RID}/release.json" in s3.objects, "the crash: files, no index"
+    entry = json.loads(s3.objects[INDEX]["Body"])["releases"][RID]
+    assert "refreshGate" in entry and "publishedAt" not in entry and f"vision/releases/{RID}/release.json" in s3.objects, \
+        "the crash: files, an incomplete index entry"
     s3.fail = set()
     setup.cfg_file.write_text(json.dumps(EXAMPLE_SETTINGS))
     uploads = len(s3.puts)
@@ -455,3 +464,98 @@ def test_r_alone_with_a_live_release_document_off_the_pointers_sha_is_refused(se
     with pytest.raises(Refused, match="release.json does not match the pointer's sha256.*nothing written"):
         run(setup, r_only(setup, dry_run=dry_run), s3, get=other_document)
     assert untouched(setup, s3)
+
+
+# ------------------------------------------------------- the index records how a release cleared the gate
+def entry_of(s3) -> dict:
+    return json.loads(s3.objects[INDEX]["Body"])["releases"][RID]
+
+
+def test_two_passing_verdicts_are_recorded_in_the_release_index(setup, monkeypatch):
+    monkeypatch.setattr(cdn_config, "utc_now", lambda: "2026-11-01T00:00:00Z")
+    s3 = FakeS3()
+    assert run(setup, with_args(setup, dry_run=False), s3) == 0
+    sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()  # noqa: E731
+    assert entry_of(s3)["refreshGate"] == {"at": "2026-11-01T00:00:00Z", "rule": RULE, "r": sha(setup.r), "n": sha(setup.n)}
+    assert json.loads(s3.objects[INDEX]["Body"])["schemaVersion"] == 1
+
+
+def test_a_waiver_is_recorded_without_its_reason(setup, monkeypatch):
+    monkeypatch.setattr(cdn_config, "utc_now", lambda: "2026-11-01T00:00:00Z")
+    s3 = FakeS3()
+    args = with_args(setup, dry_run=False, verdict_r=None, verdict_n=None, no_refresh_gate="new models, a private reason")
+    assert run(setup, args, s3) == 0
+    assert entry_of(s3)["refreshGate"] == {"at": "2026-11-01T00:00:00Z", "waived": True}
+    assert "private reason" not in s3.objects[INDEX]["Body"].decode()
+
+
+def test_r_alone_records_the_live_release_it_was_compared_with(setup):
+    candidate_catalog(setup, ["TOY-001"])
+    s3 = FakeS3()
+    assert run(setup, r_only(setup, dry_run=False), s3, get=live_cdn(setup, ["TOY-001", "TOY-002"])) == 0
+    rec = entry_of(s3)["refreshGate"]
+    assert rec["n"] is None and rec["againstLive"] == LIVE_ID and rec["r"] == hashlib.sha256(setup.r.read_bytes()).hexdigest()
+
+
+def folder_args(s, **k):
+    """publish-release without --config: the folder is uploaded, the pointer does not move."""
+    return with_args(s, **{"dry_run": False, "config": None, "set_pointer": False, "no_refresh_gate": None, **k})
+
+
+def test_a_folder_uploaded_with_verdicts_and_no_config_records_them(setup):
+    s3 = FakeS3()
+    lines: list[str] = []
+    assert run(setup, folder_args(setup), s3, log=lines.append) == 0
+    assert CONFIG_KEY not in s3.objects
+    assert entry_of(s3)["refreshGate"]["r"] == hashlib.sha256(setup.r.read_bytes()).hexdigest()
+    assert any(line.startswith(f"refresh gate: R PASS under rule {RULE}") for line in lines)
+
+
+def test_a_folder_uploaded_with_no_verdicts_is_recorded_as_such(setup):
+    s3 = FakeS3()
+    assert run(setup, folder_args(setup, verdict_r=None, verdict_n=None), s3) == 0
+    assert entry_of(s3)["refreshGate"] is None
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("gate,over,reason", [
+    ("R", {"verdict": "FAIL"}, "VERDICT-R.json: 'FAIL', not PASS"),
+    ("N", {"verdict": "FAIL"}, "VERDICT-N.json: 'FAIL', not PASS"),
+    ("R", {"rehearsal": True}, "VERDICT-R.json: a rehearsal verdict"),
+    ("N", {"rehearsal": True}, "VERDICT-N.json: a rehearsal verdict"),
+], ids=["R FAIL", "N FAIL", "R rehearsal", "N rehearsal"])
+def test_a_folder_upload_with_a_failing_or_rehearsal_verdict_is_refused_before_any_write(setup, gate, over, reason, dry_run):
+    verdict(setup.tmp / ("replay" if gate == "R" else "newcard"), gate, **over)
+    s3 = FakeS3()
+    with pytest.raises(Refused, match=reason):
+        run(setup, folder_args(setup, dry_run=dry_run), s3)
+    assert not s3.puts and not s3.objects
+
+
+def test_refusals_for_an_upload_without_config_do_not_speak_of_moving_the_pointer(setup):
+    s3 = FakeS3()
+    with pytest.raises(Refused, match=r"recording the verdicts for this upload needs the refresh verdicts: --verdict-r missing") as e:
+        run(setup, folder_args(setup, verdict_r=None), s3)
+    assert "moving the pointer" not in str(e.value) and not s3.puts
+    candidate_catalog(setup, ["TOY-001"])
+    with pytest.raises(Refused, match=r"recording the verdicts for this upload needs the refresh verdicts: --verdict-n missing "
+                                       r"\(the live config.json has no release") as e:
+        run(setup, folder_args(setup, verdict_n=None), s3)
+    assert "moving the pointer" not in str(e.value) and not s3.puts
+    with pytest.raises(Refused, match=r"moving the pointer \(--config\) needs the refresh verdicts: --verdict-n missing"):
+        run(setup, with_args(setup, verdict_n=None), s3)
+
+
+class NoIndexWrites(FakeS3):
+    def put_object(self, *, Bucket, Key, **k):
+        if Key == INDEX:
+            raise RuntimeError("index down")
+        return super().put_object(Bucket=Bucket, Key=Key, **k)
+
+
+def test_an_upload_whose_first_index_write_fails_is_refused_before_the_folder(setup):
+    s3 = NoIndexWrites()
+    with pytest.raises(Refused, match=r"the release index could not be written \(RuntimeError: index down\), so nothing was uploaded"):
+        run(setup, with_args(setup, dry_run=False), s3)
+    assert not s3.puts and not s3.objects, "no folder file, no config.json"
+    assert setup.cfg_file.read_text() == json.dumps(EXAMPLE_SETTINGS)

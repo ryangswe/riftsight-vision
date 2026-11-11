@@ -16,6 +16,9 @@ break the public surface; this file names each break and how to migrate.
   workflow, which still waits for the maintainer's approval. It refuses, and creates nothing,
   when the section is missing, the version is on the package index or the index cannot be asked,
   or a higher version is already tagged. `RELEASING.md` has the steps that remain.
+- The labeller's optional `--probe`: in the center pass, each frame with a card marker also
+  takes a card height in frame pixels (Alt/Option+drag) and a camera angle class (keys 7, 8, 9),
+  kept in `probes.json` beside the labels. The label rows and the manifest export don't change.
 - `npm run user-wait --load-on-hover` measures a first hover with the load included. The session
   is not opened before the rests: rest 1 starts its clock when the pointer comes to rest and
   creates the session then, so its wait includes the release fetch, the runtime's start-up, the
@@ -24,8 +27,23 @@ break the public surface; this file names each break and how to migrate.
   gives the raw and the emulated load; it is an estimate. Not with `--correction` or
   `--measured-pacing`.
 
+### Changed
+
+- `cardvision cdn publish --config` now refuses a pointer to a release that was uploaded without the
+  refresh verdicts (exit 3, a dry run too). `publish-release` records in each release's index
+  entry whether it cleared the refresh gate (an optional `refreshGate` key; `schemaVersion` stays
+  1), and the pointer move reads that record. The record is written before the release's files,
+  so an upload that stops part-way still counts as uncleared, and an upload whose release index
+  cannot be written stops before any file is uploaded. Releases from before this change, and an
+  unreadable index, pass with a note or a warning, so a rollback is still one command. Verdict
+  options given to `publish-release` without `--config` are now read and recorded; before, they
+  were ignored.
+
 ### Fixed
 
+- The labeller's Enter and Space never skip an unanswered point or card; in the names and
+  check-names searches, Enter picks only a card you chose; an erased search counts as untouched
+  again; and arrow keys count for the card they were pressed on.
 - `npm run user-wait --cold` measures a cold first hover again: 0.11.0 ran its 5 settle analyses
   before the rests in every run, cold ones too, so the models had analyzed before the first rest.
   Only warm runs settle now, and the report's `analysis.pacerSettle` gives 0 for a cold run.

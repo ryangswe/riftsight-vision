@@ -277,13 +277,16 @@ runs first, a dry run included:
 10. **The release index,** `vision/releases/index.json`, the tool's own record of what it
    published: read now, so that one that cannot be read (an error other than "no such key", or
    not a JSON object with a `releases` object) refuses the run with nothing written. When there
-   is none yet, a new one is started.
+   is none yet, a new one is started. Each entry may carry a `refreshGate` record of how the
+   release cleared the refresh gate (see Safety checks).
 
-Then, without `--dry-run`: the pinned and legal files, `geometric.json`, `release.json` last in
-the folder (each checked by HEAD); the release index, when this run uploaded files or the index
-does not list the release yet (a run after a crash that found every file there); a live check of the folder
+Then, without `--dry-run`: the release's `refreshGate` state in the index (before the folder, so that
+a crash after it cannot leave a folder with no state; when that write fails the run is refused and nothing is uploaded); the pinned and legal files, `geometric.json`, `release.json` last in
+the folder (each checked by HEAD); the release index again (`publishedAt`, `bytes`), when this run uploaded files or the index
+does not list the release fully yet (a run after a crash that found every file there); a live check of the folder
 (`verify-release-live`); the data files; `config.json` last; and `verify`. Without `--config`
-the folder is published and the pointer does not move.
+the folder is published and the pointer does not move; verdict options given without `--config`
+are checked the same way and recorded in the index.
 
 ### verify-release-live
 
@@ -304,9 +307,23 @@ JSON. With a geometric pointer it also checks `geometric.json` and its index's b
   bucket or the public base holds one of `forbiddenWords`.
 - **The settings file** is checked against the contract before it goes out, and its `primary`
   must be on `_PUBLIC_BASE`. No template may point at another project.
-- **The refresh gate** guards `publish-release --config` only. `publish --config` with a
-  pointer that is not the live one is checked live (it must load), but not gated by the
-  verdicts: it is meant for a rollback to a release that was live before.
+- **The refresh gate** guards `publish-release --config`, and the index remembers its outcome.
+  `publish-release` writes a `refreshGate` key into the release's index entry (`schemaVersion`
+  stays 1; the key is optional): with the verdicts, `{at, rule, r, n}` (the SHA-256 of each
+  verdict file; `n` is null for R alone, which adds `againstLive`, the live release it was
+  compared with); with `--no-refresh-gate`, `{at, waived: true}` (the reason stays in the log,
+  since the index is public); with neither, `null`. Verdict options without `--config` are
+  checked and recorded the same way, so a folder can be uploaded first and cleared by that run
+  or a later one. An existing record is never set back to `null`.
+- **A pointer move checks that record.** `publish --config` with a pointer that is not the live
+  one reads the index: a record passes ("cleared <date>"); an entry or key from before the gate
+  passes ("recorded before the gate"), so rollbacks to old releases keep working; `null`
+  refuses (exit 3, a dry run too): the release "was uploaded without the refresh verdicts", so
+  run `publish-release --config` for it with `--verdict-r/--verdict-n` or `--no-refresh-gate`.
+  An index that cannot be read, or an entry that is not understood, passes with a warning, so
+  a rollback never depends on that file. The live pointer again never reads the index. The log
+  names the verdict hashes that cleared the release, and warns when an R-alone record was made
+  against another release than the live one.
 - **A pointer only moves to a folder that verifies live.** `publish --config` with a `release`
   field checks it live first, unless it is the live pointer already (so an emergency
   `namesOnly` never waits). A rollback is checked the same way.
@@ -344,5 +361,6 @@ cardvision cdn verify --env-file .env
 cardvision cdn verify-release-live --env-file .env --expect-id 0123456789abcdef
 ```
 
-A settings file with no `release` field returns installs to their bundled release. Folders stay
-on the host, unused.
+A rollback needs no verdict options: the release it names was live before, so the index holds its
+record or predates the gate (see Safety checks). A settings file with no `release` field returns
+installs to their bundled release. Folders stay on the host, unused.

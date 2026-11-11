@@ -236,7 +236,7 @@ holds the page's address, the video, a frame or a card.
 | `vision/releases/<id>/<bank, identity groups, catalog>.json`, by the document's own names | `application/json` | the same |
 | `vision/releases/<id>/LICENSE`, `NOTICE`, `PROVENANCE.md` | `text/plain; charset=utf-8`, `text/markdown; charset=utf-8` | the same |
 | `vision/releases/<id>/geometric.json`, before `release.json` | `application/json` | the same |
-| `vision/releases/index.json`, the tool's own record, not part of this contract | `application/json` | `no-cache` |
+| `vision/releases/index.json`, the tool's own record (it also notes whether a release cleared the refresh gate), not part of this contract | `application/json` | `no-cache` |
 
 Every object carries its SHA-256 in its metadata. The whole pinned set is uploaded, even the
 files an extension would reuse. A folder is never overwritten or deleted: a changed release is

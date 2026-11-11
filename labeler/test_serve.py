@@ -1085,6 +1085,78 @@ class Fixture(unittest.TestCase):
         self.assertEqual(st, 400)
         self.assertEqual(self.read_frames("lab-cen", "vidA")[0]["centerSeq"], 4)  # nothing refused was written
 
+    # ---- the optional probe of a center frame (--probe) ----------------------------------
+
+    def test_probe_is_off_by_default(self):
+        self.config("lab-pr-off", mode="center")
+        self.assertNotIn("probe", self.get("/api/config")[1])
+        self.assertNotIn("probes", self.get("/api/labels/vidA")[1])
+        self.assertEqual(self.post("/api/probe/vidA", {"frame": "f00001.jpg", "angleClass": "<=30"})[0], 404)
+        fr = self.center_frame("f00001.jpg", [{"id": "C001", "x": 0.5, "y": 0.25, "kind": "face"}])
+        self.assertEqual(self.post("/api/labels/vidA/frames/f00001.jpg", {"frame": fr})[0], 200, "a frame is confirmed without a probe")
+        self.assertFalse((self.tmp / "lab-pr-off" / "probes.json").exists())
+
+    def test_probe_only_in_a_center_pass(self):
+        self.config("lab-pr-pt", mode="point", probe=True)
+        self.assertNotIn("probe", self.get("/api/config")[1])
+        self.assertEqual(self.post("/api/probe/vidA", {"frame": "f00001.jpg", "angleClass": "<=30"})[0], 404)
+        self.assertTrue(serve.build_parser().parse_args(["--mode", "center", "--role", "test", "--sample", "s.json", "--probe"]).probe)
+        self.assertFalse(serve.build_parser().parse_args(["--mode", "center", "--role", "test", "--sample", "s.json"]).probe)
+
+    def test_probe_is_kept_beside_the_labels_and_gates_the_confirmation(self):
+        self.config("lab-pr", mode="center", probe=True)
+        self.assertEqual(self.get("/api/config")[1]["probe"], {"angleClasses": ["<=30", "30-45", ">45"]})
+        self.assertEqual(self.get("/api/labels/vidA")[1]["probes"], {})
+        fr = self.center_frame("f00001.jpg", [{"id": "C001", "x": 0.5, "y": 0.25, "kind": "face"}])
+        st, res = self.post("/api/labels/vidA/frames/f00001.jpg", {"frame": fr})
+        self.assertEqual((st, res["problem"]), (409, "probe-missing"))
+        open_frame = self.center_frame("f00001.jpg", fr["centers"], done=False)
+        self.assertEqual(self.post("/api/labels/vidA/frames/f00001.jpg", {"frame": open_frame})[0], 200, "an unconfirmed frame saves")
+        st, res = self.post("/api/probe/vidA", {"frame": "f00001.jpg", "cardHeightPx": 142})
+        self.assertEqual((st, res["probe"], res["full"]), (200, {"cardHeightPx": 142}, False))
+        self.assertEqual(self.post("/api/labels/vidA/frames/f00001.jpg", {"frame": fr})[0], 409, "the height alone is not a full probe")
+        st, res = self.post("/api/probe/vidA", {"frame": "f00001.jpg", "angleClass": "30-45"})
+        self.assertEqual((st, res["probe"], res["full"]), (200, {"cardHeightPx": 142, "angleClass": "30-45"}, True))
+        self.assertEqual(self.post("/api/labels/vidA/frames/f00001.jpg", {"frame": fr})[0], 200)
+        # the side file; the label rows hold no probe
+        doc = json.loads((self.tmp / "lab-pr" / "probes.json").read_text())
+        self.assertEqual(doc, {"probes": {"vidA/f00001.jpg": {"angleClass": "30-45", "cardHeightPx": 142}}})
+        self.assertNotIn("probe", self.read_frames("lab-pr", "vidA")[0])
+        self.assertEqual(self.get("/api/labels/vidA")[1]["probes"]["f00001.jpg"]["cardHeightPx"], 142)
+        # a probe can be measured again; another frame has none
+        self.assertEqual(self.post("/api/probe/vidA", {"frame": "f00001.jpg", "cardHeightPx": 150})[1]["probe"]["cardHeightPx"], 150)
+        # a frame with no cards is confirmed without a probe, and writes none
+        fr2 = self.center_frame("f00002.jpg", [], t=1)
+        self.assertEqual(self.post("/api/labels/vidA/frames/f00002.jpg", {"frame": fr2})[0], 200)
+        self.assertEqual(list(json.loads((self.tmp / "lab-pr" / "probes.json").read_text())["probes"]), ["vidA/f00001.jpg"])
+
+    def test_probe_never_overwrites_a_damaged_file(self):
+        self.config("lab-pr-dmg", mode="center", probe=True)
+        path = self.tmp / "lab-pr-dmg" / "probes.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        good = {"probes": {"vidB/f00001.jpg": {"cardHeightPx": 90, "angleClass": ">45"}}}
+        for text in ("{not json", json.dumps({"other": 1}), json.dumps({"probes": {"vidB/f00001.jpg": {"cardHeightPx": -4}}}),
+                     json.dumps({"probes": {"nokey": {"cardHeightPx": 4}}})):
+            path.write_text(text)
+            st, res = self.post("/api/probe/vidA", {"frame": "f00001.jpg", "angleClass": "<=30"})
+            self.assertEqual((st, res["problem"]), (409, "probes-damaged"), text)
+            self.assertEqual(path.read_text(), text, "nothing was written")
+        path.write_text(json.dumps(good))
+        self.assertEqual(self.post("/api/probe/vidA", {"frame": "f00001.jpg", "angleClass": "<=30"})[0], 200)
+        self.assertEqual(sorted(json.loads(path.read_text())["probes"]), ["vidA/f00001.jpg", "vidB/f00001.jpg"], "the other probes are kept")
+
+    def test_probe_refuses_bad_values(self):
+        self.config("lab-pr-bad", mode="center", probe=True)
+        for body in ({"frame": "f00001.jpg", "cardHeightPx": 0}, {"frame": "f00001.jpg", "cardHeightPx": 12.5},
+                     {"frame": "f00001.jpg", "cardHeightPx": True}, {"frame": "f00001.jpg", "cardHeightPx": "140"},
+                     {"frame": "f00001.jpg", "angleClass": "45"}, {"frame": "f00001.jpg", "angleClass": None},
+                     {"frame": "f00001.jpg"}, {"frame": "../x", "angleClass": "<=30"}, {"angleClass": "<=30"}):
+            self.assertEqual(self.post("/api/probe/vidA", body)[0], 400, body)
+        self.assertEqual(self.post("/api/probe/vidA", {"frame": "f00099.jpg", "angleClass": "<=30"})[0], 404)
+        self.assertEqual(self.post("/api/probe/nope", {"frame": "f00001.jpg", "angleClass": "<=30"})[0], 404)
+        self.assertEqual(self.post("/api/probe/vidA", {"frame": "f00001.jpg", "angleClass": "<=30"}, run=False)[0], 409)
+        self.assertFalse((self.tmp / "lab-pr-bad" / "probes.json").exists(), "nothing refused was written")
+
     def test_center_guards(self):
         for kw in (dict(mode="center", role="training"),
                    dict(mode="center", role="development", prefill=[str(self.tmp / "prefill.json")]),
@@ -1872,7 +1944,7 @@ class NodeTests(unittest.TestCase):
         if node is None:
             self.skipTest("node not on PATH")
         for script in ("test_picker.js", "test_quadsnap.js", "test_snap.js", "test_labeltools.js", "test_filters.js", "test_boxgeom.js", "test_boxedit.js", "test_timinglog.js", "test_centergeom.js", "test_verifycore.js",
-                       "test_uistate.js", "test_keyroute.js", "test_savegate.js", "test_boxsize.js", "test_names.js"):
+                       "test_uistate.js", "test_keyroute.js", "test_savegate.js", "test_boxsize.js", "test_names.js", "test_probecore.js", "test_straykeys.js"):
             res = subprocess.run([node, str(HERE / script)], capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, f"{script}: {res.stdout}\n{res.stderr}")
 
