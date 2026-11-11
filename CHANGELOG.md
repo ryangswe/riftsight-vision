@@ -30,6 +30,9 @@ break the public surface; this file names each break and how to migrate.
   After that repeat, a move to another card is named at once with no new look; a move to a card
   not yet verified waits for the repeat in flight (nothing shows there meanwhile) and queues no
   extra look. Playing video, scope "all" and a session with no stage are unchanged.
+- With `whenIdle`, a page-wide pointer move (`intent: "page"`) no longer rebuilds a dropped compute
+  frame; only a trusted move or tap over the video does. Rebuilding on any page move cost more than
+  it saved for viewers who don't hover. `intent` still reloads the worker of a frame that was kept.
 
 ### Added
 

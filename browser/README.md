@@ -1022,8 +1022,11 @@ By default an idle frame stays and reloads its worker in place. Ending the worke
 frame's own renderer process running, which on a real release costs about 90 MB of footprint more
 than no frame. `createCaptureControl({ whenIdle: { remove, make } })` drops the whole frame
 instead: on the `idle` status it calls `remove()` (delete the iframe), and the next trusted pointer
-move or `pointerdown` (a tap) over the video, or an `intent` moment while the video plays, calls `make()` (create a new
-iframe; the function you give `loadWhen` works) and connects to it. `startComputeFrame` returns a
+move or `pointerdown` (a tap) over the video calls `make()`, which creates a new iframe (the
+function you give `loadWhen` works); the control then connects to it. An `intent` moment does not
+call `make()`: rebuilding on any page move cost more than it saved for viewers who don't hover. If
+`make()` throws, the control stays removed and only the next trusted move or tap over the video
+tries again, not a move elsewhere on the page. `startComputeFrame` returns a
 `state` that reads `idle` while idle (`core` still reads `loading` then). The control's
 `frameRemoved` is true from `remove()` until the next accepted handshake. A product must not make
 the frame on its own load triggers while it is true: `loadWhen` fires once, so it is safe, but a
