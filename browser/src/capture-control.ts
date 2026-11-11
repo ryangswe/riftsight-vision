@@ -22,6 +22,11 @@
 // clears the record of a card showing and drops a pending capture, and keeps a pointer only if
 // it is still within its window over the picture.
 //
+// With `intent: "page"` the controller also tells the frame, at most once a second, that the
+// viewer is active while the watched video plays: a trusted pointer move anywhere in the page.
+// It gives no capture authority; it only lets a frame that unloaded its worker when idle load it
+// again before the pointer reaches the picture. `loadWhen` is the same idea for making the frame.
+//
 // A product still picks the video (`attach`), draws the card (`onShown`), and may narrow where
 // a pointer counts (`eligible`: its own overlays and controls).
 
@@ -84,6 +89,29 @@ export interface CaptureControlOptions {
   limits?: GateLimits;
   /** Passed to `grabFrame`. */
   grab?: GrabDeps;
+  /** "page": a trusted pointer move anywhere in the document, while the watched video plays and
+   *  at most once a second, sends an `intent` message to the frame. Off when absent. */
+  intent?: "page";
+  /** Opt in to dropping the whole compute frame when it goes idle. When the frame reports the
+   *  status `idle` (start it with `idleUnloadMs`), the control calls `remove()` once and sends
+   *  nothing more to that frame. The next trusted pointer move over the watched video calls
+   *  `make()` once, and so does an `intent` moment (a trusted move anywhere while the video plays,
+   *  with `intent: "page"`); in that state no `intent` message is sent. The control then connects
+   *  to the new frame as it does for any replaced iframe, so `frame()` must return the new frame's
+   *  window once `make()` returns. A trusted `pointerdown` over the picture (a touch tap) makes the
+   *  frame too. After `make()` the usual `no-answer` problem can fire if the frame never answers;
+   *  the product handles it as it does for its first frame. If `make()` throws, the control stays
+   *  in the removed state (the throw is not reported: no problem kind fits) and the next trusted
+   *  move tries again. A frame the product makes and connects itself also ends the removed state,
+   *  so do not make the frame on your own load triggers while `control.frameRemoved` is true:
+   *  `loadWhen` fires once, so it is safe, but a reload on every `playing` event (a looping clip
+   *  fires one) would quietly undo the unload.
+   *
+   *  The product deletes the iframe in `remove` and creates a new one in `make`: the same function
+   *  it gives `loadWhen` works. Dropping the frame frees its renderer (about 90 MB on a real
+   *  release) that keeping the frame and ending only its worker does not. Without this option an
+   *  idle frame stays and reloads in place when a pointer or intent message reaches it. */
+  whenIdle?: { remove(): void; make(): void };
   /** Timers; default the global `setTimeout` / `clearTimeout`. */
   timers?: { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void };
 }
@@ -104,6 +132,9 @@ export interface CaptureControl {
   readonly watch: VideoWatch | null;
   /** Whether a compatible frame said `ready` (and is still the frame). */
   readonly connected: boolean;
+  /** With `whenIdle`: true from the call to `remove()` until the next accepted handshake, so a
+   *  product can check it before making a frame of its own. Always false without the option. */
+  readonly frameRemoved: boolean;
   /** The gate's four fields now (a copy, for diagnostics). */
   gateState(): GateState;
   /** Whether a capture would be allowed now. A trusted point no longer over the picture clears
@@ -170,6 +201,39 @@ export function postWithTransfer(target: Window | null, message: unknown, target
   return false;
 }
 
+/** The least time between two `intent` messages, in ms. */
+export const INTENT_INTERVAL_MS = 1000;
+
+/** The part of a video `loadWhen` uses. */
+export type PlayWatch = Pick<HTMLVideoElement, "paused" | "ended" | "addEventListener" | "removeEventListener">;
+
+/**
+ * Call `make` once when `video` is playing: at once if it already is (not paused, not ended),
+ * else at its next `playing` event. Never for a paused or ended video, never twice. The result's
+ * `stop()` removes the listener (and is safe to call after `make` ran). Use it to make the
+ * compute frame at play rather than at the first pointer move.
+ */
+export function loadWhen(video: PlayWatch, when: "play", make: () => void): { stop(): void } {
+  if (when !== "play") throw new TypeError(`loadWhen: not a supported moment: ${String(when)}`);
+  let done = false;
+  const onPlaying = (): void => {
+    if (done || video.paused || video.ended) return;
+    stop();
+    make();
+  };
+  const stop = (): void => {
+    done = true;
+    video.removeEventListener("playing", onPlaying);
+  };
+  if (!video.paused && !video.ended) {
+    done = true;
+    make();
+  } else {
+    video.addEventListener("playing", onPlaying);
+  }
+  return { stop };
+}
+
 const defaultTimers = {
   set: (fn: () => void, ms: number): unknown => setTimeout(fn, ms),
   clear: (handle: unknown): void => clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -204,7 +268,12 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   let helloSent = 0;
   let loadSince: number | null = null;
   let captureInFlight = false;
+  let lastIntentAt = -Infinity;
   let stopped = false;
+  /** With `whenIdle`: the frame was dropped and no new one has been made. */
+  let frameRemoved = false;
+  /** True from `remove()` until the next accepted handshake (the public `frameRemoved`). */
+  let dropped = false;
   const listening = new Set<() => void>();
 
   /** The frame we handshook with, if it is still the frame. */
@@ -276,12 +345,38 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     if (at) send({ kind: "pointer", x: at.x, y: at.y, mediaTime: watch.mediaTime(), touch: authority.kind === "tap" });
   }
 
+  /** The frame reported `idle`: drop it, once. Nothing is sent to it after this. */
+  function removeFrame(): void {
+    if (stopped || !options.whenIdle) return;
+    frameRemoved = true;
+    dropped = true;
+    handshake = null;
+    stopHello();
+    options.whenIdle.remove();
+  }
+
+  /** Make the new frame, once, and connect to it. */
+  function makeFrame(): void {
+    if (stopped || !options.whenIdle || !frameRemoved) return;
+    frameRemoved = false;
+    try {
+      options.whenIdle.make();
+    } catch {
+      // No new frame: stay removed, so the next trusted move tries again. The throw is not
+      // reported: no problem kind fits it.
+      frameRemoved = true;
+      return;
+    }
+    connect();
+  }
+
   // ------------------------------------------------------------ pointer events
   function onPointer(event: PointerEvent): void {
     if (stopped || event.isTrusted !== true || !watch) return;
     const kind = event.pointerType === "touch" ? "tap" : "hover";
     const id = event.pointerId;
     const at = where(event.clientX, event.clientY);
+    if (frameRemoved && at && (event.type === "pointermove" || event.type === "pointerdown")) makeFrame();
     if (kind === "hover") {
       if (at) {
         authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now() };
@@ -309,6 +404,19 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       sendPointer(at);
     }
     // pointerup: the tap's window outlives the finger; another pointer's move inherits nothing.
+  }
+
+  function onIntent(event: PointerEvent): void {
+    if (stopped || options.intent !== "page" || event.isTrusted !== true || !watch) return;
+    const video = watch.video;
+    if (video.paused || video.ended) return;
+    if (frameRemoved) return makeFrame();
+    const target = connectedFrame();
+    if (!target) return;
+    const at = now();
+    if (at - lastIntentAt < INTENT_INTERVAL_MS) return;
+    lastIntentAt = at;
+    send({ kind: "intent" }, target);
   }
 
   function onCancel(event: PointerEvent): void {
@@ -389,6 +497,9 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     stopHello();
     if (handshake && handshake.window === from && handshake.instance === instance) return; // an answer to a repeated hello
     handshake = { window: from, instance };
+    // A frame the product made itself counts as the new frame: the next idle removes it.
+    frameRemoved = false;
+    dropped = false;
     // A new frame: it shows nothing and asked for nothing yet. What it showed before counts no
     // more; a capture still pending was for the old one (`captureFor` drops it). A pointer still
     // within its window is told again, with the picture's time; an expired one is not.
@@ -450,6 +561,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     switch (message.kind) {
       case "status":
         options.onStatus?.(message);
+        if (message.state === "idle") removeFrame();
         break;
       case "shown": {
         // A card noted only while someone points: a late answer after a reset revives nothing.
@@ -471,6 +583,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   function listen(win: Window, doc: Document): () => void {
     const capture = { capture: true, passive: true } as const;
     const pointer = (event: Event): void => onPointer(event as PointerEvent);
+    const intent = (event: Event): void => onIntent(event as PointerEvent);
     const cancel = (event: Event): void => onCancel(event as PointerEvent);
     // The pointer left the document: `pointerleave` on the root, which does not bubble, so it is
     // seen here in the capture phase, before any page listener on the root. A touch's own
@@ -485,6 +598,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     const visibility = (): void => onVisibility(doc);
     const added: Array<[EventTarget, string, (event: Event) => void]> = [
       [win, "pointermove", pointer],
+      [win, "pointermove", intent],
       [win, "pointerdown", pointer],
       [win, "pointerup", pointer],
       [win, "pointercancel", cancel],
@@ -521,6 +635,9 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     onMessage,
     get watch() {
       return watch;
+    },
+    get frameRemoved() {
+      return dropped;
     },
     get connected() {
       return connectedFrame() !== null;

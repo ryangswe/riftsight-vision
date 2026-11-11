@@ -13,6 +13,15 @@
 //     core keeps its failed status and error, which the host still reports.
 //   - Messages and errors from a worker that was replaced are ignored.
 //
+// An idle unload (`suspend`, `resume`) is not a crash: the host ends the worker on purpose, the
+// restart is not used up, no release is replaced, and `resume` loads exactly the request that was
+// in effect (a remote release included, with nothing chosen again). A crash afterwards still gets
+// its one restart. A resumed load that fails is not an idle unload's fault either: it takes the
+// one restart, on the bundled release, as a crash after ready does (no refusal, no skip-list, no
+// new choice); with the restart used up recognition is off. A stage the worker turned off stays
+// off for the rest of the session (resume loads the plain request). The request in effect is kept
+// only with `keepLoadRequest`.
+//
 // With `chooseRelease` (remote/choose.ts) the page may run a remote release
 // (docs/remote-releases.md, rules 10 to 12). It is tried at most once: when the worker refuses it
 // (rule 10), loads another id (rule 11) or never starts, a new worker loads the bundled release
@@ -74,6 +83,9 @@ export interface WorkerSessionEnv {
   hold?: ShownHold;
   /** True: named cards follow their outline (`SessionOptions.rotatedOutlines`). */
   rotatedOutlines?: boolean;
+  /** Keep the load request in effect (a remote release's files included) so that `suspend` can
+   *  load it again. Off by default: the request is then not held after the worker has it. */
+  keepLoadRequest?: boolean;
   /** Capture the picture now and answer the core with `frame` or `captureFailed`. */
   capture(requestId: number, analysisWidth: AnalysisWidth): void;
   onShown?(card: Shown | null): void;
@@ -109,6 +121,17 @@ export interface WorkerSession {
   readonly release: ReleaseInEffect;
   /** Call every `DRIVER_TICK_MS`. */
   tick(): void;
+  /** The worker was ended by `suspend` and `resume` has not been called. */
+  readonly suspended: boolean;
+  /** End the worker to give its memory back, keeping the core and the release in effect; false
+   *  (nothing done) unless the session is ready, with no remote release still being tried. The
+   *  core goes back to loading. Not a restart. */
+  suspend(): boolean;
+  /** Start a worker again on the load request in effect when `suspend` was called (without the
+   *  geometric stage if the worker had turned it off). If that load fails, or the worker stops
+   *  while it loads, it is the one restart (bundled release, plain load); with the restart used up
+   *  recognition is off. No effect unless suspended. */
+  resume(): void;
   /** End the worker and the core. */
   stop(): void;
 }
@@ -125,6 +148,16 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
   /** The remote release the current worker is loading, until it is confirmed or given up on. */
   let trying: RemoteChoice | null = null;
   let sawPreparing = false;
+  /** The load request of the worker now running, or of the one `suspend` ended. */
+  let requestInEffect: LoadRequest | null = null;
+  let suspended = false;
+  /** The request `resume` loads: the one in effect, without the stage if the worker ever turned
+   *  it off (that holds for the rest of the session). */
+  let resumeRequest: LoadRequest | null = null;
+  /** The geometric stage was reported off by the worker: off for the rest of the session. */
+  let geometricOff = false;
+  /** A resumed worker is loading: its failure is a restart, as a crash after ready is. */
+  let resuming = false;
   /** The pointer id of the remote release in effect (for the log line of a restart). */
   let remotePointer: string | null = null;
   const release: ReleaseInEffect = { source: env.chooseRelease ? "choosing" : "bundled", id: null, reason: null, table: null };
@@ -158,10 +191,17 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
   const onReply = (reply: WorkerReply): void => {
     if (stopped || !core) return;
     if (trying && reply.kind === "release-progress" && reply.phase === "preparing") sawPreparing = true;
+    if (reply.kind === "geometric-status" && reply.state === "off") geometricOff = true;
     if (reply.kind === "release-status") {
       // Only the answer to a load in progress: a late one changes nothing once loaded or failed.
       if (core.status().state !== "loading") return;
       if (trying && !onRemoteStatus(reply)) return;
+      if (resuming) {
+        resuming = false;
+        // A resumed load that fails costs the one restart, on the bundled release (rule 12); it
+        // is no refusal: nothing is skip-listed and nothing is chosen again.
+        if (!reply.ok && restartOnBundled()) return;
+      }
     }
     // The bundled release did not load (a remote one falls back above, and never gets here): off
     // before the core publishes its failed status, so a host that reads `stopped` then sees it.
@@ -218,6 +258,28 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     startOrFail(request);
   };
 
+  /** The one restart: true when it was made (the worker is ended, a new one loads the plain
+   *  bundled request), false when it is already used. */
+  const restartOnBundled = (): boolean => {
+    if (restarts >= WORKER_RESTARTS || !core) return false;
+    restarts += 1;
+    worker?.terminate();
+    // Shown cleared, the stage reported off, status loading: then the new worker.
+    core.workerStopped({ restart: true });
+    // The one restart always loads the bundled release (rule 12): the remote one is not tried
+    // again in this page.
+    if (release.source === "remote") {
+      release.source = "bundled";
+      release.id = null;
+      release.reason = "worker-restart";
+      release.table = null;
+      decision({ source: "bundled", reason: "worker-restart", pointer: remotePointer });
+    }
+    // A restarted worker gets the plain load: the stage is not tried again in this page.
+    startOrFail(plainLoad(env.loadRequest));
+    return true;
+  };
+
   const onWorkerError = (event: ErrorEvent): void => {
     if (stopped || !core) return;
     const state = core.status().state;
@@ -230,26 +292,16 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       return;
     }
     worker?.terminate();
-    if (state === "loading" && restarts === 0) {
+    if (resuming) {
+      resuming = false;
+      if (restartOnBundled()) return;
+    } else if (state === "loading" && restarts === 0) {
       turnOff();
       core.workerStopped({ error: `the worker did not start (${reason})` });
       return;
     }
     if (restarts < WORKER_RESTARTS) {
-      restarts += 1;
-      // Shown cleared, the stage reported off, status loading: then the new worker.
-      core.workerStopped({ restart: true });
-      // The one restart always loads the bundled release (rule 12): the remote one is not tried
-      // again in this page.
-      if (release.source === "remote") {
-        release.source = "bundled";
-        release.id = null;
-        release.reason = "worker-restart";
-        release.table = null;
-        decision({ source: "bundled", reason: "worker-restart", pointer: remotePointer });
-      }
-      // A restarted worker gets the plain load: the stage is not tried again in this page.
-      startOrFail(plainLoad(env.loadRequest));
+      restartOnBundled();
       return;
     }
     stopped = true;
@@ -258,6 +310,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
 
   const startWorker = (request: LoadRequest): void => {
     const w = env.createWorker();
+    if (env.keepLoadRequest) requestInEffect = request;
     w.onmessage = (event) => {
       if (w === worker) onReply(event.data);
     };
@@ -315,8 +368,29 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     get release() {
       return { ...release };
     },
+    get suspended() {
+      return suspended;
+    },
     tick() {
-      if (!stopped) core?.tick();
+      if (!stopped && !suspended) core?.tick();
+    },
+    suspend() {
+      if (stopped || suspended || trying || !worker || !requestInEffect || core?.status().state !== "ready") return false;
+      suspended = true;
+      resumeRequest = geometricOff ? plainLoad(requestInEffect) : requestInEffect;
+      const ended = worker;
+      worker = null;
+      ended.terminate();
+      core.workerStopped({ idle: true });
+      return true;
+    },
+    resume() {
+      if (stopped || !suspended || !resumeRequest) return;
+      suspended = false;
+      resuming = true;
+      // The stage loads again with the request, or stays off.
+      if (resumeRequest.geometricUrl !== undefined) core?.reloading({ geometric: true });
+      startOrFail(resumeRequest);
     },
     stop() {
       stopped = true;

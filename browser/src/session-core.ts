@@ -451,17 +451,32 @@ export class SessionCore {
    * so nothing is shown. `{ restart: true }`: another worker loads the release, the state is
    * "loading" again (the release in effect is kept until it answers), the geometric stage is
    * reported off with the reason `worker-restarted` (to `onGeometricStatus` in any case, in the
-   * status only when a stage was asked for). `{ error }`: recognition is off ("failed").
+   * status only when a stage was asked for). `{ idle: true }`: the worker was ended on purpose
+   * (worker-session.ts `suspend`): as a restart, but not a loss; a running stage is reported off
+   * with the reason `idle-unload`. `{ error }`: recognition is off ("failed").
    * Ignored once stopped or failed.
    */
-  workerStopped(next: { restart: true } | { error: string }): void {
+  workerStopped(next: { restart: true } | { idle: true } | { error: string }): void {
     if (this.st.state === "stopped" || this.st.state === "failed") return;
     this.inFlight = null;
     this.result = null;
     this.held = null;
     this.st.loading = null;
     this.publishShown();
-    if ("restart" in next) {
+    if ("idle" in next) {
+      // The worker was ended on purpose, not lost: loading again, the release in effect kept. A
+      // stage that was running is reported off with the reason `idle-unload` (to `onGeometricStatus`
+      // too), so that no host keeps showing it as on; a resume that loads it again sets it loading
+      // (`reloading`). One that was off, or never asked for, is left as it was.
+      if (this.st.geometric && this.st.geometric.state !== "off") {
+        const off: GeometricStatus = { kind: "geometric-status", state: "off", reason: "idle-unload", bytes: null };
+        this.st.geometric = { state: off.state, reason: off.reason, bytes: off.bytes };
+        this.deps.onGeometricStatus?.(off);
+      }
+      this.st.state = "loading";
+      this.analyzedSinceLoad = false;
+      this.st.error = null;
+    } else if ("restart" in next) {
       const off: GeometricStatus = { kind: "geometric-status", state: "off", reason: "worker-restarted", bytes: null };
       if (this.st.geometric) this.st.geometric = { state: off.state, reason: off.reason, bytes: off.bytes };
       this.deps.onGeometricStatus?.(off);
@@ -473,6 +488,11 @@ export class SessionCore {
       this.st.error = next.error;
     }
     this.publishStatus();
+  }
+
+  /** Whether a look is out: asked for, or being analyzed. */
+  analysisInFlight(): boolean {
+    return this.inFlight !== null;
   }
 
   /** Another worker now loads a release in place of one that never loaded (a fallback): the

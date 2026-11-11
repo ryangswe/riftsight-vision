@@ -40,7 +40,7 @@ export interface ShownCard {
 
 /** The two-frame contract's version. A content script and a compute frame work together only
  *  when they speak the same one: `hello` and `ready` carry it, and each side compares. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Content script -> compute frame. */
 export type ComputeIn =
@@ -52,6 +52,9 @@ export type ComputeIn =
   | { kind: "pointer"; x: number; y: number; mediaTime: number; touch: boolean }
   /** The pointer left the picture. */
   | { kind: "leave" }
+  /** The viewer is probably about to want recognition: a frame that unloaded its worker when idle
+   *  (status `idle`) loads it again. Otherwise it only counts as activity. */
+  | { kind: "intent" }
   /** The video presented a new frame (playback, a seek ended, the video became ready). */
   | { kind: "presented"; mediaTime: number }
   /** A seek started, or the video was given another source (`newSource`). */
@@ -69,7 +72,7 @@ export type ComputeOut =
    *  hex characters, made once per compute frame, so that a content script tells a new frame
    *  (reloaded or replaced) from the one it spoke to. Not a secret: the page can read it. */
   | { kind: "ready"; version: number; instance: string }
-  | { kind: "status"; state: "loading" | "ready" | "failed"; error: string | null; backend: string | null }
+  | { kind: "status"; state: "loading" | "ready" | "failed" | "idle"; error: string | null; backend: string | null }
   /** Capture the current picture at a width within `analysisWidth` and send it back as `frame`. */
   | { kind: "capture"; requestId: number; analysisWidth: { min: number; max: number } }
   /** What a tooltip shows for the pointer's position now; null for nothing. */
@@ -199,6 +202,8 @@ export function computeProtocol(tag = "cardvision"): ComputeProtocol {
           : null;
       case "leave":
         return { kind: "leave" };
+      case "intent":
+        return { kind: "intent" };
       case "presented":
         return isNum(m.mediaTime) ? { kind: "presented", mediaTime: m.mediaTime } : null;
       case "discontinuity":
@@ -227,7 +232,7 @@ export function computeProtocol(tag = "cardvision"): ComputeProtocol {
       case "status": {
         const error = statusText(m.error);
         const backend = statusText(m.backend);
-        return (m.state === "loading" || m.state === "ready" || m.state === "failed") && error !== undefined && backend !== undefined
+        return (m.state === "loading" || m.state === "ready" || m.state === "failed" || m.state === "idle") && error !== undefined && backend !== undefined
           ? { kind: "status", state: m.state, error, backend }
           : null;
       }
