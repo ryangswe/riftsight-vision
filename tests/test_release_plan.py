@@ -40,6 +40,10 @@ Intro line.
 """
 
 
+FINAL_NOTES = ("Intro line.\n\n### Added\n\n- A new thing.\n"
+               "\n## 0.12.0rc1 (2026-11-15)\n\n### Added\n\n- A candidate.\n")
+
+
 def listing(**tags: str) -> str:
     return "".join(f"{sha}\trefs/tags/v{name}\n" for name, sha in tags.items())
 
@@ -66,8 +70,8 @@ def test_an_annotated_tag_is_read_through_its_commit():
 def test_a_raised_version_is_released_with_the_sections_body_as_notes():
     plan = decide(facts())
     assert (plan.action, plan.create, plan.dispatch, plan.prerelease) == ("release", True, True, False)
-    assert plan.notes == "Intro line.\n\n### Added\n\n- A new thing.\n"
-    assert not plan.notes.startswith("##") and "0.12.0rc1" not in plan.notes
+    assert plan.notes == FINAL_NOTES
+    assert not plan.notes.startswith("##")
 
 
 def test_a_release_candidate_is_a_prerelease():
@@ -81,8 +85,24 @@ def test_a_release_after_a_candidate_is_not_lower_than_it():
     assert decide(facts(tags=tags)).action == "release"
 
 
-def test_the_notes_are_the_section_text_that_the_changelog_test_sees():
-    assert release_plan.sections(CHANGELOG)["0.12.0"].strip() + "\n" == release_plan.notes_for(CHANGELOG, "0.12.0")
+def test_a_finals_notes_follow_its_own_section_with_each_candidates_newest_first():
+    text = CHANGELOG.replace("## [0.11.0]", "## [0.12.0rc2] - 2026-11-17\n\n- Second.\n\n## [0.11.0]")
+    assert release_plan.notes_for(text, "0.12.0") == (
+        "Intro line.\n\n### Added\n\n- A new thing.\n"
+        "\n## 0.12.0rc2 (2026-11-17)\n\n- Second.\n"
+        "\n## 0.12.0rc1 (2026-11-15)\n\n### Added\n\n- A candidate.\n")
+    assert release_plan.notes_for(text, "0.12.0rc1") == "### Added\n\n- A candidate.\n"
+    assert release_plan.notes_for(text, "0.11.0") == "### Fixed\n\n- Old.\n"
+
+
+def test_the_real_changelog_gives_the_hand_made_notes_of_0_10_0_and_plain_bodies_elsewhere():
+    """0.10.0 was released by hand with its section followed by its candidate's under a dated heading."""
+    real = (release_plan.ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    found = release_plan.sections(real)
+    assert release_plan.notes_for(real, "0.10.0") == (
+        found["0.10.0"].strip() + "\n\n## 0.10.0rc1 (2026-11-09)\n\n" + found["0.10.0rc1"].strip() + "\n")
+    for name in ("0.11.0", "0.10.1", "0.10.0rc1"):
+        assert release_plan.notes_for(real, name) == found[name].strip() + "\n", name
 
 
 # Row 3: no usable changelog section.
@@ -136,7 +156,7 @@ def test_a_rerun_with_everything_done_does_nothing():
 def test_a_rerun_with_only_the_release_missing_creates_only_the_release():
     plan = decide(facts(tags=listing(**{"0.12.0": HERE}), publish_runs=1))
     assert (plan.action, plan.create, plan.dispatch) == ("release", True, False)
-    assert plan.notes.startswith("Intro line.")
+    assert plan.notes == FINAL_NOTES
 
 
 def test_a_rerun_with_only_the_upload_missing_dispatches_only():
@@ -179,7 +199,7 @@ def run(tmp_path, monkeypatch, **overrides):
 def test_the_script_writes_the_notes_and_the_outputs(tmp_path, monkeypatch):
     code, notes = run(tmp_path, monkeypatch)
     assert code == 0
-    assert notes.read_text(encoding="utf-8") == "Intro line.\n\n### Added\n\n- A new thing.\n"
+    assert notes.read_text(encoding="utf-8") == FINAL_NOTES
     assert (tmp_path / "out").read_text(encoding="utf-8") == "create=true\nprerelease=false\ndispatch=true\n"
 
 

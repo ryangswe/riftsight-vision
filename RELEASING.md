@@ -54,11 +54,11 @@ Steps 1, 3 and 4. A patch never breaks the public surface.
 Publish its measured numbers beside the previous release's, and make sure
 `cardvision verify-release` passes on the release document before the final tag.
 
-## Checks before any tag
+## Checks before merging a version bump
 
 - Nothing in the release's milestone is open; close the milestone once the release is out, and
   open one for the next.
-- CI is green on `main`, and `python -m pytest -n auto --dist loadfile` passes.
+- The pull request's checks are green, and `python -m pytest -n auto --dist loadfile` passes.
 - `CHANGELOG.md` has a section for the version in `pyproject.toml`
   (`tests/test_release_process.py` checks this).
 - Never land a change to the release automation in the same pull request as a version bump.

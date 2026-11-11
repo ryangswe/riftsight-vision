@@ -508,6 +508,7 @@ def test_the_release_workflow_decides_before_it_creates_or_dispatches_and_holds_
     assert "id-token" not in text and "environment:" not in text and "pip install" not in text and "secrets." not in text
     # The only action is the checkout, pinned to the commit the other workflows pin.
     assert [line.strip() for line in lines if "uses: " in line] == [f"- uses: {CHECKOUT}"]
+    assert f"      - uses: {CHECKOUT}\n        with:\n          persist-credentials: false\n" in text
     # The decision comes first; every create and dispatch follows it and runs only on its outputs.
     steps = steps_of("release.yml")
     names = list(steps)
@@ -518,10 +519,10 @@ def test_the_release_workflow_decides_before_it_creates_or_dispatches_and_holds_
     assert "      - name: Decide\n        id: plan\n" in text
     for at, line in enumerate(lines):
         if "gh release create" in line or "gh workflow run" in line:
-            assert at > text[:text.index("tests/release_plan.py")].count("\n")
+            assert at > text[:text.index("run: python3 tests/release_plan.py")].count("\n")
     assert text.count("gh release create") == 2 and text.count("gh workflow run") == 1
-    assert 'gh release create "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md" --prerelease\n' in create["run"]
-    assert 'gh release create "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md"\n' in create["run"]
+    assert 'gh release create "v${VERSION}" --title "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md" --prerelease\n' in create["run"]
+    assert 'gh release create "v${VERSION}" --title "v${VERSION}" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md"\n' in create["run"]
     assert dispatch["run"] == 'gh workflow run publish.yml --ref "v${VERSION}" -f target=pypi\n'
     # The facts it hands the decision.
     facts = steps["Gather the facts"]["run"]
@@ -533,3 +534,41 @@ def test_the_release_workflow_decides_before_it_creates_or_dispatches_and_holds_
 def test_publish_stays_a_dispatch_with_its_gate_and_names_the_workflow_that_starts_it():
     text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
     assert "    environment: pypi\n    permissions:\n      id-token: write\n" in text and "started by release.yml" in text
+
+
+def release_facts_tools(tmp_path, tools, *, curl_fails=False, runs_fail=False) -> dict[str, str]:
+    """``tools`` with stand-ins for git, curl and gh, as the "Gather the facts" step calls them."""
+    fake = tmp_path / "fake"
+    fake.mkdir()
+    scripts = {
+        "git": 'echo "0000000000000000000000000000000000000000\trefs/tags/v0.1.0"\n',
+        "curl": "exit 6\n" if curl_fails else "printf 404\n",
+        "gh": ('[ "$1 $2" = "release view" ] && exit 1\n' + ('exit 1\n' if runs_fail else "echo 0\n")),
+    }
+    for name, body in scripts.items():
+        (fake / name).write_text(f"#!/bin/sh\n{body}", encoding="utf-8")
+        (fake / name).chmod(0o755)
+    temp = tmp_path / "runner"
+    temp.mkdir()
+    return {**tools, "PATH": f"{fake}{os.pathsep}{tools['PATH']}", "RUNNER_TEMP": str(temp),
+            "GITHUB_SHA": "a" * 40, "GITHUB_ENV": str(tmp_path / "env")}
+
+
+def test_the_facts_step_records_an_unreachable_index_as_000(tmp_path, tools):
+    environment = release_facts_tools(tmp_path, tools, curl_fails=True)
+    done = run_step(steps_of("release.yml")["Gather the facts"]["run"], ROOT, environment)
+    assert done.returncode == 0, done.stdout + done.stderr
+    recorded = (tmp_path / "env").read_text(encoding="utf-8").splitlines()
+    assert "PYPI_STATUS=000" in recorded and "RELEASE_EXISTS=false" in recorded and "PUBLISH_RUNS=0" in recorded
+    # With a working curl the index's answer is recorded as it came.
+    (tmp_path / "ok").mkdir()
+    working = release_facts_tools(tmp_path / "ok", tools)
+    done = run_step(steps_of("release.yml")["Gather the facts"]["run"], ROOT, working)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "PYPI_STATUS=404" in (tmp_path / "ok" / "env").read_text(encoding="utf-8").splitlines()
+
+
+def test_the_facts_step_fails_when_the_publish_runs_cannot_be_listed(tmp_path, tools):
+    environment = release_facts_tools(tmp_path, tools, runs_fail=True)
+    done = run_step(steps_of("release.yml")["Gather the facts"]["run"], ROOT, environment)
+    assert done.returncode != 0 and not (tmp_path / "env").exists()

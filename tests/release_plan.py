@@ -37,13 +37,25 @@ def sections(text: str) -> dict[str, str]:
 
 
 def notes_for(text: str, version: str) -> str | None:
-    """The body of a dated, non-empty section for ``version``, without its heading; else None."""
+    """The notes of a release: the body of its dated, non-empty section, without the heading; else None.
+
+    A final ``X.Y.Z`` also carries the sections of its ``X.Y.ZrcN`` candidates, newest first, each under
+    ``## X.Y.ZrcN (date)``, since a final's own section may point at them for the changes."""
     found = list(HEADING.finditer(text))
+    bodies = {}
     for i, match in enumerate(found):
         body = text[match.end(): found[i + 1].start() if i + 1 < len(found) else len(text)]
-        if match["name"] == version and match["date"] and body.strip():
-            return body.strip() + "\n"
-    return None
+        if match["date"] and body.strip() and match["name"] not in bodies:
+            bodies[match["name"]] = (match["date"], body.strip())
+    if version not in bodies:
+        return None
+    notes = bodies[version][1] + "\n"
+    if "rc" not in version:
+        candidates = sorted((name for name in bodies if name.startswith(f"{version}rc")),
+                            key=sort_key, reverse=True)
+        for name in candidates:
+            notes += f"\n## {name} ({bodies[name][0]})\n\n{bodies[name][1]}\n"
+    return notes
 
 
 def sort_key(version: str) -> tuple[int, int, int, float]:
