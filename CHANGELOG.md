@@ -9,6 +9,16 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- `npm run user-wait --load-on-hover` measures a first hover with the load included. The session
+  is not opened before the rests: rest 1 starts its clock when the pointer comes to rest and
+  creates the session then, so its wait includes the release fetch, the runtime's start-up, the
+  models' compile and the first analysis. Its line records the load (`readyMs`) and what came
+  after it (`afterReadyMs`). The wrapper slows the load as it slows an analysis, and the report
+  gives the raw and the emulated load; it is an estimate. Not with `--correction` or
+  `--measured-pacing`.
+
 ### Fixed
 
 - `npm run user-wait --cold` measures a cold first hover again: 0.11.0 ran its 5 settle analyses

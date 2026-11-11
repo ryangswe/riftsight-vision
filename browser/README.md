@@ -1172,6 +1172,26 @@ reads lower than a warm run's, so compare warm runs with warm runs and cold with
 profile has `warmUpCycles` and `correctionMeasured` too. The analysis time per cycle counts the
 frames analyzed after the warm-up.
 
+**The first hover with the load included.** A warm or a `--cold` run opens the session before
+the rests, so its `readyMs` is in no rest's wait. A product that creates its session on a viewer's
+first hover pays the load there: the release fetch, the runtime's start-up, the models' compile
+and the first analysis. `--load-on-hover` (a cold run) measures that. It does not open the
+session before the rests; at rest 1 the pointer comes to rest, which starts the clock, and the
+session is created then and told where the pointer is. Rest 1's wait therefore includes the load.
+Its line also has `loadIncluded: true`, `readyMs` (the part that was the load, from creating the
+session until it was ready) and `afterReadyMs` (what remained: the first analysis and the answer).
+The profile's `mode` says `cold, load on the first hover`, and its `readyMs` is rest 1's. Later
+rests run as in a cold run. Raise `--limit` (or rest 1's `limitMs`) above the load you expect, or
+rest 1 is a miss. The flag cannot be combined with `--correction` or `--measured-pacing`.
+
+The load is slowed too. The wrapper holds the worker's release-loaded reply by (N x c - 1) x the
+raw load time it measured, the rule it uses for an analysis, with c = 1 as in any cold run.
+`profile.slowdown.worker.load` has the raw and the emulated load, the time the reply was really
+held and the factor applied. This is an estimate: the load is not one loop that scales evenly,
+so a real slower computer may differ; the network is not slowed; and the release files come from
+the local server, so it is a cached-download case. To judge a warm-up, compare rest 1 of a
+`--load-on-hover` run with rest 1 of a `--cold` run on the same clip, rests and `--throttle`.
+
 **Scenes.** A rest on a picture that has not changed is answered from an analysis that finished
 before it began, so its wait times the hit test, not recognition. With `--scenes FILE --art
 FOLDER` the image clip gets cards drawn over it, and a rest's `"scene": "B"` switches to that
