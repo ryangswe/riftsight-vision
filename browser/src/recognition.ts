@@ -133,6 +133,9 @@ export interface ScoredProposal {
    *  true. The face is then not named: `tauPassed` and `accepted` are false and `embedding` is
    *  null, whatever its cosine look was. Absent otherwise. */
   unverified?: true;
+  /** With the tilted retry, on a face it would have tried but its cap (`maxFacesPerFrame`) left
+   *  out on this frame: true. The face is answered by its upright look. Absent otherwise. */
+  tiltedSkipped?: true;
 }
 
 /** What the tilted retry did with one face (Python: `TiltedOutcome.to_json`). */
@@ -379,6 +382,8 @@ export async function recognizeFrame(
   let tiltedMs: number | undefined;
   let tiltedError: unknown;
   let tiltedFailed = false;
+  /** Faces the tilted retry's cap left out (`tiltedSkipped`). */
+  const capped = new Set<number>();
   let tiltedEmbeddings = 0;
   if (tilted) {
     try {
@@ -393,6 +398,7 @@ export async function recognizeFrame(
       // In focus scope the retry takes every face of the group not yet accepted, uncapped, so
       // the answer there is the one a full analysis gives with no cap; no face outside it.
       const which = group !== null ? ordered.filter((i) => group!.has(i)) : ordered.slice(0, maxFacesPerFrame);
+      if (group === null) for (const i of ordered.slice(maxFacesPerFrame)) capped.add(i);
       if (which.length > 0) {
         const tilts: number[] = [];
         const batch = new Float32Array(which.length * scales.length * plane);
@@ -425,6 +431,7 @@ export async function recognizeFrame(
       tiltedFailed = true;
       tiltedError = error;
       tiltedLooks.clear();
+      capped.clear();
       tiltedEmbeddings = 0;
       tiltedMs = undefined;
     }
@@ -478,6 +485,7 @@ export async function recognizeFrame(
         ...(skipped ? { unverified: true as const } : {}),
         ...(fusedLook ? { geometric: fusedLook.geometric } : {}),
         ...(tiltedLook ? { tilted: tiltedLook.evidence } : {}),
+        ...(fused && capped.has(i) && !tiltedLook ? { tiltedSkipped: true as const } : {}),
         ...(rotatedOutlines && tauPassed ? { outline: outlineOf(i) } : {}),
       });
     }

@@ -1235,8 +1235,10 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     expect(repeats.length).toBeGreaterThanOrEqual(2);
     expect(t.split()).toEqual({ analyzed: 2, reused: repeats.length - 1 }); // the focus look and one full pass; the other repeats reuse it
     for (const r of repeats) {
-      expect("focus" in r).toBe(false);
+      // A full pass: no scope. (The session here has no stage status, so no pointer is sent for
+      // the tilted retry's order either; focus-full-pass-tilted.test.ts covers a ready stage.)
       expect("geometricScope" in r).toBe(false);
+      expect("focus" in r).toBe(false);
     }
     expect(stage.crops).toHaveLength(1 + 3); // every applicable face, in the one full pass; a reuse crops nothing
     // The answers at every face equal an all session's on the same picture.
@@ -1274,7 +1276,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     t.step(260); // the first repeat is asked for and left in flight
     const looks = t.sent.length;
     expect(looks).toBe(2);
-    expect("focus" in t.sent[1]!).toBe(false);
+    expect("geometricScope" in t.sent[1]!).toBe(false);
     t.core.pointer(PX(340), PY, 1); // Y, unverified in the result on screen
     expect(t.core.fresh()).toBeNull();
     expect(t.sent.length).toBe(looks); // nothing added behind the repeat
@@ -1291,7 +1293,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     t.core.pointer(PX(40), PY, 1);
     await t.flush();
     await t.settle();
-    expect(t.sent.slice(1).every((r) => r.focus === undefined && r.geometricScope === undefined)).toBe(true);
+    expect(t.sent.slice(1).every((r) => r.geometricScope === undefined)).toBe(true);
     expect(t.sent.length).toBeGreaterThanOrEqual(3);
     expect(t.split()).toEqual({ analyzed: 2, reused: t.sent.length - 2 }); // the focus look and one full pass; the rest reuse it
   });
@@ -1476,7 +1478,7 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
 
   // ------------------------------------------------ a repeat is full when the clock stood still
   type Live = ReturnType<typeof live>;
-  const isFull = (r: { geometricScope?: string; focus?: unknown }): boolean => r.geometricScope === undefined && r.focus === undefined;
+  const isFull = (r: { geometricScope?: string; focus?: unknown }): boolean => r.geometricScope === undefined;
   /** Run the clock for `ms` in 50 ms steps, answering what is asked. */
   const run = async (t: Live, ms: number): Promise<void> => {
     for (let k = 0; k < ms / 50; k++) {

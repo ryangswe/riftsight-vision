@@ -218,6 +218,18 @@ function pointerGroupUnverified(analysis: FrameAnalysis, px: number, py: number)
   return [...group].some((i) => faces[i]!.face!.unverified === true);
 }
 
+/** Whether the pointer's group needs a look of its own in focus scope: a face there was not
+ *  verified, or, with `skipped` (a ready stage, whose focus look retries the group uncapped),
+ *  the tilted retry's cap left a face there out (`tiltedSkipped`). */
+function pointerGroupNeedsLook(analysis: FrameAnalysis, px: number, py: number, skipped: boolean): boolean {
+  const faces = (analysis.boxes ?? []).filter((b) => b.face !== null);
+  const group = focusGroup(
+    faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] })),
+    { x: px, y: py },
+  );
+  return [...group].some((i) => faces[i]!.face!.unverified === true || (skipped && faces[i]!.face!.tiltedSkipped === true));
+}
+
 interface InFlight {
   requestId: number;
   /** When the capture was asked for: the watchdog and the round trip count from here. */
@@ -386,7 +398,6 @@ export class SessionCore {
     // frame's detections to the tracker and the temporal gate once more (`reuseOf`), so that the
     // track layer fills on a paused picture as it always did. It takes milliseconds. A worker
     // that cannot vouch for the frame (a reset, a stage that joined since) analyzes the picture.
-    const reuseOf = this.mode === "pointer" && this.lastLook !== null && this.lastLook.full && this.stillNeedsNothing(sent, mediaTime) ? this.lastLook.requestId : undefined;
     sent.analyzing = true;
     const envelope: FrameEnvelope = { requestId: sent.requestId, mediaTimeSec: mediaTime, generation: sent.generation, videoKey: sent.videoKey };
     // The pointer as it was when the picture was asked for, in the picture's pixels (the bitmap
@@ -401,8 +412,9 @@ export class SessionCore {
     // The pointer's own card comes first: when the pointer's group is not verified in the newest
     // result (a seek's look was asked for with the old pointer, and the pointer has moved since),
     // this repeat is a focus look at the pointer, and the full pass follows on the next repeat.
-    const yields = still && focus !== null && this.result !== null && pointerGroupUnverified(this.result.analysis, focus.x, focus.y);
+    const yields = this.focusScope && still && focus !== null && this.result !== null && pointerGroupNeedsLook(this.result.analysis, focus.x, focus.y, this.stageReady());
     const full = still && !yields;
+    const reuseOf = this.mode === "pointer" && !yields && this.lastLook !== null && this.lastLook.full && this.stillNeedsNothing(sent, mediaTime) ? this.lastLook.requestId : undefined;
     sent.full = !this.focusScope || full;
     try {
       this.deps.toWorker(
@@ -411,7 +423,15 @@ export class SessionCore {
           bitmap,
           videoTimeSec: mediaTime,
           envelope,
-          ...(this.focusScope && !full ? { geometricScope: "focus" as const, focus } : {}),
+          // A full pass in focus scope with the stage ready still sends the pointer, without the
+          // scope: the stage verifies every face, and the pointer only puts the faces holding it
+          // first in the tilted retry's order, so that its cap (`maxFacesPerFrame`) does not leave
+          // out the card at the pointer. Without a ready stage nothing is sent, as with the option off.
+          ...(this.focusScope && !full
+            ? { geometricScope: "focus" as const, focus }
+            : this.focusScope && focus !== null && this.stageReady()
+              ? { focus }
+              : {}),
           ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}),
           ...(reuseOf !== undefined ? { reuseOf } : {}),
         },
@@ -658,8 +678,14 @@ export class SessionCore {
     const { analysis } = this.result;
     const { width, height } = analysis.frame;
     if (!(width > 0 && height > 0)) return;
-    if (!pointerGroupUnverified(analysis, this.pointerAt.x * width, this.pointerAt.y * height)) return;
+    if (!pointerGroupNeedsLook(analysis, this.pointerAt.x * width, this.pointerAt.y * height, this.stageReady())) return;
     if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null)) this.requestCapture("hover");
+  }
+
+  /** Whether the geometric stage is ready: only then does a focus look retry the pointer's group
+   *  uncapped (without a stage the worker ignores the scope). */
+  private stageReady(): boolean {
+    return this.st.geometric?.state === "ready";
   }
 
   /** The newest look that came back analyzed (`LastLook`). */
