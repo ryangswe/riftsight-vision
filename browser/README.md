@@ -202,7 +202,7 @@ backend: detector on webgpu, recognizer on webgpu
 ONNX Runtime Web: the release was measured on 1.29.0
 hover selection: accepted-nms; a result is shown for at most 2000 ms of video
 schedule: fast
-frames analyzed: 3
+frames analyzed: 1
 last frame: 40.9 ms in the worker, 41.6 ms from capture to result
 analyzed at 1280 x 768: 6 boxes, 5 faces, 5 named
   detector 26.1 ms, recognizer 7.9 ms, 8 embeddings
@@ -314,7 +314,7 @@ backend: detector on webgpu, recognizer on webgpu
 ONNX Runtime Web: the release was measured on 1.29.0
 hover selection: accepted-nms; a result is shown for at most 2000 ms of video
 schedule: fast
-frames analyzed: 3
+frames analyzed: 1
 last frame: 39.6 ms in the worker, 40.6 ms from capture to result
 analyzed at 1280 x 768: 6 boxes, 5 faces, 5 named
   detector 25.7 ms, recognizer 7.9 ms, 8 embeddings
@@ -1122,7 +1122,9 @@ has. `outlineRect(crop, boxWidth, boxHeight)` gives it for any shipped crop.
 ## Measured pacing
 
 By default a session analyzes at fixed rates: every 500 ms while the pointer is active on WebGPU
-(1000 ms on WebAssembly), and every 1000 ms (2000 ms) otherwise, whatever the computer. With
+(1000 ms on WebAssembly), and every 1000 ms (2000 ms) otherwise, whatever the computer. In
+pointer mode, a pointer resting where the newest look found no card is looked at every 2 s
+instead ("A pointer resting where the last look found no card", below). With
 `measuredPacing: true` the wait between cadence analyses comes from how long recent analyses took
 (each reply's `workerMs`), so a slow computer spends less of its time on those analyses.
 
@@ -1637,7 +1639,8 @@ another mode, because the pointer is what says which faces to verify.
   is unchanged. The re-look waits for the picture's repeats and any retry to finish, never follows
   a refused capture, and stops after the pointer's 10 s grace period. With the option off there
   is no re-look (the reuse of still repeats applies either way).
-- **A pointer resting where the last look found no card** is looked at once every 2 s (`EMPTY_SPOT_INTERVAL_MS`) instead of at the fast rate, because each look of an empty spot costs a full analysis and has nothing to show. In the 10 s grace period that is about 5 looks, against about 20 on WebGPU with fast analyses (the fast rate is 500 ms) and 10 on WebAssembly (1000 ms). A card that arrives under the resting pointer shows up to about 1.5 s later than before on WebGPU (1 s later on WebAssembly), and at most about 2 s plus one analysis after it arrives. A move over the picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at once; the pointer leaving the picture does not, and a longer measured-pacing gap still wins. Nothing changes outside pointer mode or while a card shows.
+- **A pointer resting where the last look found no card** (any pointer-mode session, with this
+  option or not) is looked at once every 2 s (`EMPTY_SPOT_INTERVAL_MS`) instead of at the fast rate, because each look of an empty spot costs a full analysis and has nothing to show. In the 10 s grace period that is about 5 looks, against about 20 on WebGPU with fast analyses (the fast rate is 500 ms) and 10 on WebAssembly (1000 ms). A card that arrives under the resting pointer shows up to about 1.5 s later than before on WebGPU (1 s later on WebAssembly), and at most about 2 s plus one analysis after it arrives. A move over the picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at once; the pointer leaving the picture does not, and a longer measured-pacing gap still wins. Nothing changes outside pointer mode or while a card shows.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.
 - **Browser runtime only.** The Python package's `evaluate` is unchanged.
