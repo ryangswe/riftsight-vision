@@ -4,7 +4,7 @@
 // coming to rest to `session.atPointer()` returning the expected card id is recorded.
 //
 //   npm run user-wait -- --release RELEASE_FOLDER --clip FILE --rests FILE [--throttle 4]
-//                        [--scenes FILE --art FOLDER] [--cold] [--limit 10000]
+//                        [--scenes FILE --art FOLDER] [--cold | --load-on-hover] [--limit 10000]
 //                        [--ready-timeout 120000] [--out REPORT.json] [--chrome PATH] [--headed]
 //
 // The numbers are a report, not a pass or fail. README.md, "Measuring the wait", says how to
@@ -22,7 +22,8 @@
 //     16 ms against about 29 ms). The run first measures the raw time with the page unthrottled
 //     (B0), then throttled (B1), and c = B0 / B1; per-frame differences still show. `--cold`
 //     skips this: c is 1. Nothing under src/ changes. The wrapper also measures the factor it
-//     really applied.
+//     really applied. With --load-on-hover the wrapper also holds the worker's release-loaded
+//     reply by (rate x c - 1) x the raw load time it measured, the rule it uses for an analysis.
 //
 // Chrome is driven with the package puppeteer-core, which is not a dependency of this folder:
 //   npm install --no-save --prefix "$PUPPETEER_CORE_DIR" puppeteer-core
@@ -42,7 +43,7 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
-import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, settleAnalyses, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, measuredFactor, median, restScriptProblem, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
+import { analysisShare, architectureNote, chooseCorrection, correctionProblem, buildReport, byteRange, settleAnalyses, createRequestGuard, cycleSummary, DEFAULT_LIMIT_MS, DEFAULT_READY_TIMEOUT_MS, describeRest, emulatedTime, loadOnHoverProblem, loadRest, loadSummary, measuredFactor, median, restScriptProblem, runMode, scenesProblem, scenesWarnings, scoreRest } from "./user-wait-core.mjs";
 
 // Analyses at the emulated speed before the rests begin, in a run with pacing on or off alike.
 const PACER_SETTLE_ANALYSES = 5;
@@ -67,6 +68,11 @@ const USAGE = `Usage: npm run user-wait -- --release FOLDER --clip FILE --rests 
                     of --measured-pacing, measure c in the off run (analysis.correction) and pass it to the
                     on run, so both emulate the same computer. Not with --cold
   --cold            no warm-up and no correction of the throttle's effect on the worker
+  --load-on-hover   a cold run that does not open the session before the rests: at rest 1 the pointer
+                    comes to rest, the clock starts, and the session is created then, so rest 1's wait
+                    includes the load (release fetch, runtime start-up, model compile, first analysis).
+                    The worker's load reply is held like an analysis, so the load is slowed too (an
+                    estimate: README.md). Not with --correction or --measured-pacing
   --out FILE        also write the report here
   --chrome PATH     the Chrome to drive (or CHROME in the environment)
   --headed          show the window
@@ -77,7 +83,7 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(USAGE);
   process.exit(0);
 }
-const flags = new Set(["--headed", "--cold", "--measured-pacing"]);
+const flags = new Set(["--headed", "--cold", "--measured-pacing", "--load-on-hover"]);
 const known = new Set(["--release", "--clip", "--rests", "--throttle", "--limit", "--ready-timeout", "--scenes", "--art", "--out", "--chrome", "--share", "--correction"]);
 const given = {};
 for (let at = 0; at < args.length; at += 1) {
@@ -101,6 +107,9 @@ if (givenCorrection !== undefined) {
   if (problem) usageError(`--correction ${given.correction}: ${problem}`);
   if (given.cold) usageError("--correction cannot be used with --cold");
 }
+const loadOnHover = given["load-on-hover"] === true;
+const loadProblem = loadOnHoverProblem({ loadOnHover, correction: givenCorrection, measuredPacing: pacing.on });
+if (loadProblem) usageError(loadProblem);
 const limitMs = Number(given.limit ?? DEFAULT_LIMIT_MS);
 const readyTimeoutMs = Number(given["ready-timeout"] ?? DEFAULT_READY_TIMEOUT_MS);
 if (!(readyTimeoutMs > 0)) usageError(`--ready-timeout ${given["ready-timeout"]}: not a number of ms`);
@@ -160,7 +169,7 @@ if (isImage && script.rests.some((rest) => rest.atSec !== undefined)) usageError
 // ---- what the page runs ------------------------------------------------------------------
 
 /** The worker the session is given: the built worker, behind the setup that slows it. */
-const workerWrapper = (factor) => `import "/slow-setup.js?rate=${factor}";\nimport "/lib/worker.js";\n`;
+const workerWrapper = (factor, slowLoad) => `import "/slow-setup.js?rate=${factor}&load=${slowLoad ? 1 : 0}";\nimport "/lib/worker.js";\n`;
 
 /**
  * Runs before the built worker, in the same thread. It sees each frame request come in and
@@ -170,17 +179,31 @@ const workerWrapper = (factor) => `import "/slow-setup.js?rate=${factor}";\nimpo
  * top of this file). Only frame results change, and only that one number in them. It tells the
  * page what it did on the first channel.
  */
-const workerSetup = (factor) => `
+const workerSetup = (factor, slowLoad) => `
 let rate = ${factor};
 let c = 1;
 const tell = new BroadcastChannel("user-wait");
 new BroadcastChannel("user-wait-control").onmessage = (event) => { rate = event.data.rate; c = event.data.c; };
 const post = self.postMessage.bind(self);
 const arrivals = [];
+let loadArrived = null;
 self.addEventListener("message", (event) => {
   if (event.data && event.data.kind === "frame") arrivals.push(performance.now());
+  if (event.data && event.data.kind === "load" && loadArrived === null) loadArrived = performance.now();
 });
 self.postMessage = (message, ...rest) => {
+  if (${slowLoad} && message && message.kind === "release-status" && message.ok && loadArrived !== null) {
+    // The load: the same rule as an analysis, over the time from the load request to this reply.
+    const arrived = loadArrived;
+    loadArrived = null;
+    const rawMs = performance.now() - arrived;
+    const reportedMs = rate * c * rawMs;
+    setTimeout(() => {
+      tell.postMessage({ kind: "load", rawMs: +rawMs.toFixed(2), reportedMs: +reportedMs.toFixed(2), heldMs: performance.now() - arrived });
+      post(message, ...rest);
+    }, Math.max(0, reportedMs - rawMs));
+    return;
+  }
   if (!message || message.kind !== "frame-result") return post(message, ...rest);
   const arrived = arrivals.shift() ?? performance.now();
   const rawMs = message.workerMs;
@@ -201,6 +224,7 @@ const PAGE_JS = `
 import { createSession } from "/lib/cardvision.js";
 const video = document.getElementById("v");
 const IS_IMAGE = ${JSON.stringify(isImage)};
+const LOAD_ON_HOVER = ${JSON.stringify(loadOnHover)};
 const MEASURED_PACING = ${JSON.stringify(pacing.on ? { share: pacing.share } : null)};
 const SCENES = ${JSON.stringify(sceneSpec === null ? null : sceneSpec.scenes)};
 let scene = ${JSON.stringify(sceneSpec === null ? null : (sceneSpec.start ?? Object.keys(sceneSpec.scenes)[0]))};
@@ -208,8 +232,11 @@ let session = null;
 let current = null;
 const cycles = [];
 const worker = [];
+const loads = [];
 let lastFrames = -1;
-new BroadcastChannel("user-wait").onmessage = (event) => worker.push(event.data);
+let sessionRate = 1;
+let createdAt = null;
+new BroadcastChannel("user-wait").onmessage = (event) => (event.data.kind === "load" ? loads : worker).push(event.data);
 
 // A fixed loop, timed: the minimum of several runs, so a busy moment does not count.
 function calibrate() {
@@ -273,12 +300,12 @@ async function playClip() {
   while (video.videoWidth === 0 || video.readyState < 2) await new Promise((r) => setTimeout(r, 20));
 }
 
-async function open(rate, readyTimeoutMs) {
-  await playClip();
-  const began = performance.now();
+/** Create the session over the playing clip, as a product does. */
+function create() {
+  createdAt = performance.now();
   session = createSession(video, {
     releaseUrl: location.origin + "/release/release.json",
-    workerUrl: "/slow-worker.js?rate=" + rate,
+    workerUrl: "/slow-worker.js?rate=" + sessionRate + "&load=" + (LOAD_ON_HOVER ? 1 : 0),
     wasmPaths: location.origin + "/lib/",
     providers: ["wasm"],
     mode: "pointer",
@@ -291,32 +318,44 @@ async function open(rate, readyTimeoutMs) {
       cycles.push({ workerMs: s.lastWorkerMs, roundTripMs: s.lastRoundTripMs });
     }
   }, 20);
+}
+
+/** Wait until the session is ready, and say how long it took from its creation. */
+async function ready(readyTimeoutMs) {
   for (;;) {
     const s = session.status();
-    if (s.state === "ready") return { backend: s.backend, release: s.release?.id ?? null, readyMs: Math.round(performance.now() - began) };
-    if (performance.now() - began > readyTimeoutMs) throw new Error("session not ready after " + readyTimeoutMs + " ms (state " + s.state + ")");
+    if (s.state === "ready") return { backend: s.backend, release: s.release?.id ?? null, readyMs: Math.round(performance.now() - createdAt) };
+    if (performance.now() - createdAt > readyTimeoutMs) throw new Error("session not ready after " + readyTimeoutMs + " ms (state " + s.state + ")");
     if (s.state === "failed" || s.state === "stopped") throw new Error("session " + s.state + ": " + s.error);
     await new Promise((r) => setTimeout(r, 50));
   }
+}
+
+async function open(rate, readyTimeoutMs) {
+  sessionRate = rate;
+  await playClip();
+  create();
+  return ready(readyTimeoutMs);
 }
 
 // One rest: armed before the pointer moves; the first pointer move after that is where the
 // pointer comes to rest, a second one is the pointer leaving.
 function arm(expect, limitMs) {
   return new Promise((resolve) => {
-    current = { expect, limitMs, start: null, movedAt: null, readings: [], last: undefined, resolve };
+    current = { expect, limitMs, start: null, movedAt: null, readings: [], last: undefined, createdAt: null, readyAt: null, resolve };
   });
 }
 function finish() {
   const rest = current;
   current = null;
-  rest.resolve({ readings: rest.readings, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session.status().frames });
+  rest.resolve({ readings: rest.readings, movedAtMs: rest.movedAt, framesStart: rest.framesStart, framesEnd: session ? session.status().frames : 0, createdAtMs: rest.createdAt, readyAtMs: rest.readyAt });
 }
 function poll() {
   const rest = current;
   if (!rest) return;
   const t = performance.now() - rest.start;
-  const cardId = session.atPointer()?.cardId ?? null;
+  const cardId = session ? session.atPointer()?.cardId ?? null : null;
+  if (session && rest.createdAt !== null && rest.readyAt === null && session.status().state === "ready") rest.readyAt = t;
   if (cardId !== rest.last) {
     rest.readings.push({ t, cardId });
     rest.last = cardId;
@@ -325,10 +364,20 @@ function poll() {
   setTimeout(poll, 4);
 }
 document.addEventListener("pointermove", (event) => {
-  if (!current) return;
+  // The session's own pointer replay below is not the pointer leaving.
+  if (!current || !event.isTrusted) return;
   if (current.start === null) {
     current.start = event.timeStamp;
-    current.framesStart = session.status().frames;
+    if (session === null) {
+      // The first hover of a load-on-hover run: the clock has started, now the session is made, and
+      // it is told where the pointer is, as the next move of a real pointer would.
+      create();
+      current.createdAt = createdAt - event.timeStamp;
+      current.framesStart = 0;
+      video.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: event.clientX, clientY: event.clientY, pointerType: "mouse" }));
+    } else {
+      current.framesStart = session.status().frames;
+    }
     poll();
   } else {
     current.movedAt = event.timeStamp - current.start;
@@ -339,6 +388,8 @@ document.addEventListener("pointermove", (event) => {
 window.harness = {
   calibrate,
   open,
+  play: async (rate) => { sessionRate = rate; await playClip(); },
+  ready,
   architecture: async () => {
     const high = (await navigator.userAgentData?.getHighEntropyValues(["architecture", "bitness", "platform"])) ?? {};
     return { architecture: high.architecture ?? null, bitness: high.bitness ?? null, platform: high.platform ?? null };
@@ -353,6 +404,7 @@ window.harness = {
   cycles: () => cycles,
   reset: () => { cycles.length = 0; worker.length = 0; },
   worker: () => worker,
+  loads: () => loads,
 };
 `;
 
@@ -372,8 +424,9 @@ const server = createServer((request, response) => {
   if (path === "/favicon.ico") return response.writeHead(204).end();
   if (path === "/") return text(TYPES[".html"], PAGE);
   if (path === "/page.js") return text(TYPES[".js"], PAGE_JS);
-  if (path === "/slow-worker.js") return text(TYPES[".js"], workerWrapper(factor));
-  if (path === "/slow-setup.js") return text(TYPES[".js"], workerSetup(factor));
+  const slowLoad = query.get("load") === "1";
+  if (path === "/slow-worker.js") return text(TYPES[".js"], workerWrapper(factor, slowLoad));
+  if (path === "/slow-setup.js") return text(TYPES[".js"], workerSetup(factor, slowLoad));
   let file = null;
   if (path === "/clip") file = clipFile;
   else if (path.startsWith("/release/")) file = inside(given.release, path.slice("/release/".length));
@@ -445,7 +498,7 @@ try {
     for (let k = 0; k < 3; k++) times.push(await tab.evaluate(() => window.harness.calibrate()));
     return times;
   };
-  const warmUpCycles = given.cold ? 0 : (script.warmUpCycles ?? 3);
+  const warmUpCycles = given.cold || loadOnHover ? 0 : (script.warmUpCycles ?? 3);
   const cold = warmUpCycles === 0;
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   const unslowed = await calibrations();
@@ -456,8 +509,11 @@ try {
   }
 
   // A cold run is throttled from the start; a warm one runs unthrottled first (the worker's
-  // wrapper at rate 1, c 1) and is throttled once the baseline is known.
-  const opened = await tab.evaluate((r, ms) => window.harness.open(r, ms), cold ? rate : 1, readyTimeoutMs);
+  // wrapper at rate 1, c 1) and is throttled once the baseline is known. A load-on-hover run only
+  // plays the clip: its session is made at rest 1.
+  let opened = { backend: null, release: null, readyMs: null };
+  if (loadOnHover) await tab.evaluate((r) => window.harness.play(r), rate);
+  else opened = await tab.evaluate((r, ms) => window.harness.open(r, ms), cold ? rate : 1, readyTimeoutMs);
   const box = await tab.evaluate(() => window.harness.box());
   const at = (x, y) => [box.x + x * box.width, box.y + y * box.height];
   const park = [10, 885];
@@ -520,12 +576,16 @@ try {
     const measured = await tab.evaluate(() => window.harness.result());
     if (left !== null) clearTimeout(left);
     const scored = scoreRest({ expect: rest.expect, readings: measured.readings, movedAtMs: measured.movedAtMs, limitMs: limit });
-    lines.push({ index: index + 1, x: rest.x, y: rest.y, ...describeRest(scored, { scene: rest.scene ?? null, framesStart: measured.framesStart, framesEnd: measured.framesEnd, readings: measured.readings }) });
+    const described = describeRest(scored, { scene: rest.scene ?? null, framesStart: measured.framesStart, framesEnd: measured.framesEnd, readings: measured.readings });
+    lines.push({ index: index + 1, x: rest.x, y: rest.y, ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
+    // Later rests meet a session that is ready, as in a cold run.
+    if (loadOnHover && index === 0) opened = await tab.evaluate((ms) => window.harness.ready(ms), readyTimeoutMs);
   }
 
   const wallMs = Date.now() - runBegan;
   const cycles = await tab.evaluate(() => window.harness.cycles());
   const held = await tab.evaluate(() => window.harness.worker());
+  const loadMessages = await tab.evaluate(() => window.harness.loads());
   const raw = held.map((h) => h.rawMs);
   const real = held.map((h) => h.heldMs);
   const report = buildReport({
@@ -539,8 +599,19 @@ try {
           // The time the wrapper really took per frame, over c x the raw time: about the rate asked.
           measured: raw.length === 0 ? null : measuredFactor([raw.reduce((a, b) => a + b, 0) * c], [real.reduce((a, b) => a + b, 0)]),
           frames: held.length,
+          ...(loadOnHover
+            ? {
+                load: {
+                  how: "the wrapper holds the worker's release-loaded reply by (rate x c - 1) x the raw load time it measured, the rule it uses for an analysis (c is 1: a cold run)",
+                  ...loadSummary(loadMessages),
+                  note: "an estimate: a slower computer may differ; the network is not slowed; the release files come from the local server, so this is a cached-download case",
+                },
+              }
+            : {}),
         },
       },
+      mode: runMode({ cold, loadOnHover }),
+      loadOnHover,
       measuredPacing: pacing,
       backendAsked: "wasm",
       backend: opened.backend,
@@ -551,7 +622,9 @@ try {
       warmUpCycles,
       correctionMeasured: !cold && givenCorrection === undefined,
       warnings,
-      readyMs: opened.readyMs,
+      // Seconds-scale load inside rest 1 in a load-on-hover run, before the rests otherwise.
+      readyMs: loadOnHover ? (lines[0]?.readyMs ?? null) : opened.readyMs,
+      readyMsCounted: loadOnHover ? "inside rest 1's wait" : "in no rest's wait",
       readyTimeoutMs,
       toolkitCommit,
       release: opened.release,

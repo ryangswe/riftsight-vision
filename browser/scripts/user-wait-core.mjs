@@ -273,3 +273,53 @@ export function emulatedTime(rawMs, rate, c) {
   const reportedMs = rate * c * rawMs;
   return { reportedMs, holdMs: Math.max(0, reportedMs - rawMs) };
 }
+
+/**
+ * What the wrapper holds the worker's release-loaded reply for in a `--load-on-hover` run: the
+ * same rule as an analysis. The emulated load is `rate` x `c` x the raw load time the wrapper
+ * measured (from the load request to its reply), held for the difference.
+ */
+export function loadHold(rawLoadMs, rate, c) {
+  const { reportedMs, holdMs } = emulatedTime(rawLoadMs, rate, c);
+  return { rawMs: round(rawLoadMs), emulatedMs: round(reportedMs), holdMs: round(holdMs) };
+}
+
+/** How a run is started, for the report's profile. */
+export function runMode({ cold, loadOnHover }) {
+  return loadOnHover ? "cold, load on the first hover" : cold ? "cold" : "warm";
+}
+
+/** The error text of a `--load-on-hover` combination that is not allowed, or null. */
+export function loadOnHoverProblem({ loadOnHover, correction: given, measuredPacing }) {
+  if (!loadOnHover) return null;
+  if (given !== undefined) return "--load-on-hover cannot be used with --correction (a load-on-hover run is cold: c is 1)";
+  if (measuredPacing) return "--load-on-hover cannot be used with --measured-pacing (the pacer needs analyses before the first rest, which a load-on-hover run does not have)";
+  return null;
+}
+
+/**
+ * Rest 1 of a `--load-on-hover` run. `scored` is the scored rest, whose clock started when the
+ * pointer came to rest. The session was created then, and was ready `readyAtMs` after the pointer
+ * came to rest (null: not before the rest ended); `createdAtMs` is when it was created, on the
+ * same clock. `waitMs` already includes the load. `readyMs` is the part that was the load, and
+ * `afterReadyMs` what remained after the session was ready (the first analysis and the answer),
+ * for a rest that was answered.
+ */
+export function loadRest(scored, { createdAtMs, readyAtMs }) {
+  const ready = typeof readyAtMs === "number";
+  const readyMs = ready ? round(Math.max(0, readyAtMs - createdAtMs)) : null;
+  const afterReadyMs = ready && scored.answered ? round(Math.max(0, scored.waitMs - readyAtMs)) : null;
+  return { ...scored, loadIncluded: true, readyMs, afterReadyMs };
+}
+
+/**
+ * The load as the wrapper applied it, for the report: the raw and the emulated time, the time the
+ * reply was really held, and the factor applied (the real time over the raw one). `messages` are
+ * what the wrapper reported for each load (normally one).
+ */
+export function loadSummary(messages) {
+  const sum = (key) => messages.reduce((total, m) => total + m[key], 0);
+  if (messages.length === 0) return { loads: 0, rawMs: null, emulatedMs: null, heldMs: null, appliedFactor: null };
+  const rawMs = sum("rawMs");
+  return { loads: messages.length, rawMs: round(rawMs), emulatedMs: round(sum("reportedMs")), heldMs: round(sum("heldMs")), appliedFactor: rawMs > 0 ? round(sum("heldMs") / rawMs) : null };
+}

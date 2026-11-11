@@ -32,6 +32,11 @@ const core = (await import(pathToFileURL(fileOf("scripts/user-wait-core.mjs")).h
   correction: (baseline: number | null, throttled: number | null) => number;
   settleAnalyses: (cold: boolean, count: number) => number;
   emulatedTime: (rawMs: number, rate: number, c: number) => { reportedMs: number; holdMs: number };
+  loadHold: (rawLoadMs: number, rate: number, c: number) => { rawMs: number; emulatedMs: number; holdMs: number };
+  runMode: (input: { cold: boolean; loadOnHover: boolean }) => string;
+  loadOnHoverProblem: (input: { loadOnHover: boolean; correction?: number; measuredPacing: boolean }) => string | null;
+  loadRest: (scored: Record<string, unknown>, input: { createdAtMs: number; readyAtMs: number | null }) => Record<string, unknown>;
+  loadSummary: (messages: { rawMs: number; reportedMs: number; heldMs: number }[]) => Record<string, unknown>;
   DEFAULT_LIMIT_MS: number;
   DEFAULT_READY_TIMEOUT_MS: number;
 };
@@ -308,5 +313,44 @@ describe("settleAnalyses: a cold run has no settle analyses before its first res
   it("settles a warm run and never a cold one", () => {
     expect(core.settleAnalyses(false, 5)).toBe(5);
     expect(core.settleAnalyses(true, 5)).toBe(0);
+  });
+});
+
+describe("the first hover with the load included", () => {
+  it("holds the load reply by (rate x c - 1) x the raw load time, as an analysis is", () => {
+    expect(core.loadHold(500, 4, 1)).toEqual({ rawMs: 500, emulatedMs: 2000, holdMs: 1500 });
+    expect(core.loadHold(500, 1, 1)).toEqual({ rawMs: 500, emulatedMs: 500, holdMs: 0 });
+    expect(core.loadHold(500, 4, 1).emulatedMs).toBe(core.emulatedTime(500, 4, 1).reportedMs);
+    expect(core.loadHold(200, 1, 0.5).holdMs).toBe(0);
+  });
+
+  it("names the mode in the profile", () => {
+    expect(core.runMode({ cold: false, loadOnHover: false })).toBe("warm");
+    expect(core.runMode({ cold: true, loadOnHover: false })).toBe("cold");
+    expect(core.runMode({ cold: true, loadOnHover: true })).toBe("cold, load on the first hover");
+  });
+
+  it("refuses --correction and --measured-pacing with it, and allows the rest", () => {
+    expect(core.loadOnHoverProblem({ loadOnHover: true, correction: 1.5, measuredPacing: false })).toMatch(/--correction/);
+    expect(core.loadOnHoverProblem({ loadOnHover: true, measuredPacing: true })).toMatch(/--measured-pacing/);
+    expect(core.loadOnHoverProblem({ loadOnHover: true, measuredPacing: false })).toBeNull();
+    expect(core.loadOnHoverProblem({ loadOnHover: false, correction: 1.5, measuredPacing: true })).toBeNull();
+  });
+
+  it("splits rest 1's wait into the load and what came after it", () => {
+    const scored = scoreRest({ expect: "A", readings: [{ t: 0, cardId: null }, { t: 2650, cardId: "A" }] });
+    const line = core.loadRest(scored, { createdAtMs: 3, readyAtMs: 2103.4 });
+    expect(line).toMatchObject({ answered: true, waitMs: 2650, loadIncluded: true, readyMs: 2100.4, afterReadyMs: 546.6 });
+  });
+
+  it("gives no split for a rest that was not ready or not answered", () => {
+    const missed = scoreRest({ expect: "A", readings: [], limitMs: 1000 });
+    expect(core.loadRest(missed, { createdAtMs: 2, readyAtMs: null })).toMatchObject({ answered: false, readyMs: null, afterReadyMs: null });
+    expect(core.loadRest(missed, { createdAtMs: 2, readyAtMs: 800 })).toMatchObject({ readyMs: 798, afterReadyMs: null });
+  });
+
+  it("summarizes the load as the wrapper applied it", () => {
+    expect(core.loadSummary([{ rawMs: 500, reportedMs: 2000, heldMs: 2004 }])).toEqual({ loads: 1, rawMs: 500, emulatedMs: 2000, heldMs: 2004, appliedFactor: 4.01 });
+    expect(core.loadSummary([])).toEqual({ loads: 0, rawMs: null, emulatedMs: null, heldMs: null, appliedFactor: null });
   });
 });
