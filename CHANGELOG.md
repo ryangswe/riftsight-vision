@@ -9,6 +9,15 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Changed
+
+- `cardvision cdn publish --config` now refuses a pointer to a release that was uploaded without the
+  refresh verdicts (exit 3, a dry run too). `publish-release` records in each release's index
+  entry whether it cleared the refresh gate (an optional `refreshGate` key; `schemaVersion` stays
+  1), and the pointer move reads that record. Releases from before this change, and an unreadable
+  index, pass with a note or a warning, so a rollback is still one command. Verdict options given
+  to `publish-release` without `--config` are now read and recorded; before, they were ignored.
+
 ### Fixed
 
 - `npm run user-wait --cold` measures a cold first hover again: 0.11.0 ran its 5 settle analyses

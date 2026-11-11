@@ -203,23 +203,63 @@ def read_release_index(product: CdnConfig, s3, bucket: str) -> dict:
 
 
 def write_release_index(product: CdnConfig, s3, bucket: str, lr: LocalRelease, log: Callable[[str], None] = print, *,
-                        idx: Optional[dict] = None, uploaded: bool = True) -> None:
+                        idx: Optional[dict] = None, uploaded: bool = True, refresh_gate: Optional[dict] = None) -> None:
     """Record this release in `idx`, the index read before the uploads (`read_release_index`; read
     now when not given): when files were uploaded (`--fix-metadata` included, which sets a new
     publishedAt), or when the index does not list it yet (a run after a crash that found every file
-    already there). When nothing was uploaded and it is listed, the index is left as it is. Two runs
-    for different releases at once can drop each other's entry; a later run of that release, with
+    already there). `refresh_gate` is how the run cleared the refresh gate (None: it did not; the
+    hashes of the verdicts, or ``waived``), written with an `at`. The entry is merged, never replaced: a listed entry keeps its `refreshGate`, and only a
+    record can fill a `refreshGate` that is null or absent (written even when nothing was uploaded);
+    a new entry without a record gets `refreshGate: null`, and a listed one without the key (from
+    before the gate) is not given one. Otherwise a listed entry is left as it is. Two runs for
+    different releases at once can drop each other's entry; a later run of that release, with
     nothing to upload, adds it back."""
     key = product.releases_index_key
     if idx is None:
         idx = read_release_index(product, s3, bucket)
     releases = idx.setdefault("releases", {})
-    if not uploaded and lr.id in releases:
+    entry = releases.get(lr.id)
+    listed = isinstance(entry, dict)
+    upgrade = listed and refresh_gate is not None and entry.get("refreshGate") is None
+    if listed and not uploaded and not upgrade:
         return
-    releases[lr.id] = {"publishedAt": _config.utc_now(), "bytes": {f.key.rsplit("/", 1)[1]: len(f.data) for f in lr.pinned}}
+    now = _config.utc_now()
+    merged = dict(entry) if listed else {}
+    if uploaded or not listed:
+        merged["publishedAt"] = now
+        merged["bytes"] = {f.key.rsplit("/", 1)[1]: len(f.data) for f in lr.pinned}
+    if upgrade or not listed:
+        merged["refreshGate"] = {"at": now, **refresh_gate} if refresh_gate else None
+    releases[lr.id] = merged
     s3.put_object(Bucket=bucket, Key=key, Body=json.dumps(idx, indent=1).encode(),
                   ContentType="application/json", CacheControl=INDEX_CACHE)
     log(f"index: {key} written")
+
+
+def refresh_gate_problem(product: CdnConfig, s3, bucket: str, release_id: str,
+                         log: Callable[[str], None] = print) -> Optional[str]:
+    """A pointer about to move to `release_id` (not the live one): why the index says it may not,
+    or None. A record passes; so does an entry or key from before the gate (said so). Uploaded
+    without the refresh verdicts (`refreshGate: null`) refuses. An index that cannot be read, or an
+    entry that is not understood, passes with a warning, so a rollback never depends on that file."""
+    key = product.releases_index_key
+    try:
+        entry = read_release_index(product, s3, bucket).get("releases", {}).get(release_id)
+    except Refused as e:
+        log(f"WARNING: the refresh gate record of release {release_id} was not checked: {e}")
+        return None
+    if entry is None or (isinstance(entry, dict) and "refreshGate" not in entry):
+        log(f"refresh gate: release {release_id} recorded before the gate; not checked")
+        return None
+    rec = entry.get("refreshGate") if isinstance(entry, dict) else 0
+    if isinstance(rec, dict):
+        log(f"refresh gate: release {release_id} cleared {rec.get('at', 'at an unknown time')}")
+        return None
+    if rec is None:
+        return (f"release {release_id} was uploaded without the refresh verdicts: run publish-release --config for it "
+                "with --verdict-r/--verdict-n (or --no-refresh-gate \"<reason>\") first")
+    log(f"WARNING: the refresh gate record of release {release_id} in {key} is not understood; not checked")
+    return None
 
 
 def pointer_block(lr: LocalRelease, min_v: str, max_v: Optional[str], geo_manifest_sha: Optional[str] = None) -> dict:

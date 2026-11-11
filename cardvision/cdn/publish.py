@@ -41,6 +41,7 @@ from cardvision.cdn.release import (
     load_runtimes,
     pointer_block,
     read_release_index,
+    refresh_gate_problem,
     remote_state,
     runtime_problems,
     upload_release,
@@ -176,7 +177,7 @@ VERDICT_GATES = (("R", "verdict_r", "--verdict-r"), ("N", "verdict_n", "--verdic
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
-def refresh_gate(args, log: Callable[[str], None] = print) -> bool:
+def refresh_gate(args, log: Callable[[str], None] = print, record: Optional[dict] = None) -> bool:
     """A run that moves the pointer (--config) needs the update's two refresh verdicts
     (``cardvision refresh verdict``), each a PASS that is not a rehearsal, judged under one rule;
     or ``--no-refresh-gate`` with the reason this release is not a gated card refresh. Refuses
@@ -185,7 +186,9 @@ def refresh_gate(args, log: Callable[[str], None] = print) -> bool:
     returns True then, and the caller must run ``no_new_cards_gate`` once it has read the live
     release (it refuses before anything is written). Otherwise returns False. A verdict
     does not name the candidate it judged, so the log names each file with its SHA-256: which
-    files allowed the move can be checked afterwards."""
+    files allowed the move can be checked afterwards. `record`, when given, is filled with what the
+    release index keeps (it adds ``at`` when it writes): the hashes (cleared), or ``waived`` (the
+    reason stays in the log, since the index is public)."""
     reason = getattr(args, "no_refresh_gate", None)
     paths = {gate: getattr(args, attr, None) for gate, attr, _ in VERDICT_GATES}
     if reason is not None:
@@ -196,6 +199,8 @@ def refresh_gate(args, log: Callable[[str], None] = print) -> bool:
         if any(not ch.isprintable() for ch in reason):
             raise Refused("--no-refresh-gate: the reason is one line of printable text (it is logged)")
         log(f"refresh gate: none, {reason.strip()}")
+        if record is not None:
+            record.update(waived=True)
         return False
     r_only = bool(paths["R"]) and not paths["N"]
     missing = [flag for gate, _, flag in VERDICT_GATES if not paths[gate]]
@@ -232,6 +237,8 @@ def refresh_gate(args, log: Callable[[str], None] = print) -> bool:
         raise Refused(f"the verdicts were judged under different rules: R {seen['R'][1]}, N {seen['N'][1]}")
     for gate, (path, rule, sha) in seen.items():
         log(f"refresh gate: {gate} PASS under rule {rule}, {path} sha256 {sha}")
+    if record is not None:
+        record.update(rule=seen["R"][1], r=seen["R"][2], n=seen["N"][2] if "N" in seen else None)
     return r_only
 
 
@@ -247,12 +254,12 @@ def _catalog_ids(body: bytes, what: str) -> set:
 
 
 def no_new_cards_gate(product: CdnConfig, public_base: str, lr, candidate_catalog: bytes,
-                      get: Optional[Get] = None, log: Callable[[str], None] = print) -> None:
+                      get: Optional[Get] = None, log: Callable[[str], None] = print) -> str:
     """The check behind ``--verdict-r`` alone: the candidate's catalog has no card id that the live
     release's catalog lacks (edits and renames of existing cards are allowed; gate R covers them).
     Reads the live pointer, its release document and its catalog; refuses when any of them cannot
     be read or does not match its pin (an unreadable live catalog is never "no new cards"), and
-    when the candidate adds cards (they need gate N, ``--verdict-n``)."""
+    when the candidate adds cards (they need gate N, ``--verdict-n``). Returns the live release's id."""
     get = get or product_get(product)
 
     def fetch(path: str, what: str) -> bytes:
@@ -292,6 +299,7 @@ def no_new_cards_gate(product: CdnConfig, public_base: str, lr, candidate_catalo
         raise Refused(f"--verdict-r alone: the candidate adds {len(new)} new card id(s) against the live release "
                       f"{rel['id']} (e.g. {new[0]}); gate N must judge them: pass --verdict-n; nothing written")
     log(f"refresh gate: N not needed: 0 new cards against the live release {rel['id']}")
+    return rel["id"]
 
 
 def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=None, node: Optional[NodeCheck] = None,
@@ -299,7 +307,8 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
                     verify_after=None) -> int:
     """publish-release. `args` carries release, legal, min_version, max_version, sessions,
     fix_metadata, dry_run, config, set_pointer, and optionally data_files (paths), geometric,
-    geo_manifest_sha256, and verdict_r, verdict_n or no_refresh_gate (``refresh_gate``). Returns 0 or 1; a refusal raises Refused before anything is written."""
+    geo_manifest_sha256, and verdict_r, verdict_n or no_refresh_gate (``refresh_gate``; read with
+    or without --config, and recorded in the release index). Returns 0 or 1; a refusal raises Refused before anything is written."""
     if verify_live is None:
         missing = missing_extension_ids(product, "publish-release")
         if missing:
@@ -311,10 +320,14 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
     if not min_v or not VERSION_RE.match(min_v) or (max_v and not VERSION_RE.match(max_v)):
         raise Refused("--min-version x.y.z is required (and --max-version, when given, is x.y.z)")
     r_only = False
-    if args.config:
-        r_only = refresh_gate(args, log)
-    elif getattr(args, "no_refresh_gate", None) is not None or any(getattr(args, a, None) for _, a, _ in VERDICT_GATES):
-        log("refresh gate: not needed, no --config (the pointer does not move); the verdict options are not read")
+    record: Optional[dict] = None  # how this run cleared the refresh gate, for the release index
+    flags = getattr(args, "no_refresh_gate", None) is not None or any(getattr(args, a, None) for _, a, _ in VERDICT_GATES)
+    if args.config or flags:
+        if not args.config:
+            log("refresh gate: not needed, no --config (the pointer does not move); the verdict options are checked "
+                "and recorded in the release index")
+        record = {}
+        r_only = refresh_gate(args, log, record)
     runtimes = runtimes if runtimes is not None else load_runtimes(product)
     problems = runtime_problems(lr.doc, min_v, max_v, runtimes, product.runtimes_label)
     if problems:
@@ -328,7 +341,7 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
         raise Refused(f"the runtime's own check refused the release: {local.get('reason')}")
     if r_only:  # needs the live catalog, so it runs here: after the reads, before any write
         catalog = next(f.data for f in lr.pinned if f.key.endswith("/" + lr.doc["catalog"]["path"]))
-        no_new_cards_gate(product, t.public_base, lr, catalog, get=get, log=log)
+        record["againstLive"] = no_new_cards_gate(product, t.public_base, lr, catalog, get=get, log=log)
     log(f"seal: release {lr.id} ok (bank {local['bankEntries']} entries, catalog {local['catalogCards']} cards, sessions {local['sessions']})")
 
     geo_sha = None
@@ -368,7 +381,7 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
         return 0
     if upload_release(s3, t.bucket, lr, todo, log):
         return 1
-    write_release_index(product, s3, t.bucket, lr, log, idx=index, uploaded=bool(todo))
+    write_release_index(product, s3, t.bucket, lr, log, idx=index, uploaded=bool(todo), refresh_gate=record or None)
     live = verify_live or (lambda *a, **k: verify_release_live(product, *a, **k))
     if live(t.public_base, candidate=lr.id, expect_sha=block["sha256"], sessions=args.sessions,
             expect_files={f.key.rsplit("/", 1)[1]: f.sha256 for f in lr.legal}, geometric=block.get("geometric")):
@@ -422,6 +435,20 @@ def plan_offline(product: CdnConfig, args) -> int:
     return 0
 
 
+def release_index_gate(product: CdnConfig, s3, bucket: str, public_base: str, rel: dict, get: Optional[Get] = None,
+                       log: Callable[[str], None] = print) -> Optional[str]:
+    """`publish --config` with a pointer: why the release index says the release may not be pointed
+    at, or None. The live pointer again (an emergency `namesOnly`) never reads the index."""
+    get = get or product_get(product)
+    try:
+        status, _, body = get(f"{public_base}/{CONFIG_KEY}?{cache_bust()}")
+        if status == 200 and json.loads(body).get("release") == rel:
+            return None
+    except (ValueError, AttributeError):
+        pass  # no readable live pointer: this is a new one
+    return refresh_gate_problem(product, s3, bucket, rel["id"], log)
+
+
 def plan_or_publish(product: CdnConfig, args, t: Target, s3=None, get: Optional[Get] = None,
                     pointer_check=None, log: Callable[[str], None] = print) -> int:
     """plan (online) and publish. `args.command` is "plan" or "publish"; a publish --dry-run, like a
@@ -435,6 +462,10 @@ def plan_or_publish(product: CdnConfig, args, t: Target, s3=None, get: Optional[
         rel = json.loads(config).get("release") if config is not None else None
         if rel:
             problem = (pointer_check or (lambda base, r: pointer_gate(product, base, r, get=get)))(t.public_base, rel)
+            if problem:
+                raise Refused(problem + "; nothing written")
+            s3 = s3 or r2_client(t)
+            problem = release_index_gate(product, s3, t.bucket, t.public_base, rel, get=get, log=log)
             if problem:
                 raise Refused(problem + "; nothing written")
         problem = data_file_gate(product, t.public_base, config, data_files, get=get)

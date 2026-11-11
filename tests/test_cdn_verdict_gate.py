@@ -455,3 +455,69 @@ def test_r_alone_with_a_live_release_document_off_the_pointers_sha_is_refused(se
     with pytest.raises(Refused, match="release.json does not match the pointer's sha256.*nothing written"):
         run(setup, r_only(setup, dry_run=dry_run), s3, get=other_document)
     assert untouched(setup, s3)
+
+
+# ------------------------------------------------------- the index records how a release cleared the gate
+def entry_of(s3) -> dict:
+    return json.loads(s3.objects[INDEX]["Body"])["releases"][RID]
+
+
+def test_two_passing_verdicts_are_recorded_in_the_release_index(setup, monkeypatch):
+    monkeypatch.setattr(cdn_config, "utc_now", lambda: "2026-11-01T00:00:00Z")
+    s3 = FakeS3()
+    assert run(setup, with_args(setup, dry_run=False), s3) == 0
+    sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()  # noqa: E731
+    assert entry_of(s3)["refreshGate"] == {"at": "2026-11-01T00:00:00Z", "rule": RULE, "r": sha(setup.r), "n": sha(setup.n)}
+    assert json.loads(s3.objects[INDEX]["Body"])["schemaVersion"] == 1
+
+
+def test_a_waiver_is_recorded_without_its_reason(setup, monkeypatch):
+    monkeypatch.setattr(cdn_config, "utc_now", lambda: "2026-11-01T00:00:00Z")
+    s3 = FakeS3()
+    args = with_args(setup, dry_run=False, verdict_r=None, verdict_n=None, no_refresh_gate="new models, a private reason")
+    assert run(setup, args, s3) == 0
+    assert entry_of(s3)["refreshGate"] == {"at": "2026-11-01T00:00:00Z", "waived": True}
+    assert "private reason" not in s3.objects[INDEX]["Body"].decode()
+
+
+def test_r_alone_records_the_live_release_it_was_compared_with(setup):
+    candidate_catalog(setup, ["TOY-001"])
+    s3 = FakeS3()
+    assert run(setup, r_only(setup, dry_run=False), s3, get=live_cdn(setup, ["TOY-001", "TOY-002"])) == 0
+    rec = entry_of(s3)["refreshGate"]
+    assert rec["n"] is None and rec["againstLive"] == LIVE_ID and rec["r"] == hashlib.sha256(setup.r.read_bytes()).hexdigest()
+
+
+def folder_args(s, **k):
+    """publish-release without --config: the folder is uploaded, the pointer does not move."""
+    return with_args(s, **{"dry_run": False, "config": None, "set_pointer": False, "no_refresh_gate": None, **k})
+
+
+def test_a_folder_uploaded_with_verdicts_and_no_config_records_them(setup):
+    s3 = FakeS3()
+    lines: list[str] = []
+    assert run(setup, folder_args(setup), s3, log=lines.append) == 0
+    assert CONFIG_KEY not in s3.objects
+    assert entry_of(s3)["refreshGate"]["r"] == hashlib.sha256(setup.r.read_bytes()).hexdigest()
+    assert any(line.startswith(f"refresh gate: R PASS under rule {RULE}") for line in lines)
+
+
+def test_a_folder_uploaded_with_no_verdicts_is_recorded_as_such(setup):
+    s3 = FakeS3()
+    assert run(setup, folder_args(setup, verdict_r=None, verdict_n=None), s3) == 0
+    assert entry_of(s3)["refreshGate"] is None
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("gate,over,reason", [
+    ("R", {"verdict": "FAIL"}, "VERDICT-R.json: 'FAIL', not PASS"),
+    ("N", {"verdict": "FAIL"}, "VERDICT-N.json: 'FAIL', not PASS"),
+    ("R", {"rehearsal": True}, "VERDICT-R.json: a rehearsal verdict"),
+    ("N", {"rehearsal": True}, "VERDICT-N.json: a rehearsal verdict"),
+], ids=["R FAIL", "N FAIL", "R rehearsal", "N rehearsal"])
+def test_a_folder_upload_with_a_failing_or_rehearsal_verdict_is_refused_before_any_write(setup, gate, over, reason, dry_run):
+    verdict(setup.tmp / ("replay" if gate == "R" else "newcard"), gate, **over)
+    s3 = FakeS3()
+    with pytest.raises(Refused, match=reason):
+        run(setup, folder_args(setup, dry_run=dry_run), s3)
+    assert not s3.puts and not s3.objects

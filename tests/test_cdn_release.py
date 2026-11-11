@@ -18,6 +18,7 @@ from cardvision.cdn.release import (
     bundled_release_id,
     load_local_release,
     pointer_block,
+    refresh_gate_problem,
     remote_state,
     runtime_problems,
     upload_release,
@@ -236,3 +237,72 @@ def test_the_node_check_is_asked_for_the_url_and_sessions(panel, live):
     asked = []
     verify_release_live(panel, BASE, get=live.get, node=lambda a: (asked.append(a), node_ok(a))[1], extension_ids=["e" * 32], sessions=True)
     assert asked == [["--url", f"{BASE}/{PREFIX}{RID}/release.json", "--expect-id", RID, "--sessions"]]
+
+
+# ------------------------------------------------------- the refresh gate record in the release index
+def listed(s3, release_id=RID) -> dict:
+    return json.loads(s3.objects[f"{PREFIX}index.json"]["Body"])["releases"][release_id]
+
+
+CLEARED = {"rule": "1" * 64, "r": "2" * 64, "n": None}
+
+
+def test_the_index_entry_is_merged_and_never_downgraded(panel, tmp_path, monkeypatch):
+    times = iter(f"2026-01-0{i} 00:00:00Z" for i in range(1, 9))
+    monkeypatch.setattr(cdn_config, "utc_now", lambda: next(times))
+    folder, legal, _, _ = write_release(tmp_path)
+    lr = load_local_release(panel, folder, legal)
+    s3 = FakeS3()
+    write_release_index(panel, s3, "b", lr, log=quiet)
+    assert listed(s3)["refreshGate"] is None and listed(s3)["publishedAt"] == "2026-01-01 00:00:00Z"
+    bytes_before = listed(s3)["bytes"]
+    writes = len(s3.puts)
+    write_release_index(panel, s3, "b", lr, log=quiet, uploaded=False)
+    assert len(s3.puts) == writes, "listed, nothing uploaded, no record to add: not written"
+    write_release_index(panel, s3, "b", lr, log=quiet, uploaded=False, refresh_gate=dict(CLEARED))
+    assert len(s3.puts) == writes + 1, "null to cleared is written even with nothing uploaded"
+    entry = listed(s3)
+    assert entry["refreshGate"] == {"at": "2026-01-02 00:00:00Z", **CLEARED}
+    assert entry["publishedAt"] == "2026-01-01 00:00:00Z" and entry["bytes"] == bytes_before
+    for uploaded in (False, True):
+        write_release_index(panel, s3, "b", lr, log=quiet, uploaded=uploaded)
+        assert listed(s3)["refreshGate"] == entry["refreshGate"], "a record is never set back to null"
+    write_release_index(panel, s3, "b", lr, log=quiet, uploaded=True, refresh_gate={"waived": True})
+    assert listed(s3)["refreshGate"] == entry["refreshGate"], "and never replaced by another"
+    assert listed(s3)["publishedAt"] != "2026-01-01 00:00:00Z", "a re-upload still sets publishedAt"
+
+
+def test_an_entry_from_before_the_gate_gets_a_record_but_never_a_null(panel, tmp_path):
+    folder, legal, _, _ = write_release(tmp_path)
+    lr = load_local_release(panel, folder, legal)
+    old = {"schemaVersion": 1, "releases": {RID: {"publishedAt": "2025-01-01T00:00:00Z", "bytes": {}}}}
+    s3 = FakeS3(objects={f"{PREFIX}index.json": (json.dumps(old).encode(), {})})
+    write_release_index(panel, s3, "b", lr, log=quiet, uploaded=True)
+    assert "refreshGate" not in listed(s3), "re-uploading metadata does not make an old release refuse"
+    write_release_index(panel, s3, "b", lr, log=quiet, uploaded=False, refresh_gate=dict(CLEARED))
+    assert listed(s3)["refreshGate"]["r"] == "2" * 64
+
+
+def test_the_index_check_for_a_pointer_move(panel):
+    key = f"{PREFIX}index.json"
+
+    def check(body, release_id=RID):
+        s3 = FakeS3(objects={key: (body, {})} if body is not None else {})
+        lines: list[str] = []
+        return refresh_gate_problem(panel, s3, "b", release_id, lines.append), lines
+
+    def index(entry):
+        return json.dumps({"schemaVersion": 1, "releases": {RID: entry}}).encode()
+
+    problem, lines = check(index({"publishedAt": "t", "bytes": {}, "refreshGate": {"at": "2026-11-01T00:00:00Z", "waived": True}}))
+    assert problem is None and lines == [f"refresh gate: release {RID} cleared 2026-11-01T00:00:00Z"]
+    problem, lines = check(index({"publishedAt": "t", "bytes": {}}))
+    assert problem is None and "recorded before the gate" in lines[0]
+    problem, lines = check(index({}), "f" * 16)
+    assert problem is None and "recorded before the gate" in lines[0]
+    problem, _ = check(index({"publishedAt": "t", "bytes": {}, "refreshGate": None}))
+    assert "was uploaded without the refresh verdicts" in problem
+    assert "publish-release --config" in problem and "--verdict-r/--verdict-n" in problem and "--no-refresh-gate" in problem
+    for body in (b"{not json", b"[]", b'{"releases": []}', index("junk"), index({"refreshGate": "yes"})):
+        problem, lines = check(body)
+        assert problem is None and lines[0].startswith("WARNING"), body
