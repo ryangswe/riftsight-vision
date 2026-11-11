@@ -40,8 +40,10 @@ const ANALYSIS_TIMEOUT_MS = 60_000;
 export interface Analyzer {
   /** The release in effect, with the backend each model runs on. */
   readonly release: NonNullable<ReleaseStatus["release"]>;
-  /** Capture the element's current picture and analyze it. */
-  analyze(video: HTMLVideoElement): Promise<FrameAnalysis>;
+  /** Capture the element's current picture and analyze it. With `focus`, a point in the
+   *  picture's pixels, the stage verifies only the faces at it (session option
+   *  `geometricScope: "focus"`); for the focus check (focus-check.ts) only. */
+  analyze(video: HTMLVideoElement, focus?: { x: number; y: number }): Promise<FrameAnalysis>;
   /** Analyze a picture at its own size, with no resize: its width must lie in the release's
    *  analysis range. The bitmap is handed to the worker, which closes it. */
   analyzeBitmap(bitmap: ImageBitmap, timeSec: number): Promise<FrameAnalysis>;
@@ -108,7 +110,7 @@ export function createAnalyzer(options: AnalyzerOptions): Promise<Analyzer> {
       }
       const analysisWidth = reply.release.analysisWidth;
       /** Send one bitmap to the worker and wait for its analysis. */
-      const send = async (bitmap: ImageBitmap, timeSec: number, videoKey: string): Promise<FrameAnalysis> => {
+      const send = async (bitmap: ImageBitmap, timeSec: number, videoKey: string, focus?: { x: number; y: number }): Promise<FrameAnalysis> => {
         const requestId = nextRequestId++;
         const answered = new Promise<FrameResult>((done, fail) => {
           const timer = setTimeout(() => {
@@ -125,6 +127,7 @@ export function createAnalyzer(options: AnalyzerOptions): Promise<Analyzer> {
           bitmap,
           videoTimeSec: timeSec,
           envelope: { requestId, mediaTimeSec: timeSec, generation: 0, videoKey },
+          ...(focus ? { geometricScope: "focus" as const, focus } : {}),
         };
         worker.postMessage(request, [bitmap]);
         const result = await answered;
@@ -134,10 +137,10 @@ export function createAnalyzer(options: AnalyzerOptions): Promise<Analyzer> {
       };
       resolve({
         release: reply.release,
-        async analyze(video) {
+        async analyze(video, focus) {
           if (!ctx) throw new Error("this browser gives no 2D canvas");
           const frame = await captureFrame(video, canvas, ctx, analysisWidth);
-          return send(frame.bitmap, frame.videoTimeSec, video.currentSrc);
+          return send(frame.bitmap, frame.videoTimeSec, video.currentSrc, focus);
         },
         analyzeBitmap(bitmap, timeSec) {
           if (bitmap.width < analysisWidth.min || bitmap.width > analysisWidth.max) {

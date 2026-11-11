@@ -255,7 +255,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
   }
 
   async function frame(request: Extract<WorkerRequest, { kind: "frame" }>): Promise<void> {
-    const { bitmap, videoTimeSec, envelope, tilted, focus, rotatedOutlines } = request;
+    const { bitmap, videoTimeSec, envelope, tilted, focus, geometricScope, rotatedOutlines } = request;
     const t0 = now();
     const { width, height } = bitmap;
     // Every frame gets an answer: the session waits for one before it sends the next.
@@ -279,6 +279,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
       const analysis = await loaded.pipeline.analyze({ data: image.data, width: image.width, height: image.height }, videoTimeSec, {
         ...(tilted !== undefined ? { tilted } : {}),
         ...(focus !== undefined ? { focus } : {}),
+        ...(geometricScope === "focus" ? { geometricScope } : {}),
         ...(rotatedOutlines === true ? { rotatedOutlines } : {}),
       });
       watch(analysis);

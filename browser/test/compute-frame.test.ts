@@ -712,3 +712,44 @@ describe("a bundled release that fails to load", () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+// Session option geometricScope: "focus" over the existing messages (no new field).
+describe("geometricScope in the compute frame", () => {
+  /** The frame request the worker gets for a pointer at (x, y), or after `leave`. */
+  function frameRequest(over: Partial<ComputeFrameEnv>, point: { x: number; y: number } | null) {
+    const t = setup(over);
+    const w = t.workers[0]!;
+    loaded(w);
+    if (point) t.send(tag({ kind: "pointer", x: point.x, y: point.y, mediaTime: 1, touch: false }));
+    else {
+      t.send(tag({ kind: "pointer", x: 0.1, y: 0.1, mediaTime: 1, touch: false }));
+    }
+    const capture = t.messages().filter((m) => m.kind === "capture").pop() as { requestId: number };
+    if (!point) t.send(tag({ kind: "leave" }));
+    t.send(tag({ kind: "frame", requestId: capture.requestId, bitmap: new FakeBitmap(), mediaTime: 1 }));
+    return w.posted.at(-1) as Record<string, unknown>;
+  }
+
+  it("sends the pointer of the pointer message, in the picture's pixels, with the scope", () => {
+    const request = frameRequest({ geometricScope: "focus" }, { x: 0.2, y: 0.5 });
+    expect(request).toMatchObject({ kind: "frame", geometricScope: "focus", focus: { x: 200, y: 250 } });
+  });
+
+  it("sends the pointer as it was when the picture was asked for", () => {
+    const request = frameRequest({ geometricScope: "focus" }, null);
+    expect(request).toMatchObject({ geometricScope: "focus", focus: { x: 100, y: 50 } });
+  });
+
+  it("sends neither without the option, or with the default scope", () => {
+    for (const over of [{}, { geometricScope: "all" as const }]) {
+      const request = frameRequest(over, { x: 0.2, y: 0.5 });
+      expect("focus" in request).toBe(false);
+      expect("geometricScope" in request).toBe(false);
+    }
+  });
+
+  it("is refused when the frame starts in a mode other than pointer", () => {
+    expect(() => setup({ geometricScope: "focus", mode: "always-on" })).toThrow(/needs pointer mode/);
+  });
+});

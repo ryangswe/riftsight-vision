@@ -470,6 +470,17 @@ The extension page in the iframe. `startComputeFrame` takes the options of
 `createWorkerSession` too (`mode`, `hold`, `chooseRelease`, `recordSkip`, `onDecision`,
 `onGeometricStatus`, ...) and `idleUnloadMs`.
 
+**Verifying only the faces at the pointer.** `geometricScope: "focus"` is one of those options
+(`"all"` is the default): the geometric stage then verifies only the faces at the pointer, and a
+face it applies to and did not verify is not named until an analysis verifies it
+([browser/README.md](../browser/README.md), "Verifying the faces at the pointer"). It needs no new
+message and does not change `PROTOCOL_VERSION`. The pointer reaches the frame as it does today:
+the content script keeps sending `pointer` (fractions of the picture) and `leave`; when the frame
+asks for a picture, it notes the pointer, and when the picture arrives it sends the worker that
+point in the picture's pixels with the frame. A host that wants this option sends `pointer`
+messages for real movement only, as the contract already says, and `leave` when the pointer goes.
+The option is refused (the frame throws when it starts) in any mode but `"pointer"`.
+
 ```js
 import { computeProtocol, DRIVER_TICK_MS, SHOWN_HOLD, startComputeFrame }
   from "./vendor/cardvision-browser/compute-session.js";

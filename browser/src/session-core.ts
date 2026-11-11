@@ -36,13 +36,14 @@
 // was detected and not named. With the optional hold (`SHOWN_HOLD`), a shown card survives short
 // gaps; without it (the default), what is shown is exactly the newest result at the pointer.
 
-import type { AABB } from "./boxes.js";
+import { type AABB, iou } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
-import { analyzeIntervalMs, cadenceMs, MeasuredPacer, type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
+import { analyzeIntervalMs, cadenceMs, type GeometricScope, MeasuredPacer, resolveGeometricScope, type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
 import { hoverAt } from "./hover-at.js";
+import { ACCEPTED_NMS_IOU, focusGroup } from "./recognition.js";
 import type { LayerCard } from "./hover-geometry.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { SessionStatus } from "./session.js";
@@ -127,6 +128,9 @@ export interface SessionCoreOptions {
   /** True: named cards follow their outline on every frame (`SessionOptions.rotatedOutlines`).
    *  Default false. */
   rotatedOutlines?: boolean;
+  /** "focus": each frame asks the geometric stage to verify only the faces at the pointer
+   *  (`SessionOptions.geometricScope`). Throws unless the mode is "pointer". Default "all". */
+  geometricScope?: GeometricScope;
   /** Pace analysis from the measured analysis time (`SessionOptions.measuredPacing`). Off when
    *  absent. */
   measuredPacing?: MeasuredPacingOption;
@@ -156,6 +160,64 @@ export function neighborBoxes(analysis: FrameAnalysis, box: FractionBox, limit =
     .map((b) => ({ x: b.x, y: b.y, width: b.width, height: b.height }));
 }
 
+/** `neighborBoxes` for focus scope. A frame with no unverified face is listed exactly as a full
+ *  analysis lists it. Otherwise, every face of each overlap group (boxes joined by an IoU of
+ *  `ACCEPTED_NMS_IOU` or more, as the suppression joins them) that holds an unverified face is
+ *  listed, kept, suppressed, verified or not, since nobody knows which a full analysis would
+ *  have kept. Those come first and are not cut by the limit; the layer's other boxes follow, in
+ *  its stacking order, up to the room the limit leaves. */
+function neighborFaceBoxes(analysis: FrameAnalysis, box: FractionBox, limit: number): FractionBox[] {
+  const own = neighborBoxes(analysis, box, Infinity);
+  const groups = unverifiedGroupBoxesOf(analysis);
+  if (groups.length === 0) return own.slice(0, limit);
+  const same = (a: FractionBox, b: FractionBox): boolean => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6 && Math.abs(a.width - b.width) < 1e-6;
+  const first = groups.filter((b) => !same(b, box));
+  const rest = own.filter((o) => !first.some((g) => same(g, o)));
+  return [...first, ...rest.slice(0, Math.max(0, limit - first.length))];
+}
+
+/** The boxes of every face in the overlap groups that hold a face the stage applies to and did
+ *  not verify, in fractions of the frame, clamped as the layer's are. */
+function unverifiedGroupBoxesOf(analysis: FrameAnalysis): FractionBox[] {
+  const { width, height } = analysis.frame;
+  const clamp = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
+  const faces = (analysis.boxes ?? []).filter((b) => b.face !== null);
+  const aabbs = faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] }));
+  const seen = new Set<number>();
+  const taken: number[] = [];
+  faces.forEach((f, start) => {
+    if (f.face!.unverified !== true || seen.has(start)) return;
+    const queue = [start];
+    seen.add(start);
+    for (let q = 0; q < queue.length; q++) {
+      aabbs.forEach((b, i) => {
+        if (!seen.has(i) && iou(aabbs[queue[q]!]!, b) >= ACCEPTED_NMS_IOU) {
+          seen.add(i);
+          queue.push(i);
+        }
+      });
+    }
+    taken.push(...queue);
+  });
+  return [...new Set(taken)].sort((a, b) => a - b).map((i) => {
+    const [x, y, w, h] = faces[i]!.box;
+    return { x: clamp(x / width), y: clamp(y / height), width: clamp(w / width), height: clamp(h / height) };
+  });
+}
+
+/** Whether, in this analysis, the pointer at (px, py) in the frame's pixels is on a group of
+ *  overlapping faces (`focusGroup`) that holds a face the stage applies to and did not verify
+ *  (geometricScope "focus"). Such a group is not answered: the analysis was taken with the
+ *  pointer elsewhere, and a verified face beside an unverified one could be the card beneath. */
+function pointerGroupUnverified(analysis: FrameAnalysis, px: number, py: number): boolean {
+  const faces = (analysis.boxes ?? []).filter((b) => b.face !== null);
+  const group = focusGroup(
+    faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] })),
+    { x: px, y: py },
+  );
+  return [...group].some((i) => faces[i]!.face!.unverified === true);
+}
+
 interface InFlight {
   requestId: number;
   /** When the capture was asked for: the watchdog and the round trip count from here. */
@@ -164,6 +226,8 @@ interface InFlight {
   videoKey: string;
   /** Set once the picture went to the worker. */
   analyzing: boolean;
+  /** The pointer, in fractions of the picture, when the capture was asked for. */
+  pointer: { x: number; y: number } | null;
 }
 
 export class SessionCore {
@@ -172,6 +236,7 @@ export class SessionCore {
   private readonly hold: ShownHold | null;
   private readonly maxOtherBoxes: number;
   private readonly rotatedOutlines: boolean;
+  private readonly focusScope: boolean;
   private readonly hitTest: typeof hoverAt;
   private readonly pacer: MeasuredPacer | null;
 
@@ -202,6 +267,7 @@ export class SessionCore {
     this.hold = options.hold ?? null;
     this.maxOtherBoxes = options.maxOtherBoxes ?? MAX_OTHER_BOXES;
     this.rotatedOutlines = options.rotatedOutlines === true;
+    this.focusScope = resolveGeometricScope(options.geometricScope, this.mode) === "focus";
     this.hitTest = deps.hoverAt ?? hoverAt;
     const share = resolveMeasuredPacing(options.measuredPacing);
     this.pacer = share === null ? null : new MeasuredPacer(share);
@@ -231,6 +297,7 @@ export class SessionCore {
     if (touch) this.scheduler.tapped(now);
     else this.scheduler.pointerMoved(now);
     if (this.st.state === "ready" && this.scheduler.hoverTriggerDue(now, this.videoTime(), this.inFlight !== null)) this.requestCapture("hover");
+    else this.relookForUnverified();
     this.publish();
   }
 
@@ -293,8 +360,21 @@ export class SessionCore {
     }
     sent.analyzing = true;
     const envelope: FrameEnvelope = { requestId: sent.requestId, mediaTimeSec: mediaTime, generation: sent.generation, videoKey: sent.videoKey };
+    // The pointer as it was when the picture was asked for, in the picture's pixels (the bitmap
+    // is already at analysis size). Sent only with the option on.
+    const focus = sent.pointer ? { x: sent.pointer.x * bitmap.width, y: sent.pointer.y * bitmap.height } : null;
     try {
-      this.deps.toWorker({ kind: "frame", bitmap, videoTimeSec: mediaTime, envelope, ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}) }, [bitmap]);
+      this.deps.toWorker(
+        {
+          kind: "frame",
+          bitmap,
+          videoTimeSec: mediaTime,
+          envelope,
+          ...(this.focusScope ? { geometricScope: "focus" as const, focus } : {}),
+          ...(this.rotatedOutlines ? { rotatedOutlines: true } : {}),
+        },
+        [bitmap],
+      );
     } catch (error) {
       // Not transferred, so still ours: close it, and ask again as for a look given up on.
       bitmap.close();
@@ -429,6 +509,7 @@ export class SessionCore {
     }
     this.scheduler.setTooltipShowing(this.shown() !== null, now);
     if (this.st.state === "ready" && !this.inFlight && this.scheduler.due(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
+    else this.relookForUnverified();
     this.publish();
   }
 
@@ -505,11 +586,27 @@ export class SessionCore {
     this.publishStatus();
   }
 
+  /**
+   * Focus scope: the pointer is on a face the stage applies to that the newest analysis did not
+   * verify (or in a group with one), so the picture is analyzed again with the pointer there,
+   * as a look started by the pointer: at most once per `HOVER_TRIGGER_MIN_GAP_MS`, never while
+   * one is in flight, with the repeats a newly presented picture gets. It stops by itself: that
+   * look verifies the pointer's group, so nothing is unverified there any more.
+   */
+  private relookForUnverified(): void {
+    if (!this.focusScope || this.st.state !== "ready" || !this.pointerAt || !this.result) return;
+    const { analysis } = this.result;
+    const { width, height } = analysis.frame;
+    if (!(width > 0 && height > 0)) return;
+    if (!pointerGroupUnverified(analysis, this.pointerAt.x * width, this.pointerAt.y * height)) return;
+    if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null)) this.requestCapture("hover");
+  }
+
   private requestCapture(trigger?: "hover" | "cut"): void {
     if (this.st.state !== "ready" || this.inFlight) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
-    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false };
+    this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null };
     this.scheduler.started(now, { videoTimeSec: this.videoTime(), ...(trigger ? { trigger } : {}) });
     this.deps.capture(requestId, { ...this.analysisWidth });
   }
@@ -539,11 +636,14 @@ export class SessionCore {
     const x = fx * width;
     const y = fy * height;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    // Focus scope: a result is valid where its faces were verified, so nothing is named in a
+    // group that holds a face it did not verify (the card beneath could show through).
+    if (this.focusScope && pointerGroupUnverified(result.analysis, x, y)) return null;
     const hit = this.hitTest(result.analysis, x, y);
     if (!hit.box || hit.cardId === null || hit.name === null) return null;
     const box = { x: hit.box.x / width, y: hit.box.y / height, width: hit.box.width / width, height: hit.box.height / height };
     const frameBox = { x: hit.box.x, y: hit.box.y, width: hit.box.width, height: hit.box.height };
-    return { cardId: hit.cardId, name: hit.name, box, frameBox, others: neighborBoxes(result.analysis, box, this.maxOtherBoxes), ...turnedOutline(hit.card) };
+    return { cardId: hit.cardId, name: hit.name, box, frameBox, others: this.focusScope ? neighborFaceBoxes(result.analysis, box, this.maxOtherBoxes) : neighborBoxes(result.analysis, box, this.maxOtherBoxes), ...turnedOutline(hit.card) };
   }
 
   /** The card at the pointer in the newest result that may still be shown; null for nothing, or
@@ -563,6 +663,11 @@ export class SessionCore {
     const fresh = this.fresh();
     const hold = this.hold;
     if (!hold) return fresh;
+    if (!fresh && this.focusScope && this.pointerGroupHoldsUnverified()) {
+      // The pointer is on a group the newest result did not fully verify: a held card ends too.
+      this.held = null;
+      return null;
+    }
     const now = this.deps.now();
     if (fresh) {
       this.held = { card: fresh, misses: 0, seenAt: now };
@@ -579,6 +684,14 @@ export class SessionCore {
       return null;
     }
     return held.card;
+  }
+
+  /** Whether the pointer is, in the newest result, on a group that holds an unverified face. */
+  private pointerGroupHoldsUnverified(): boolean {
+    const result = this.current();
+    if (!result || !this.pointerAt) return false;
+    const { width, height } = result.analysis.frame;
+    return width > 0 && height > 0 && pointerGroupUnverified(result.analysis, this.pointerAt.x * width, this.pointerAt.y * height);
   }
 
   private current(): { analysis: FrameAnalysis; videoTimeSec: number } | null {

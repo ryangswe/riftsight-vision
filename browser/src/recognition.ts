@@ -3,7 +3,7 @@
 // the bank, apply the accept rule and the orientation rule, then suppress overlapping boxes.
 // In Python: cardvision/recognize (crops.py, accept.py, recognizer.py).
 
-import { type AABB, type Candidate, nonMaxSuppression, type Rect } from "./boxes.js";
+import { type AABB, type Candidate, iou, nonMaxSuppression, type Rect } from "./boxes.js";
 import { DEFAULT_MIN_CROP_PX } from "./detector/decode.js";
 import type { Frame } from "./detector/detector.js";
 import type { BatchEmbedder } from "./embedder.js";
@@ -129,6 +129,10 @@ export interface ScoredProposal {
    *  box's own rectangle when the tilt is under a degree or cannot be solved exactly. It decides
    *  nothing. Absent otherwise. */
   outline?: Rect;
+  /** With `geometricFocus`, on a face the stage applies to that was not verified on this frame:
+   *  true. The face is then not named: `tauPassed` and `accepted` are false and `embedding` is
+   *  null, whatever its cosine look was. Absent otherwise. */
+  unverified?: true;
 }
 
 /** What the tilted retry did with one face (Python: `TiltedOutcome.to_json`). */
@@ -236,6 +240,15 @@ export function keepAfterNms(
  * earlier scale on equal scores. The tracker still pools the cosine looks (`base`). When the
  * retry throws, the frame is answered as without it and the error is returned (`tiltedError`).
  *
+ * With `geometricFocus` (a point in the frame's pixels, or null for none) the stage verifies only
+ * the faces of the point's group (`focusGroup`): the boxes holding it and, transitively, the ones
+ * overlapping them by the suppression's threshold, so the suppression among them sees the same
+ * scores as without the option. A face the stage applies to outside the group is `unverified`: not
+ * named, not tracked, and left out of the tilted retry. A face the stage does not apply to is
+ * answered as without the option. The tilted retry then takes every not-accepted face of the
+ * group, with no `maxFacesPerFrame` cap, and no face outside it. Without `geometricFocus` (undefined) every face the stage
+ * applies to is verified, in one batch.
+ *
  * With `rotatedOutlines`, every proposal whose score reaches tau carries its card's `outline`,
  * from the same crop; nothing else changes.
  */
@@ -248,6 +261,7 @@ export async function recognizeFrame(
   stage: GeometricStage | null = null,
   tilted: TiltedRun | null = null,
   rotatedOutlines = false,
+  geometricFocus?: { x: number; y: number } | null,
 ): Promise<ScoredFrame> {
   const contract = recognizer.preprocessing;
   const rule = recognizer.rule;
@@ -311,14 +325,23 @@ export async function recognizeFrame(
   let geometricMs: number | undefined;
   let geometricError: unknown;
   let failed = false;
+  const unverified = new Set<number>();
+  // With geometricFocus and a stage: the pointer's group, which the stage verifies and the
+  // tilted retry is limited to (and takes whole, with no per-frame cap).
+  let group: Set<number> | null = stage && geometricFocus !== undefined ? focusGroup(kept.map((face) => face.aabb), geometricFocus) : null;
   if (stage) {
     try {
       const t0 = performance.now();
       const which: number[] = [];
       const rows: Float64Array[] = [];
       const items: VerifyItem[] = [];
+      const inGroup = group;
       for (let i = 0; i < kept.length; i++) {
         if (!stage.applies(null, lookAccepted(choices[i]!.match, rule))) continue;
+        if (inGroup !== null && !inGroup.has(i)) {
+          unverified.add(i);
+          continue;
+        }
         const { embs: source, off } = chosenAt(i);
         const row = recognizer.scoreRow(source, off);
         which.push(i);
@@ -345,6 +368,8 @@ export async function recognizeFrame(
       failed = true;
       geometricError = error;
       fusedLooks.clear();
+      unverified.clear();
+      group = null;
       geometricMs = undefined;
     }
   }
@@ -360,10 +385,14 @@ export async function recognizeFrame(
       const t0 = performance.now();
       const { scales, maxFacesPerFrame } = tilted.settings;
       const current = (i: number): ScoredMatch => fusedLooks.get(i)?.match ?? choices[i]!.match;
-      const which = tiltedOrder(
-        kept.map((face, i) => ({ aabb: face.aabb, similarity: choices[i]!.match.similarity, accepted: lookAccepted(current(i), rule) })),
-        tilted.focus ?? null,
-      ).slice(0, maxFacesPerFrame);
+      const ordered = tiltedOrder(
+        kept.map((face, i) => ({ aabb: face.aabb, similarity: choices[i]!.match.similarity, accepted: unverified.has(i) || lookAccepted(current(i), rule) })),
+        // A stage that failed on this frame leaves the frame answered as with the option off.
+        geometricFocus !== undefined && group === null ? null : (tilted.focus ?? null),
+      );
+      // In focus scope the retry takes every face of the group not yet accepted, uncapped, so
+      // the answer there is the one a full analysis gives with no cap; no face outside it.
+      const which = group !== null ? ordered.filter((i) => group!.has(i)) : ordered.slice(0, maxFacesPerFrame);
       if (which.length > 0) {
         const tilts: number[] = [];
         const batch = new Float32Array(which.length * scales.length * plane);
@@ -423,7 +452,8 @@ export async function recognizeFrame(
       const tiltedLook = fused ? tiltedLooks.get(i) : undefined;
       const { orientation, retried } = chosen;
       const m = tiltedLook?.match ?? (fusedLook ? fusedLook.match : chosen.match);
-      const tauPassed = m.cardId !== null;
+      const skipped = unverified.has(i);
+      const tauPassed = !skipped && m.cardId !== null;
       // A look that reaches tau carries the chosen look's embedding (a fused look too, though
       // the tracker is given the cosine looks only: `base`).
       let embedding: Float32Array | null = null;
@@ -443,8 +473,9 @@ export async function recognizeFrame(
         orientation,
         retried,
         tauPassed,
-        accepted: lookAccepted(m, rule),
+        accepted: !skipped && lookAccepted(m, rule),
         embedding,
+        ...(skipped ? { unverified: true as const } : {}),
         ...(fusedLook ? { geometric: fusedLook.geometric } : {}),
         ...(tiltedLook ? { tilted: tiltedLook.evidence } : {}),
         ...(rotatedOutlines && tauPassed ? { outline: outlineOf(i) } : {}),
@@ -467,6 +498,33 @@ export async function recognizeFrame(
     ...(failed ? { geometricError } : {}),
     ...(tiltedFailed ? { tiltedError } : {}),
   };
+}
+
+/**
+ * The faces the suppression can tie to `point`: those whose box holds it (edges included) and,
+ * transitively, those overlapping one of them by `ACCEPTED_NMS_IOU` or more (the suppression's
+ * own test), since greedy suppression chains. Empty when `point` is null or no box holds it.
+ */
+export function focusGroup(boxes: readonly AABB[], point: { x: number; y: number } | null): Set<number> {
+  const group = new Set<number>();
+  if (point === null) return group;
+  const queue: number[] = [];
+  boxes.forEach((b, i) => {
+    if (point.x >= b.x && point.x <= b.x + b.width && point.y >= b.y && point.y <= b.y + b.height) {
+      group.add(i);
+      queue.push(i);
+    }
+  });
+  for (let q = 0; q < queue.length; q++) {
+    const from = boxes[queue[q]!]!;
+    boxes.forEach((b, i) => {
+      if (!group.has(i) && iou(from, b) >= ACCEPTED_NMS_IOU) {
+        group.add(i);
+        queue.push(i);
+      }
+    });
+  }
+  return group;
 }
 
 /**
