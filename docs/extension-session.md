@@ -442,15 +442,16 @@ and a reload in place is no faster than a new frame. A product that wants the me
 `whenIdle: { remove, make }`. When the frame reports the status `idle`, the control calls
 `remove()` once (delete the iframe) and sends nothing more to that frame. The next trusted pointer
 move over the watched video calls `make()` once (create a new iframe; the function given to
-`loadWhen` works), and so does an `intent` moment (with `intent: "page"`, a trusted move anywhere
-while the video plays), in which case no `intent` message is sent. `frame()` must return the new
+`loadWhen` works). An `intent` moment (with `intent: "page"`, a trusted move anywhere while the
+video plays) does not make it, and sends nothing while the frame is removed: rebuilding on any
+page move cost more than it saved for viewers who don't hover. `frame()` must return the new
 window once `make()` returns. The control then connects as it does for any replaced iframe: it
 says `hello`, takes the new `ready`, and tells the frame the pointer again. A second `make()`
 waits until the new frame has itself gone idle and been removed; `stop()` during either call
 leaves nothing sent. A trusted `pointerdown` over the picture (a touch tap) makes the frame too.
 After `make()` the usual `no-answer` problem can fire, and the product handles it as it does for
-its first frame. If `make()` throws, the control stays in the removed state and the next trusted
-move tries again; the throw is not reported. A frame the product makes and connects itself ends
+its first frame. If `make()` throws, the control stays in the removed state and only the next trusted
+move or tap over the video tries again (a move elsewhere on the page does not); the throw is not reported. A frame the product makes and connects itself ends
 the removed state, so the next `idle` removes it. For that reason a product must not make the
 frame on its own load triggers while `control.frameRemoved` (true from `remove()` until the next
 accepted handshake) is true: `loadWhen` fires once, so it is safe, but a reload on every `playing`
