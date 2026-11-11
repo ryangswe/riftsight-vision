@@ -24,7 +24,9 @@ import { hoverAt, Pipeline } from "../src/pipeline.js";
 import { focusChecked, type FocusCheckReport, focusCheckLines } from "../score/focus-check.js";
 import type { Analyzer } from "../score/video.js";
 import { ACCEPTED_NMS_IOU, focusGroup } from "../src/recognition.js";
+import { HOVER_TRIGGER_MIN_GAP_MS } from "../src/frame-scheduler.js";
 import { SessionCore } from "../src/session-core.js";
+import { CONFIRM_FRAMES } from "../src/temporal-gate.js";
 import { createSession } from "../src/session.js";
 import { createWorkerSession, type WorkerLike } from "../src/worker-session.js";
 import { axis, solidFrame, Stream } from "./support.js";
@@ -664,5 +666,123 @@ describe("row 5: without a stage the option does nothing", () => {
     const on = await run(focusOn);
     expect(on).toEqual(off);
     expect(JSON.parse(off[0]!).map((b: { face: { cardId: string | null } }) => b.face.cardId)).toEqual([null, "B"]);
+  });
+});
+
+// ------------------------------------------------------------ row 8: a paused picture
+describe("row 8: a card reached on a paused picture is looked at again", () => {
+  type Box = { box: number[]; face: { unverified?: true; cardId: string | null } };
+  /** A 1000 x 500 analysis: card A (x 100..300) and card B (x 600..800), then C (x 350..550). A is
+   *  always verified. `verified` lists the other cards the analysis verified (named). */
+  const analysisOf = (verified: string[]): never => {
+    const spec: Array<[string, number]> = [["A", 100], ["B", 600], ["C", 350]];
+    const boxes: Box[] = spec.map(([id, x]) => ({
+      box: [x, 100, 200, 300],
+      face: id === "A" || verified.includes(id) ? { cardId: id } : { unverified: true, cardId: null },
+    }));
+    return { frame: { width: 1000, height: 500 }, hover: { selection: "accepted-nms", cards: [] }, boxes } as never;
+  };
+  const hit = (a: { boxes: Box[] }, x: number, y: number) => {
+    const i = a.boxes.findIndex((b) => x >= b.box[0]! && x <= b.box[0]! + b.box[2]! && y >= b.box[1]! && y <= b.box[1]! + b.box[3]!);
+    const face = i < 0 ? null : a.boxes[i]!.face;
+    const b = i < 0 ? null : { x: a.boxes[i]!.box[0]!, y: a.boxes[i]!.box[1]!, width: a.boxes[i]!.box[2]!, height: a.boxes[i]!.box[3]! };
+    return { card: null, boxIndex: i < 0 ? null : i, box: face?.cardId ? b : null, cardId: face?.cardId ?? null, name: face?.cardId ?? null };
+  };
+
+  function setup(options: ConstructorParameters<typeof SessionCore>[1]) {
+    let now = 1_000;
+    const sent: Array<Extract<WorkerRequest, { kind: "frame" }>> = [];
+    let captured = 0;
+    let answered = 0;
+    let verified: string[] = [];
+    const core = new SessionCore({ now: () => now, toWorker: (r) => { if (r.kind === "frame") sent.push(r); }, capture: () => { captured += 1; }, hoverAt: hit as never }, options);
+    core.fromWorker({ kind: "release-status", ok: true, error: null, release: { analysisWidth: { min: 720, max: 1920 }, hoverMaxAgeMs: 2000, recognizer: { ep: "wasm" } } as never, cards: [] });
+    const bitmap = { width: 1000, height: 500, close() {} } as unknown as ImageBitmap;
+    /** Answer the look in flight, if there is one: the picture, then an analysis that verified
+     *  `verified` (plus the pointer's group, as the runtime does with the option on). */
+    const answer = (): boolean => {
+      const id = captured;
+      if (answered >= id) return false;
+      core.frame(id, bitmap, 1);
+      const request = sent.at(-1)!;
+      const f = request.focus;
+      if (options?.geometricScope === "focus" && f) {
+        for (const [card, x] of [["B", 600], ["C", 350]] as const) if (f.x >= x && f.x <= x + 200 && !verified.includes(card)) verified = [...verified, card];
+      }
+      core.fromWorker({ kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysisOf(verified) });
+      answered = id;
+      return true;
+    };
+    const step = (ms: number): void => {
+      now += ms;
+      core.tick();
+    };
+    return { core, sent, answer, step, captured: () => captured, clock: () => now };
+  }
+
+  /** The picture is paused: presented once, then analyzed with its repeats, with the pointer on A. */
+  function paused(options: ConstructorParameters<typeof SessionCore>[1]) {
+    const t = setup(options);
+    t.core.presented(1);
+    t.core.pointer(0.2, 0.5, 1); // on A
+    for (let i = 0; i < 12; i++) {
+      t.answer();
+      t.step(260);
+    }
+    t.step(2_000); // nothing more runs on its own
+    return t;
+  }
+
+  it("names a card reached 2 s after the pause, after one more look and its repeats", () => {
+    const t = paused({ geometricScope: "focus" });
+    const before = t.captured();
+    expect(before).toBe(CONFIRM_FRAMES); // the presented picture and its repeats, then nothing
+    expect(t.core.hitAt(0.7, 0.5)?.cardId ?? null).toBeNull(); // B is unverified: not named
+    t.core.pointer(0.7, 0.5, 1); // the pointer reaches B
+    expect(t.captured()).toBe(before + 1);
+    t.answer();
+    expect(t.core.hitAt(0.7, 0.5)?.cardId).toBe("B");
+    expect(t.sent.at(-1)!.focus).toEqual({ x: 700, y: 250 });
+    // The repeats of a newly presented picture follow.
+    for (let i = 0; i < 6; i++) {
+      t.step(260);
+      t.answer();
+    }
+    expect(t.captured()).toBe(before + CONFIRM_FRAMES);
+    // Verified now: moving about on B asks for nothing, and the card stays named.
+    t.step(1_000);
+    t.core.pointer(0.71, 0.5, 1);
+    t.core.pointer(0.69, 0.5, 1);
+    expect(t.captured()).toBe(before + CONFIRM_FRAMES);
+    expect(t.core.hitAt(0.7, 0.5)?.cardId).toBe("B");
+  });
+
+  it("looks again at most once per HOVER_TRIGGER_MIN_GAP_MS, and never while one is in flight", () => {
+    const t = paused({ geometricScope: "focus" });
+    const before = t.captured();
+    t.core.pointer(0.7, 0.5, 1); // B
+    t.core.pointer(0.71, 0.5, 1); // in flight: nothing more
+    expect(t.captured()).toBe(before + 1);
+    t.answer();
+    t.step(HOVER_TRIGGER_MIN_GAP_MS - 100);
+    t.core.pointer(0.45, 0.5, 1); // C, too soon after the last look the pointer started
+    expect(t.captured()).toBe(before + 1);
+    t.step(HOVER_TRIGGER_MIN_GAP_MS);
+    t.core.pointer(0.46, 0.5, 1);
+    expect(t.captured()).toBe(before + 2);
+  });
+
+  it("does nothing in scope all, or on a face that is verified or not under the pointer", () => {
+    const all = paused({});
+    const n = all.captured();
+    all.core.pointer(0.7, 0.5, 1);
+    all.step(1_000);
+    expect(all.captured()).toBe(n);
+    const t = paused({ geometricScope: "focus" });
+    const before = t.captured();
+    t.core.pointer(0.5, 0.05, 1); // over no face
+    t.core.pointer(0.2, 0.5, 1); // A, verified
+    t.step(1_000);
+    expect(t.captured()).toBe(before);
   });
 });

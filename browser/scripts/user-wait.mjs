@@ -416,6 +416,8 @@ window.harness = {
   },
   box: () => { const r = video.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; },
   scene: (name) => { scene = name; },
+  pause: () => { video.pause(); },
+  resume: async () => { if (video.paused) await video.play(); },
   seek: async (sec) => { video.currentTime = sec; await new Promise((r) => video.addEventListener("seeked", r, { once: true })); },
   control: (rate, c) => new BroadcastChannel("user-wait-control").postMessage({ rate, c }),
   begin: (expect, limitMs) => { window.__rest = arm(expect, limitMs); },
@@ -606,6 +608,10 @@ try {
     const limit = rest.limitMs ?? limitMs;
     if (rest.scene !== undefined) await tab.evaluate((name) => window.harness.scene(name), rest.scene);
     if (rest.atSec !== undefined) await tab.evaluate((sec) => window.harness.seek(sec), rest.atSec);
+    // A rest that pauses holds the picture still from its seek until the pointer has come to rest;
+    // a later rest without `pause` plays the clip on.
+    if (rest.pause === true) await tab.evaluate(() => window.harness.pause());
+    else await tab.evaluate(() => window.harness.resume());
     await tab.evaluate((expect, ms) => window.harness.begin(expect, ms), rest.expect, limit);
     await tab.mouse.move(...at(rest.x, rest.y));
     let left = null;
@@ -614,7 +620,7 @@ try {
     if (left !== null) clearTimeout(left);
     const scored = scoreRest({ expect: rest.expect, readings: measured.readings, movedAtMs: measured.movedAtMs, limitMs: limit });
     const described = describeRest(scored, { scene: rest.scene ?? null, framesStart: measured.framesStart, framesEnd: measured.framesEnd, readings: measured.readings });
-    lines.push({ index: index + 1, x: rest.x, y: rest.y, ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
+    lines.push({ index: index + 1, x: rest.x, y: rest.y, paused: rest.pause === true, ...(loadOnHover && index === 0 ? loadRest(described, { createdAtMs: measured.createdAtMs, readyAtMs: measured.readyAtMs }) : described) });
     // Later rests meet a session that is ready, as in a cold run.
     if (loadOnHover && index === 0) {
       opened = await tab.evaluate((ms) => window.harness.ready(ms), readyTimeoutMs);

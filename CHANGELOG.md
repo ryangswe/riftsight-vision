@@ -17,8 +17,10 @@ break the public surface; this file names each break and how to migrate.
   did not verify is not named until an analysis verifies it. A release's tilted retry takes the
   whole group in focus scope, with no per-frame cap. It needs `mode: "pointer"` and is
   refused with another mode; it works in `createSession` and in the extension compute frame
-  (`startComputeFrame`) with no new message and no protocol change. With the option off nothing
-  changes and no `focus` is sent. With no stage (none set, or one removed after a failure) the
+  (`startComputeFrame`) with no new message and no protocol change. On a paused or unchanged picture, a pointer that reaches a face the newest analysis left
+  unverified makes the session look again with the pointer there (at most once per 250 ms, never
+  while one is in flight, with a new picture's repeats). `user-wait` rests can carry
+  `"pause": true`. With the option off nothing changes and no `focus` is sent. With no stage (none set, or one removed after a failure) the
   worker ignores the scope and the pointer, and the frame is analyzed exactly as with the option
   off. Also in `browser/`: `npm run user-wait` takes `--gpu`,
   `--geometric FILE` and `--geometric-scope all|focus`, and records the backend, the stage's

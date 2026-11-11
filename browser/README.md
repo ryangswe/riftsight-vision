@@ -1164,6 +1164,12 @@ the rest meets a new picture. The local server answers range requests, so a seek
 what the browser has buffered. The clip plays on from there, so keep each picture on screen for
 longer than the rest's wait limit.
 
+`"pause": true` pauses the clip after the rest's `atSec` seek (or where it is) and before the
+pointer comes to rest, so the rest meets a picture that stays still, as a viewer who pauses on a
+card does. A later rest without `pause` plays the clip on. Each line of the report has `paused`
+(true or false). With `--geometric-scope focus`, paused rests are how a card reached after the
+picture's analyses is measured.
+
 **Warm-up.** `warmUpCycles` (default 3) first moves the pointer a little over the first rest
 until that many frames beyond the first have been analyzed, unthrottled, so the models' first
 runs are not in the numbers; those cycles also give the baseline below. `--cold` (or
@@ -1476,7 +1482,14 @@ another mode, because the pointer is what says which faces to verify.
 - **`others`.** The `others` of what `atPointer()` returns hold the boxes of the other kept,
   named cards of the analysis. Under focus scope that leaves out the boxes of nearby cards that
   were not verified, so a tooltip placed off `others` can overlap them.
-- **No extra analysis** is asked for when the pointer moves. A card the pointer moves onto
+- **A paused or unchanged picture.** A still picture is analyzed when presented and a few times
+  more, then not again, so a card the pointer reaches later would stay unnamed. In focus scope,
+  when the pointer is on a face (or a group) the newest analysis left unverified, the session
+  looks at the picture again with the pointer there, at most once per
+  `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight, and the look gets the
+  repeats a newly presented picture gets. It marks nothing stale and clears nothing shown, and it
+  stops once the face is verified. With the option off nothing changes.
+- **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
   shows after the next analysis, which comes sooner because each one costs less.
 - **Browser runtime only.** The Python package's `evaluate` is unchanged.
 

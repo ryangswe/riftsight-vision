@@ -43,6 +43,7 @@ import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER
 import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
 import { hoverAt } from "./hover-at.js";
+import { focusGroup } from "./recognition.js";
 import type { LayerCard } from "./hover-geometry.js";
 import type { FrameAnalysis } from "./pipeline.js";
 import type { SessionStatus } from "./session.js";
@@ -238,6 +239,7 @@ export class SessionCore {
     if (touch) this.scheduler.tapped(now);
     else this.scheduler.pointerMoved(now);
     if (this.st.state === "ready" && this.scheduler.hoverTriggerDue(now, this.videoTime(), this.inFlight !== null)) this.requestCapture("hover");
+    else this.relookForUnverified();
     this.publish();
   }
 
@@ -449,6 +451,7 @@ export class SessionCore {
     }
     this.scheduler.setTooltipShowing(this.shown() !== null, now);
     if (this.st.state === "ready" && !this.inFlight && this.scheduler.due(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
+    else this.relookForUnverified();
     this.publish();
   }
 
@@ -503,6 +506,27 @@ export class SessionCore {
     this.st.geometric = next.geometric ? { state: "loading", reason: null, bytes: null } : null;
     this.st.loading = null;
     this.publishStatus();
+  }
+
+  /**
+   * Focus scope: the pointer is on a face the stage applies to that the newest analysis did not
+   * verify (or in a group with one), so the picture is analyzed again with the pointer there,
+   * as a look started by the pointer: at most once per `HOVER_TRIGGER_MIN_GAP_MS`, never while
+   * one is in flight, with the repeats a newly presented picture gets. It stops by itself: that
+   * look verifies the pointer's group, so nothing is unverified there any more.
+   */
+  private relookForUnverified(): void {
+    if (!this.focusScope || this.st.state !== "ready" || this.inFlight || !this.pointerAt || !this.result) return;
+    const { analysis } = this.result;
+    const { width, height } = analysis.frame;
+    if (!(width > 0 && height > 0)) return;
+    const faces = (analysis.boxes ?? []).filter((b) => b.face !== null);
+    const group = focusGroup(
+      faces.map((b) => ({ x: b.box[0], y: b.box[1], width: b.box[2], height: b.box[3] })),
+      { x: this.pointerAt.x * width, y: this.pointerAt.y * height },
+    );
+    if (![...group].some((i) => faces[i]!.face!.unverified === true)) return;
+    if (this.scheduler.relookDue(this.deps.now(), false)) this.requestCapture("hover");
   }
 
   private requestCapture(trigger?: "hover" | "cut"): void {

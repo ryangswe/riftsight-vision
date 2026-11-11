@@ -319,6 +319,21 @@ describe("settleAnalyses: a cold run has no settle analyses before its first res
   });
 });
 
+describe("a paused rest", () => {
+  it("accepts `pause` as a boolean and refuses another value", () => {
+    const rest = { x: 0.1, y: 0.2, expect: "TOY-001" };
+    expect(core.restScriptProblem({ rests: [{ ...rest, pause: true }, { ...rest, pause: false }] })).toBeNull();
+    expect(core.restScriptProblem({ rests: [{ ...rest, pause: "yes" }] })).toMatch(/`pause` must be true or false/);
+  });
+
+  it("is wired into the script: paused after the seek and before the move, and recorded per rest", () => {
+    const source = readFileSync(fileOf("scripts/user-wait.mjs"), "utf-8");
+    expect(source).toMatch(/window\.harness\.seek\(sec\), rest\.atSec\);[\s\S]*?rest\.pause === true\) await tab\.evaluate\(\(\) => window\.harness\.pause\(\)\)[\s\S]*?tab\.mouse\.move\(\.\.\.at\(rest\.x, rest\.y\)\)/);
+    expect(source).toContain("paused: rest.pause === true");
+    expect(readFileSync(fileOf("README.md"), "utf-8")).toContain('`"pause": true`');
+  });
+});
+
 describe("the geometric flags (--gpu, --geometric, --geometric-scope)", () => {
   const run = (...args: string[]) => spawnSync(process.execPath, [fileOf("scripts/user-wait.mjs"), ...args], { encoding: "utf-8" });
 
