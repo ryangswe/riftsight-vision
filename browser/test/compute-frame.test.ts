@@ -845,16 +845,15 @@ describe("geometricLoad", () => {
   const staged: LoadRequest = { ...bundledLoad, geometricUrl: "geometric.json", geometricManifestSha256: "b".repeat(64), geometricDebug: true };
   const stageReply = (state: "loading" | "ready" | "off", reason: string | null = null) => ({ kind: "geometric-status", state, reason, bytes: null });
   const point = (t: ReturnType<typeof setup>) => t.send(tag({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1, touch: false }));
-  /** Point, wait for the look it starts (or the cadence's next), and answer it. */
+  /** Point, wait for a look in flight (one a load under the pointer already started, the one the
+   *  pointer starts, or the cadence's next), and answer it. */
   const look = (t: ReturnType<typeof setup>, w: FakeWorker) => {
-    const asked = () => t.messages().filter((m) => m.kind === "capture").length;
-    const before = asked();
     point(t);
-    for (let i = 0; i < 20 && asked() === before; i++) {
+    for (let i = 0; i < 20 && !t.frame!.core!.analysisInFlight(); i++) {
       t.clock.now += 250;
       t.frame!.tick();
     }
-    expect(asked()).toBeGreaterThan(before);
+    expect(t.frame!.core!.analysisInFlight()).toBe(true);
     answer(t, w);
   };
   /** Answer the newest capture with a picture, and the worker with an analysis. */
@@ -865,23 +864,22 @@ describe("geometricLoad", () => {
     w.reply({ kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysis() });
   };
 
-  /** What `traffic` gave before `geometricLoad` existed (recorded on the commit before it). */
+  /** What `traffic` gave before `geometricLoad` existed (recorded on the commit before it, with the
+   *  look on pointer entry: no picture is asked for while the pointer is off the picture). */
   const SHA = "b".repeat(64);
   const BITMAP = { width: 1000, height: 500, closed: false };
   const TRAFFIC_BEFORE_THE_OPTION = JSON.stringify([
     [
       { kind: "load", releaseUrl: "extension://x/release/release.json", wasmPaths: "w/", geometricUrl: "geometric.json", geometricManifestSha256: SHA, geometricDebug: true },
       { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 1, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
-      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 2, mediaTimeSec: 1, generation: 0, videoKey: "source-0" } },
-      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 3, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, reuseOf: 2 },
     ],
     [
       { kind: "load", releaseUrl: "extension://x/release/release.json", wasmPaths: "w/", geometricUrl: "geometric.json", geometricManifestSha256: SHA, geometricDebug: true },
-      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 4, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
+      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 2, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
     ],
     [
       { kind: "load", releaseUrl: "extension://x/release/release.json", wasmPaths: "w/", geometricDebug: true },
-      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 5, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
+      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 3, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
     ],
   ]);
 
@@ -895,10 +893,14 @@ describe("geometricLoad", () => {
     t.workers[0]!.reply(stageReply("ready"));
     look(t, t.workers[0]!);
     t.send(tag({ kind: "leave" }));
+    // Off the picture, as a content script does: a picture asked for is refused, never sent.
     for (let i = 0; i < 60 && t.frame!.state !== "idle"; i++) {
       t.clock.now += 500;
       t.frame!.tick();
-      if (t.frame!.core!.analysisInFlight()) answer(t, t.workers[0]!);
+      if (t.frame!.core!.analysisInFlight()) {
+        const capture = t.messages().filter((m) => m.kind === "capture").pop() as { requestId: number };
+        t.send(tag({ kind: "capture-failed", requestId: capture.requestId, reason: "not-pointing" }));
+      }
     }
     expect(t.frame!.state).toBe("idle");
     point(t);
