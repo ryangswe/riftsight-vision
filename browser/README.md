@@ -1458,7 +1458,7 @@ options and load-request fields such as `geometricUrl`), `--scenarios`, `--count
 | H1 | Cold first hover: the frame is made at the hover |
 | H2 | First hover after the frame was made at play (`--load play`) and was ready for at least 2 s, with the stage in its intended state |
 | H2P | One slow paused point (`slowPoint`), after the stage is ready; at most 5 hovers |
-| H6 | A later new card while playing: with the stage ready and `"geometricScope": "focus"` in `--options`, the pointer rests on card A (`--rest-ms`, 2 s by default), then moves to card B, which was in the scene during A's looks. Needs `pairs` in the script; each B hover is a row |
+| H6 | A later new card while playing: with the stage ready and `"geometricScope": "focus"` in `--options`, the pointer rests on card A (`--rest-ms`, 2 s by default, plus up to 250 ms that varies by trial so the move does not always land on one phase of the look cadence), then moves to card B, which was in the scene during A's looks. Needs `pairs` in the script, `--load play` and `--scenarios H6` (it is not in the default list); each B hover is a row with `aOutcome`, `aShownMs` and `restOnAMs`, and the report summarizes H6 by pair (`byPair`) because pairs can behave differently |
 | H5 | The pointer onto a playing video after 1, 3 and 12 s off the picture (`--gaps`, `--h5-count` per gap) |
 
 **What is cold.** H1 opens a new browser context for every hover (no shared HTTP cache, storage or
@@ -1485,6 +1485,8 @@ move: the frame reports when it posts `load` or `load-stage` to the worker and w
 **The stage is pinned.** With a stage in `--options` (or `"stage"` set), H2 waits for it to reach
 the intended state and fails the run when it reaches another; each row records the stage's state
 at the hover. The report records the backend, Chrome, the machine and the toolkit commit.
+
+When H5 did not run, the two entry-look gates are reported as not applicable (`detail.applicable` false) and do not fail.
 
 **Hard gates.** Exit code 0 for a completed run, 1 when a gate fails, 2 on an error.
 - Always: no picture request before a trusted pointer was over the picture; no picture delivered

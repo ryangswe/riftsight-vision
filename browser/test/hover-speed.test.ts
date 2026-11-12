@@ -16,6 +16,8 @@ const core = (await import(pathToFileURL(fileURLToPath(new URL("../scripts/hover
   intendedStage: (options: unknown) => string;
   scoreHover: (input: { events: Ev[]; expect: string; limitMs?: number; observeMs?: number; before?: Ev[] }) => Row;
   entryLookProblem: (input: { scenarios: string[]; gaps: number[] }) => string | null;
+  scenarioProblem: (input: { script: Row; scenarios: string[]; loadMode: string; haveScenes: boolean }) => string | null;
+  summarizeByPair: (rows: Row[], limitMs?: number) => Row[];
   requestsOffPicture: (events: Ev[], graceMs?: number) => number;
   tally: (events: Ev[]) => Record<string, number>;
   summarizeRows: (rows: Row[], limitMs?: number) => Row;
@@ -140,6 +142,46 @@ describe("summaries", () => {
   });
 });
 
+describe("H6 by pair", () => {
+  it("summarizes each pair apart, so a pooled median cannot hide a pair that waits", () => {
+    const rows = [
+      { pair: 0, outcome: "match", shownMs: 330, askedMs: 280, shownVia: "request", wrongFirst: false },
+      { pair: 1, outcome: "match", shownMs: 36, askedMs: 0.1, shownVia: "request", wrongFirst: false },
+      { pair: 0, outcome: "match", shownMs: 372, askedMs: 326, shownVia: "request", wrongFirst: true },
+      { pair: 1, outcome: "match", shownMs: 5, askedMs: null, shownVia: "reused", wrongFirst: false },
+    ];
+    const pooled = core.summarizeRows(rows);
+    const byPair = core.summarizeByPair(rows);
+    expect(pooled.allHoversMs.medianMs).toBe(36);
+    expect(byPair.map((p) => [p.pair, p.hovers, p.allHoversMs.medianMs, p.allHoversMs.maxMs, p.reused, p.wrongFirst])).toEqual([[0, 2, 330, 372, 0, 1], [1, 2, 5, 36, 1, 0]]);
+    const report = core.buildReport({ profile: { machine: "m", chrome: "c", backend: "b", backendForced: null, stageIntended: "ready", load: "play", cold: "x", toolkitCommit: "t", startedAt: "n" }, options: {}, rows: rows.map((r, i) => ({ ...r, scenario: "H6", trial: i, stage: { state: "ready" }, backend: "b" })), tallies: [], loopbackViolations: [], entryLook: false, entryMs: 50 });
+    expect(report.scenarios.H6.byPair).toHaveLength(2);
+    expect(report.passed).toBe(true);
+  });
+});
+
+describe("scenario and script usage problems", () => {
+  const script = { hovers: [{ x: 0.1, y: 0.2, expect: "A" }] };
+  const pairs = [{ a: { x: 0.1, y: 0.2, expect: "A" }, b: { x: 0.8, y: 0.2, expect: "B" } }];
+  it("refuses H6 without pairs, and with --load hover", () => {
+    expect(core.scenarioProblem({ script, scenarios: ["H6"], loadMode: "play", haveScenes: false })).toMatch(/pairs/);
+    expect(core.scenarioProblem({ script: { ...script, pairs }, scenarios: ["H6"], loadMode: "hover", haveScenes: false })).toMatch(/--load play/);
+    expect(core.scenarioProblem({ script: { ...script, pairs }, scenarios: ["H6"], loadMode: "play", haveScenes: false })).toBeNull();
+    expect(core.scenarioProblem({ script, scenarios: ["H1", "H5"], loadMode: "hover", haveScenes: false })).toBeNull();
+  });
+  it("refuses a scene on a hover, a slow point or a pair without --scenes", () => {
+    for (const bad of [{ hovers: [{ ...script.hovers[0], scene: "S" }] }, { ...script, slowPoint: { ...script.hovers[0], scene: "S" } }, { ...script, pairs: [{ ...pairs[0], scene: "S" }] }]) {
+      expect(core.scenarioProblem({ script: bad, scenarios: ["H1"], loadMode: "play", haveScenes: false })).toMatch(/--scenes/);
+      expect(core.scenarioProblem({ script: bad, scenarios: ["H1"], loadMode: "play", haveScenes: true })).toBeNull();
+    }
+  });
+  it("reports the entry-look gates as not applicable when H5 did not run", () => {
+    const clean = { capturesBeforeAnyPointer: 0, unauthorizedFramesDelivered: 0, duplicateInFlight: 0, requestsOffPicture: 0 };
+    const gates = core.evaluateGates({ tallies: [clean], loopbackViolations: [], h5Rows: [], entryLook: false });
+    for (const id of ["no-requests-off-picture", "entry-look-same-call"]) expect(gates.find((g) => g.id === id)).toMatchObject({ ok: true, detail: { applicable: false } });
+  });
+});
+
 describe("hard gates", () => {
   const clean = { capturesBeforeAnyPointer: 0, unauthorizedFramesDelivered: 0, duplicateInFlight: 0, requestsOffPicture: 0 };
   const gate = (gates: ReturnType<typeof core.evaluateGates>, id: string) => gates.find((g) => g.id === id)!;
@@ -151,10 +193,11 @@ describe("hard gates", () => {
   });
   it("fails an enforced gate and only reports one that is not enforced", () => {
     const off = { ...clean, requestsOffPicture: 4 };
-    const report = core.evaluateGates({ tallies: [off], loopbackViolations: [], h5Rows: [], entryLook: false });
+    const h5 = [{ gapMs: 500, outstandingAtMove: false, askedMs: 1 }];
+    const report = core.evaluateGates({ tallies: [off], loopbackViolations: [], h5Rows: h5, entryLook: false });
     expect(gate(report, "no-requests-off-picture")).toMatchObject({ ok: false, enforced: false });
     expect(core.exitCodeFor(report)).toBe(0);
-    const enforced = core.evaluateGates({ tallies: [off], loopbackViolations: [], h5Rows: [], entryLook: true });
+    const enforced = core.evaluateGates({ tallies: [off], loopbackViolations: [], h5Rows: h5, entryLook: true });
     expect(core.exitCodeFor(enforced)).toBe(1);
   });
   it("fails the run on an unauthorized capture or a request off 127.0.0.1 even without the entry-look flag", () => {

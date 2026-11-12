@@ -29,19 +29,21 @@ import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
 import { requestAllowed } from "./user-wait-core.mjs";
-import { buildReport, DEFAULT_COUNT, entryLookProblem, DEFAULT_ENTRY_MS, DEFAULT_GAPS_MS, DEFAULT_LIMIT_MS, DEFAULT_OBSERVE_MS, intendedStage, optionsProblem, requestsOffPicture, SCENARIOS, scoreHover, scriptProblem, tally } from "./hover-speed-core.mjs";
+import { buildReport, DEFAULT_COUNT, entryLookProblem, DEFAULT_ENTRY_MS, DEFAULT_GAPS_MS, DEFAULT_LIMIT_MS, DEFAULT_OBSERVE_MS, intendedStage, optionsProblem, requestsOffPicture, SCENARIOS, scenarioProblem, scoreHover, scriptProblem, tally } from "./hover-speed-core.mjs";
 
 const USAGE = `Usage: npm run hover-speed -- --release FOLDER --clip FILE --rests FILE [options]
 
   --release FOLDER   a release folder (a release document and the files it pins)
   --clip FILE        an image (drawn as a 15 frames a second stream) or a video file
-  --rests FILE       the script: { "hovers": [{ "x", "y", "expect", "scene"? }], "slowPoint"?: {...} }
+  --rests FILE       the script: { "hovers": [{ "x", "y", "expect", "scene"? }], "slowPoint"?: {...},
+                     "pairs"?: [{ "a": {...}, "b": {...}, "scene"? }] } (pairs are for H6)
   --load play|hover  when the frame is made for H2 and H5: at the video's play (default) or at the
                      first trusted move. H1 always makes it at the hover. With hover, H2 is skipped
   --options FILE     { "frame": {...}, "load": {...}, "stage": "none|ready|off|failed" }: extra
                      startComputeFrame options and load-request fields (geometricUrl, ...)
   --scenes FILE --art FOLDER   scenes drawn over an image clip (README.md, "Measuring the wait")
-  --scenarios LIST   which of H1,H2,H2P,H5 to run (default: all that --load allows)
+  --scenarios LIST   which of H1,H2,H2P,H5,H6 to run (default: H1,H2,H2P,H5 as --load allows; H6 only when named,
+                     with --load play, pairs in the script and a stage ready with focus scope in --options)
   --count N          hovers per H1 and H2 (default ${DEFAULT_COUNT}); H2P runs at most 5
   --h5-count N       hovers per gap in H5 (default --count)
   --rest-ms MS       H6: how long the pointer rests on card A before it moves to card B (default 2000)
@@ -97,9 +99,9 @@ const limitMs = Number(given.limit ?? DEFAULT_LIMIT_MS);
 const entryMs = Number(given["entry-ms"] ?? DEFAULT_ENTRY_MS);
 if (!(limitMs > 0) || !(entryMs > 0)) usageError("--limit and --entry-ms must be positive");
 const entryLook = given["expect-entry-look"] === true;
-const allowed = loadMode === "play" ? SCENARIOS : SCENARIOS.filter((s) => s !== "H2" && s !== "H2P");
-const scenarios = given.scenarios === undefined ? allowed : given.scenarios.split(",");
-for (const s of scenarios) if (!allowed.includes(s)) usageError(`--scenarios ${s}: not available with --load ${loadMode} (${allowed.join(", ")})`);
+const allowed = loadMode === "play" ? SCENARIOS : SCENARIOS.filter((s) => s !== "H2" && s !== "H2P" && s !== "H6");
+const scenarios = given.scenarios === undefined ? allowed.filter((s) => s !== "H6") : given.scenarios.split(",");
+for (const s of scenarios) if (!SCENARIOS.includes(s)) usageError(`--scenarios ${s}: not a scenario (${SCENARIOS.join(", ")})`);
 if (!existsSync(join(given.release, "release.json"))) usageError(`--release ${given.release}: no release.json in it`);
 for (const name of ["clip", "rests"]) if (!existsSync(given[name]) || !statSync(given[name]).isFile()) usageError(`--${name} ${given[name]}: no such file`);
 function readJson(path, name) {
@@ -130,7 +132,11 @@ if (given.scenes !== undefined) sceneSpec = readJson(given.scenes, "--scenes");
 const clipFile = resolve(given.clip);
 const isImage = /^image\//.test(TYPES[extname(clipFile).toLowerCase()] ?? "");
 if (sceneSpec !== null && !isImage) usageError("--scenes draws over an image clip, not a video");
-if (script.hovers.some((h) => h.scene !== undefined) && sceneSpec === null) usageError("the script names scenes: give --scenes and --art");
+{
+  const problem = scenarioProblem({ script, scenarios, loadMode, haveScenes: sceneSpec !== null });
+  if (problem) usageError(problem);
+  for (const s of scenarios) if (!allowed.includes(s) && s !== "H6") usageError(`--scenarios ${s}: not available with --load ${loadMode}`);
+}
 const dist = fileURLToPath(new URL("../dist/", import.meta.url));
 if (!existsSync(join(dist, "compute-session.js")) || !existsSync(join(dist, "page-capture.js"))) usageError("dist/ is missing: run `npm run build` first");
 
@@ -422,7 +428,22 @@ const toolkitCommit = (() => {
   }
 })();
 
-const profileDir = mkdtempSync(join(tmpdir(), "hover-speed-"));
+let profileDir = null;
+let chromePid = null;
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    if (chromePid !== null) {
+      try {
+        process.kill(chromePid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    if (profileDir !== null) rmSync(profileDir, { recursive: true, force: true });
+    process.exit(2);
+  });
+}
+profileDir = mkdtempSync(join(tmpdir(), "hover-speed-"));
 const startedAt = new Date().toISOString();
 let browser;
 try {
@@ -430,6 +451,9 @@ try {
   executablePath: chrome,
   headless: !given.headed,
   userDataDir: profileDir,
+  handleSIGINT: false,
+  handleSIGTERM: false,
+  handleSIGHUP: false,
   defaultViewport: { width: 1300, height: 900 },
   args: [backend === "wasm" ? "--disable-gpu" : "--enable-unsafe-webgpu", "--no-first-run", "--autoplay-policy=no-user-gesture-required", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"],
 });
@@ -438,18 +462,7 @@ try {
   rmSync(profileDir, { recursive: true, force: true });
   process.exit(2);
 }
-const chromePid = browser.process().pid;
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    try {
-      process.kill(chromePid, "SIGKILL");
-    } catch {
-      // already gone
-    }
-    rmSync(profileDir, { recursive: true, force: true });
-    process.exit(2);
-  });
-}
+chromePid = browser.process().pid;
 
 /** A fresh browser context (no shared HTTP cache, storage or code cache) with the page open. */
 async function openContext(makeAt) {
@@ -503,7 +516,8 @@ async function hover(c, point, extra = {}) {
   if (row.error) throw new Error(`${extra.scenario}: ${row.error}`);
   const backendName = await stageAndBackend(c.tab);
   await sleep(150);
-  const all = await c.tab.evaluate(() => window.hs.events());
+  // From this hover's mark: a context holds several hovers, and the first event of a kind may be an earlier one's.
+  const all = await c.tab.evaluate((m) => window.hs.slice(m), mark);
   const sent = all.find((e) => e.kind === "worker-out" && e.what === "load-stage");
   const firstPointer = all.find((e) => e.kind === "pointer-in");
   const stageReady = all.find((e) => e.kind === "stage" && e.state === "ready");
@@ -593,9 +607,12 @@ async function runH6() {
         await c.tab.evaluate((sc) => window.hs.setScene(sc), pair.scene);
         await c.tab.evaluate(() => window.hs.afterFrame());
       }
-      await hover(c, pair.a, { scenario: "H6-A", trial });
-      await sleep(restMs);
-      rows.push(await hover(c, pair.b, { scenario: "H6", trial, pair: trial % script.pairs.length, restOnAMs: restMs, observeMs: DEFAULT_OBSERVE_MS, cold: "playing video, stage pinned, pointer rested on card A, then moved to card B" }));
+      const aRow = await hover(c, pair.a, { scenario: "H6-A", trial });
+      // The rest varies by up to 250 ms (the scheduler's tick) from trial to trial, so that the move to B
+      // does not always land on the same phase of the look cadence.
+      await sleep(restMs + ((trial * 97) % 250));
+      const bRow = await hover(c, pair.b, { scenario: "H6", trial, pair: trial % script.pairs.length, aOutcome: aRow.outcome, aShownMs: aRow.shownMs, aMovedAtMs: aRow.movedAtMs, observeMs: DEFAULT_OBSERVE_MS, cold: "playing video, stage pinned, pointer rested on card A, then moved to card B" });
+      rows.push({ ...bRow, restOnAMs: Math.round((bRow.movedAtMs - aRow.movedAtMs) * 100) / 100 });
     }
   } finally {
     await finish(c);
@@ -631,7 +648,7 @@ async function runH5() {
         await sleep(gapMs);
         if (point.scene !== undefined) {
           await c.tab.evaluate((s) => window.hs.setScene(s), point.scene);
-          await sleep(300);
+          await c.tab.evaluate(() => window.hs.afterFrame());
         }
         const row = await hover(c, { ...point, scene: undefined }, { scenario: "H5", trial, gapMs, observeMs: DEFAULT_OBSERVE_MS, sceneChanged: point.scene === undefined ? undefined : point.scene !== previousScene, cold: "frame ready; pointer off the picture for the gap" });
         const slice = await c.tab.evaluate((m) => window.hs.slice(m), leaveMark);

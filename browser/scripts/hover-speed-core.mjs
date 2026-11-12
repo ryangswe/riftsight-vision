@@ -212,6 +212,12 @@ export function summarizeByGap(rows, limitMs = DEFAULT_LIMIT_MS) {
   });
 }
 
+/** Group H6 rows by pair: the pairs behave differently, and a pooled median hides that. */
+export function summarizeByPair(rows, limitMs = DEFAULT_LIMIT_MS) {
+  const pairs = [...new Set(rows.map((row) => row.pair))].sort((a, b) => a - b);
+  return pairs.map((pair) => ({ pair, ...summarizeRows(rows.filter((row) => row.pair === pair), limitMs) }));
+}
+
 /**
  * The hard gates. Each is { id, ok, detail, enforced }. A gate that is not enforced is reported
  * and never fails the run. `entryLook` is the expectation that the frame asks for no picture
@@ -225,11 +231,24 @@ export function evaluateGates({ tallies, loopbackViolations, h5Rows, entryLook, 
   gates.push({ id: "loopback-only", ok: loopbackViolations.length === 0, detail: { requests: loopbackViolations }, enforced: true });
   gates.push({ id: "complete-schema", ok: schemaProblems.length === 0, detail: { problems: schemaProblems }, enforced: true });
   const off = sum("requestsOffPicture");
-  gates.push({ id: "no-requests-off-picture", ok: off === 0, detail: { requests: off }, enforced: entryLook });
+  const applicable = h5Rows.length > 0;
+  const na = { applicable: false, status: "not applicable: H5 did not run" };
+  gates.push({ id: "no-requests-off-picture", ok: applicable ? off === 0 : true, detail: applicable ? { requests: off } : { ...na, requests: off }, enforced: entryLook });
   const eligible = h5Rows.filter((row) => row.gapMs >= STALE_GAP_MS && !row.outstandingAtMove && row.sceneChanged !== false);
   const late = eligible.filter((row) => row.askedMs === null || row.askedMs > entryMs);
-  gates.push({ id: "entry-look-same-call", ok: eligible.length > 0 && late.length === 0, detail: { eligible: eligible.length, notAskedWithin: late.length, entryMs }, enforced: entryLook });
+  gates.push({ id: "entry-look-same-call", ok: applicable ? eligible.length > 0 && late.length === 0 : true, detail: applicable ? { eligible: eligible.length, notAskedWithin: late.length, entryMs } : { ...na, entryMs }, enforced: entryLook });
   return gates;
+}
+
+/** What the chosen scenarios need from the script and the other options; null when it fits. */
+export function scenarioProblem({ script, scenarios, loadMode, haveScenes }) {
+  if (scenarios.includes("H6")) {
+    if (loadMode !== "play") return "H6 needs --load play: its frame is made at play and its stage is pinned before the first hover";
+    if (!script.pairs) return "H6 needs pairs in the script";
+  }
+  const withScene = [...script.hovers, ...(script.slowPoint ? [script.slowPoint] : []), ...(script.pairs ?? [])];
+  if (withScene.some((h) => h.scene !== undefined) && !haveScenes) return "the script names scenes: give --scenes and --art";
+  return null;
 }
 
 /** `--expect-entry-look` needs evidence: H5 run with at least one gap long enough to be stale. */
@@ -256,7 +275,7 @@ export function reportProblems(report) {
   for (const [name, summary] of Object.entries(report.scenarios ?? {})) {
     if (summary === null) continue;
     for (const key of ["hovers", "match", "wrong", "miss", "timeout", "allHoversMs", "matchedOnlyMs"]) {
-      if (!(key in summary) && !(Array.isArray(summary.byGap))) problems.push(`scenario ${name}: missing ${key}`);
+      if (!(key in summary) && !(Array.isArray(summary.byGap) || Array.isArray(summary.byPair))) problems.push(`scenario ${name}: missing ${key}`);
     }
   }
   for (const row of report.rows ?? []) {
@@ -276,7 +295,9 @@ export function buildReport({ profile, options, rows, tallies, loopbackViolation
       scenarios[name] = null;
       continue;
     }
-    scenarios[name] = name === "H5" ? { byGap: summarizeByGap(own, limitMs), ...summarizeRows(own, limitMs) } : summarizeRows(own, limitMs);
+    if (name === "H5") scenarios[name] = { byGap: summarizeByGap(own, limitMs), ...summarizeRows(own, limitMs) };
+    else if (name === "H6") scenarios[name] = { byPair: summarizeByPair(own, limitMs), ...summarizeRows(own, limitMs) };
+    else scenarios[name] = summarizeRows(own, limitMs);
   }
   const report = { schema: REPORT_SCHEMA, profile, options, scenarios, gates: [], rows, notes, passed: false };
   const gates = evaluateGates({ tallies, loopbackViolations, h5Rows: rows.filter((row) => row.scenario === "H5"), entryLook, entryMs, schemaProblems: [] });
