@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 
 import { inside, TYPES } from "./demo-paths.mjs";
 import { requestAllowed } from "./user-wait-core.mjs";
-import { buildReport, DEFAULT_COUNT, DEFAULT_ENTRY_MS, DEFAULT_GAPS_MS, DEFAULT_LIMIT_MS, DEFAULT_OBSERVE_MS, intendedStage, optionsProblem, requestsOffPicture, SCENARIOS, scoreHover, scriptProblem, tally } from "./hover-speed-core.mjs";
+import { buildReport, DEFAULT_COUNT, entryLookProblem, DEFAULT_ENTRY_MS, DEFAULT_GAPS_MS, DEFAULT_LIMIT_MS, DEFAULT_OBSERVE_MS, intendedStage, optionsProblem, requestsOffPicture, SCENARIOS, scoreHover, scriptProblem, tally } from "./hover-speed-core.mjs";
 
 const USAGE = `Usage: npm run hover-speed -- --release FOLDER --clip FILE --rests FILE [options]
 
@@ -100,20 +100,31 @@ const scenarios = given.scenarios === undefined ? allowed : given.scenarios.spli
 for (const s of scenarios) if (!allowed.includes(s)) usageError(`--scenarios ${s}: not available with --load ${loadMode} (${allowed.join(", ")})`);
 if (!existsSync(join(given.release, "release.json"))) usageError(`--release ${given.release}: no release.json in it`);
 for (const name of ["clip", "rests"]) if (!existsSync(given[name]) || !statSync(given[name]).isFile()) usageError(`--${name} ${given[name]}: no such file`);
-const script = JSON.parse(readFileSync(given.rests, "utf-8"));
+function readJson(path, name) {
+  try {
+    return JSON.parse(readFileSync(path, "utf-8"));
+  } catch (error) {
+    return usageError(`${name} ${path}: ${error.message}`);
+  }
+}
+const script = readJson(given.rests, "--rests");
 {
   const problem = scriptProblem(script);
   if (problem) usageError(`--rests: ${problem}`);
 }
-const options = given.options === undefined ? {} : JSON.parse(readFileSync(given.options, "utf-8"));
+const options = given.options === undefined ? {} : readJson(given.options, "--options");
 {
   const problem = optionsProblem(options);
   if (problem) usageError(`--options: ${problem}`);
 }
 const stageIntended = intendedStage(options);
+{
+  const problem = entryLook ? entryLookProblem({ scenarios, gaps }) : null;
+  if (problem) usageError(problem);
+}
 let sceneSpec = null;
 if ((given.scenes === undefined) !== (given.art === undefined)) usageError("--scenes and --art go together");
-if (given.scenes !== undefined) sceneSpec = JSON.parse(readFileSync(given.scenes, "utf-8"));
+if (given.scenes !== undefined) sceneSpec = readJson(given.scenes, "--scenes");
 const clipFile = resolve(given.clip);
 const isImage = /^image\//.test(TYPES[extname(clipFile).toLowerCase()] ?? "");
 if (sceneSpec !== null && !isImage) usageError("--scenes draws over an image clip, not a video");
@@ -197,6 +208,8 @@ window.addEventListener("message", (e) => {
   if (fromFrame && e.data && e.data.hsprobe === 1) {
     if (e.data.kind === "answered") { outstanding.delete(e.data.requestId); log("answered", { requestId: e.data.requestId, how: e.data.how }); }
     else if (e.data.kind === "stage") log("stage", { state: e.data.state, reason: e.data.reason });
+    else if (e.data.kind === "worker-out") log("worker-out", { what: e.data.what });
+    else if (e.data.kind === "pointer-in") log("pointer-in");
     return;
   }
   const out = fromFrame ? protocol.parseComputeOut(e.data) : null;
@@ -264,6 +277,11 @@ window.hs = {
     return { x: r.x, y: r.y, width: r.width, height: r.height };
   },
   setScene(name) { scene = name; },
+  // A picture drawn after the scene changed has been presented: a frame callback, and 300 ms as a floor.
+  async afterFrame() {
+    const frame = new Promise((r) => { video.requestVideoFrameCallback(() => r()); setTimeout(r, 1000); });
+    await Promise.all([frame, sleep(300)]);
+  },
   pause() { video.pause(); },
   mark: () => events.length,
   slice: (from) => events.slice(from),
@@ -313,6 +331,7 @@ const tell = (message) => window.parent.postMessage({ hsprobe: 1, ...message }, 
 // First, so that the report of an answered request goes out before anything the core posts next.
 window.addEventListener("message", (e) => {
   const d = e.data;
+  if (e.source === window.parent && d && d.hs === 1 && d.kind === "pointer") tell({ kind: "pointer-in" });
   if (e.source === window.parent && d && d.hs === 1 && (d.kind === "frame" || d.kind === "capture-failed")) tell({ kind: "answered", requestId: d.requestId, how: d.kind });
 });
 const frame = startComputeFrame({
@@ -321,8 +340,16 @@ const frame = startComputeFrame({
   parentOrigin,
   allowedParentOrigin: (origin) => origin === config.parentOrigin,
   protocol,
-  createWorker: () => new Worker("/lib/worker.js", { type: "module" }),
-  loadRequest: { kind: "load", releaseUrl: location.origin + "/release/release.json", wasmPaths: location.origin + "/lib/", ...config.load },
+  createWorker: () => {
+    const worker = new Worker("/lib/worker.js", { type: "module" });
+    const post = worker.postMessage.bind(worker);
+    worker.postMessage = (message, ...rest) => {
+      if (message && (message.kind === "load" || message.kind === "load-stage")) tell({ kind: "worker-out", what: message.kind });
+      return post(message, ...rest);
+    };
+    return worker;
+  },
+  loadRequest: { kind: "load", releaseUrl: location.origin + "/release/release.json", wasmPaths: location.origin + "/lib/", ...config.load, ...(config.load.geometricUrl ? { geometricUrl: new URL(config.load.geometricUrl, location.origin + "/release/").href } : {}) },
   now: () => performance.now(),
   onGeometricStatus: (s) => tell({ kind: "stage", state: s.state, reason: s.reason }),
   ...config.frame,
@@ -410,6 +437,17 @@ try {
   process.exit(2);
 }
 const chromePid = browser.process().pid;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    try {
+      process.kill(chromePid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+    rmSync(profileDir, { recursive: true, force: true });
+    process.exit(2);
+  });
+}
 
 /** A fresh browser context (no shared HTTP cache, storage or code cache) with the page open. */
 async function openContext(makeAt) {
@@ -450,16 +488,27 @@ async function stageAndBackend(tab) {
 
 /** One hover: the move through the browser's input, then the page's readings, scored. */
 async function hover(c, point, extra = {}) {
+  if (point.scene !== undefined) {
+    await c.tab.evaluate((s) => window.hs.setScene(s), point.scene);
+    await c.tab.evaluate(() => window.hs.afterFrame());
+  }
   const mark = await c.tab.evaluate(() => window.hs.mark());
-  if (point.scene !== undefined) await c.tab.evaluate((s) => window.hs.setScene(s), point.scene);
   const stage = await c.tab.evaluate(() => window.hs.last("stage"));
   const frameReadyAt = await c.tab.evaluate(() => window.hs.last("status")?.t ?? null);
   await c.tab.mouse.move(...c.at(point.x, point.y));
-  await c.tab.evaluate((m, e, l, o) => window.hs.settle(m, e, l, o), mark, point.expect, point.limitMs ?? script.limitMs ?? limitMs, extra.observeMs ?? 0);
-  const row = scoreHover({ events: await c.tab.evaluate((m) => window.hs.slice(m), mark), expect: point.expect, limitMs: point.limitMs ?? script.limitMs ?? limitMs, observeMs: extra.observeMs ?? 0 });
+  await c.tab.evaluate((m, e, l, o) => window.hs.settle(m, e, l, o), mark, point.expect, limitMs, extra.observeMs ?? 0);
+  const row = scoreHover({ before: await c.tab.evaluate((m) => window.hs.events().slice(0, m), mark), events: await c.tab.evaluate((m) => window.hs.slice(m), mark), expect: point.expect, limitMs: limitMs, observeMs: extra.observeMs ?? 0 });
   if (row.error) throw new Error(`${extra.scenario}: ${row.error}`);
   const backendName = await stageAndBackend(c.tab);
-  return { ...row, ...extra, stage: stage ? { state: stage.state, reason: stage.reason } : { state: "none", reason: null }, backend: backendName, frameAgeMsAtMove: frameReadyAt === null ? null : Math.round((row.movedAtMs + 0) - frameReadyAt) };
+  await sleep(150);
+  const all = await c.tab.evaluate(() => window.hs.events());
+  const sent = all.find((e) => e.kind === "worker-out" && e.what === "load-stage");
+  const firstPointer = all.find((e) => e.kind === "pointer-in");
+  const stageReady = all.find((e) => e.kind === "stage" && e.state === "ready");
+  return { ...row, ...extra,
+    loadStageSentMs: sent ? Math.round((sent.t - row.movedAtMs) * 100) / 100 : null,
+    firstPointerInMs: firstPointer ? Math.round((firstPointer.t - row.movedAtMs) * 100) / 100 : null,
+    stageReadyMs: stageReady ? Math.round((stageReady.t - row.movedAtMs) * 100) / 100 : null, stage: stage ? { state: stage.state, reason: stage.reason } : { state: "none", reason: null }, backend: backendName, frameAgeMsAtMove: frameReadyAt === null ? null : Math.round((row.movedAtMs + 0) - frameReadyAt) };
 }
 
 async function finish(c) {
@@ -508,12 +557,17 @@ async function runH2P() {
     warnings.push("H2P skipped: the script has no slowPoint");
     return;
   }
+  if (stageIntended === "none") warnings.push("H2P ran with no stage pinned (stageIntended none): the slow point is not a stage measurement");
   for (let trial = 0; trial < Math.min(5, count); trial += 1) {
     const c = await readyContext();
     try {
+      if (script.slowPoint.scene !== undefined) {
+        await c.tab.evaluate((s) => window.hs.setScene(s), script.slowPoint.scene);
+        await c.tab.evaluate(() => window.hs.afterFrame());
+      }
       await c.tab.evaluate(() => window.hs.pause());
       await sleep(300);
-      rows.push(await hover(c, script.slowPoint, { scenario: "H2P", trial, paused: true, cold: "frame made at play, stage pinned, then the video paused" }));
+      rows.push(await hover(c, { ...script.slowPoint, scene: undefined }, { scenario: "H2P", trial, paused: true, cold: "frame made at play, stage pinned, then the video paused" }));
     } finally {
       await finish(c);
     }

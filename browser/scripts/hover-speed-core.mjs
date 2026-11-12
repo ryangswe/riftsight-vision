@@ -58,8 +58,8 @@ export function scriptProblem(script) {
     const problem = point(slowPoint, "slowPoint");
     if (problem) return problem;
   }
-  const limit = script.limitMs;
-  if (limit !== undefined && !(typeof limit === "number" && limit > 0)) return "limitMs must be a positive number";
+  if ("limitMs" in script) return "limitMs is not a script field: the one limit is --limit";
+  for (const h of [...hovers, ...(slowPoint ? [slowPoint] : [])]) if ("limitMs" in h) return "limitMs is not a point field: the one limit is --limit";
   return null;
 }
 
@@ -89,7 +89,7 @@ export function intendedStage(options) {
  * The hover starts at the first trusted move over the picture. The result is one row; a hover
  * with no such move is a harness error (`row.error`), never a miss.
  */
-export function scoreHover({ events, expect, limitMs = DEFAULT_LIMIT_MS, observeMs = 0 }) {
+export function scoreHover({ events, expect, limitMs = DEFAULT_LIMIT_MS, observeMs = 0, before = [] }) {
   const start = events.find((e) => e.kind === "move" && e.trusted === true && e.over === true);
   if (!start) return { error: "no trusted move over the picture was seen", expect };
   const t0 = start.t;
@@ -110,11 +110,15 @@ export function scoreHover({ events, expect, limitMs = DEFAULT_LIMIT_MS, observe
   // Whether the match came from a picture asked for after the move, or from an earlier result.
   let shownVia = null;
   if (match) shownVia = captures.some((c) => c.t <= match.t) ? "request" : "reused";
-  const outstandingAtMove = events.filter((e) => e.kind === "capture" && e.t < t0).filter((c) => !events.some((a) => a.kind === "answered" && a.requestId === c.requestId && a.t < t0)).length > 0;
+  // From everything the context saw before the move (`before`), not only from this hover's readings.
+  const history = [...before, ...events];
+  const outstandingAtMove = history.filter((e) => e.kind === "capture" && e.t < t0).some((c) => !history.some((a) => a.kind === "answered" && a.requestId === c.requestId && a.t < t0));
   return {
     expect,
     outcome,
-    wrongFirst: Boolean(match) && shownNonNull.some((e) => e.t < match.t && e.cardId !== expect),
+    // The first card shown was not the expected one (a match after it shows a race or a stale card).
+    wrongFirst: shownNonNull.length > 0 && shownNonNull[0].cardId !== expect,
+    firstShownCardId: shownNonNull[0]?.cardId ?? null,
     shownCardId: match ? match.cardId : (shownNonNull.at(-1)?.cardId ?? null),
     shownMs: shownAt === null ? null : round(shownAt - t0),
     firstShownMs: firstShown ? round(firstShown.t - t0) : null,
@@ -173,6 +177,7 @@ export function summarizeRows(rows, limitMs = DEFAULT_LIMIT_MS) {
   return {
     ...counts,
     matchRate: rows.length ? round(counts.match / rows.length) : null,
+    wrongFirst: rows.filter((row) => row.wrongFirst === true).length,
     reused: matched.filter((row) => row.shownVia === "reused").length,
     requested: matched.filter((row) => row.shownVia === "request").length,
     noRequestAfterMove: rows.filter((row) => row.askedMs === null).length,
@@ -208,8 +213,15 @@ export function evaluateGates({ tallies, loopbackViolations, h5Rows, entryLook, 
   gates.push({ id: "no-requests-off-picture", ok: off === 0, detail: { requests: off }, enforced: entryLook });
   const eligible = h5Rows.filter((row) => row.gapMs >= STALE_GAP_MS && !row.outstandingAtMove && row.sceneChanged !== false);
   const late = eligible.filter((row) => row.askedMs === null || row.askedMs > entryMs);
-  gates.push({ id: "entry-look-same-call", ok: late.length === 0, detail: { eligible: eligible.length, notAskedWithin: late.length, entryMs }, enforced: entryLook });
+  gates.push({ id: "entry-look-same-call", ok: eligible.length > 0 && late.length === 0, detail: { eligible: eligible.length, notAskedWithin: late.length, entryMs }, enforced: entryLook });
   return gates;
+}
+
+/** `--expect-entry-look` needs evidence: H5 run with at least one gap long enough to be stale. */
+export function entryLookProblem({ scenarios, gaps }) {
+  if (!scenarios.includes("H5")) return "--expect-entry-look needs the H5 scenario";
+  if (!gaps.some((g) => g >= STALE_GAP_MS)) return `--expect-entry-look needs a gap of at least ${STALE_GAP_MS} ms in --gaps`;
+  return null;
 }
 
 /** The exit code: 1 when an enforced gate fails, else 0. */

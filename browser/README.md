@@ -1476,6 +1476,11 @@ Each H5 row carries its gap, whether the match came from a new picture request o
 (`shownVia`), the time to the first request after the move (`askedMs`, null when none came) and
 the requests that arrived while the pointer was off the picture. The report groups H5 by gap.
 
+**Stage timing.** A relative `load.geometricUrl` in `--options` is read against the release folder.
+Each row also has `loadStageSentMs`, `firstPointerInMs` and `stageReadyMs`, in ms from the trusted
+move: the frame reports when it posts `load` or `load-stage` to the worker and when it receives a
+`pointer`, and the page times the report's arrival, so each carries a few ms of latency.
+
 **The stage is pinned.** With a stage in `--options` (or `"stage"` set), H2 waits for it to reach
 the intended state and fails the run when it reaches another; each row records the stage's state
 at the hover. The report records the backend, Chrome, the machine and the toolkit commit.
@@ -1488,6 +1493,16 @@ at the hover. The report records the backend, Chrome, the machine and the toolki
   within 50 ms of the leave is taken as already on its way), and, for an H5 return after 1 s or more
   with nothing outstanding, a request within `--entry-ms` (50) of the move. Without the flag these
   two are reported and do not fail the run, so the same command gives a before and an after.
+
+A fetch the compute frame's worker makes off loopback is not listed by `loopback-only`: the page's
+request interception does not see worker requests. The browser's host-resolver rule blocks it, and
+it shows as a load failure of the release or the stage.
+
+An H2 or H5 hover that changes the scene first waits for a presented frame and at least 300 ms
+before the move, so the old table is not what the first look sees. A row with `wrongFirst: true`
+showed another card before the expected one; read such rows as a race or a stale card.
+`--expect-entry-look` is refused without H5 and a gap of 1 s or more, and its same-call gate fails
+when no H5 hover was eligible. The one limit for a hover is `--limit`; a script has no limit field.
 
 Elapsed times are evidence to read, not thresholds. `--smoke` is one forced WebAssembly run
 (three hovers, gaps of 1 and 3 s): it shows that the path works on that backend and promises no

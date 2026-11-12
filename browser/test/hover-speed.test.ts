@@ -14,7 +14,8 @@ const core = (await import(pathToFileURL(fileURLToPath(new URL("../scripts/hover
   scriptProblem: (script: unknown) => string | null;
   optionsProblem: (options: unknown) => string | null;
   intendedStage: (options: unknown) => string;
-  scoreHover: (input: { events: Ev[]; expect: string; limitMs?: number; observeMs?: number }) => Row;
+  scoreHover: (input: { events: Ev[]; expect: string; limitMs?: number; observeMs?: number; before?: Ev[] }) => Row;
+  entryLookProblem: (input: { scenarios: string[]; gaps: number[] }) => string | null;
   requestsOffPicture: (events: Ev[], graceMs?: number) => number;
   tally: (events: Ev[]) => Record<string, number>;
   summarizeRows: (rows: Row[], limitMs?: number) => Row;
@@ -45,7 +46,8 @@ describe("script and options checks", () => {
     expect(core.scriptProblem({ hovers: [{ x: 2, y: 0, expect: "A" }] })).toMatch(/hovers\[0\]: x/);
     expect(core.scriptProblem({ hovers: [{ x: 0, y: 0 }] })).toMatch(/expect/);
     expect(core.scriptProblem({ ...good, slowPoint: { x: 0, y: 0 } })).toMatch(/slowPoint/);
-    expect(core.scriptProblem({ ...good, limitMs: 0 })).toMatch(/limitMs/);
+    expect(core.scriptProblem({ ...good, limitMs: 500 })).toMatch(/--limit/);
+    expect(core.scriptProblem({ hovers: [{ x: 0, y: 0, expect: "A", limitMs: 5 }] })).toMatch(/--limit/);
   });
   it("refuses options the harness sets itself", () => {
     expect(core.optionsProblem({ frame: { idleUnloadMs: 5000 }, load: { geometricUrl: "x" }, stage: "ready" })).toBeNull();
@@ -82,9 +84,17 @@ describe("scoring one hover", () => {
     expect(core.scoreHover({ events: [{ t: 1, kind: "move", over: true, trusted: false }], expect: "A" }).error).toMatch(/no trusted move/);
     expect(core.scoreHover({ events: [move(1, false)], expect: "A" }).error).toBeDefined();
   });
-  it("notes a request still outstanding at the move", () => {
-    const row = core.scoreHover({ events: [capture(10, 7), move(100), answered(150, 7, "capture-failed"), shown(200, "A")], expect: "A" });
-    expect(row.outstandingAtMove).toBe(true);
+  it("notes a request still outstanding at the move, from the context's earlier readings", () => {
+    const before = [capture(10, 7)];
+    const events = [move(100), answered(150, 7, "capture-failed"), shown(200, "A")];
+    expect(core.scoreHover({ before, events, expect: "A" }).outstandingAtMove).toBe(true);
+    expect(core.scoreHover({ before: [capture(10, 7), answered(50, 7, "frame")], events, expect: "A" }).outstandingAtMove).toBe(false);
+    expect(core.scoreHover({ events, expect: "A" }).outstandingAtMove).toBe(false);
+  });
+  it("marks a hover whose first card was not the expected one, even when the expected card follows", () => {
+    expect(core.scoreHover({ events: [move(0), shown(60, "OLD"), shown(700, "A")], expect: "A" })).toMatchObject({ outcome: "match", wrongFirst: true, firstShownCardId: "OLD" });
+    expect(core.scoreHover({ events: [move(0), shown(60, "A")], expect: "A" }).wrongFirst).toBe(false);
+    expect(core.summarizeRows([core.scoreHover({ events: [move(0), shown(60, "OLD"), shown(700, "A")], expect: "A" })]).wrongFirst).toBe(1);
   });
 });
 
@@ -142,6 +152,14 @@ describe("hard gates", () => {
     expect(core.exitCodeFor(core.evaluateGates({ tallies: [{ ...clean, capturesBeforeAnyPointer: 1 }], loopbackViolations: [], h5Rows: [], entryLook: false }))).toBe(1);
     const loop = core.evaluateGates({ tallies: [clean], loopbackViolations: ["https://example.com/x"], h5Rows: [], entryLook: false });
     expect(gate(loop, "loopback-only")).toMatchObject({ ok: false, enforced: true });
+  });
+  it("does not pass the entry-look gates on no evidence", () => {
+    const none = core.evaluateGates({ tallies: [clean], loopbackViolations: [], h5Rows: [{ gapMs: 500, outstandingAtMove: false, askedMs: 1 }], entryLook: true });
+    expect(gate(none, "entry-look-same-call")).toMatchObject({ ok: false, enforced: true, detail: { eligible: 0 } });
+    expect(core.exitCodeFor(none)).toBe(1);
+    expect(core.entryLookProblem({ scenarios: ["H1", "H2"], gaps: [1000] })).toMatch(/H5/);
+    expect(core.entryLookProblem({ scenarios: ["H5"], gaps: [500] })).toMatch(/gap/);
+    expect(core.entryLookProblem({ scenarios: ["H5"], gaps: [500, 1000] })).toBeNull();
   });
   it("checks the same-call entry on eligible H5 hovers when expected", () => {
     const h5 = [
