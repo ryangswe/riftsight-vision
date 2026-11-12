@@ -766,6 +766,56 @@ describe("HostSession with a reading hold", () => {
     expect(lastShown()).toMatchObject({ cardId: "A-001", box: { x: 0.112 } });
   });
 
+  it("on a still picture, hides the outline after one look shows the card gone: the repeats reuse that look", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = null;
+    detected.box = "none";
+    nudgeAndAnalyze(1.3); // the one fresh look of the paused picture misses the card
+    expect(lastShown()?.held).toBeUndefined();
+    // The next look at the same picture is answered by reusing that analysis.
+    clock += 2100;
+    session.fromContent({ kind: "pointer", x: 0.205, y: 0.5, mediaTime: 1.3, touch: false });
+    session.tick();
+    const capture = captures().at(-1)!;
+    session.fromContent({ kind: "frame", requestId: capture.requestId, bitmap: bitmap(), mediaTime: 1.3 });
+    session.fromWorker(reply(toWorker.at(-1)!.request, { analysis: { ...analysisNow(), reused: true } as FrameAnalysis }));
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+  });
+
+  it("takes as many looks in a row as the hold's misses", () => {
+    session = new HostLike(
+      { now: () => clock, toWorker: (request, transfer) => toWorker.push({ request, transfer }), toContent: (m) => toContent.push(m), hoverAt: hit as never },
+      { hold: { ...READING_HOLD, misses: 3 } },
+    );
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = null;
+    detected.box = "none";
+    nudgeAndAnalyze(1.3);
+    nudgeAndAnalyze(1.45);
+    expect(lastShown()?.held).toBeUndefined();
+    nudgeAndAnalyze(1.6);
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+  });
+
+  it("does not report a still card's wobble under the usual hold either", () => {
+    session = new HostLike(
+      { now: () => clock, toWorker: (request, transfer) => toWorker.push({ request, transfer }), toContent: (m) => toContent.push(m), hoverAt: hit as never },
+      { hold: SHOWN_HOLD },
+    );
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    const sends = shownMessages().length;
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [103, 98, 198, 303] }];
+    nudgeAndAnalyze(1.3);
+    expect(shownMessages()).toHaveLength(sends);
+    scene.cards = [{ cardId: "A-001", name: "Card A", box: [120, 100, 200, 300] }];
+    nudgeAndAnalyze(1.45);
+    expect(shownMessages()).toHaveLength(sends + 1);
+  });
+
   it("shows the card as seen again, without held, when it is back on the spot", () => {
     ready();
     analyzeAt(0.2, 0.5, 1);
@@ -997,6 +1047,29 @@ describe("HostSession with a reading hold", () => {
     session.fromWorker(reply(toWorker.at(-1)!.request));
     expect(lastShown()).toMatchObject({ cardId: "T-001" });
     expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("keeps the outline hidden when, after a long rest, the first look shows the card still gone", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    clock += POINTER_GRACE_MS + 1;
+    session.tick();
+    for (let i = 1; i <= 10; i += 1) {
+      clock += 500;
+      session.fromContent({ kind: "presented", mediaTime: 1 + i * 0.5 });
+      session.tick();
+    }
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+    scene.card = null;
+    detected.box = "none";
+    const sends = shownMessages().length;
+    session.fromContent({ kind: "pointer", x: 0.21, y: 0.5, mediaTime: 6, touch: false });
+    session.tick();
+    session.fromContent({ kind: "frame", requestId: captures().at(-1)!.requestId, bitmap: bitmap(), mediaTime: 6 });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
+    // One miss does not bring the outline back around the empty spot.
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+    expect(shownMessages()).toHaveLength(sends);
   });
 
   it("does not mark the card held on a paused picture, however long the pointer rests", () => {

@@ -66,8 +66,8 @@ break the public surface; this file names each break and how to migrate.
   that slides under a pointer at rest, does not replace it, and a cut does not end it; an
   overlapping card that was already there, which the pointer moves onto, does. The pointer leaving
   the area or the picture, a seek or a new source ends it. While it lasts, `shown` carries `held:
-  true` once two analyses in a row show the card gone (`misses`; one look that misses a still
-  card does not blink its outline), or once no recent analysis is left and none is coming, until
+  true` once two analyses in a row show the card gone (`misses`; one look that misses a card
+  still there does not blink its outline; on a still picture one look is enough), or once no recent analysis is left and none is coming, until
   an analysis sees it again, so a host can hide its outline and keep the tooltip.
   While the pointer rests past its grace period on a card it shows, nothing is analyzed. It
   remembers the overlapping cards of the last 3 looks that saw the kept card, at most 16. Off
@@ -84,8 +84,10 @@ break the public surface; this file names each break and how to migrate.
   look finds the same card's box a few pixels off. Each look's box for a still card differs a
   little, and a host that placed its tooltip and outline from every report moved them every look
   or two. A card is now reported again when it changes, when `held` changes, or when an edge of
-  its box has moved more than 5 % of the card's size (or its tilt more than 2 degrees) since the
-  last report; small moves add up, so a card that moves is still followed.
+  its box or its outline's sides have moved more than 5 % of the card's size (or its tilt more
+  than 2 degrees) since the last report; small moves add up, so a card that moves is still
+  followed. An upright card counts as turned 0 degrees, and tilts are compared modulo 90
+  degrees, so a card near 1 or 45 degrees is not reported on every look either.
 - Browser: in focus scope, a look made before the geometric stage is ready (still loading, or off
   for want of WebGPU) counts as a full analysis, so a paused picture is analyzed once there, not
   twice. The worker already analyzed every face of such a look.

@@ -92,11 +92,13 @@ What the messages mean:
 - `capture` asks for the picture on screen now, at a width within `analysisWidth`. The content
   script answers with `frame` or `capture-failed`, with the same `requestId`. `retry: true`
   means the picture itself could not be had (not ready yet, or blank) and is worth asking again.
-- `shown` is what a tooltip shows for the pointer's position now, sent when it changes. `others`
-  are the boxes of the other cards of the same analysis, for placing a tooltip off them. `held:
-  true` (a reading hold only) says to draw no outline for the card: an analysis showed it gone
-  from where it was last seen (`box`), or no recent analysis is left to show it there. Keep the
-  tooltip.
+- `shown` is what a tooltip shows for the pointer's position now, sent when it changes: another
+  card or none, `held`, or a box or outline that moved more than a look's own wobble (an edge
+  more than 5 % of the card's size, a tilt more than 2 degrees), so `box` can be that much off
+  the newest look. `others` are the boxes of the other cards of the same analysis, for placing a
+  tooltip off them. `held: true` (a reading hold only) says to draw no outline for the card:
+  two analyses in a row showed it gone from where it was last seen (`box`; one on a still
+  picture), or no recent analysis is left to show it there. Keep the tooltip.
 - `status`: the content script assumes `loading` until told otherwise. `backend` is set only
   while `ready`. A status is posted when the state, the error or the backend changes, `loading`
   again whenever a remote release's files start to download, and in every answer to a `hello`.
@@ -396,7 +398,8 @@ than 0.7.0 leaves it out.
     kept card's spot, even partly, or after it moved away), one that slid under a pointer at
     rest, or one uncovered under a pointer that only trembles inside its box, does not.
   - **The outline.** `shown` carries `held: true` once two analyses in a row show the card gone
-    from where it was (another card named there, or nothing named or detected there), and once no recent
+    from where it was (another card named there, or nothing named or detected there; one on a
+    still picture), and once no recent
     analysis is left and none is coming (a rest past the grace period on a playing video). It
     stays until an analysis sees the card there again, so it does not come and go between looks.
     Hide the outline while it is set, and keep the tooltip. A card whose box is still detected

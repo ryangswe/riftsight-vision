@@ -71,12 +71,12 @@ export interface Shown {
   localWidth?: number;
   localHeight?: number;
   /** Under a reading hold only: true when the kept card's outline should not be drawn. `box`,
-   *  with the outline fields, is where the card was last seen. It is set when an analysis shows the
-   *  card gone from there in `ShownHold.misses` analyses in a row (another card named there, or
-   *  nothing named or detected there), and when
-   *  no recent analysis is left and none is coming (a resting pointer past its grace period on a
-   *  playing video). It stays set until an analysis sees the card there again. Absent while the
-   *  card is seen or its box is still detected there. */
+   *  with the outline fields, is where the card was last seen. It is set when `ShownHold.misses`
+   *  analyses in a row show the card gone from there (another card named there, or nothing named
+   *  or detected there), or one does on a still picture; and when no recent analysis is left and
+   *  none is coming (a resting pointer past its grace period on a playing video). It stays set
+   *  until an analysis sees the card there again. Absent while the card is seen or its box is
+   *  still detected there. */
   held?: true;
 }
 
@@ -84,8 +84,8 @@ export interface Shown {
 export interface ShownHold {
   /** Analyses in a row with nothing there before it goes. A reply with no analysis, or one too
    *  old for the picture on screen when it comes back, is not one. Under a reading hold, analyses
-   *  in a row that show the card gone before its outline is hidden (`Shown.held`): one look that
-   *  misses a still card does not blink it. */
+   *  in a row that show the card gone before its outline is hidden (`Shown.held`), so that one
+   *  look missing a card that is still there does not blink it; on a still picture, one. */
   misses: number;
   /** Time with no analysis seeing it before it goes, in ms. */
   maxMs: number;
@@ -101,8 +101,8 @@ export interface ShownHold {
    *  since, one that slid under a pointer at rest, or one uncovered under a pointer that only
    *  trembles inside its box, does not. The pointer leaving that
    *  area or the picture, a seek, a new source, a stop or a lost worker end it. It is marked
-   *  `held` once `misses` analyses in a row show it gone, or once no recent analysis is left and none is coming
-   *  (`Shown.held`). In pointer mode, while it shows a card, a resting pointer is not analyzed
+   *  `held` once `misses` analyses in a row show it gone (one on a still picture), or once no
+   *  recent analysis is left and none is coming (`Shown.held`). In pointer mode, while it shows a card, a resting pointer is not analyzed
    *  after its grace period. */
   untilPointerLeaves?: boolean;
 }
@@ -873,7 +873,13 @@ export class SessionCore {
     }
     if (evidence) {
       reading.goneLooks = this.missing(held.card) ? reading.goneLooks + 1 : 0;
-      reading.gone = reading.goneLooks >= Math.max(1, this.hold?.misses ?? SHOWN_HOLD.misses);
+      // Once taken as gone (by the looks, or with no look coming), a miss keeps it so.
+      const needed = Math.max(1, this.hold?.misses ?? SHOWN_HOLD.misses);
+      reading.gone = reading.goneLooks > 0 && (reading.gone || reading.goneLooks >= needed);
+    } else if (reading.goneLooks > 0 && this.current()?.analysis.reused === true) {
+      // A still picture: its repeats reuse the look that missed the card, and no look of it will
+      // tell more. A missed look there is not the wobble of a moving picture.
+      reading.gone = true;
     } else if (!reading.gone && this.current() === null && !this.scheduler.analysisActive(this.deps.now())) {
       reading.gone = true;
     }
@@ -1097,16 +1103,37 @@ function steady(a: Shown, b: Shown): boolean {
     Math.abs(a.box.y + a.box.height - (b.box.y + b.box.height)) <= h,
   ];
   if (edges.includes(false)) return false;
-  if (a.rotation === undefined || b.rotation === undefined) {
-    if (a.rotation !== b.rotation) return false;
-  } else if (Math.abs(a.rotation - b.rotation) > STEADY_TURN_DEG) {
-    return false;
+  // An upright card is one turned 0 degrees with its box's sides, so a card about 1 degree off
+  // (where outlines start) is not reported each time a look fits it on the other side of that.
+  // Tilts are compared modulo 90 degrees with the sides swapped, so a card at about 45 degrees
+  // fitted +44 one look and -44 the next is not either. Sides are in fractions of the picture's
+  // width and height, so a swap converts them by its aspect.
+  const oa = outlineOf(a);
+  const ob = outlineOf(b);
+  let turn = ob.rotation - oa.rotation;
+  let { width, height } = ob;
+  if (Math.abs(turn) > 45) {
+    const aspect = aspectOf(b);
+    if (aspect === null) return false;
+    turn -= Math.sign(turn) * 90;
+    [width, height] = [ob.height * aspect, ob.width / aspect];
   }
-  return near(a.localWidth, b.localWidth) && near(a.localHeight, b.localHeight);
+  return Math.abs(turn) <= STEADY_TURN_DEG && near(oa.width, width) && near(oa.height, height);
 }
 
-function near(a: number | undefined, b: number | undefined): boolean {
-  if (a === undefined || b === undefined) return a === b;
+function outlineOf(c: Shown): { rotation: number; width: number; height: number } {
+  return c.rotation === undefined || c.localWidth === undefined || c.localHeight === undefined
+    ? { rotation: 0, width: c.box.width, height: c.box.height }
+    : { rotation: c.rotation, width: c.localWidth, height: c.localHeight };
+}
+
+/** The analyzed frame's height over its width, from the card's box in pixels and in fractions. */
+function aspectOf(c: Shown): number | null {
+  const aspect = (c.frameBox.height / c.box.height) / (c.frameBox.width / c.box.width);
+  return Number.isFinite(aspect) && aspect > 0 ? aspect : null;
+}
+
+function near(a: number, b: number): boolean {
   return Math.abs(a - b) <= Math.max(a, b) * STEADY_BOX;
 }
 

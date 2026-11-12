@@ -37,9 +37,9 @@ export interface ShownCard {
   localWidth?: number;
   localHeight?: number;
   /** Under a reading hold: true when the host should not draw the card's outline. `box` is where
-   *  the card was last seen. Set once two analyses in a row show it gone from there, or once no recent
-   *  analysis is left and none is coming; cleared when an analysis sees it there again. The
-   *  tooltip stays either way. */
+   *  the card was last seen. Set once two analyses in a row show it gone from there (one on a
+   *  still picture), or once no recent analysis is left and none is coming; cleared when an
+   *  analysis sees it there again. The tooltip stays either way. */
   held?: true;
 }
 
