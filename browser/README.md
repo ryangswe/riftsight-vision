@@ -1490,8 +1490,8 @@ move: the frame reports when it posts `load` or `load-stage` to the worker and w
 `pointer`, and the page times the report's arrival, so each carries a few ms of latency. A field is null when its event came before this hover's
 move (for example a stage made ready at play), and the row's `stage` says its state at the move.
 
-**The stage is pinned.** With a stage in `--options` (or `"stage"` set), every scenario whose
-frame is made at play waits for it to reach the intended state, and the run ends with exit code 2
+**The stage is pinned.** With a stage in `--options` (or `"stage"` set), every scenario but H1
+waits for it to reach the intended state, and the run ends with exit code 2
 (an error) when it reaches another; each row records the stage's state
 at the hover. The report records the backend, Chrome, the machine and the toolkit commit.
 
