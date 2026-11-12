@@ -262,6 +262,59 @@ comes after 250 ms. A worker that stays busy is backed off from up to 2 s, whate
 reach it. An analyzed answer, a seek or a new source start the back-off over; the pointer
 leaving does not.
 
+## Pointer entry
+
+In the `"pointer"` mode the compute frame asks for no picture while the pointer is off it: from a
+`leave` until the next `pointer` message, the core sends no `capture`. Everything else goes on
+while the pointer is outside: the watchdog, the replies, what is shown. A leave changes no retry
+state (a back-off still waiting keeps counting) and is not a seek.
+
+When the pointer comes back, the existing staleness rule decides, in video time. The newest look
+is stale when
+
+```text
+abs(now - lastStarted) * 1000 > max(400, intervalInEffectMs)
+```
+
+where `now` is the video time of the picture on screen, `lastStarted` the video time of the
+newest look asked for, both in seconds, and `intervalInEffectMs` the cadence the scheduler uses
+at that moment. A stale look is asked for on that `pointer` message itself, when the session is
+ready, nothing is in flight and the last look started by the pointer is at least 250 ms
+(`HOVER_TRIGGER_MIN_GAP_MS`) old. Without this, the frame went on asking at the cadence for the
+10 s after a leave, the content script refused each request, and each refused request counted as
+the newest look: a pointer that came back within those 10 s waited for the cadence.
+
+A tap counts as a pointer over the picture until the content script sends `leave`, which
+`createCaptureControl` does for a touch that moves outside, a tap elsewhere, a canceled touch,
+a hidden page and a replaced video. A tap after a mouse leave asks as a mouse move does.
+
+When a load ends (the first load, a fallback, a restart or an idle resume) with the pointer
+eligible, the frame runs one scheduling evaluation at once, as the next tick would, instead of
+waiting up to `DRIVER_TICK_MS` for that tick. Eligible means over the picture with pointer
+activity within the grace period (10 s, `POINTER_GRACE_MS`) for a mouse, or a tap whose window
+(the same 10 s from the tap) is still open. A pointer that rests longer than that, or that left,
+is not eligible. No pointer activity is made up for it, and the content script's gate still
+decides on the capture.
+
+Limits:
+
+- A capture or analysis in flight when the pointer leaves stays in flight. A return before it
+  finishes asks no second one. If the page refuses that capture, the refused look still counts
+  as the newest one, so a return soon after it can wait for the cadence; no time is rolled back.
+- Staleness is measured in video time, not wall-clock time. A video that plays slowly or
+  buffers, or a long cadence (the reading cadence, measured pacing, WebAssembly), may not pass
+  it after a given time away, and the return then waits for the cadence as before.
+- A paused picture with a current result is not stale: a return asks for no new analysis. A
+  face left unverified in focus scope (`geometricScope: "focus"`) still gets its relook, and
+  repeats scheduled before the leave run after the return.
+- The `"always-on"` mode is unchanged: the option has no effect there.
+- `startComputeFrame` turns it on; pass `entryLook: false` to turn it off. A `SessionCore` made
+  directly, and `createWorkerSession`, have it off unless given `entryLook: true`, so a host that
+  drives the core itself keeps its behavior until it opts in. The core is made once per frame,
+  so the setting holds through a fallback, a restart and an idle resume.
+
+No message is added and `PROTOCOL_VERSION` stays 2.
+
 ## The worker
 
 `createWorkerSession`, which `startComputeFrame` runs, owns the worker's lifecycle:
@@ -538,7 +591,8 @@ Recommended: make the compute frame when the video plays, not at the first point
 
 The extension page in the iframe. `startComputeFrame` takes the options of
 `createWorkerSession` too (`mode`, `hold`, `chooseRelease`, `recordSkip`, `onDecision`,
-`onGeometricStatus`, ...) and `idleUnloadMs`.
+`onGeometricStatus`, ...), `idleUnloadMs` and `entryLook` (on unless `false`; see "Pointer
+entry").
 
 **Verifying only the faces at the pointer.** `geometricScope: "focus"` is one of those options
 (`"all"` is the default): the geometric stage then verifies only the faces at the pointer, and a

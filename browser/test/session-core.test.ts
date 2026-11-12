@@ -2485,3 +2485,458 @@ describe("SessionCore: a pointer resting where the last look found no card", () 
     expect(asked()).toEqual([0, 2000, 3250]);
   });
 });
+
+describe("SessionCore: a look on pointer entry (entryLook)", () => {
+  /** The test release on WebGPU: a fast cadence of 500 ms, so a playing video is stale 0.5 s on. */
+  const webgpu = { ...release, recognizer: { ...release.recognizer, ep: "webgpu" } } as typeof release;
+  const ON: SessionCoreOptions = { entryLook: true };
+
+  /** How a capture is answered: refused by the page's gate (the pointer outside), failed for want
+   *  of a picture, answered with an analysis, answered busy by the worker, or not at all. */
+  type Respond = "refuse" | "fail" | "answer" | "busy" | "none";
+
+  /** A core over a video playing at normal speed (its time is the clock's, read live) until
+   *  `pause()`. */
+  function playing(options: SessionCoreOptions = ON) {
+    let pausedAt: number | null = null;
+    const d = directCore(options, { mediaTimeNow: () => pausedAt ?? clock / 1000 });
+    const t = (): number => pausedAt ?? clock / 1000;
+    const pause = (): void => {
+      pausedAt = t();
+    };
+    const load = (ok = true): void =>
+      d.core.fromWorker(ok ? { kind: "release-status", ok: true, error: null, release: webgpu, cards: [] } : { kind: "release-status", ok: false, error: "no release", release: null, cards: [] });
+    const respond = (how: Respond, result: Partial<FrameResult> = {}): void => {
+      const c = d.out.captures.at(-1)!;
+      if (how === "refuse") d.core.captureFailed(c.requestId, "no pointer over the player", false);
+      else if (how === "fail") d.core.captureFailed(c.requestId, "no picture yet", true);
+      else if (how === "answer") d.answer(t(), result);
+      else if (how === "busy") {
+        d.core.frame(c.requestId, bitmap(), t());
+        d.core.fromWorker(reply(d.out.requests.at(-1)!.request, { analysis: null, error: "busy" }));
+      }
+    };
+    /** `ms` of time: a tick every DRIVER_TICK_MS, with a frame presented before it unless paused.
+     *  Each capture asked is answered `how`. Returns how many were asked. */
+    const run = (ms: number, how: Respond, result: Partial<FrameResult> = {}): number => {
+      const before = d.out.captures.length;
+      for (let e = 0; e < ms; e += DRIVER_TICK_MS) {
+        clock += DRIVER_TICK_MS;
+        if (pausedAt === null) d.core.presented(t());
+        const n = d.out.captures.length;
+        d.core.tick();
+        if (d.out.captures.length > n) respond(how, result);
+      }
+      return d.out.captures.length - before;
+    };
+    /** The pointer (or a tap) at (x, 0.5); true when a capture was asked in this very call. */
+    const enter = (touch = false, x = 0.2): boolean => {
+      const n = d.out.captures.length;
+      d.core.pointer(x, 0.5, t(), touch);
+      return d.out.captures.length > n;
+    };
+    /** The times of the captures asked from `from` on, relative to it. */
+    const askedSince = (from: number): number[] => d.out.captures.filter((c) => c.at >= from).map((c) => c.at - from);
+    return { ...d, t, pause, load, respond, run, enter, askedSince };
+  }
+
+  it("a playing video, a look answered, the pointer leaves and returns 3 s later: the look is asked on that pointer message", () => {
+    const p = playing();
+    p.load();
+    expect(p.enter()).toBe(true);
+    p.answer(p.t());
+    expect(p.out.shown.at(-1)?.cardId).toBe("T-001");
+    p.core.pointerLeft();
+    p.run(3_000, "refuse");
+    expect(p.enter()).toBe(true);
+    expect(p.out.captures.at(-1)!.at).toBe(clock);
+  });
+
+  it.each([1_000, 3_000, 12_000])("returning %i ms after leaving a playing video: nothing is asked while off the picture, and the look is asked on the pointer message", (gap) => {
+    const p = playing();
+    p.load();
+    p.enter();
+    p.respond("answer");
+    p.run(1_000, "answer");
+    p.core.pointerLeft();
+    expect(p.run(gap, "refuse")).toBe(0);
+    expect(p.core.analysisInFlight()).toBe(false);
+    expect(p.core.scheduler.frameStale(p.t(), clock)).toBe(true);
+    expect(p.enter()).toBe(true);
+    // One look in flight: the next tick asks nothing more.
+    p.core.tick();
+    expect(p.askedSince(clock)).toEqual([0]);
+  });
+
+  it.each([
+    ["by default (a core made directly)", {}],
+    ["with entryLook: false", { entryLook: false }],
+  ] as const)("off %s, as before: looks asked while off the picture are refused, and the return waits for the cadence", (_, options) => {
+    const p = playing(options);
+    p.load();
+    p.enter();
+    p.respond("answer");
+    p.core.pointerLeft();
+    expect(p.run(3_000, "refuse")).toBeGreaterThan(0);
+    expect(p.enter()).toBe(false);
+  });
+
+  describe("a capture outstanding when the pointer leaves", () => {
+    /** A look asked by the pointer on a playing video, outstanding when the pointer leaves; the
+     *  page's refusal comes `refuseMs` after the leave and the pointer returns `returnMs` after
+     *  it, both before the next tick; then 3 s of looks answered. Returns whether the return asked
+     *  a capture, and the capture times from the leave on. */
+    const script = (options: SessionCoreOptions, refuseMs: number, returnMs: number) => {
+      const p = playing(options);
+      p.load();
+      p.enter();
+      p.respond("answer");
+      clock += 600;
+      p.core.presented(p.t());
+      expect(p.enter(false, 0.21)).toBe(true);
+      const left = clock;
+      p.core.pointerLeft();
+      let returned = false;
+      for (const [at, what] of ([[refuseMs, "refuse"], [returnMs, "return"]] as const).slice().sort((a, b) => a[0] - b[0])) {
+        clock = left + at;
+        if (what === "refuse") p.respond("refuse");
+        else returned = p.enter();
+      }
+      p.run(3_000, "answer");
+      return { returned, asked: p.askedSince(left) };
+    };
+
+    it.each([
+      ["before the refusal", 200, 100],
+      ["after the refusal", 50, 200],
+    ])("a return %s asks no second capture, and the looks that follow are as with the option off", (_, refuseMs, returnMs) => {
+      const on = script(ON, refuseMs, returnMs);
+      const off = script({}, refuseMs, returnMs);
+      expect(on.returned).toBe(false);
+      expect(on.asked).toEqual(off.asked);
+      // The outstanding capture, then the next look, after the return.
+      expect(on.asked[0]).toBe(0);
+      expect(on.asked[1]).toBeGreaterThan(returnMs);
+    });
+
+    it("refused, then 3 s off the picture: nothing more is asked while off, and the return asks on its message", () => {
+      const p = playing();
+      p.load();
+      p.enter();
+      p.respond("answer");
+      clock += 600;
+      p.core.presented(p.t());
+      expect(p.enter(false, 0.21)).toBe(true);
+      p.core.pointerLeft();
+      clock += 50;
+      p.respond("refuse");
+      expect(p.run(3_000, "refuse")).toBe(0);
+      expect(p.enter()).toBe(true);
+    });
+  });
+
+  it.each(["busy", "fail"] as const)("looks answered %s, then leave and re-enter a paused video: the back-off goes on from where it was, with the option on and off", (how) => {
+    const script = (options: SessionCoreOptions) => {
+      const p = playing(options);
+      p.load();
+      p.pause();
+      expect(p.enter()).toBe(true);
+      p.respond(how);
+      p.run(1_000, how);
+      p.core.pointerLeft();
+      const whileOff = p.run(3_000, "refuse");
+      const back = clock;
+      p.enter();
+      p.run(5_000, how);
+      const asked = p.askedSince(back);
+      return { whileOff, gap: asked[1]! - asked[0]! };
+    };
+    const on = script(ON);
+    const off = script({});
+    expect(on.whileOff).toBe(0);
+    expect(off.whileOff).toBeGreaterThan(0);
+    // Not a back-off started over: the looks unanswered before the leave still count.
+    expect(on.gap).toBe(LOOK_RETRY_MS[3]);
+    expect(off.gap).toBe(on.gap);
+  });
+
+  describe("touch", () => {
+    it("a tap after a mouse leave asks on the tap, and the looks go on at the cadence in its window", () => {
+      const p = playing();
+      p.load();
+      p.enter();
+      p.respond("answer");
+      p.core.pointerLeft();
+      expect(p.run(3_000, "refuse")).toBe(0);
+      const tap = clock;
+      expect(p.enter(true)).toBe(true);
+      p.respond("answer");
+      p.run(2_000, "answer");
+      expect(p.askedSince(tap)).toEqual([0, 500, 1000, 1500, 2000]);
+    });
+
+    it("a tap canceled or moved outside (the host's leave): nothing more is asked while off the picture", () => {
+      const p = playing();
+      p.load();
+      expect(p.enter(true)).toBe(true);
+      p.respond("answer");
+      p.run(1_000, "answer");
+      p.core.pointerLeft();
+      expect(p.run(5_000, "refuse")).toBe(0);
+      // Within the tap's window, but off the picture: a load asks nothing either.
+      p.core.workerStopped({ restart: true });
+      p.load();
+      expect(p.run(1_000, "refuse")).toBe(0);
+    });
+  });
+
+  describe("a load that ends", () => {
+    it("the first load, with the pointer active over the picture: one capture asked in the load's own call, none more at the next tick", () => {
+      const p = playing();
+      p.enter();
+      clock += 300;
+      p.load();
+      expect(p.out.captures.map((c) => c.at)).toEqual([clock]);
+      p.core.tick();
+      clock += DRIVER_TICK_MS;
+      p.core.tick();
+      expect(p.out.captures).toHaveLength(1);
+    });
+
+    it("the first load, within a tap's window: asked at once", () => {
+      const p = playing();
+      p.enter(true);
+      clock += 300;
+      p.load();
+      expect(p.askedSince(clock)).toEqual([0]);
+    });
+
+    it("with the option off, the look waits for the next tick, as before", () => {
+      const p = playing({});
+      p.enter();
+      clock += 300;
+      p.load();
+      expect(p.out.captures).toHaveLength(0);
+      p.core.tick();
+      expect(p.out.captures).toHaveLength(1);
+    });
+
+    it.each([
+      ["a restart", (p: ReturnType<typeof playing>) => p.core.workerStopped({ restart: true })],
+      ["a fallback to another release", (p: ReturnType<typeof playing>) => p.core.reloading({ geometric: false })],
+      ["an idle resume", (p: ReturnType<typeof playing>) => p.core.workerStopped({ idle: true })],
+    ])("after %s, a load with the pointer active asks at once", (_, stopped) => {
+      const p = playing();
+      if (_ !== "a fallback to another release") {
+        p.load();
+        p.enter();
+        p.respond("answer");
+        clock += 2_000;
+      }
+      stopped(p);
+      expect(p.core.status().state).toBe("loading");
+      p.enter();
+      clock += 400;
+      const before = p.out.captures.length;
+      p.load();
+      expect(p.out.captures.length).toBe(before + 1);
+      expect(p.out.captures.at(-1)!.at).toBe(clock);
+    });
+
+    it("a load after the pointer left asks nothing, then or at the ticks that follow", () => {
+      const p = playing();
+      p.enter();
+      clock += 250;
+      p.core.pointerLeft();
+      clock += 500;
+      p.load();
+      expect(p.run(3_000, "refuse")).toBe(0);
+    });
+
+    it.each([
+      ["a mouse resting past the grace period", false],
+      ["a tap whose window has closed", true],
+    ])("a load with %s asks nothing, and makes up no pointer activity", (_, touch) => {
+      const p = playing();
+      p.enter(touch);
+      clock += POINTER_GRACE_MS + 1;
+      p.load();
+      expect(p.out.captures).toHaveLength(0);
+      expect(p.core.scheduler.pointerActive(clock)).toBe(false);
+      expect(p.run(2_000, "answer")).toBe(0);
+    });
+
+    it.each([
+      ["a restart", { restart: true } as const],
+      ["an idle resume", { idle: true } as const],
+    ])("after %s, a load under a mouse resting past the grace period, with a card shown just before, asks nothing in its own call", (_, how) => {
+      const p = playing();
+      p.load();
+      p.enter();
+      p.respond("answer");
+      // The mouse rests on the card past the grace period: the scheduler is reading.
+      p.run(POINTER_GRACE_MS + 1_000, "answer");
+      expect(p.core.scheduler.analysisState(clock)).toBe("reading");
+      p.core.workerStopped(how);
+      clock += 3_000;
+      // A tick now would look: the pointer is over the picture and the scheduler still reading.
+      expect(p.core.scheduler.analysisState(clock)).toBe("reading");
+      const before = p.out.captures.length;
+      p.load();
+      expect(p.out.captures.length).toBe(before);
+      expect(p.core.scheduler.pointerActive(clock)).toBe(false);
+    });
+
+    it("a load that fails asks nothing", () => {
+      const p = playing();
+      p.enter();
+      p.load(false);
+      expect(p.core.status().state).toBe("failed");
+      expect(p.run(1_000, "answer")).toBe(0);
+    });
+  });
+
+  describe("a paused picture in focus scope", () => {
+    /** Card T-001 (x 100..300) verified; card T-002 (x 600..800) left unverified by every look. */
+    const twoCards = (): FrameAnalysis =>
+      ({
+        frame: { width: 1000, height: 500 },
+        hover: { selection: "accepted-nms", cards: [] },
+        boxes: [
+          { box: [100, 100, 200, 300], face: { cardId: "T-001" } },
+          { box: [600, 100, 200, 300], face: { unverified: true, cardId: null } },
+        ],
+      }) as unknown as FrameAnalysis;
+
+    /** Paused, the pointer on T-001: the look and its repeats answered, or (`leaveEarly`) the
+     *  pointer leaves right after the first answer. Then 3 s off the picture. */
+    const pausedThenAway = (options: SessionCoreOptions, leaveEarly = false) => {
+      scene.cards = [
+        { cardId: "T-001", name: "Card One", box: [100, 100, 200, 300] },
+        { cardId: "T-002", name: "Card Two", box: [600, 100, 200, 300] },
+      ];
+      const p = playing({ geometricScope: "focus", geometric: true, ...options });
+      p.load();
+      p.core.fromWorker({ kind: "geometric-status", state: "ready", reason: null, bytes: 10 });
+      p.pause();
+      expect(p.enter()).toBe(true);
+      p.respond("answer", { analysis: twoCards() });
+      if (!leaveEarly) p.run(2_000, "answer", { analysis: twoCards() });
+      p.core.pointerLeft();
+      const whileOff = p.run(3_000, "refuse");
+      return { p, whileOff };
+    };
+
+    it.each([["on", ON], ["off", {}]] as const)("option %s: a return onto the current, verified card asks for nothing", (_, options) => {
+      const { p, whileOff } = pausedThenAway(options);
+      expect(whileOff).toBe(0);
+      expect(p.out.captures).toHaveLength(3);
+      const back = clock;
+      expect(p.enter()).toBe(false);
+      for (let i = 0; i < 12; i += 1) {
+        clock += DRIVER_TICK_MS;
+        p.enter(false, 0.2 + (i % 2) * 0.001);
+        p.core.tick();
+      }
+      expect(p.askedSince(back)).toEqual([]);
+      expect(p.out.shown.at(-1)?.cardId).toBe("T-001");
+    });
+
+    it.each([["on", ON], ["off", {}]] as const)("option %s: a return onto the unverified card keeps its focus relook, on the pointer message", (_, options) => {
+      const { p } = pausedThenAway(options);
+      expect(p.enter(false, 0.7)).toBe(true);
+      p.respond("none");
+      expect(p.out.requests).toHaveLength(3);
+      p.core.frame(p.out.captures.at(-1)!.requestId, Object.assign(bitmap(), { width: 1000, height: 500 }), p.t());
+      expect(p.out.requests.at(-1)!.request).toMatchObject({ geometricScope: "focus", focus: { x: 700, y: 250 } });
+    });
+
+    it("repeats scheduled before the leave wait while off the picture and run after the return, and nothing more", () => {
+      const { p, whileOff } = pausedThenAway(ON, true);
+      expect(whileOff).toBe(0);
+      const back = clock;
+      expect(p.enter()).toBe(false);
+      p.run(3_000, "answer", { analysis: twoCards() });
+      expect(p.askedSince(back)).toEqual([250, 500]);
+    });
+  });
+
+  describe("the policy after the entry look", () => {
+    /** A look answered, the pointer away 3 s, then back with the entry look answered. */
+    const entered = (options: SessionCoreOptions) => {
+      const p = playing(options);
+      p.load();
+      p.enter();
+      p.respond("answer");
+      p.core.pointerLeft();
+      expect(p.run(3_000, "refuse")).toBe(0);
+      const back = clock;
+      expect(p.enter()).toBe(true);
+      p.respond("answer");
+      return { p, back };
+    };
+
+    it("a pointer resting on an empty spot is looked at every 2 s", () => {
+      scene.card = null;
+      const { p, back } = entered(ON);
+      p.run(7_000, "answer");
+      expect(p.askedSince(back)).toEqual([0, 2000, 4000, 6000]);
+    });
+
+    it("the reading hold keeps the card and stops the looks once the pointer has rested past the grace period", () => {
+      const { p, back } = entered({ ...ON, hold: READING_HOLD });
+      expect(p.out.shown.at(-1)?.cardId).toBe("T-001");
+      p.run(POINTER_GRACE_MS + 5_000, "answer");
+      const asked = p.askedSince(back);
+      expect(asked.at(-1)!).toBeLessThan(POINTER_GRACE_MS);
+      expect(asked.filter((a) => a < POINTER_GRACE_MS)).toEqual(asked);
+      expect(p.out.shown.at(-1)?.cardId).toBe("T-001");
+    });
+
+    it("a video paused while off the picture: the entry look gets its repeats, which reuse it", () => {
+      const p = playing();
+      p.load();
+      p.enter();
+      p.respond("answer");
+      p.core.pointerLeft();
+      p.run(3_000, "refuse");
+      p.pause();
+      const back = clock;
+      expect(p.enter()).toBe(true);
+      const entryId = p.out.captures.at(-1)!.requestId;
+      p.respond("answer");
+      // The worker answers a reuse as reused: the look it reuses stays the newest analyzed one.
+      p.run(2_000, "answer", { analysis: { ...analysisNow(), reused: true } as FrameAnalysis });
+      expect(p.askedSince(back)).toEqual([0, 250, 500]);
+      const frames = p.out.requests.map((r) => r.request).filter((r): r is Extract<WorkerRequest, { kind: "frame" }> => r.kind === "frame");
+      expect(frames.slice(-2).map((r) => r.reuseOf)).toEqual([entryId, entryId]);
+    });
+  });
+
+  describe("other modes", () => {
+    it("always-on: the same looks with the option on and off, wherever the pointer is", () => {
+      const script = (options: SessionCoreOptions) => {
+        const p = playing({ mode: "always-on", ...options });
+        const start = clock;
+        p.load();
+        p.run(1_000, "answer");
+        p.enter();
+        p.run(1_000, "answer");
+        p.core.pointerLeft();
+        p.run(3_000, "answer");
+        p.enter();
+        p.run(1_000, "answer");
+        return p.askedSince(start);
+      };
+      const on = script(ON);
+      expect(on.length).toBeGreaterThan(0);
+      expect(on).toEqual(script({}));
+    });
+
+    it("layout mode is not a core mode, with the option on or off: the core refuses it as before", () => {
+      for (const options of [ON, {}]) {
+        expect(() => directCore({ mode: "layout" as never, ...options })).toThrow("layout mode needs a positive probe interval");
+      }
+    });
+  });
+});

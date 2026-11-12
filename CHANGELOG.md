@@ -11,6 +11,20 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- Browser: a look on pointer entry. In pointer mode, the compute frame (`startComputeFrame`) asks
+  for no picture while the pointer is off it, from a `leave` until the next `pointer`. A pointer
+  that comes back to a picture whose newest look is stale (the existing rule, in video time) gets
+  a look on that `pointer` message instead of waiting for the cadence, and a load that ends with
+  the pointer active over the picture asks at once instead of at the next tick. The content
+  script no longer refuses a `capture` at every cadence after the pointer leaves. A look in flight
+  at the leave, the retry back-off, the hover spacing, the 2 s empty-spot gap, the repeats of a
+  still picture and the reading hold are unchanged, and so is the `"always-on"` mode. A slow,
+  buffering or long-cadence video may still wait for the cadence. With `idleUnloadMs`, the idle
+  unload can come up to about the 10 s grace period sooner after a leave, because the asks the
+  page refused, which counted as activity, are no longer made. Pass `entryLook: false` to
+  `startComputeFrame` to turn it off. A `SessionCore` made directly has it off unless given
+  `entryLook: true`. No message is added; `PROTOCOL_VERSION` stays 2. See
+  [docs/extension-session.md](docs/extension-session.md#pointer-entry).
 - Browser demo: on a still picture the panels show the times of the analysis its repeats reuse,
   and the quickstart's sample now reads `frames analyzed: 1` (a still picture is analyzed once).
 - Browser: the geometric stage copies its index to the GPU 4 MiB at a time and waits for the

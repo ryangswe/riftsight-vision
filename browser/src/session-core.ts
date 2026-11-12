@@ -164,6 +164,13 @@ export interface SessionCoreOptions {
   /** Pace analysis from the measured analysis time (`SessionOptions.measuredPacing`). Off when
    *  absent. */
   measuredPacing?: MeasuredPacingOption;
+  /** Pointer mode: a look on pointer entry. While the pointer is off the picture (from
+   *  `pointerLeft` until the next `pointer`) no picture is asked for, so a pointer that comes back
+   *  to a playing video finds the newest analyzed frame stale and the staleness rule asks for a
+   *  look on that `pointer` call. A load that ends with the pointer active over the picture asks
+   *  at once instead of at the next `tick`. Off by default here; the compute frame turns it on
+   *  (`startComputeFrame`). No effect in "always-on" mode. */
+  entryLook?: boolean;
 }
 
 /** What `status().loading` becomes on a release-progress reply: the reply's phase while the
@@ -304,6 +311,8 @@ export class SessionCore {
   private readonly focusScope: boolean;
   private readonly hitTest: typeof hoverAt;
   private readonly pacer: MeasuredPacer | null;
+  /** `SessionCoreOptions.entryLook`; always false outside pointer mode. */
+  private readonly entryLook: boolean;
 
   private readonly st: SessionStatus;
   private cardList: ReleaseStatus["cards"] = [];
@@ -319,6 +328,11 @@ export class SessionCore {
   private sourceCount = 0;
   private result: { analysis: FrameAnalysis; videoTimeSec: number } | null = null;
   private pointerAt: { x: number; y: number } | null = null;
+  /** Where the pointer is, for the entry look: a mouse over the picture, or a touch after a tap on
+   *  it (touch has no resting pointer: a tap counts until the host reports a `pointerLeft`, which it
+   *  does for a touch moving outside, a tap elsewhere or a canceled touch); null before any pointer and
+   *  after it left. The scheduler's own notion of inside is set by mouse moves, not by taps. */
+  private pointerOver: "mouse" | "touch" | null = null;
   private mediaTime = 0;
   private lastShown: Shown | null = null;
   private lastStatusKey = "";
@@ -339,6 +353,7 @@ export class SessionCore {
     this.hitTest = deps.hoverAt ?? hoverAt;
     const share = resolveMeasuredPacing(options.measuredPacing);
     this.pacer = share === null ? null : new MeasuredPacer(share);
+    this.entryLook = options.entryLook === true && this.mode === "pointer";
     this.scheduler = new FrameScheduler(cadenceMs(null, this.mode), CONFIRM_FRAMES, this.mode, analyzeIntervalMs(null));
     this.st = {
       state: "loading", error: null, release: null, backend: null, schedule: "idle", frames: 0,
@@ -361,6 +376,7 @@ export class SessionCore {
     if (this.st.state === "stopped") return;
     const now = this.deps.now();
     this.pointerAt = { x, y };
+    this.pointerOver = touch ? "touch" : "mouse";
     this.mediaTime = mediaTime;
     if (touch) this.scheduler.tapped(now);
     else this.scheduler.pointerMoved(now);
@@ -373,6 +389,7 @@ export class SessionCore {
   pointerLeft(): void {
     if (this.st.state === "stopped") return;
     this.pointerAt = null;
+    this.pointerOver = null;
     this.scheduler.pointerLeft(this.deps.now());
     this.publish();
   }
@@ -544,6 +561,7 @@ export class SessionCore {
           this.applyCadence();
           this.scheduler.framePresented();
         }
+        if (reply.ok) this.lookOnLoad();
         this.publish();
         return;
       case "frame-result":
@@ -552,6 +570,22 @@ export class SessionCore {
       default:
         return;
     }
+  }
+
+  /** With the entry look, once a load has installed its release, cadence and pending picture: one
+   *  scheduling evaluation now, as the next `tick` would make, when the pointer is eligible. No
+   *  pointer activity is made up for it, and the page's gate still decides on the capture. */
+  private lookOnLoad(): void {
+    if (!this.entryLook || this.st.state !== "ready" || this.inFlight) return;
+    const now = this.deps.now();
+    if (this.entryEligible(now) && this.scheduler.due(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
+  }
+
+  /** Whether the pointer is over the picture and active: a mouse with activity within the grace
+   *  period, or a tap whose window (the same grace period, opened by the tap) is still open. A
+   *  pointer that rests past it, or one that left, is not: being over the picture is not enough. */
+  private entryEligible(now: number): boolean {
+    return this.pointerOver !== null && this.scheduler.pointerActive(now);
   }
 
   /** Arm the scheduler with the cadence for the backend: today's fixed rates, or the measured
@@ -642,6 +676,7 @@ export class SessionCore {
     this.result = null;
     this.held = null;
     this.pointerAt = null;
+    this.pointerOver = null;
     this.publishShown();
     this.publishStatus();
   }
@@ -732,6 +767,10 @@ export class SessionCore {
 
   private requestCapture(trigger?: "hover" | "cut"): void {
     if (this.st.state !== "ready" || this.inFlight) return;
+    // The entry look: nothing is asked while the pointer is off the picture. Here, before a request
+    // is made or the scheduler hears of a start, so the newest analyzed frame stays the reference
+    // for staleness and the retry state stays as it was; watchdogs, replies and what is shown go on.
+    if (this.entryLook && this.pointerOver === null) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
     this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, repeat: false, full: true };

@@ -753,3 +753,90 @@ describe("geometricScope in the compute frame", () => {
     expect(() => setup({ geometricScope: "focus", mode: "always-on" })).toThrow(/needs pointer mode/);
   });
 });
+
+describe("a look on pointer entry (entryLook)", () => {
+  const captureCount = (t: ReturnType<typeof setup>) => t.messages().filter((m) => m.kind === "capture").length;
+  const pointerAt = (mediaTime = 1, touch = false) => tag({ kind: "pointer", x: 0.2, y: 0.5, mediaTime, touch });
+  const ON_OFF = [
+    ["on by default", {}, 1],
+    ["off with entryLook: false", { entryLook: false }, 0],
+  ] as const;
+
+  it.each(ON_OFF)("%s: whether a pointer during the first load gets its capture as the load ends", (_, over, asked) => {
+    const t = setup(over);
+    t.send(pointerAt());
+    t.clock.now += 300;
+    loaded(t.workers[0]!);
+    expect(captureCount(t)).toBe(asked);
+    // Either way one look, by the next tick at the latest.
+    t.frame!.tick();
+    expect(captureCount(t)).toBe(1);
+  });
+
+  it.each(ON_OFF)("%s: what is asked off the picture after a leave, and on the return to a stale picture", (_, over, on) => {
+    const t = setup(over);
+    const w = t.workers[0]!;
+    loaded(w);
+    showCard(t, w);
+    t.send(tag({ kind: "leave" }));
+    const before = captureCount(t);
+    for (let i = 1; i <= 12; i += 1) {
+      t.clock.now += 250;
+      t.send(tag({ kind: "presented", mediaTime: 1 + i * 0.25 }));
+      t.frame!.tick();
+      // The page refuses each, the pointer being outside.
+      const capture = t.messages().filter((m) => m.kind === "capture").at(-1) as { requestId: number };
+      t.send(tag({ kind: "capture-failed", requestId: capture.requestId, reason: "no pointer over the player" }));
+    }
+    const whileOff = captureCount(t) - before;
+    t.send(pointerAt(4));
+    const onReturn = captureCount(t) - before - whileOff;
+    if (on) {
+      expect(whileOff).toBe(0);
+      expect(onReturn).toBe(1);
+    } else {
+      expect(whileOff).toBeGreaterThan(0);
+      expect(onReturn).toBe(0);
+    }
+  });
+
+  it.each(ON_OFF)("%s: the setting holds through a worker restart", (_, over, asked) => {
+    const t = setup(over);
+    loaded(t.workers[0]!);
+    showCard(t, t.workers[0]!);
+    t.workers[0]!.fail();
+    expect(t.workers).toHaveLength(2);
+    t.clock.now += 1_000;
+    t.send(pointerAt(2));
+    const before = captureCount(t);
+    loaded(t.workers[1]!);
+    expect(captureCount(t) - before).toBe(asked);
+  });
+
+  it.each(ON_OFF)("%s: the setting holds through a fallback from a remote release", async (_, over, asked) => {
+    const t = await setupChoosing(remoteChoice(), over);
+    t.send(pointerAt());
+    t.workers[0]!.reply(statusFail("model failed to load"));
+    expect(t.workers).toHaveLength(2);
+    expect(isBundled(t.workers[1]!)).toBe(true);
+    t.clock.now += 300;
+    loaded(t.workers[1]!);
+    expect(captureCount(t)).toBe(asked);
+  });
+
+  it.each(ON_OFF)("%s: the setting holds through an idle unload and resume", (_, over, asked) => {
+    const t = setup({ idleUnloadMs: 10_000, ...over });
+    loaded(t.workers[0]!);
+    for (let i = 0; i < 50 && t.frame!.state !== "idle"; i += 1) {
+      t.clock.now += 500;
+      t.frame!.tick();
+    }
+    expect(t.frame!.state).toBe("idle");
+    t.send(pointerAt());
+    expect(t.workers).toHaveLength(2);
+    t.clock.now += 300;
+    const before = captureCount(t);
+    loaded(t.workers[1]!);
+    expect(captureCount(t) - before).toBe(asked);
+  });
+});

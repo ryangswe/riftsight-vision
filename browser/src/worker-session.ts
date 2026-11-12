@@ -85,6 +85,9 @@ export interface WorkerSessionEnv {
   hold?: ShownHold;
   /** True: named cards follow their outline (`SessionOptions.rotatedOutlines`). */
   rotatedOutlines?: boolean;
+  /** The core's `entryLook` (a look on pointer entry). The core is made once and outlives every
+   *  worker, so it holds through a fallback, a restart and an idle resume. Off when absent. */
+  entryLook?: boolean;
   /** Keep the load request in effect (a remote release's files included) so that `suspend` can
    *  load it again. Off by default: the request is then not held after the worker has it. */
   keepLoadRequest?: boolean;
@@ -187,6 +190,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
         ...(env.measuredPacing ? { measuredPacing: env.measuredPacing } : {}),
         ...(env.hold ? { hold: env.hold } : {}),
         ...(env.rotatedOutlines ? { rotatedOutlines: true } : {}),
+        ...(env.entryLook !== undefined ? { entryLook: env.entryLook } : {}),
         ...(env.geometricScope === "focus" ? { geometricScope: "focus" as const } : {}),
         geometric: request.geometricUrl !== undefined,
       },
