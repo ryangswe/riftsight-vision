@@ -33,13 +33,14 @@ break the public surface; this file names each break and how to migrate.
   a look on that `pointer` message instead of waiting for the cadence, and a load that ends with
   the pointer active over the picture asks at once instead of at the next tick. The content
   script no longer refuses a `capture` at every cadence after the pointer leaves. A look in flight
-  at the leave, the retry back-off, the hover spacing, the 2 s empty-spot gap, the repeats of a
-  still picture and the reading hold are unchanged, and so is the `"always-on"` mode. A slow,
+  at the leave, the retry back-off, the hover spacing, the 2 s empty-spot gap and the reading hold
+  are unchanged, and so is the `"always-on"` mode. The repeats of a still picture wait while the
+  pointer is off and run when it returns (before, they were asked for and refused). A slow,
   buffering or long-cadence video may still wait for the cadence. With `idleUnloadMs`, the idle
   unload can come up to about the 10 s grace period sooner after a leave, because the asks the
   page refused, which counted as activity, are no longer made. Pass `entryLook: false` to
-  `startComputeFrame` to turn it off. A `SessionCore` made directly has it off unless given
-  `entryLook: true`. No message is added; `PROTOCOL_VERSION` stays 2. See
+  `startComputeFrame` to turn it off. A `SessionCore` or a `createWorkerSession` made directly has
+  it off unless given `entryLook: true`. No message is added; `PROTOCOL_VERSION` stays 2. See
   [docs/extension-session.md](docs/extension-session.md#pointer-entry).
 - Browser demo: on a still picture the panels show the times of the analysis its repeats reuse,
   and the quickstart's sample now reads `frames analyzed: 1` (a still picture is analyzed once).
@@ -93,33 +94,32 @@ break the public surface; this file names each break and how to migrate.
 - Browser: `npm run hover-speed`, a report-only harness that times the first tooltip on the
   two-frame path. It serves a page from 127.0.0.1 that plays a clip, with a stand-in content
   script and, on a second local origin, the compute frame with the real worker on a release, and
-  moves the pointer through the browser's input. Its scenarios are a cold first hover (H1), a first
-  hover after the frame was made at play (H2), a slow paused point (H2P), a return to a playing
-  video after a gap (H5) and a later new card while playing (H6). Every hover is a row with an
-  outcome (`match`, `wrong`, `miss` or `timeout`), and none leaves the denominator. It fails (exit
-  code 1) only on its hard gates: a picture request before a trusted pointer was over the picture,
-  a picture delivered for a request made while capture was not allowed, two requests outstanding,
-  a request off loopback, or an incomplete report; `--expect-entry-look` adds the look-on-entry
-  gates. Elapsed times are reported, never judged. See
-  [browser/README.md](browser/README.md#measuring-hover-speed).
+  moves the pointer through the browser's input. Its scenarios are a cold first hover (H1), a
+  first hover after the frame was made at play (H2), a slow paused point (H2P), a return to a
+  playing video after a gap (H5) and, when named with `--scenarios H6`, a later new card while
+  playing (H6). Every hover is a row with an outcome (`match`, `wrong`, `miss` or `timeout`), and
+  none leaves the denominator. It fails (exit code 1) only on its hard gates: a picture request
+  before a trusted pointer was over the picture, a picture delivered for a request made while
+  capture was not allowed, two requests outstanding, a request off loopback, or an incomplete
+  report; `--expect-entry-look` adds the look-on-entry gates. Elapsed times are reported, never
+  judged. See [browser/README.md](browser/README.md#measuring-hover-speed).
 - Browser: `scripts/idle-unload-memory.mjs` can load the geometric stage (`--geometric PATH`,
   with `--gpu 1` for WebGPU) and pass `--geometric-load start|pointer`; each ready reading then
-  waits for the stage to settle. Its default `--idle-ms` is now 15000 (was 3000), and it refuses an idle time
-  too short to read the ready frame before the unload.
-- Browser: `startComputeFrame({ geometricLoad: "pointer" })` (also an option of
-  `createWorkerSession`) loads the geometric stage when the viewer points at the picture instead
-  of with the release. The worker loads the release without the stage, and the first `pointer`
-  message has it load the stage, by a new worker request, `load-stage`, once the release is ready
-  (a `pointer` that arrived while it loaded counts); after an idle unload the stage waits for a new
-  `pointer` again, and one that resumes the frame counts. A frame made when a video
+  waits for the stage to settle. The report adds `readyReadsChecked`, `stage` and `stageLog`.
+- Browser: `startComputeFrame({ geometricLoad: "pointer" })` (type `GeometricLoad`; also an option
+  of `createWorkerSession`) loads the geometric stage when the viewer points at the picture
+  instead of with the release. The worker loads the release without the stage, and the first
+  `pointer` message has it load the stage, by a new worker request, `load-stage`, once the release
+  is ready (a `pointer` that arrived while it loaded counts); after an idle unload the stage waits
+  for a new `pointer` again, and one that resumes the frame counts. A frame made when a video
   plays then neither downloads nor holds the stage's index until the viewer points at it, and the
   looks until the stage is ready run without it. A look in flight when the stage is asked for is
   answered without it. No message is added between the two frames and `PROTOCOL_VERSION` stays 2.
   The default, `"start"`, sends the worker the same messages as before. A host that runs
   `createWorkerSession` directly with `"pointer"` calls `session.pointed()` on each pointer over
-  the picture; otherwise the stage never loads. Two public types grow, which matters for code
-  that switches over them exhaustively or fakes them: `WorkerRequest` has a `load-stage` variant,
-  and `WorkerSession` has `pointed()`.
+  the picture; otherwise the stage never loads. Two public types grow, which matters for code that
+  switches over them exhaustively or fakes them: `WorkerRequest` has a `load-stage` variant, and
+  `WorkerSession` has `pointed()`.
 - Docs: [When to make the frame](docs/extension-session.md#when-to-make-the-frame) recommends
   making the compute frame when the video plays, so the load comes before the first hover. It
   covers the idle clock, the cold hover after an unload, `control.frameRemoved`, the `playing`
@@ -146,6 +146,12 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- Browser: `scripts/idle-unload-memory.mjs` took its `ready` reading after the unload with its own
+  defaults (`--idle-ms 3000`, `--settle-ms 4000`), so a ready frame was under-reported, and the
+  README's statement that the toy release cannot show the drop was wrong. The default `--idle-ms`
+  is now 15000; an `--idle-ms` below `--settle-ms` plus 4500 is refused, and a ready reading not
+  taken on a ready frame ends the run with exit code 2. The README now gives the toy release's
+  figures with the machine and the command.
 - Browser: a shown card is no longer reported again (`onShown`, the `shown` message) when a new
   look finds the same card's box a few pixels off. Each look's box for a still card differs a
   little, and a host that placed its tooltip and outline from every report moved them every look
