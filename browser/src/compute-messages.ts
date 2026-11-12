@@ -36,9 +36,10 @@ export interface ShownCard {
   rotation?: number;
   localWidth?: number;
   localHeight?: number;
-  /** Under a reading hold: true when a recent analysis shows the card gone from where it was last
-   *  seen. `box` is where it was; the card has moved or been covered, so the host should not draw
-   *  its outline. Absent while it is seen there, or while nothing recent can tell. */
+  /** Under a reading hold: true when the host should not draw the card's outline. `box` is where
+   *  the card was last seen. Set once an analysis shows it gone from there, or once no recent
+   *  analysis is left and none is coming; cleared when an analysis sees it there again. The
+   *  tooltip stays either way. */
   held?: true;
 }
 

@@ -23,8 +23,8 @@
 //     cadence applies, except that a pointer resting where the newest look found no card is
 //     looked at only every `EMPTY_SPOT_INTERVAL_MS` (an empty spot costs a full analysis each
 //     time and has nothing to show; a card arriving there shows up to that long, plus one
-//     analysis, later). A move over the picture, a card found at the pointer, a seek, a new
-//     source or a cut ends it; the pointer leaving the picture does not.
+//     analysis, later). A move over the picture, a tap, a card found at the pointer, a look left
+//     unanswered, a seek, a new source or a cut ends it; the pointer leaving the picture does not.
 //   - "reading": the grace period is over, the pointer rests on the picture, and a tooltip is
 //     showing, or was showing less than `READING_LINGER_MS` ago. Analysis continues at the slow
 //     cadence so that the tooltip keeps up with the picture. The linger lets it survive a short

@@ -62,12 +62,15 @@ break the public surface; this file names each break and how to migrate.
 
 - Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
   stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
-  can finish reading it after a player has moved the card. A card laid on its spot later does not
-  replace it, and a cut does not end it; an overlapping card that was already there, which the
-  pointer moves onto, does replace it. The pointer leaving the area or the picture, a seek or
-  a new source ends it. While it lasts, `shown` carries `held: true` once a recent analysis shows the card
-  gone, so a host can hide its outline. While the pointer rests past its grace period on a card it
-  shows, nothing is analyzed. Off unless a host passes it; `SHOWN_HOLD` is unchanged.
+  can finish reading it after a player has moved the card. A card laid on its spot later, or one
+  that slides under a pointer at rest, does not replace it, and a cut does not end it; an
+  overlapping card that was already there, which the pointer moves onto, does. The pointer leaving
+  the area or the picture, a seek or a new source ends it. While it lasts, `shown` carries `held:
+  true` once an analysis shows the card gone, or once no recent analysis is left and none is
+  coming, until an analysis sees it again, so a host can hide its outline and keep the tooltip.
+  While the pointer rests past its grace period on a card it shows, nothing is analyzed. It
+  remembers the overlapping cards of the last 3 looks that saw the kept card, at most 16. Off
+  unless a host passes it; `SHOWN_HOLD` is unchanged.
 - Browser: `FrameAnalysis` faces carry `tiltedSkipped: true` when the tilted retry would have tried
   them but its cap (`maxFacesPerFrame`) left them out on that frame, in any scope. A focus-scope
   session with a ready stage looks again when the pointer moves onto one.
@@ -76,6 +79,15 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- Browser: in focus scope, a look made before the geometric stage is ready (still loading, or off
+  for want of WebGPU) counts as a full analysis, so a paused picture is analyzed once there, not
+  twice. The worker already analyzed every face of such a look.
+- Browser: a frame whose analysis failed in the worker (`analysis-failed`, a model or GPU error) is
+  looked at again after the usual back-off, as a busy one is. When it was the last repeat of a
+  paused picture, nothing looked again before, and the card stayed hidden until the video moved.
+  `no-release` and `no-2d-context` are still not retried. In pointer mode the retries end with the
+  pointer's grace period; in always-on mode a model that keeps failing is asked again every 2 s, as
+  a busy worker is.
 - `npm run user-wait`: a rest can carry `pauseAfterPreviousBeginMs` to start that long after the
   previous rest began, so a pause with no seek comes at about the same clip time however fast the
   previous rest answered. Each rest line has `timing` (the video's time at the pause, seek, begin,

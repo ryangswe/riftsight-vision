@@ -1044,6 +1044,8 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
       options,
     );
     core.fromWorker({ kind: "release-status", ok: true, error: null, release: { analysisWidth: { min: 720, max: 1920 }, hoverMaxAgeMs: 2000, recognizer: { ep: "wasm" } } as never, cards: [] });
+    // The worker's stage is loaded: the session hears it, as it would from a real worker.
+    core.fromWorker({ kind: "geometric-status", state: "ready", reason: null, bytes: 1 });
     const flush = async (): Promise<void> => {
       while (pending.length) await pending.shift();
     };
@@ -1235,10 +1237,10 @@ describe("rows 9 and 10: a focus result is read only where its group is verified
     expect(repeats.length).toBeGreaterThanOrEqual(2);
     expect(t.split()).toEqual({ analyzed: 2, reused: repeats.length - 1 }); // the focus look and one full pass; the other repeats reuse it
     for (const r of repeats) {
-      // A full pass: no scope. (The session here has no stage status, so no pointer is sent for
-      // the tilted retry's order either; focus-full-pass-tilted.test.ts covers a ready stage.)
+      // A full pass: no scope. With the stage ready the pointer still goes along, for the tilted
+      // retry's order only (focus-full-pass-tilted.test.ts covers that order).
       expect("geometricScope" in r).toBe(false);
-      expect("focus" in r).toBe(false);
+      expect(r.focus).toEqual({ x: 40, y: 100 });
     }
     expect(stage.crops).toHaveLength(1 + 3); // every applicable face, in the one full pass; a reuse crops nothing
     // The answers at every face equal an all session's on the same picture.

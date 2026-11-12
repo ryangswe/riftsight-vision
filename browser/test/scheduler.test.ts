@@ -889,7 +889,7 @@ describe("FrameScheduler: a pointer resting where the last look found no card", 
     s.lookFoundNoCard();
   };
 
-  it("looks once a second for the grace period: 5 looks in 10 s, against 20 at the fast rate", () => {
+  it("looks every 2 s for the grace period: 5 looks in 10 s, against 20 at the fast rate", () => {
     const s = pointerScheduler();
     movedTo(s, 0);
     const starts = [0, ...rest(s, DRIVER_TICK_MS, POINTER_GRACE_MS)];

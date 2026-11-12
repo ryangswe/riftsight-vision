@@ -151,6 +151,9 @@ export type WorkerRequest =
 
 /** A frame result's `error` when the frame arrived while another was still being analyzed. */
 export const BUSY_ERROR = "busy";
+/** The start of a frame result's `error` when the analysis threw (a model or GPU error):
+ *  `analysis-failed: <message>`. */
+export const ANALYSIS_FAILED = "analysis-failed";
 
 /** The worker's answer to one frame. Every frame gets one. */
 export interface FrameResult {

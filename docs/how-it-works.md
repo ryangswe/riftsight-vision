@@ -415,7 +415,10 @@ In the output a crop the retry was tried on carries `tilted`: the estimated `til
 `cardvision evaluate crops` counts named crops by look, with the tilted retry apart.
 
 The block's `maxFacesPerFrame` (8 by default) caps how many crops of one frame the browser
-runtime retries, those under the pointer first when the page passes it as `focus`. `budgetMs`
+runtime retries, those under the pointer first when the page passes it as `focus`. The session
+passes it only in focus scope (in a still picture's full pass, only once the stage is ready); with
+scope `"all"` the cap takes the best-scoring faces, and a card at the pointer it leaves out is not
+named on that frame. No product turns the retry on yet; this is to settle before one does. `budgetMs`
 (1500 by default) is how long the retry may take of a frame: over it on two frames in a row,
 the browser runtime turns the retry off for the session and reports why (`tilted-status`). The
 Python tools retry every crop and keep no budget, so on a frame with more unaccepted crops than
@@ -856,9 +859,11 @@ has it, WebAssembly otherwise. It adds what only a player needs:
 
 - **When a frame is analyzed.** Only around pointer activity: at a fast cadence for ten seconds
   after the pointer last moved over the picture (every 2 s while it rests where the newest look
-  found no card), at a slow cadence while it rests on a card that is being shown, and not at all
-  otherwise. A pointer that moves over a picture whose newest result is stale asks for an
-  analysis at once. A still picture is analyzed once, and its repeats reuse that analysis.
+  found no card), at a slow cadence while it rests on a card that is being shown (not at all under
+  a reading hold), and not at all otherwise. A pointer that moves over a picture whose newest
+  result is stale asks for an analysis at once. In pointer mode a still picture is analyzed once
+  (twice in focus scope with a ready stage: a focus look, then a full pass), and its repeats reuse
+  that analysis.
 - **Layout registration.** For a product that already knows the board from another source, the
   runtime can find where that board sits in the picture from the cards it names, and say when
   the placement can be trusted ([browser/README.md](../browser/README.md#layout-registration)).
