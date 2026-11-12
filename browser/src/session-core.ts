@@ -42,7 +42,7 @@ import { type AABB, iou } from "./boxes.js";
 import type { AnalysisWidth } from "./capture.js";
 import { analyzeIntervalMs, cadenceMs, type GeometricScope, MeasuredPacer, resolveGeometricScope, type MeasuredPacingOption, resolveMeasuredPacing, type SessionMode } from "./cadence.js";
 import { ANALYSIS_WATCHDOG_MS, FIRST_ANALYSIS_WATCHDOG_MS, FrameScheduler, HOVER_MAX_AGE_MS, rejectionAnswersInFlight, replyRejection, withinMaxAge } from "./frame-scheduler.js";
-import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
+import { ANALYSIS_FAILED, BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseProgress, type ReleaseStatus, type TiltedStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import { type FractionBox, MAX_OTHER_BOXES } from "./compute-messages.js";
 import { hoverAt } from "./hover-at.js";
 import { ACCEPTED_NMS_IOU, focusGroup } from "./recognition.js";
@@ -70,11 +70,12 @@ export interface Shown {
   rotation?: number;
   localWidth?: number;
   localHeight?: number;
-  /** Under a reading hold only: true when a recent analysis shows the card gone from where it
-   *  was last seen (another card named there, or nothing named or detected there). `box`, with
-   *  the outline fields, is where it was; the card has moved or been covered, so a host should not
-   *  draw its outline. Absent while the card is seen, while its box is still detected there, and
-   *  while no recent analysis can tell. */
+  /** Under a reading hold only: true when the kept card's outline should not be drawn. `box`,
+   *  with the outline fields, is where the card was last seen. It is set when an analysis shows the
+   *  card gone from there (another card named there, or nothing named or detected there), and when
+   *  no recent analysis is left and none is coming (a resting pointer past its grace period on a
+   *  playing video). It stays set until an analysis sees the card there again. Absent while the
+   *  card is seen or its box is still detected there. */
   held?: true;
 }
 
@@ -91,11 +92,15 @@ export interface ShownHold {
   /** True: a reading hold. Once a card is shown it stays while the pointer stays on the area it
    *  was seen in at the pointer (the union of its boxes since it was first shown), with no time
    *  limit: `misses` and `maxMs` do not end it, and a cut does not. Another card at the pointer
-   *  replaces it only when it was already there when the kept card was last seen (the viewer
-   *  moved onto an overlapping card); a card that arrived since does not. The pointer leaving that
+   *  replaces it only when the viewer moved onto it: a card in about the same box (the same card,
+   *  or one not named then) overlapped the kept one in one of the last few analyses that saw the
+   *  kept card at the pointer, and the pointer has since moved into that box from outside it. A card that arrived
+   *  since, one that slid under a pointer at rest, or one uncovered under a pointer that only
+   *  trembles inside its box, does not. The pointer leaving that
    *  area or the picture, a seek, a new source, a stop or a lost worker end it. It is marked
-   *  `held` once a recent analysis shows it gone. In pointer mode, while it shows a card, a
-   *  resting pointer is not analyzed after its grace period. */
+   *  `held` once an analysis shows it gone, or once no recent analysis is left and none is coming
+   *  (`Shown.held`). In pointer mode, while it shows a card, a resting pointer is not analyzed
+   *  after its grace period. */
   untilPointerLeaves?: boolean;
 }
 
@@ -313,11 +318,10 @@ export class SessionCore {
   private mediaTime = 0;
   private lastShownKey = "null";
   private lastStatusKey = "";
-  /** The card the hold keeps. Under a reading hold, `area` is every box it was seen in at the
-   *  pointer since it was first shown (their union), which the pointer must stay on, and
-   *  `neighbors` the boxes of the other named cards that overlapped that area in those analyses
-   *  (uncapped, unlike `others`). */
-  private held: { card: Shown; misses: number; seenAt: number; area: FractionBox; neighbors: FractionBox[] } | null = null;
+  /** The card the hold keeps. Under a reading hold, `area` is the rectangle enclosing every box it
+   *  was seen in at the pointer since it was first shown, which the pointer must stay on, and the
+   *  `reading` fields hold the rest (see `readingHold`). */
+  private held: { card: Shown; misses: number; seenAt: number; area: FractionBox; reading?: ReadingState } | null = null;
 
   constructor(
     private readonly deps: SessionCoreDeps,
@@ -444,7 +448,8 @@ export class SessionCore {
     const yields = this.focusScope && still && focus !== null && this.result !== null && pointerGroupNeedsLook(this.result.analysis, focus.x, focus.y, this.stageReady());
     const full = still && !yields;
     const reuseOf = this.mode === "pointer" && !yields && this.lastLook !== null && this.lastLook.full && this.stillNeedsNothing(sent, mediaTime) ? this.lastLook.requestId : undefined;
-    sent.full = !this.focusScope || full;
+    // With no ready stage the worker analyzes every face whatever the scope: the look is full.
+    sent.full = !this.focusScope || full || !this.stageReady();
     try {
       this.deps.toWorker(
         {
@@ -590,7 +595,9 @@ export class SessionCore {
       this.deps.onAnalysis?.(reply.analysis);
     } else {
       this.result = null;
-      if (reply.error === BUSY_ERROR) this.scheduler.lookUnanswered(now);
+      // The worker busy, or the analysis failed (a model or GPU error, which may pass): asked
+      // again after a back-off. A refusal that will not pass (no release, no 2D context) is not.
+      if (reply.error === BUSY_ERROR || reply.error?.startsWith(ANALYSIS_FAILED) === true) this.scheduler.lookUnanswered(now);
     }
     // A miss is an analysis of the picture on screen without the card at the pointer. A reply that
     // analyzed nothing (busy, an error), or one already older than hover.maxAgeMs when it came
@@ -790,7 +797,7 @@ export class SessionCore {
     }
     const now = this.deps.now();
     if (fresh) {
-      this.held = { card: fresh, misses: 0, seenAt: now, area: fresh.box, neighbors: [] };
+      this.held = { card: fresh, misses: 0, seenAt: now, area: fresh.box };
       return fresh;
     }
     const held = this.held;
@@ -822,44 +829,112 @@ export class SessionCore {
     return seen;
   }
 
-  /** `shown()` under a reading hold (`ShownHold.untilPointerLeaves`). */
+  /**
+   * `shown()` under a reading hold (`ShownHold.untilPointerLeaves`). `shown()` is called several
+   * times per tick, so what an analysis tells is taken once, the first time it is read
+   * (`reading.evidence`): the overlapping cards (`neighbors`, merged from the last few analyses
+   * that saw the kept card at the pointer, and capped) and whether the card is gone
+   * (`gone`, kept between analyses). With no recent analysis left and none coming, the card is
+   * taken as gone too, until an analysis sees it again.
+   */
   private readingHold(fresh: Shown | null): Shown | null {
     const held = this.held;
-    if (held && this.pointerAt && inside(held.area, this.pointerAt)) {
-      if (fresh && fresh.cardId === held.card.cardId) {
-        const area = union(held.area, fresh.box);
-        this.held = { card: fresh, misses: 0, seenAt: this.deps.now(), area, neighbors: [...held.neighbors, ...this.neighborsIn(area, fresh)] };
-        return fresh;
-      }
-      // Another card at the pointer that was already there when the kept card was last seen
-      // (among its `others`): the viewer moved onto it, as on a fan of overlapping cards, so it
-      // is shown. A card that arrived since landed on the spot: the kept card stays.
-      if (fresh && this.wasThere(held.neighbors, fresh)) {
-        this.held = { card: fresh, misses: 0, seenAt: this.deps.now(), area: fresh.box, neighbors: this.neighborsIn(fresh.box, fresh) };
-        return fresh;
-      }
-      return this.missing(held.card) ? { ...held.card, held: true } : held.card;
+    const reading = held?.reading;
+    if (!held || !reading || !this.pointerAt || !inside(held.area, this.pointerAt)) {
+      this.held = fresh ? this.newReadingHold(fresh) : null;
+      return fresh;
     }
-    this.held = fresh ? { card: fresh, misses: 0, seenAt: this.deps.now(), area: fresh.box, neighbors: this.neighborsIn(fresh.box, fresh) } : null;
-    return fresh;
+    const evidence = this.takeEvidence(reading);
+    if (fresh && fresh.cardId === held.card.cardId) {
+      held.card = fresh;
+      held.seenAt = this.deps.now();
+      held.area = union(held.area, fresh.box);
+      reading.gone = false;
+      reading.at = { ...this.pointerAt };
+      reading.atFrom = this.current()?.analysis ?? null;
+      if (evidence) {
+        reading.sightings += 1;
+        reading.neighbors = this.mergeNeighbors(reading, this.neighborsIn(held.area, fresh));
+      }
+      return fresh;
+    }
+    // Another card at the pointer that overlapped the kept card when it was last seen, whose box the
+    // pointer has since moved into: the viewer went to it, as on a fan of overlapping cards, so it
+    // is shown. A card that arrived since, one that slid under a pointer at rest, or one uncovered
+    // under a pointer that only trembles inside its box, is not: the kept card stays.
+    if (fresh && this.movedOnto(reading, fresh)) {
+      this.held = this.newReadingHold(fresh);
+      return fresh;
+    }
+    if (evidence) reading.gone = this.missing(held.card);
+    else if (!reading.gone && this.current() === null && !this.scheduler.analysisActive(this.deps.now())) {
+      reading.gone = true;
+    }
+    return reading.gone ? { ...held.card, held: true } : held.card;
   }
 
-  /** Whether `fresh`'s box was among the kept card's `neighbors`: it was there while the kept
-   *  card was seen. */
-  private wasThere(neighbors: FractionBox[], fresh: Shown): boolean {
+  private newReadingHold(card: Shown): NonNullable<SessionCore["held"]> {
+    const analysis = this.current()?.analysis ?? null;
+    const neighbors = this.neighborsIn(card.box, card).map((n) => ({ ...n, sighting: 0 }));
+    const reading: ReadingState = { neighbors, sightings: 0, evidence: analysis, gone: false, at: { ...this.pointerAt! }, atFrom: analysis };
+    return { card, misses: 0, seenAt: this.deps.now(), area: card.box, reading };
+  }
+
+  /** The newest analysis, if recent, analyzed afresh (not a reuse) and not yet taken: taken now. */
+  private takeEvidence(reading: ReadingState): boolean {
+    const analysis = this.current()?.analysis;
+    if (!analysis || analysis.reused === true || analysis === reading.evidence) return false;
+    reading.evidence = analysis;
+    return true;
+  }
+
+  /** Whether `fresh` is one of the kept card's neighbors (in about the same box, and the same card,
+   *  or one that was not named then) and the pointer moved into that box from outside it since the
+   *  kept card was last seen at the pointer. */
+  private movedOnto(reading: ReadingState, fresh: Shown): boolean {
+    const now = this.pointerAt;
+    if (!now) return false;
     const sameBoxIou = this.hold?.sameBoxIou ?? SHOWN_HOLD.sameBoxIou;
-    return neighbors.some((o) => iouOf(o, fresh.box) >= sameBoxIou);
+    return reading.neighbors.some(
+      (n) =>
+        sameCard(n, fresh.cardId, n.box, fresh.box, sameBoxIou) &&
+        inside(n.box, now) &&
+        // The pointer was in this box when the kept card was last seen there, and that analysis
+        // listed this card: the kept card lay over it at that point, and a pointer still in the
+        // box has only trembled. A card that analysis did not list tells nothing of that.
+        !(inside(n.box, reading.at) && listedIn(reading.atFrom, n, sameBoxIou)),
+    );
   }
 
-  /** The boxes of the named cards in the newest result that overlap `area`, but `card`'s own. */
-  private neighborsIn(area: FractionBox, card: Shown): FractionBox[] {
+  /** The kept card's neighbors after another analysis saw it at the pointer: `current`'s, merged
+   *  with those of the last `NEIGHBOR_SIGHTINGS` such analyses (a card missed by one look is not
+   *  forgotten), newest first, at most `MAX_NEIGHBORS`. */
+  private mergeNeighbors(reading: ReadingState, current: Array<{ cardId: string | null; box: FractionBox }>): Neighbor[] {
+    const sameBoxIou = this.hold?.sameBoxIou ?? SHOWN_HOLD.sameBoxIou;
+    const s = reading.sightings;
+    const out = reading.neighbors.filter((n) => n.sighting > s - NEIGHBOR_SIGHTINGS).map((n) => ({ ...n }));
+    for (const c of current) {
+      const same = out.find((n) => sameCard(n, c.cardId, n.box, c.box, sameBoxIou));
+      if (same) {
+        same.box = c.box;
+        same.cardId = c.cardId ?? same.cardId;
+        same.sighting = s;
+      } else {
+        out.push({ ...c, sighting: s });
+      }
+    }
+    return out.sort((a, b) => b.sighting - a.sighting).slice(0, MAX_NEIGHBORS);
+  }
+
+  /** The cards in the newest result (named or not) whose boxes overlap `area`, but `card` itself. */
+  private neighborsIn(area: FractionBox, card: Shown): Array<{ cardId: string | null; box: FractionBox }> {
     const cards = this.current()?.analysis.hover?.cards ?? [];
-    const out: FractionBox[] = [];
+    const out: Array<{ cardId: string | null; box: FractionBox }> = [];
     for (const c of cards) {
       const b = c.bounds;
       if (!b || (c.cardId === card.cardId && iouOf(b, card.box) >= 0.9)) continue;
       if (b.x < area.x + area.width && area.x < b.x + b.width && b.y < area.y + area.height && area.y < b.y + b.height) {
-        out.push({ x: b.x, y: b.y, width: b.width, height: b.height });
+        out.push({ cardId: c.cardId, box: { x: b.x, y: b.y, width: b.width, height: b.height } });
       }
     }
     return out;
@@ -977,6 +1052,49 @@ function iouOf(a: FractionBox, b: FractionBox): number {
   return inter / (a.width * a.height + b.width * b.height - inter);
 }
 
+/** A card overlapping a reading hold's kept card when an analysis last saw it; `cardId` null when
+ *  that analysis detected it without naming it (a face outside a focus look's group, or one whose
+ *  recognition came and went). */
+interface Neighbor {
+  cardId: string | null;
+  box: FractionBox;
+  /** `ReadingState.sightings` when an analysis last listed it. */
+  sighting: number;
+}
+
+/** How many of the latest analyses that saw a reading hold's card at the pointer its neighbors are
+ *  kept from, and at most how many: a card one look missed is not forgotten, and the list stays
+ *  bounded however long the pointer rests. */
+const NEIGHBOR_SIGHTINGS = 3;
+const MAX_NEIGHBORS = 16;
+
+/** Whether a neighbor (`id`, `box`) is the card `otherId` in `other`: about the same box, and the
+ *  same card unless either was not named. */
+function sameCard(n: { cardId: string | null }, otherId: string | null, box: FractionBox, other: FractionBox, sameBoxIou: number): boolean {
+  return (n.cardId === null || otherId === null || n.cardId === otherId) && iouOf(box, other) >= sameBoxIou;
+}
+
+/** Whether `analysis` lists the neighbor `n` in its hover layer. */
+function listedIn(analysis: FrameAnalysis | null, n: Neighbor, sameBoxIou: number): boolean {
+  return (analysis?.hover?.cards ?? []).some((c) => c.bounds !== undefined && sameCard(n, c.cardId, n.box, c.bounds, sameBoxIou));
+}
+
+/** A reading hold's state beyond the card and its area (`SessionCore.readingHold`). */
+interface ReadingState {
+  neighbors: Neighbor[];
+  /** The analysis last taken as evidence: each is taken once. */
+  evidence: FrameAnalysis | null;
+  /** Whether the card is taken as gone: its outline is not drawn (`Shown.held`). */
+  gone: boolean;
+  /** Analyses that saw the kept card at the pointer since the hold began. */
+  sightings: number;
+  /** Where the pointer was when the kept card was last seen at it, and in which analysis: a
+   *  neighbor that analysis listed is moved onto from outside its box. */
+  at: { x: number; y: number };
+  atFrom: FrameAnalysis | null;
+}
+
+/** The rectangle enclosing both boxes. */
 function union(a: FractionBox, b: FractionBox): FractionBox {
   const x = Math.min(a.x, b.x);
   const y = Math.min(a.y, b.y);

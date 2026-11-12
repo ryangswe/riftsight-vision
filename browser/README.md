@@ -1135,6 +1135,9 @@ instead ("A pointer resting where the last look found no card", below). With
   the pointer is active, 8000 ms in `"always-on"` mode, and, while the pointer rests on a showing
   tooltip, at most the release's `hover.maxAgeMs` plus 5000 ms less one driver tick (6750 ms by
   default), so the resting state cannot end before the next analysis is due.
+- An answer names a card for `hover.maxAgeMs` (2 s) of video only, and these waits can be longer:
+  with no hold, the card shown on a playing video is gone between answers. Use it with
+  `SHOWN_HOLD`, whose 5 s covers the usual gap.
 - Until 3 analyses have been measured, the fixed rate applies.
 - The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
 - The session learns within its own run and stores nothing.
@@ -1155,8 +1158,10 @@ mode only the first analysis and the repeats that could change an answer need th
 repeat whose captured picture has the same video time (within a millisecond) as the newest
 analyzed look's, in the same seek generation and source, whose newest result has no unverified
 face, and whose newest analyzed look verified every face (always in scope `"all"`; in focus scope
-only the full pass, never the focus look) is sent to the worker with `reuseOf`, the request number
-of that look. The worker feeds that look's detections to the tracker and the gate again and
+the full pass, or a focus look made before the stage was ready, which the worker analyzes in full)
+is sent to the worker with `reuseOf`, the request number of that look. In focus scope with a ready
+stage, a pointer on a face the tilted retry's cap left out (`tiltedSkipped`) makes the repeat a
+focus look there instead. The worker feeds that look's detections to the tracker and the gate again and
 answers in milliseconds with `reused: true`. The reply is the look's analysis with these fields
 set: `tracks` (this step of the tracker and the gate), `timings` (detector and recognizer 0,
 `analyzeMs` the time of the reuse, no stage or retry times), `discontinuity: false`, `retried: 0`
@@ -1165,7 +1170,8 @@ copied fields share their nested objects with the stored analysis (`Pipeline.reu
 clone them), so a caller must not modify them.
 
 So the track layer confirms on a paused picture as before, while a paused hover costs one
-analysis (scope `"all"`) or two (focus scope: the focus look and one full pass), and a seek is
+analysis (scope `"all"`, or focus scope before the stage is ready) or two (focus scope with a
+ready stage: the focus look and one full pass), and a seek is
 not kept waiting behind three. The worker honors `reuseOf` only while the pipeline can vouch that
 nothing that changes an answer happened since that look: no reset, and the geometric stage and
 the tilted retry neither set, removed nor failed; otherwise it analyzes the picture. A picture

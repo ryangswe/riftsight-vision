@@ -94,8 +94,9 @@ What the messages mean:
   means the picture itself could not be had (not ready yet, or blank) and is worth asking again.
 - `shown` is what a tooltip shows for the pointer's position now, sent when it changes. `others`
   are the boxes of the other cards of the same analysis, for placing a tooltip off them. `held:
-  true` (a reading hold only) says a recent analysis shows the card gone from where it was last
-  seen: `box` is where it was, and the card has moved or been covered, so draw no outline for it.
+  true` (a reading hold only) says to draw no outline for the card: an analysis showed it gone
+  from where it was last seen (`box`), or no recent analysis is left to show it there. Keep the
+  tooltip.
 - `status`: the content script assumes `loading` until told otherwise. `backend` is set only
   while `ready`. A status is posted when the state, the error or the backend changes, `loading`
   again whenever a remote release's files start to download, and in every answer to a `hello`.
@@ -388,13 +389,18 @@ than 0.7.0 leaves it out.
   - **No limit.** There is no time limit and no count of misses, and a cut does not end it.
   - **What ends it:** the pointer leaving that area or the picture, a seek, a new source, or a
     worker that stops.
-  - **Another card.** A card the pointer moves onto that was already there when the kept card
-    was last seen replaces it at once, as on a fan of overlapping cards. A card that arrived
-    since (laid on the kept card's spot, even partly, or after it moved away) does not.
-  - **The outline.** `shown` carries `held: true` once a recent analysis shows the card gone from
-    where it was (another card named there, or nothing named or detected there). Hide the outline
-    then, and keep the tooltip. A card whose box is still detected there, or which no recent
-    analysis can judge (a long rest on a playing video), is not marked.
+  - **Another card.** A card the pointer moves onto replaces the kept one, as on a fan of
+    overlapping cards, when a card in about the same box (the same card, or one not named then)
+    overlapped the kept card in one of the last few analyses that saw the kept card at the
+    pointer, and the pointer has since moved into that box from outside it. A card that arrived since (laid on the
+    kept card's spot, even partly, or after it moved away), one that slid under a pointer at
+    rest, or one uncovered under a pointer that only trembles inside its box, does not.
+  - **The outline.** `shown` carries `held: true` once an analysis shows the card gone from where
+    it was (another card named there, or nothing named or detected there), and once no recent
+    analysis is left and none is coming (a rest past the grace period on a playing video). It
+    stays until an analysis sees the card there again, so it does not come and go between looks.
+    Hide the outline while it is set, and keep the tooltip. A card whose box is still detected
+    there is not marked, and on a paused picture the newest analysis stays recent.
   - **Analysis.** In pointer mode, once the pointer has rested for its grace period (10 s) on a
     card the hold shows, nothing is analyzed and no picture is asked for until it moves. A
     pointer resting where the kept card was found gone is looked at every 2 s within the grace

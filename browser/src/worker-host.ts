@@ -14,7 +14,7 @@
 import { type GeometricStage, GeometricWatchdog } from "./geometric/stage.js";
 import type { LoadedRelease, LoadOptions } from "./load.js";
 import { ReleaseError } from "./load.js";
-import { BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
+import { ANALYSIS_FAILED, BUSY_ERROR, type FrameEnvelope, type FrameResult, type GeometricStatus, type ReleaseStatus, type WorkerReply, type WorkerRequest } from "./messages.js";
 import type { FrameAnalysis } from "./pipeline.js";
 
 /** The pixels of a frame, as the pipeline takes them. */
@@ -298,7 +298,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
       deps.post(frameResult(analysis, { envelope, videoTimeSec, width: image.width, height: image.height, t0 }));
     } catch (error) {
       lastAnalyzedRequestId = null;
-      fail(`analysis-failed: ${String(error)}`);
+      fail(`${ANALYSIS_FAILED}: ${String(error)}`);
     } finally {
       bitmap.close();
       busy = false;

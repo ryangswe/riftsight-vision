@@ -199,7 +199,9 @@ describe("focus scope, a tilted retry capped at 1, a paused picture", () => {
 
   it("with no stage, a pointer resting on a face the cap left out does not look again and again", async () => {
     const kinds = await restOnA("focus", false, 12_000);
-    expect(kinds).toEqual(["focus", "full", "reused"]);
+    // With no stage the worker analyzes every face whatever the scope, so the focus look is a full
+    // one and its repeats reuse it.
+    expect(kinds).toEqual(["focus", "reused", "reused"]);
   });
 
   it("scope all keeps the reuse of a still picture whose cap left a face out, with or without a stage", async () => {

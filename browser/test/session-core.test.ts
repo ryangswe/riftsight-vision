@@ -123,9 +123,11 @@ const analysisNow = (): FrameAnalysis =>
     frame: { width: 1000, height: 500 },
     hover: {
       selection: "accepted-nms",
+      // As the pipeline lists them: a card that passed the threshold but not the margin with no id
+      // (`unnamed: true`), and one below the threshold not at all (`unnamed: "below-tau"`).
       cards: (scene.cards ?? [])
-        .filter((c) => !c.unnamed)
-        .map((c) => ({ cardId: c.cardId, name: c.name, bounds: { x: c.box[0] / 1000, y: c.box[1] / 500, width: c.box[2] / 1000, height: c.box[3] / 500 } })),
+        .filter((c) => c.unnamed !== "below-tau")
+        .map((c) => ({ cardId: c.unnamed ? null : c.cardId, name: c.unnamed ? null : c.name, bounds: { x: c.box[0] / 1000, y: c.box[1] / 500, width: c.box[2] / 1000, height: c.box[3] / 500 } })),
     },
     boxes: scene.cards
       ? scene.cards.map((c) => ({ box: c.box }))
@@ -137,15 +139,17 @@ const analysisNow = (): FrameAnalysis =>
 const scene: {
   card: { cardId: string; name: string } | null;
   /** When set, the scene instead: named cards at boxes [x, y, w, h] in pixels, the last on top. */
-  cards?: Array<{ cardId: string; name: string; box: [number, number, number, number]; unnamed?: boolean }>;
+  cards?: Array<{ cardId: string; name: string; box: [number, number, number, number]; unnamed?: true | "below-tau" }>;
 } = { card: { cardId: "T-001", name: "Card One" } };
 const hit = (_: FrameAnalysis, x: number, y: number) => {
   if (scene.cards) {
     for (let i = scene.cards.length - 1; i >= 0; i -= 1) {
       const c = scene.cards[i]!;
-      if (c.unnamed) continue;
+      if (c.unnamed === "below-tau") continue; // not in the hover layer: what lies beneath shows
       const [bx, by, bw, bh] = c.box;
       if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+        // A listed card with no name hides what lies beneath it.
+        if (c.unnamed) return { card: null, boxIndex: null, box: null, cardId: null, name: null };
         return { card: null, boxIndex: i, box: { x: bx, y: by, width: bw, height: bh }, cardId: c.cardId, name: c.name };
       }
     }
@@ -526,6 +530,43 @@ describe("HostSession hysteresis (a live stream)", () => {
     expect(lastShown()?.cardId).toBe("T-001");
   });
 
+  /** A paused picture: the look is answered with a card, then each later look as `answer` says,
+   *  while the pointer keeps moving a little, for 12 s in all. Returns the looks asked for after
+   *  the first reply with an error. */
+  function pausedWithRepeats(answer: (look: number) => Partial<FrameResult>): number {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    let look = 1;
+    let failedAt: number | null = null;
+    for (let i = 0; i < 48; i += 1) {
+      clock += 250;
+      if (i % 4 === 0) session.fromContent({ kind: "pointer", x: 0.2 + (i % 8) * 0.0005, y: 0.5, mediaTime: 1, touch: false });
+      const n = captures().length;
+      session.tick();
+      if (captures().length > n) {
+        session.fromContent({ kind: "frame", requestId: captures().at(-1)!.requestId, bitmap: bitmap(), mediaTime: 1 });
+        look += 1;
+        const result = answer(look);
+        session.fromWorker(reply(toWorker.at(-1)!.request, result));
+        if (result.error !== undefined && failedAt === null) failedAt = captures().length;
+      }
+    }
+    expect(failedAt).not.toBeNull();
+    return captures().length - failedAt!;
+  }
+
+  it("looks again after the last repeat of a paused picture fails to analyze, and shows the card", () => {
+    // The look and its first repeat are answered; the last repeat fails.
+    const looks = pausedWithRepeats((n) => (n === 3 ? { analysis: null, error: "analysis-failed: Error: device lost" } : {}));
+    expect(looks).toBeGreaterThanOrEqual(1);
+    expect(lastShown()?.cardId).toBe("T-001");
+  });
+
+  it("does not look again after a refusal that will not pass (no release)", () => {
+    const looks = pausedWithRepeats((n) => (n === 3 ? { analysis: null, error: "no-release" } : {}));
+    expect(looks).toBe(0);
+  });
+
   it("does not count a slow analysis that comes back older than hover.maxAgeMs as a miss", () => {
     ready();
     analyzeAt(0.2, 0.5, 1);
@@ -865,7 +906,7 @@ describe("HostSession with a reading hold", () => {
     expect(lastShown()?.held).toBeUndefined();
   });
 
-  it("does not mark a card held when no recent analysis can tell (a long rest on a playing video)", () => {
+  it("marks the kept card held once no recent analysis is left and none is coming (a long rest on a playing video); the card stays", () => {
     ready();
     analyzeAt(0.2, 0.5, 1);
     clock += POINTER_GRACE_MS + 1;
@@ -877,8 +918,285 @@ describe("HostSession with a reading hold", () => {
       session.tick();
     }
     expect(session.fresh()).toBeNull();
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+  });
+
+  it("keeps the outline hidden through a small move until an analysis sees the card again", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    clock += POINTER_GRACE_MS + 1;
+    session.tick();
+    for (let i = 1; i <= 10; i += 1) {
+      clock += 500;
+      session.fromContent({ kind: "presented", mediaTime: 1 + i * 0.5 });
+      session.tick();
+    }
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+    // A small move wakes the looks up: until the look is answered nothing has seen the card.
+    const n = captures().length;
+    session.fromContent({ kind: "pointer", x: 0.21, y: 0.5, mediaTime: 6, touch: false });
+    session.tick();
+    expect(captures().length).toBe(n + 1);
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+    session.fromContent({ kind: "frame", requestId: captures().at(-1)!.requestId, bitmap: bitmap(), mediaTime: 6 });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
     expect(lastShown()).toMatchObject({ cardId: "T-001" });
     expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("does not mark the card held on a paused picture, however long the pointer rests", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    for (let i = 0; i < 120; i += 1) {
+      clock += 250;
+      session.tick();
+    }
+    expect(lastShown()).toMatchObject({ cardId: "T-001" });
+    expect(lastShown()?.held).toBeUndefined();
+  });
+
+  it("once a card is seen gone, keeps it marked held between the looks at the emptied spot", () => {
+    ready();
+    analyzeAt(0.2, 0.5, 1);
+    scene.card = null;
+    detected.box = "none";
+    let media = 1;
+    let answered = 0;
+    let pending: WorkerRequest | null = null;
+    // About 8 s of playing video with the pointer resting: every look is answered a tick (250 ms)
+    // after it is sent, as an analysis takes time. Looks are 2 s apart (the empty-spot rate), the
+    // hover's maximum age, so each answer is too old a moment before the next arrives.
+    for (let i = 0; i < 32; i += 1) {
+      clock += 250;
+      media += 0.25;
+      session.fromContent({ kind: "presented", mediaTime: media });
+      if (pending) {
+        session.fromWorker(reply(pending));
+        pending = null;
+        answered += 1;
+      }
+      const n = captures().length;
+      session.tick();
+      if (captures().length > n) {
+        session.fromContent({ kind: "frame", requestId: captures().at(-1)!.requestId, bitmap: bitmap(), mediaTime: media });
+        pending = toWorker.at(-1)!.request;
+      }
+    }
+    expect(answered).toBeGreaterThanOrEqual(3);
+    const flags = shownMessages().map((m) => m.card?.held === true);
+    const first = flags.indexOf(true);
+    expect(first).toBeGreaterThan(-1);
+    expect(flags.slice(first)).not.toContain(false);
+    expect(lastShown()).toMatchObject({ cardId: "T-001", held: true });
+  });
+
+  /** The kept card's remembered neighbors (private state, read here only to bound it). */
+  const neighborIds = (): string[] =>
+    ((session.core as unknown as { held: { reading: { neighbors: Array<{ cardId: string | null }> } } }).held.reading.neighbors).map((n) => n.cardId ?? "?");
+
+  it("remembers the overlapping cards of the last 3 looks that saw the kept card, at most 16, however long the pointer rests", () => {
+    // Every look sees A at the pointer beside four cards it has not listed before.
+    const around = (look: number, count = 4) =>
+      Array.from({ length: count }, (_, k) => ({ cardId: `N-${look}-${k}`, name: `N ${look} ${k}`, box: [250 + k * 5, 100, 200, 300] as [number, number, number, number] }));
+    scene.cards = [...around(0), { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    for (let look = 1; look <= 40; look += 1) {
+      scene.cards = [...around(look), { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+      nudgeAndAnalyze(1 + look * 0.3, 0.15 + (look % 2) * 0.001);
+    }
+    expect(lastShown()?.cardId).toBe("A-001");
+    const ids = neighborIds();
+    expect(ids).toHaveLength(12);
+    expect(ids.every((id) => /^N-(38|39|40)-/.test(id))).toBe(true);
+    // One look with twenty: the newest sixteen are kept.
+    scene.cards = [...around(41, 20), { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] }];
+    nudgeAndAnalyze(1 + 41 * 0.3, 0.15);
+    expect(neighborIds()).toHaveLength(16);
+  });
+
+  it("keeps a neighbor's name through a look that saw it unnamed, so another card landing in its box is not taken for it", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300], unnamed: true },
+    ];
+    nudgeAndAnalyze(1.3, 0.151);
+    expect(neighborIds()).toEqual(["B-001"]);
+    // B goes and C lands in its box; the viewer moves in from A's own part.
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "C-001", name: "Card C", box: [250, 100, 200, 300] },
+    ];
+    nudgeAndAnalyze(1.6, 0.28);
+    expect(session.fresh()?.cardId).toBe("C-001");
+    expect(lastShown()?.cardId).toBe("A-001");
+  });
+
+  it("does not hand over to a card that slides under a pointer at rest", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.24, 0.5, 1); // on A only: B starts at 0.25
+    expect(lastShown()?.cardId).toBe("A-001");
+    // A is taken away and B slides left under the pointer (about the same box as before).
+    scene.cards = [{ cardId: "B-001", name: "Card B", box: [220, 100, 200, 300] }];
+    let media = 1;
+    for (let i = 0; i < 12; i += 1) {
+      clock += 250;
+      media += 0.25;
+      session.fromContent({ kind: "presented", mediaTime: media });
+      const n = captures().length;
+      session.tick();
+      if (captures().length > n) {
+        session.fromContent({ kind: "frame", requestId: captures().at(-1)!.requestId, bitmap: bitmap(), mediaTime: media });
+        session.fromWorker(reply(toWorker.at(-1)!.request));
+      }
+    }
+    expect(session.fresh()?.cardId).toBe("B-001");
+    expect(lastShown()).toMatchObject({ cardId: "A-001", held: true });
+  });
+
+  it("does not take a card that arrived where an overlapping card used to be for that card", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    expect(lastShown()?.cardId).toBe("A-001");
+    // B goes; C lands in B's old box. The viewer then moves onto C, inside A's spot, before any
+    // analysis has seen A with C beside it: the look after the move names C there.
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "C-001", name: "Card C", box: [250, 100, 200, 300] },
+    ];
+    nudgeAndAnalyze(1.3, 0.28);
+    expect(session.fresh()?.cardId).toBe("C-001");
+    expect(lastShown()?.cardId).toBe("A-001");
+  });
+
+  it("hands over to an overlapping card that was not named when the kept card was last seen, once the viewer moves onto it and a look names it", () => {
+    // A focus look names only the pointer's group; a recognition can also come and go.
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300], unnamed: true },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    expect(lastShown()?.cardId).toBe("A-001");
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    nudgeAndAnalyze(1.3, 0.28);
+    expect(lastShown()).toMatchObject({ cardId: "B-001" });
+  });
+
+  it("keeps the card through a tremor of a pointer resting where it covered another card that is now uncovered", () => {
+    // A lies on B; the pointer rests in their overlap, on A.
+    scene.cards = [
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.28, 0.5, 1);
+    expect(lastShown()?.cardId).toBe("A-001");
+    // A is taken away: B, which was there all along, is now what lies under the pointer.
+    scene.cards = [{ cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] }];
+    nudgeAndAnalyze(1.3, 0.281);
+    nudgeAndAnalyze(1.6, 0.28);
+    expect(session.fresh()?.cardId).toBe("B-001");
+    expect(lastShown()).toMatchObject({ cardId: "A-001", held: true });
+  });
+
+  it("hands over to a card the viewer moved onto though the first look after the move missed it", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    expect(lastShown()?.cardId).toBe("A-001");
+    // The look after the move does not list B (below the threshold): it names A beneath the pointer.
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300], unnamed: "below-tau" },
+    ];
+    nudgeAndAnalyze(1.3, 0.28);
+    expect(lastShown()?.cardId).toBe("A-001");
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    nudgeAndAnalyze(1.6, 0.281);
+    expect(lastShown()).toMatchObject({ cardId: "B-001" });
+  });
+
+  it("hands over to a card the viewer moved onto though the last look before the move missed it", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300], unnamed: "below-tau" },
+    ];
+    nudgeAndAnalyze(1.3, 0.15);
+    expect(lastShown()?.cardId).toBe("A-001");
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    nudgeAndAnalyze(1.6, 0.28);
+    expect(lastShown()).toMatchObject({ cardId: "B-001" });
+  });
+
+  it("keeps the card through a tremor after the viewer moved from its own part into where it covered another card", () => {
+    // A lies on B. The viewer starts on A's own part, then moves into the overlap, still on A.
+    scene.cards = [
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    nudgeAndAnalyze(1.3, 0.28);
+    expect(lastShown()?.cardId).toBe("A-001");
+    // A is taken away; the pointer only trembles in the overlap.
+    scene.cards = [{ cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] }];
+    nudgeAndAnalyze(1.6, 0.281);
+    nudgeAndAnalyze(1.9, 0.28);
+    expect(session.fresh()?.cardId).toBe("B-001");
+    expect(lastShown()).toMatchObject({ cardId: "A-001", held: true });
+  });
+
+  it("hands over to an overlapping card the viewer moved onto once the look after the move names it", () => {
+    scene.cards = [
+      { cardId: "A-001", name: "Card A", box: [100, 100, 200, 300] },
+      { cardId: "B-001", name: "Card B", box: [250, 100, 200, 300] },
+    ];
+    ready();
+    analyzeAt(0.15, 0.5, 1);
+    expect(lastShown()?.cardId).toBe("A-001");
+    // The video has played on: the last analysis is too old to name anything at the new point.
+    clock += 2100;
+    session.fromContent({ kind: "presented", mediaTime: 3.5 });
+    session.fromContent({ kind: "pointer", x: 0.28, y: 0.5, mediaTime: 3.5, touch: false });
+    expect(session.fresh()).toBeNull();
+    expect(lastShown()?.cardId).toBe("A-001");
+    session.tick();
+    session.fromContent({ kind: "frame", requestId: captures().at(-1)!.requestId, bitmap: bitmap(), mediaTime: 3.5 });
+    session.fromWorker(reply(toWorker.at(-1)!.request));
+    expect(lastShown()).toMatchObject({ cardId: "B-001" });
   });
 
   it("after a seek while the pointer rests past the grace period, looks again and finds the card there", () => {
