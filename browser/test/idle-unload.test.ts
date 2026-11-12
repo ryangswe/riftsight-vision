@@ -674,6 +674,45 @@ describe("intent: page (row 4)", () => {
   });
 });
 
+describe("a frame made by loadWhen at play, in pointer mode", () => {
+  it("asks for no picture for its whole idle time without a pointer, then reports idle", () => {
+    const video = Object.assign(fakeTarget(), { paused: true, ended: false });
+    let t: ReturnType<typeof setup> | undefined;
+    loadWhen(video as unknown as HTMLVideoElement, "play", () => {
+      t = setup();
+    });
+    expect(t).toBeUndefined();
+    video.paused = false;
+    video.fire("playing");
+    expect(t).toBeDefined();
+    t!.loaded(t!.workers[0]!);
+    expect(t!.states()).toEqual(["ready"]);
+    // The video keeps presenting pictures the whole time (pointer mode is the default), and nobody points.
+    const present = (ms: number) => {
+      for (let left = ms; left > 0; left -= 250) {
+        t!.send(tag({ kind: "presented", mediaTime: 1 + (ms - left) / 1000 }));
+        t!.run(250, 250, true);
+      }
+    };
+    present(IDLE_MS - 500);
+    expect(t!.captures()).toEqual([]);
+    expect(t!.states()).toEqual(["ready"]);
+    present(500);
+    expect(t!.states()).toEqual(["ready", "idle"]);
+    present(IDLE_MS * 3);
+    expect(t!.captures()).toEqual([]);
+    expect(t!.sent.filter((m) => m.kind === "capture")).toEqual([]);
+    expect(t!.workers[0]!.posted.filter((m) => m.kind === "frame")).toEqual([]);
+  });
+
+  it("in always-on mode the same frame can ask (the page's gate is what refuses)", () => {
+    const t = setup({ mode: "always-on" });
+    t.loaded(t.workers[0]!);
+    t.run(2_000);
+    expect(t.captures().length).toBeGreaterThan(0);
+  });
+});
+
 describe("loadWhen (row 5)", () => {
   const video = (state: { paused: boolean; ended: boolean }) => Object.assign(fakeTarget(), state);
 
