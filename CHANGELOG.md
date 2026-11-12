@@ -90,6 +90,22 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Browser: `npm run hover-speed`, a report-only harness that times the first tooltip on the
+  two-frame path. It serves a page from 127.0.0.1 that plays a clip, with a stand-in content
+  script and, on a second local origin, the compute frame with the real worker on a release, and
+  moves the pointer through the browser's input. Its scenarios are a cold first hover (H1), a first
+  hover after the frame was made at play (H2), a slow paused point (H2P), a return to a playing
+  video after a gap (H5) and a later new card while playing (H6). Every hover is a row with an
+  outcome (`match`, `wrong`, `miss` or `timeout`), and none leaves the denominator. It fails (exit
+  code 1) only on its hard gates: a picture request before a trusted pointer was over the picture,
+  a picture delivered for a request made while capture was not allowed, two requests outstanding,
+  a request off loopback, or an incomplete report; `--expect-entry-look` adds the look-on-entry
+  gates. Elapsed times are reported, never judged. See
+  [browser/README.md](browser/README.md#measuring-hover-speed).
+- Browser: `scripts/idle-unload-memory.mjs` can load the geometric stage (`--geometric PATH`,
+  with `--gpu 1` for WebGPU) and pass `--geometric-load start|pointer`; each ready reading then
+  waits for the stage to settle. Its default `--idle-ms` is now 15000 (was 3000), and it refuses an idle time
+  too short to read the ready frame before the unload.
 - Browser: `startComputeFrame({ geometricLoad: "pointer" })` (also an option of
   `createWorkerSession`) loads the geometric stage when the viewer points at the picture instead
   of with the release. The worker loads the release without the stage, and the first `pointer`
@@ -104,14 +120,12 @@ break the public surface; this file names each break and how to migrate.
   the picture; otherwise the stage never loads. Two public types grow, which matters for code
   that switches over them exhaustively or fakes them: `WorkerRequest` has a `load-stage` variant,
   and `WorkerSession` has `pointed()`.
-
 - Docs: [When to make the frame](docs/extension-session.md#when-to-make-the-frame) recommends
   making the compute frame when the video plays, so the load comes before the first hover. It
   covers the idle clock, the cold hover after an unload, `control.frameRemoved`, the `playing`
   event `loadWhen` waits for, and that a frame made at play holds no capture authority. Tests
   cover that: no `capture` request in pointer mode before a pointer, and a `capture` request with
   no pointer authority refused with `NOT_POINTING`.
-
 - Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
   stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
   can finish reading it after a player has moved the card. A card laid on its spot later, or one
