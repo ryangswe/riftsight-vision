@@ -60,6 +60,13 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Docs: [When to make the frame](docs/extension-session.md#when-to-make-the-frame) recommends
+  making the compute frame when the video plays, so the load comes before the first hover. It
+  covers the idle clock, the cold hover after an unload, `control.frameRemoved`, the `playing`
+  event `loadWhen` waits for, and that a frame made at play holds no capture authority. Tests
+  cover that: no `capture` request in pointer mode before a pointer, and a `capture` request with
+  no pointer authority refused with `NOT_POINTING`.
+
 - Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
   stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
   can finish reading it after a player has moved the card. A card laid on its spot later, or one
