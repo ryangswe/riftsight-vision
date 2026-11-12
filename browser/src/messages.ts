@@ -122,6 +122,17 @@ export type WorkerRequest =
        *  for the stage. */
       tiltedWatchdog?: boolean;
     }
+  /** Load the geometric stage now, on a release this worker loaded without one (the session's
+   *  `geometricLoad: "pointer"`). The fields are those of `load`; the load's `geometricWatchdog`
+   *  applies. It then loads and joins between frames as one asked for by `load` does: a frame in
+   *  flight is answered without it. Ignored before the release has loaded, when a stage was
+   *  already asked for, and once the stage is off. */
+  | {
+      kind: "load-stage";
+      geometricUrl: string;
+      geometricDebug?: boolean;
+      geometricManifestSha256?: string;
+    }
   | {
       kind: "frame";
       /** The picture, already at analysis size (capture.ts). The worker closes it. */

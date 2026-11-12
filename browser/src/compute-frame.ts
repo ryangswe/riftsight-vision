@@ -36,6 +36,12 @@
 //     or an `intent` loads the same load request again: status `loading`, then `ready`. It is not
 //     a restart and not a fallback (worker-session.ts `suspend`, `resume`).
 //
+//   - With `geometricLoad: "pointer"`, the worker loads the release without the geometric stage,
+//     and the first `pointer` message has it load the stage once the release is ready (the
+//     worker's own `load-stage` request: no message between the two frames). After an idle unload
+//     the stage waits for a new `pointer` again; one that resumes the frame counts, an `intent`
+//     does not.
+//
 // Nothing here runs on its own: the caller calls `tick()` every `DRIVER_TICK_MS`.
 
 import { type ComputeIn, type ComputeOut, type ComputeProtocol, MAX_FRAME_SIDE, MAX_TEXT_LENGTH, PROTOCOL_VERSION, type ShownCard } from "./compute-messages.js";
@@ -256,6 +262,10 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
       case "pointer":
         resume();
         core.pointer(message.x, message.y, message.mediaTime, message.touch);
+        // After the look: the look this pointer asked for is not delayed by the stage; one the
+        // worker is already analyzing is answered without it. A pointer that resumes an idle
+        // frame counts for the release it reloads.
+        ws.pointed();
         return;
       case "leave":
         core.pointerLeft();

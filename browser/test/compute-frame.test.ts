@@ -10,7 +10,7 @@ import type { ReleaseStatus, WorkerReply, WorkerRequest } from "../src/messages.
 import type { FrameAnalysis } from "../src/pipeline.js";
 import type { LoadRequest, ReleaseDecision, RemoteReleaseChoice } from "../src/remote/choose.js";
 import type { ReleasePointer } from "../src/remote/pointer.js";
-import type { ReleaseInEffect, WorkerLike } from "../src/worker-session.js";
+import { plainLoad, type ReleaseInEffect, type WorkerLike } from "../src/worker-session.js";
 
 const SITE_ORIGIN = "https://video.example";
 const LOCAL_ORIGIN = "http://127.0.0.1:8770";
@@ -838,5 +838,197 @@ describe("a look on pointer entry (entryLook)", () => {
     const before = captureCount(t);
     loaded(t.workers[1]!);
     expect(captureCount(t) - before).toBe(asked);
+  });
+});
+
+describe("geometricLoad", () => {
+  const staged: LoadRequest = { ...bundledLoad, geometricUrl: "geometric.json", geometricManifestSha256: "b".repeat(64), geometricDebug: true };
+  const stageReply = (state: "loading" | "ready" | "off", reason: string | null = null) => ({ kind: "geometric-status", state, reason, bytes: null });
+  const point = (t: ReturnType<typeof setup>) => t.send(tag({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1, touch: false }));
+  /** Point, wait for a look in flight (one a load under the pointer already started, the one the
+   *  pointer starts, or the cadence's next), and answer it. */
+  const look = (t: ReturnType<typeof setup>, w: FakeWorker) => {
+    point(t);
+    for (let i = 0; i < 20 && !t.frame!.core!.analysisInFlight(); i++) {
+      t.clock.now += 250;
+      t.frame!.tick();
+    }
+    expect(t.frame!.core!.analysisInFlight()).toBe(true);
+    answer(t, w);
+  };
+  /** Answer the newest capture with a picture, and the worker with an analysis. */
+  const answer = (t: ReturnType<typeof setup>, w: FakeWorker) => {
+    const capture = t.messages().filter((m) => m.kind === "capture").pop() as { requestId: number };
+    t.send(tag({ kind: "frame", requestId: capture.requestId, bitmap: new FakeBitmap(), mediaTime: 1 }));
+    const request = w.posted.at(-1) as unknown as Extract<WorkerRequest, { kind: "frame" }>;
+    w.reply({ kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysis() });
+  };
+
+  /** What `traffic` gave before `geometricLoad` existed (recorded on the commit before it, with the
+   *  look on pointer entry: no picture is asked for while the pointer is off the picture). */
+  const SHA = "b".repeat(64);
+  const BITMAP = { width: 1000, height: 500, closed: false };
+  const TRAFFIC_BEFORE_THE_OPTION = JSON.stringify([
+    [
+      { kind: "load", releaseUrl: "extension://x/release/release.json", wasmPaths: "w/", geometricUrl: "geometric.json", geometricManifestSha256: SHA, geometricDebug: true },
+      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 1, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
+    ],
+    [
+      { kind: "load", releaseUrl: "extension://x/release/release.json", wasmPaths: "w/", geometricUrl: "geometric.json", geometricManifestSha256: SHA, geometricDebug: true },
+      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 2, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
+    ],
+    [
+      { kind: "load", releaseUrl: "extension://x/release/release.json", wasmPaths: "w/", geometricDebug: true },
+      { kind: "frame", bitmap: BITMAP, videoTimeSec: 1, envelope: { requestId: 3, mediaTimeSec: 1, generation: 0, videoKey: "source-0" }, geometricScope: "focus", focus: { x: 200, y: 250 } },
+    ],
+  ]);
+
+  /** Every message each worker was sent through a load, a look, an idle unload and resume, and a
+   *  crash and restart, as text. */
+  function traffic(over: Partial<ComputeFrameEnv>): string {
+    const t = setup({ loadRequest: staged, idleUnloadMs: 10_000, geometricScope: "focus", ...over });
+    point(t);
+    loaded(t.workers[0]!);
+    t.workers[0]!.reply(stageReply("loading"));
+    t.workers[0]!.reply(stageReply("ready"));
+    look(t, t.workers[0]!);
+    t.send(tag({ kind: "leave" }));
+    // Off the picture, as a content script does: a picture asked for is refused, never sent.
+    for (let i = 0; i < 60 && t.frame!.state !== "idle"; i++) {
+      t.clock.now += 500;
+      t.frame!.tick();
+      if (t.frame!.core!.analysisInFlight()) {
+        const capture = t.messages().filter((m) => m.kind === "capture").pop() as { requestId: number };
+        t.send(tag({ kind: "capture-failed", requestId: capture.requestId, reason: "not-pointing" }));
+      }
+    }
+    expect(t.frame!.state).toBe("idle");
+    point(t);
+    loaded(t.workers[1]!);
+    look(t, t.workers[1]!);
+    t.workers[1]!.fail();
+    loaded(t.workers[2]!);
+    look(t, t.workers[2]!);
+    expect(t.workers).toHaveLength(3);
+    return JSON.stringify(t.workers.map((w) => w.posted));
+  }
+
+  it("by default, and with \"start\", sends the workers what it sent before the option existed", () => {
+    const before = traffic({});
+    expect(before).toBe(TRAFFIC_BEFORE_THE_OPTION);
+    expect(traffic({ geometricLoad: "start" })).toBe(before);
+  });
+
+  const stageRequests = (w: FakeWorker) => w.posted.filter((m) => m.kind === "load-stage");
+
+  it("with \"pointer\", loads the release without the stage, and asks for it at the first pointer once ready", () => {
+    const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+    const w = t.workers[0]!;
+    expect(w.posted).toEqual([{ kind: "load", releaseUrl: BUNDLED_URL, wasmPaths: "w/" }]);
+    loaded(w);
+    t.clock.now += 1_000;
+    t.frame!.tick();
+    expect(stageRequests(w)).toEqual([]);
+    point(t);
+    expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "b".repeat(64), geometricDebug: true }]);
+    point(t);
+    t.send(tag({ kind: "leave" }));
+    point(t);
+    expect(stageRequests(w)).toHaveLength(1);
+  });
+
+  it("with \"pointer\", a pointer while the release loads has the stage asked for once it is ready, with no further pointer", () => {
+    const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+    const w = t.workers[0]!;
+    point(t);
+    point(t);
+    expect(stageRequests(w)).toEqual([]);
+    loaded(w);
+    expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "b".repeat(64), geometricDebug: true }]);
+    t.clock.now += 1_000;
+    t.frame!.tick();
+    point(t);
+    expect(stageRequests(w)).toHaveLength(1);
+  });
+
+  it("with \"pointer\", a pointer while the release loads asks for nothing once the frame stopped", () => {
+    const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+    const w = t.workers[0]!;
+    point(t);
+    t.frame!.stop();
+    loaded(w);
+    expect(stageRequests(w)).toEqual([]);
+  });
+
+  it("with \"pointer\", a pointer while a remote release is tried has the stage of the release that loads asked for", async () => {
+    const remote = { ...remoteChoice(), request: { kind: "load", releaseUrl: "release.json", files: {}, wasmPaths: "w/", geometricUrl: "geo.json" }, fallback: staged } as RemoteReleaseChoice;
+    const t = await setupChoosing(remote, { geometricLoad: "pointer" });
+    point(t);
+    t.workers[0]!.reply(statusFail("no WebGPU"));
+    expect(stageRequests(t.workers[0]!)).toEqual([]);
+    loaded(t.workers[1]!);
+    expect(stageRequests(t.workers[1]!)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "b".repeat(64), geometricDebug: true }]);
+  });
+
+  it("with \"pointer\", an intent, a presented picture or a hello does not ask for the stage", () => {
+    const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+    loaded(t.workers[0]!);
+    t.send(tag({ kind: "intent" }));
+    t.send(tag({ kind: "presented", mediaTime: 1 }));
+    t.send(tag({ kind: "hello", version: PROTOCOL_VERSION }));
+    expect(stageRequests(t.workers[0]!)).toEqual([]);
+  });
+
+  it("with \"pointer\", the stage's status reads loading only after the request", () => {
+    const heard: string[] = [];
+    const t = setup({ loadRequest: staged, geometricLoad: "pointer", onGeometricStatus: (g) => void heard.push(g.state) });
+    const w = t.workers[0]!;
+    expect(t.frame!.core!.status().geometric).toBe(null);
+    loaded(w);
+    expect(t.frame!.core!.status().geometric).toBe(null);
+    point(t);
+    w.reply(stageReply("loading"));
+    expect(t.frame!.core!.status().geometric).toMatchObject({ state: "loading" });
+    w.reply(stageReply("ready"));
+    expect(t.frame!.core!.status().geometric).toMatchObject({ state: "ready" });
+    expect(heard).toEqual(["loading", "ready"]);
+  });
+
+  it("with \"start\", the stage's status reads loading from the start, as before", () => {
+    const t = setup({ loadRequest: staged });
+    expect(t.frame!.core!.status().geometric).toMatchObject({ state: "loading" });
+  });
+
+  it("with \"pointer\", the look in flight when the stage is asked for is answered and shown", () => {
+    const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+    const w = t.workers[0]!;
+    loaded(w);
+    // One pointer asks for a picture and then for the stage: the look is in flight.
+    point(t);
+    expect(t.frame!.core!.analysisInFlight()).toBe(true);
+    expect(w.posted.at(-1)!.kind).toBe("load-stage");
+    const capture = t.messages().filter((m) => m.kind === "capture").pop() as { requestId: number };
+    t.send(tag({ kind: "frame", requestId: capture.requestId, bitmap: new FakeBitmap(), mediaTime: 1 }));
+    const request = w.posted.at(-1) as unknown as Extract<WorkerRequest, { kind: "frame" }>;
+    expect(request.kind).toBe("frame");
+    w.reply(stageReply("loading"));
+    w.reply({ kind: "frame-result", envelope: request.envelope, videoTimeSec: 1, width: 1000, height: 500, workerMs: 5, analysis: analysis() });
+    expect(lastShown(t)?.card?.cardId).toBe("T-001");
+    expect(t.frame!.core!.status().frames).toBe(1);
+  });
+
+  it("with \"pointer\", a restarted worker loads no stage and is asked for none", () => {
+    const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+    loaded(t.workers[0]!);
+    point(t);
+    t.workers[0]!.fail();
+    expect(t.workers[1]!.posted).toEqual([plainLoad(staged)]);
+    loaded(t.workers[1]!);
+    point(t);
+    expect(stageRequests(t.workers[1]!)).toEqual([]);
+  });
+
+  it("refuses a value other than \"start\" or \"pointer\"", () => {
+    expect(() => setup({ geometricLoad: "play" as never })).toThrow(RangeError);
   });
 });

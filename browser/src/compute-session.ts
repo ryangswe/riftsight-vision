@@ -31,6 +31,7 @@ export {
 } from "./session-core.js";
 export {
   createWorkerSession,
+  type GeometricLoad,
   plainLoad,
   type ReleaseInEffect,
   WORKER_RESTARTS,

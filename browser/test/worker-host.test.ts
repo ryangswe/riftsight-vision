@@ -3,7 +3,8 @@
 // models and fake stages: off without WebGPU or when a part fails to load, off for the session
 // when it fails during a frame (that frame answered exactly as without a stage), when its
 // device is lost and when the watchdog trips, and a stage that loads during a frame joining
-// after it.
+// after it; the stage asked for on its own request, and a compute frame that asks for it at the
+// first pointer.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,9 +12,12 @@ import { rectOf } from "../src/boxes.js";
 import type { FrameDetector } from "../src/detector/detector.js";
 import { GeometricWatchdog, type GeometricStage } from "../src/geometric/stage.js";
 import type { LoadedRelease } from "../src/load.js";
-import { BUSY_ERROR, type FrameResult, type GeometricStatus, type WorkerReply } from "../src/messages.js";
+import { startComputeFrame, type ComputeFrameEnv } from "../src/compute-frame.js";
+import { computeProtocol } from "../src/compute-messages.js";
+import { BUSY_ERROR, type FrameResult, type GeometricStatus, type WorkerReply, type WorkerRequest } from "../src/messages.js";
 import { Pipeline } from "../src/pipeline.js";
 import { createWorkerHost, type VoteDevice } from "../src/worker-host.js";
+import type { WorkerLike } from "../src/worker-session.js";
 import { solidFrame } from "./support.js";
 
 const FRAME = solidFrame(200, 150, [9, 9, 9]);
@@ -469,5 +473,168 @@ describe("Pipeline.reuse after a stage failed on the frame", () => {
     pipeline.setGeometric(null);
     await pipeline.analyze(FRAME, 5);
     expect(pipeline.reuse(5)?.reused).toBe(true);
+  });
+});
+
+describe("the geometric stage on its own request (load-stage)", () => {
+  /** A host whose index loader counts its calls. */
+  function counted(over: Setup = {}) {
+    const pins: Array<string | undefined> = [];
+    const w = host({ ...over, open: (pin) => (pins.push(pin), over.open ? over.open(pin) : Promise.resolve({ stage: fakeStage(), bytes: 1, note: null })) });
+    const loadPlain = (watchdog?: boolean) => w.h.handle({ kind: "load", releaseUrl: "https://x/release.json", ...(watchdog !== undefined ? { geometricWatchdog: watchdog } : {}) });
+    const loadStage = (pin?: string) => w.h.handle({ kind: "load-stage", geometricUrl: "https://x/geo.json", ...(pin ? { geometricManifestSha256: pin } : {}) });
+    return { ...w, pins, loadPlain, loadStage };
+  }
+
+  it("a release loaded without the stage opens no index; load-stage opens it once, and the stage joins", async () => {
+    const w = counted();
+    await w.loadPlain();
+    expect(w.pins).toEqual([]);
+    expect(w.statuses()).toEqual([]);
+    expect(JSON.stringify((await w.frame(0)).analysis)).toBe(await withoutStage(0));
+    await w.loadStage("f".repeat(64));
+    expect(w.pins).toEqual(["f".repeat(64)]);
+    expect(w.statuses().map((s) => s.state)).toEqual(["loading", "ready"]);
+    expect((await w.frame(0.5)).analysis!.boxes[0]!.face!.topId).toBe("B");
+    await w.loadStage();
+    expect(w.pins).toHaveLength(1);
+    expect(w.statuses()).toHaveLength(2);
+  });
+
+  it("is ignored before the release has loaded, after a load that carried the stage, and once the stage is off", async () => {
+    const early = counted();
+    await early.loadStage();
+    expect([early.pins.length, early.statuses().length]).toEqual([0, 0]);
+
+    const carried = counted();
+    await carried.load();
+    await carried.loadStage();
+    expect(carried.pins).toHaveLength(1);
+    expect(carried.statuses().map((s) => s.state)).toEqual(["loading", "ready"]);
+
+    const off = counted({ device: null });
+    await off.loadPlain();
+    await off.loadStage();
+    await off.loadStage();
+    expect(off.statuses().map((s) => [s.state, s.reason])).toEqual([["loading", null], ["off", "no-webgpu"]]);
+  });
+
+  it("a frame in flight when it arrives is answered without the stage; the stage joins after that frame", async () => {
+    let release!: () => void;
+    let held = false;
+    const gate = () => (held ? new Promise<void>((resolve) => (release = resolve)) : Promise.resolve());
+    const stage = fakeStage();
+    const w = counted({ gate, open: async () => ({ stage, bytes: 1, note: null }) });
+    await w.loadPlain();
+    held = true;
+    const first = w.frame(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await w.loadStage();
+    expect(w.statuses().at(-1)!.state).toBe("ready");
+    expect(w.pipeline.geometricStage).toBe(null);
+    held = false;
+    release();
+    const r1 = await first;
+    expect(r1.error).toBeUndefined();
+    expect(JSON.stringify(r1.analysis)).toBe(await withoutStage(0));
+    expect(w.pipeline.geometricStage).toBe(stage);
+    expect((await w.frame(0.5)).analysis!.boxes[0]!.face!.topId).toBe("B");
+  });
+
+  it("the load's watchdog setting applies: on by default, off when the load turned it off", async () => {
+    const on = counted({ watchdog: new GeometricWatchdog(-1, 2) });
+    await on.loadPlain();
+    await on.loadStage();
+    await on.frame(0);
+    await on.frame(0.5);
+    expect(on.statuses().at(-1)!.reason).toMatch(/^watchdog: /);
+
+    const offByLoad = counted({ watchdog: new GeometricWatchdog(-1, 2) });
+    await offByLoad.loadPlain(false);
+    await offByLoad.loadStage();
+    for (let t = 0; t < 4; t++) expect("geometricMs" in (await offByLoad.frame(t / 2)).analysis!.timings).toBe(true);
+    expect(offByLoad.statuses().at(-1)!.state).toBe("ready");
+  });
+});
+
+describe("a compute frame on a worker host", () => {
+  const SITE = "https://video.example";
+  const protocol = computeProtocol("example");
+
+  /** A compute frame whose workers are worker hosts on fake models; counts the index loads. */
+  function frameOnHost(over: Partial<ComputeFrameEnv>) {
+    let opens = 0;
+    class HostWorker implements WorkerLike {
+      onmessage: WorkerLike["onmessage"] = null;
+      onerror: WorkerLike["onerror"] = null;
+      readonly host = createWorkerHost<FakeDevice>({
+        post: (reply) => this.onmessage?.({ data: reply } as MessageEvent<WorkerReply>),
+        loadRelease: async () => loadedRelease(makePipeline()),
+        wasmPaths: "/",
+        voteDevice: async () => new FakeDevice(),
+        openStage: async () => (opens++, { stage: fakeStage(), bytes: 1, note: null }),
+        releaseDevice: () => {},
+        readBitmap: () => FRAME,
+      });
+      postMessage(message: WorkerRequest) {
+        void this.host.handle(message);
+      }
+      terminate() {}
+    }
+    const parent = { postMessage: () => {} };
+    let listener: ((event: MessageEvent) => void) | null = null;
+    const clock = { now: 1_000 };
+    const frame = startComputeFrame({
+      win: { parent, addEventListener: (_: "message", l: (event: MessageEvent) => void) => void (listener = l), removeEventListener: () => void (listener = null) },
+      framed: true,
+      parentOrigin: SITE,
+      allowedParentOrigin: (origin) => origin === SITE,
+      protocol,
+      createWorker: () => new HostWorker(),
+      loadRequest: { kind: "load", releaseUrl: "https://x/release.json", geometricUrl: "https://x/geo.json" },
+      now: () => clock.now,
+      ...over,
+    })!;
+    const pointer = () => listener?.({ data: protocol.tag({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 1, touch: false }), source: parent, origin: SITE } as unknown as MessageEvent);
+    const settle = async () => {
+      for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    return { frame, pointer, settle, clock, opens: () => opens };
+  }
+
+  it("with \"pointer\", opens no index before the first pointer once ready, and one after it", async () => {
+    const f = frameOnHost({ geometricLoad: "pointer" });
+    await f.settle();
+    expect(f.frame.state).toBe("ready");
+    for (let i = 0; i < 8; i++) {
+      f.clock.now += 250;
+      f.frame.tick();
+    }
+    await f.settle();
+    expect(f.opens()).toBe(0);
+    expect(f.frame.core!.status().geometric).toBe(null);
+    f.pointer();
+    await f.settle();
+    expect(f.opens()).toBe(1);
+    expect(f.frame.core!.status().geometric).toMatchObject({ state: "ready" });
+    f.pointer();
+    await f.settle();
+    expect(f.opens()).toBe(1);
+  });
+
+  it("with \"pointer\", a pointer while the release loads opens the index once it is ready", async () => {
+    const f = frameOnHost({ geometricLoad: "pointer" });
+    f.pointer();
+    expect(f.opens()).toBe(0);
+    await f.settle();
+    expect(f.opens()).toBe(1);
+    expect(f.frame.core!.status().geometric).toMatchObject({ state: "ready" });
+  });
+
+  it("by default opens the index with the release, before any pointer", async () => {
+    const f = frameOnHost({});
+    await f.settle();
+    expect(f.opens()).toBe(1);
+    expect(f.frame.core!.status().geometric).toMatchObject({ state: "ready" });
   });
 });

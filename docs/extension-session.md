@@ -342,6 +342,37 @@ loading restarts once on the bundled release.
 skip-list and the log reasons. While the release is chosen there is no session: messages are
 dropped and a picture is closed.
 
+### The geometric stage
+
+With a `geometricUrl` in the load request, the worker loads the geometric stage after the
+release. Frames are analyzed without it until it is ready, and it joins between two frames; its
+status (`onGeometricStatus`, `status().geometric`) reads `loading`, then `ready` or `off`. The
+option `geometricLoad` says when it loads:
+
+- `"start"` (the default, and the behavior before the option): with the release. Its status reads
+  `loading` from the start.
+- `"pointer"`: the worker loads the release without the stage, and the first `pointer` message
+  has the worker load it: at once when the release is ready, or as soon as it is when the
+  `pointer` arrived while it loaded (a pointer resting over the video through the load). A frame
+  made when a video plays then neither downloads nor holds the stage's index until the viewer
+  points at the picture. Until then its status is `null` (or stays `off` with the reason
+  `idle-unload` after a resume); it reads `loading` once the worker has the request. An
+  `intent`, a `presented` or a `hello` never counts, and a `pointer` kept for a load is dropped
+  when the frame stops.
+- With `"pointer"`, the looks after that `pointer` run without the stage for as long as it takes
+  to load, as looks do whenever it is still loading. A look the worker is analyzing when the
+  request arrives is answered without the stage, and the stage joins after it.
+- `startComputeFrame` reports each `pointer` message to its session. A host that runs
+  `createWorkerSession` directly with `"pointer"` calls `session.pointed()` on each pointer over
+  the picture; otherwise the stage never loads.
+- The request is the worker's own `load-stage` message, between the compute frame and its worker,
+  which are vendored together. No message is added between the two frames, and `PROTOCOL_VERSION`
+  is unchanged.
+- Once ready, the stage behaves the same with either value: its watchdog (and the load request's
+  `geometricWatchdog`), `geometricScope: "focus"`, and its turning off for the rest of the session.
+- A restarted worker loads no stage with either value (`plainLoad`).
+- A value other than `"start"` or `"pointer"` throws a `RangeError` when the frame starts.
+
 ### Idle unload
 
 A ready session holds the models' memory, and WebAssembly memory never shrinks, so only ending
@@ -366,6 +397,10 @@ message, no card shown and no look in flight. Time is counted from `ready`, by `
 - A geometric stage the worker had turned off stays off for the rest of the session: the resume
   loads the request without the stage. A stage that was running is reported off with the reason
   `idle-unload` while idle (to the status and to `onGeometricStatus`), and loading again on resume.
+  With `geometricLoad: "pointer"` it stays reported off on resume: the resumed worker loads the
+  release without it, and waits for a new `pointer` message to load it again. A `pointer` that
+  resumes the frame counts (the stage loads once the resumed release is ready); an `intent` that
+  resumes it does not, and a `pointer` from before the unload never carries over.
   The tilted retry is a setting of the release, not of the request: the new worker starts with it
   on, as after any restart.
 - The frame keeps the load request in effect while idle, so a remote release's files (its Blobs)
@@ -378,6 +413,8 @@ message, no card shown and no look in flight. Time is counted from `ready`, by `
   or `failed`, as the posted status says (the core's own status reads `loading` while idle).
 - `createWorkerSession` has the calls for it, `suspend()` and `resume()`, and `suspended`; its
   `keepLoadRequest` option (set by the compute frame when `idleUnloadMs` is) keeps the request.
+  With `geometricLoad: "pointer"` it also has `pointed()`, which a host that runs it directly
+  calls on each pointer over the picture; otherwise the stage never loads.
 - The idle clock runs from `ready`, not from the moment the frame was made. A frame made at play
   (see "When to make the frame") spends its load time before the clock starts, and then waits
   `idleUnloadMs` for a pointer. If none comes, the worker ends and the status reads `idle`.
@@ -591,8 +628,8 @@ Recommended: make the compute frame when the video plays, not at the first point
 
 The extension page in the iframe. `startComputeFrame` takes the options of
 `createWorkerSession` too (`mode`, `hold`, `chooseRelease`, `recordSkip`, `onDecision`,
-`onGeometricStatus`, ...), `idleUnloadMs` and `entryLook` (on unless `false`; see "Pointer
-entry").
+`onGeometricStatus`, `geometricLoad`, ...), `idleUnloadMs` and `entryLook` (on unless `false`;
+see "Pointer entry").
 
 **Verifying only the faces at the pointer.** `geometricScope: "focus"` is one of those options
 (`"all"` is the default): the geometric stage then verifies only the faces at the pointer, and a

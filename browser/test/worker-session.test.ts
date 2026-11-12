@@ -797,3 +797,132 @@ describe("a bundled release that fails to load", () => {
     expect(h.session.core!.status().state).toBe("ready");
   });
 });
+
+describe("geometricLoad", () => {
+  const staged: LoadRequest = { ...bundledLoad, geometricUrl: "geometric.json", geometricManifestSha256: "c".repeat(64) };
+  const stageRequests = (w: FakeWorker) => w.posted.filter((m) => m.kind === "load-stage");
+
+  it("\"start\" (the default): pointed() sends nothing", () => {
+    const { session, out } = harness({ loadRequest: staged });
+    loaded(out.workers[0]!);
+    session.pointed();
+    expect(out.workers[0]!.posted).toEqual([staged]);
+  });
+
+  it("\"pointer\": pointed() after the release is ready sends the stage once", () => {
+    const { session, out } = harness({ loadRequest: staged, geometricLoad: "pointer" });
+    const w = out.workers[0]!;
+    expect(w.posted).toEqual([{ kind: "load", releaseUrl: BUNDLED_URL, wasmPaths: "w/" }]);
+    loaded(w);
+    expect(stageRequests(w)).toEqual([]);
+    session.pointed();
+    session.pointed();
+    expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "c".repeat(64) }]);
+  });
+
+  it("\"pointer\": pointed() while the release loads sends the stage once it is ready, once", () => {
+    const { session, out } = harness({ loadRequest: staged, geometricLoad: "pointer" });
+    const w = out.workers[0]!;
+    session.pointed();
+    session.pointed();
+    expect(stageRequests(w)).toEqual([]);
+    loaded(w);
+    session.pointed();
+    expect(stageRequests(w)).toHaveLength(1);
+  });
+
+  it("\"pointer\": pointed() while the release loads sends nothing after stop(), nor after a load that fails", () => {
+    const stoppedFirst = harness({ loadRequest: staged, geometricLoad: "pointer" });
+    stoppedFirst.session.pointed();
+    stoppedFirst.session.stop();
+    loaded(stoppedFirst.out.workers[0]!);
+    expect(stageRequests(stoppedFirst.out.workers[0]!)).toEqual([]);
+
+    const failed = harness({ loadRequest: staged, geometricLoad: "pointer" });
+    failed.session.pointed();
+    failed.out.workers[0]!.reply(statusFail("no WebGPU"));
+    expect(stageRequests(failed.out.workers[0]!)).toEqual([]);
+  });
+
+  it("\"pointer\": a restart after pointed() while loading loads no stage and is asked for none", () => {
+    const { session, out } = harness({ loadRequest: staged, geometricLoad: "pointer" });
+    loaded(out.workers[0]!);
+    out.workers[0]!.fail();
+    session.pointed();
+    loaded(out.workers[1]!);
+    expect(out.workers[1]!.posted).toEqual([plainLoad(staged)]);
+  });
+
+  it("\"pointer\" without a stage in the request: the load is sent as is and pointed() sends nothing", () => {
+    const { session, out } = harness({ geometricLoad: "pointer" });
+    loaded(out.workers[0]!);
+    session.pointed();
+    expect(out.workers[0]!.posted).toEqual([bundledLoad]);
+  });
+
+  it.each([
+    ["before the stage was asked for", false],
+    ["after the stage was asked for", true],
+  ])("\"pointer\": a restart %s is the restart of \"start\": the plain load, the same status, no stage asked for", (_, asked) => {
+    const run = (geometricLoad: "start" | "pointer") => {
+      const h = harness({ loadRequest: staged, geometricLoad });
+      loaded(h.out.workers[0]!);
+      if (asked) h.session.pointed();
+      h.out.geometric.length = 0;
+      h.out.workers[0]!.fail();
+      loaded(h.out.workers[1]!);
+      h.session.pointed();
+      return h;
+    };
+    const pointer = run("pointer");
+    const start = run("start");
+    expect(pointer.out.workers[1]!.posted).toEqual([plainLoad(staged)]);
+    expect(pointer.out.workers[1]!.posted).toEqual(start.out.workers[1]!.posted);
+    expect(pointer.out.geometric).toEqual(start.out.geometric);
+    expect(pointer.session.restarts).toBe(1);
+  });
+
+  it("\"pointer\": a remote release with a stage is asked for it once the worker confirmed it, not before", async () => {
+    const remote: RemoteReleaseChoice = { ...remoteChoice(), request: { kind: "load", releaseUrl: "release.json", files: {}, wasmPaths: "w/", geometricUrl: "geo.json" } } as RemoteReleaseChoice;
+    const { session, out } = await setup(remote, { geometricLoad: "pointer" });
+    const w = out.workers[0]!;
+    expect(w.posted[0]).not.toHaveProperty("geometricUrl");
+    session.pointed();
+    expect(stageRequests(w)).toEqual([]);
+    w.reply(statusOk(ID));
+    expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geo.json" }]);
+    session.pointed();
+    expect(stageRequests(w)).toHaveLength(1);
+  });
+
+  it("\"pointer\": a pointer while a remote release without a stage is tried has the fallback's stage asked for at ready", async () => {
+    const remote = { ...remoteChoice(), fallback: staged } as RemoteReleaseChoice;
+    const { session, out } = await setup(remote, { geometricLoad: "pointer" });
+    expect(out.workers[0]!.posted[0]).not.toHaveProperty("geometricUrl");
+    session.pointed();
+    out.workers[0]!.reply(statusFail("no WebGPU"));
+    const w = out.workers[1]!;
+    expect(w.posted).toEqual([{ kind: "load", releaseUrl: BUNDLED_URL, wasmPaths: "w/" }]);
+    loaded(w);
+    expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "c".repeat(64) }]);
+  });
+
+  it("\"pointer\": a pointer while a release without a stage loads sends the worker nothing beyond its load", () => {
+    const { session, out } = harness({ geometricLoad: "pointer" });
+    session.pointed();
+    loaded(out.workers[0]!);
+    expect(out.workers[0]!.posted).toEqual([bundledLoad]);
+  });
+
+  it("\"pointer\": a fallback worker waits for the stage of its own request", async () => {
+    const remote: RemoteReleaseChoice = { ...remoteChoice(), request: { kind: "load", releaseUrl: "release.json", files: {}, wasmPaths: "w/", geometricUrl: "geo.json" }, fallback: staged } as RemoteReleaseChoice;
+    const { session, out } = await setup(remote, { geometricLoad: "pointer" });
+    out.workers[0]!.reply(statusFail("no WebGPU"));
+    const w = out.workers[1]!;
+    expect(w.posted).toEqual([{ kind: "load", releaseUrl: BUNDLED_URL, wasmPaths: "w/" }]);
+    expect(session.core!.status().geometric).toBe(null);
+    loaded(w);
+    session.pointed();
+    expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "c".repeat(64) }]);
+  });
+});

@@ -74,6 +74,21 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Browser: `startComputeFrame({ geometricLoad: "pointer" })` (also an option of
+  `createWorkerSession`) loads the geometric stage when the viewer points at the picture instead
+  of with the release. The worker loads the release without the stage, and the first `pointer`
+  message has it load the stage, by a new worker request, `load-stage`, once the release is ready
+  (a `pointer` that arrived while it loaded counts); after an idle unload the stage waits for a new
+  `pointer` again, and one that resumes the frame counts. A frame made when a video
+  plays then neither downloads nor holds the stage's index until the viewer points at it, and the
+  looks until the stage is ready run without it. A look in flight when the stage is asked for is
+  answered without it. No message is added between the two frames and `PROTOCOL_VERSION` stays 2.
+  The default, `"start"`, sends the worker the same messages as before. A host that runs
+  `createWorkerSession` directly with `"pointer"` calls `session.pointed()` on each pointer over
+  the picture; otherwise the stage never loads. Two public types grow, which matters for code
+  that switches over them exhaustively or fakes them: `WorkerRequest` has a `load-stage` variant,
+  and `WorkerSession` has `pointed()`.
+
 - Docs: [When to make the frame](docs/extension-session.md#when-to-make-the-frame) recommends
   making the compute frame when the video plays, so the load comes before the first hover. It
   covers the idle clock, the cold hover after an unload, `control.frameRemoved`, the `playing`
