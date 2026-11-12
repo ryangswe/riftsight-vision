@@ -429,6 +429,15 @@ const toolkitCommit = (() => {
 })();
 
 let profileDir = null;
+/** Remove the temp profile; Chrome's children may still be writing, so a failure is not an error. */
+function removeProfile() {
+  if (profileDir === null) return;
+  try {
+    rmSync(profileDir, { recursive: true, force: true, maxRetries: 3 });
+  } catch {
+    // left for the system's temp cleanup
+  }
+}
 let chromePid = null;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => {
@@ -439,7 +448,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
         // already gone
       }
     }
-    if (profileDir !== null) rmSync(profileDir, { recursive: true, force: true });
+    removeProfile();
     process.exit(2);
   });
 }
@@ -459,7 +468,7 @@ try {
 });
 } catch (error) {
   console.error(String(error?.stack ?? error));
-  rmSync(profileDir, { recursive: true, force: true });
+  removeProfile();
   process.exit(2);
 }
 chromePid = browser.process().pid;
@@ -700,7 +709,7 @@ try {
   } catch {
     // already gone
   }
-  rmSync(profileDir, { recursive: true, force: true });
+  removeProfile();
   pageServer.close();
   frameServer.close();
 }

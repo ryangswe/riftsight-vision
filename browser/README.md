@@ -1480,7 +1480,8 @@ the requests that arrived while the pointer was off the picture. The report grou
 **Stage timing.** A relative `load.geometricUrl` in `--options` is read against the release folder.
 Each row also has `loadStageSentMs`, `firstPointerInMs` and `stageReadyMs`, in ms from the trusted
 move: the frame reports when it posts `load` or `load-stage` to the worker and when it receives a
-`pointer`, and the page times the report's arrival, so each carries a few ms of latency.
+`pointer`, and the page times the report's arrival, so each carries a few ms of latency. A field is null when its event came before this hover's
+move (for example a stage made ready at play), and the row's `stage` says its state at the move.
 
 **The stage is pinned.** With a stage in `--options` (or `"stage"` set), H2 waits for it to reach
 the intended state and fails the run when it reaches another; each row records the stage's state
