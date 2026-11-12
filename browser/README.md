@@ -1035,10 +1035,10 @@ control accepts a frame the product connects itself.
 
 `scripts/idle-unload-memory.mjs` measures what an unload gives back in a headless Chrome (the
 header says how to run it). Its pass rule is the macOS physical footprint right after the unload,
-within 30 MB of the same page with no frame. The toy release cannot show the drop: its stand-in
-models are tiny, a ready frame adds only about 25 MB, and the run cannot tell an unload from none.
-Use a real release for that; the report prints the ready-minus-no-frame figure beside the pass
-figure to show how much there was to free. Both entries are
+within 30 MB of the same page with no frame. The toy release shows the drop: on an arm64 Mac with
+Chrome for Testing 152, the defaults read a ready frame at 105 MB over the page with no frame and
+16 MB right after the unload (the header gives the command). The report prints the
+ready-minus-no-frame figure beside the pass figure to show how much there was to free. Both entries are
 [experimental](../docs/stability.md#experimental).
 
 ### `loadRelease(url, options)` and `analyzeFrame(loaded, frame)`

@@ -18,10 +18,12 @@
 // off). `--geometric-load pointer` passes `geometricLoad: "pointer"`, sends one `pointer` and a
 // `leave` after each `ready` (the stage then loads after the pointer), and refuses the pictures the
 // frame asks for, as a content script does once the pointer has left. With the default `start` no
-// pointer is sent. With `--geometric`, each ready phase is read once the stage is `ready` or `off`,
-// and the report gives the stage's status at each phase and every status it reported (`stage`:
-// when the phase starts and after its read; `stageLog`, with the `pointer` and `intent` messages
-// the frame got, on the same clock). Without these options nothing changes.
+// pointer is sent. With `--geometric`, each ready phase is read once the stage has settled: its
+// newest status is `ready`, or `off` for a reason other than `idle-unload` (that one is left over
+// from the unload, and a resume does not clear it); with `pointer`, a status reported after the
+// pointer was sent. The report gives the stage's status at each phase and every status it
+// reported (`stage`: when the phase starts and after its read; `stageLog`, with the `pointer` and
+// `intent` messages the frame got, on the same clock). Without these options nothing changes.
 //
 // The ready reads (`ready`, `reloaded`) must be taken on a ready frame, so the unload must not come
 // first. Each read waits `--settle-ms` and then reads for about 1.5 s, so `--idle-ms` must be at
@@ -37,12 +39,12 @@
 // release are not a measure of accuracy; they show what ending the worker gives back for the
 // models in that release.
 //
-// The toy release cannot show the drop. Its stand-in models are tiny: a ready frame adds only
-// about 25 MB of footprint over the page with no frame, which is near the 30 MB bound, so this run
-// cannot tell an unload from none. Use it to check that the script, the idle status, the worker
-// target going away and the reload time work; a real release is needed to see what is freed. The
-// report prints `readyMinusNoFrameFootprintMb` beside the pass figure to show how much there was
-// to free.
+// The toy release shows the drop. On an arm64 Mac with Chrome for Testing 152, `node
+// scripts/idle-unload-memory.mjs --release FOLDER --chrome PATH` on the toy release, with the
+// other options at their defaults, read a ready frame at 105 MB of footprint over the page with no
+// frame, and 16 MB right after the unload. A real release holds larger models, so it has more to
+// free. The report prints `readyMinusNoFrameFootprintMb` beside the pass figure to show how much
+// there was to free.
 //
 // The pass is one metric, named in advance: the physical footprint right after the unload, within
 // 30 MB of the same page with no frame. The footprint after a memory-pressure purge and a wait
@@ -80,7 +82,14 @@ if (!given.release || !chrome) {
   process.exit(2);
 }
 const GEOMETRIC = given.geometric ?? null;
-if (GEOMETRIC !== null && (GEOMETRIC.startsWith("/") || GEOMETRIC.split(/[\\/]/).includes("..") || !inside(resolve(given.release), GEOMETRIC))) {
+if (
+  GEOMETRIC !== null &&
+  (GEOMETRIC.startsWith("/") ||
+    GEOMETRIC.includes("%") ||
+    GEOMETRIC.split(/[\\/]/).includes("..") ||
+    !new URL("/release/" + GEOMETRIC, "http://127.0.0.1").pathname.startsWith("/release/") ||
+    !inside(resolve(given.release), GEOMETRIC))
+) {
   console.error("--geometric must be a path inside the release folder, relative to it.");
   process.exit(2);
 }
@@ -330,12 +339,19 @@ try {
     /** With "pointer", one pointer over the picture and a leave; then, with a stage, wait until it
      *  is ready or off (or the frame went idle first, which the ready read's check then refuses). */
     const afterReady = async () => {
+      // The stage's log before the pointer: with "pointer", only a status reported after it counts.
+      const mark = await tab.evaluate(() => window.frameEl.contentWindow.stageLog.length);
       if (POINTER) await tab.evaluate(() => (window.say({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 0, touch: false }), window.say({ kind: "leave" })));
       if (GEOMETRIC === null) return;
       const began = Date.now();
       for (;;) {
-        const s = await stage();
-        if (s && (s.state === "ready" || s.state === "off")) return;
+        const log = await tab.evaluate(() => window.frameEl.contentWindow.stageLog);
+        const at = log.findLastIndex((l) => l.state !== undefined);
+        const s = at < 0 ? null : log[at];
+        // `off` for the session (no WebGPU, a failed load, the watchdog) stays as it was: settled.
+        const offForGood = s !== null && s.state === "off" && s.reason !== "idle-unload";
+        if (offForGood || (s !== null && s.state === "ready" && (!POINTER || at >= mark))) return;
+        // An unload first: the ready read's check refuses the run.
         if ((await states()).at(-1) === "idle") return;
         if (Date.now() - began > 180_000) throw new Error(`the stage did not settle in 180 s: ${JSON.stringify(s)}`);
         await sleep(100);
