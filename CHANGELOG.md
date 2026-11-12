@@ -67,11 +67,11 @@ break the public surface; this file names each break and how to migrate.
   overlapping card that was already there, which the pointer moves onto, does. The pointer leaving
   the area or the picture, a seek or a new source ends it. While it lasts, `shown` carries `held:
   true` once two analyses in a row show the card gone (`misses`; one look that misses a card
-  still there does not blink its outline; on a still picture one look is enough), or once no recent analysis is left and none is coming, until
-  an analysis sees it again, so a host can hide its outline and keep the tooltip.
-  While the pointer rests past its grace period on a card it shows, nothing is analyzed. It
-  remembers the overlapping cards of the last 3 looks that saw the kept card, at most 16. Off
-  unless a host passes it; `SHOWN_HOLD` is unchanged.
+  still there does not blink its outline; on a still picture one look is enough), or once no
+  recent analysis is left and none is coming, until an analysis sees it again, so a host can
+  hide its outline and keep the tooltip. While the pointer rests past its grace period on a card
+  it shows, nothing is analyzed. It remembers the overlapping cards of the last 3 looks that saw
+  the kept card, at most 16. Off unless a host passes it; `SHOWN_HOLD` is unchanged.
 - Browser: `FrameAnalysis` faces carry `tiltedSkipped: true` when the tilted retry would have tried
   them but its cap (`maxFacesPerFrame`) left them out on that frame, in any scope. A focus-scope
   session with a ready stage looks again when the pointer moves onto one.
