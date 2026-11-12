@@ -49,7 +49,11 @@
 // The unverified face. With the session option `geometricScope: "focus"` a still picture is not
 // verified everywhere, and a card the pointer reaches after the picture's analyses is unnamed
 // until it is verified. `relookDue` lets the session look again, with the pointer there, once per
-// `HOVER_TRIGGER_MIN_GAP_MS`, and the look gets a newly presented picture's repeats.
+// `HOVER_TRIGGER_MIN_GAP_MS`, and the look gets a newly presented picture's repeats. On a playing
+// video the same face is unnamed until a look verifies it there: when the session's geometric
+// stage is ready, an active pointer on it makes a look due at once (`relookDue` with the
+// picture's time) instead of at the next cadence look, once the last look of any kind started at least
+// `HOVER_TRIGGER_MIN_GAP_MS` ago, never while one is in flight or a retry waits out its back-off.
 //
 // Replies. Every frame request carries an envelope (messages.ts) and `replyRejection` decides
 // whether its reply may still be shown. A look that comes back with the picture not analyzed
@@ -199,6 +203,9 @@ export class FrameScheduler {
   private refused = false;
   /** Layout mode: the host also wants pointer-driven analysis. */
   private pointerAnalysis = false;
+  /** The least spacing of a playing relook after the last look, besides `HOVER_TRIGGER_MIN_GAP_MS`
+   *  (measured pacing's share; 0 without it). */
+  private relookSpacingMs = 0;
 
   /**
    * @param intervalMs The cadence of the mode: the fast cadence in pointer mode, the slow one
@@ -241,6 +248,14 @@ export class FrameScheduler {
 
   setReadingIntervalMs(ms: number): void {
     this.readingIntervalMs = ms;
+  }
+
+  /** Measured pacing: the least spacing, after the last look of any kind, of a look on a playing
+   *  picture that `relookDue` allows (`MeasuredPacer.spacingMs`), so that those looks keep
+   *  analysis within the pacer's share. `HOVER_TRIGGER_MIN_GAP_MS` applies when it is shorter.
+   *  0 (the default): that gap alone. */
+  setRelookSpacingMs(ms: number): void {
+    this.relookSpacingMs = ms;
   }
 
   /** A reading hold shows a card (true) or nothing (false, the default). While it does, a
@@ -482,15 +497,32 @@ export class FrameScheduler {
    * at least `HOVER_TRIGGER_MIN_GAP_MS` ago. Unlike `hoverTriggerDue` it does not need a stale frame, and
    * unlike `requestLook` it marks nothing stale and clears nothing: a still picture is analyzed
    * again with the repeats a newly presented one gets (`started` with the "hover" trigger).
+   *
+   * With `videoTimeSec`, the time of the picture on screen (the session gives it while the pointer
+   * is active over the picture, with a ready geometric stage), a playing picture may be looked at again too: a newly
+   * presented frame waits, its time has moved since the newest analyzed frame, and no retry is
+   * waiting out its back-off. The cadence is not consulted, and the stale-frame threshold is not
+   * needed; the last look of any kind must have started at least `HOVER_TRIGGER_MIN_GAP_MS` ago, or
+   * the measured-pacing spacing (`setRelookSpacingMs`) if that is longer.
+   * Without it, a playing picture waits for the cadence, as a still one with repeats left does.
    */
-  relookDue(now: number, inFlight: boolean): boolean {
+  relookDue(now: number, inFlight: boolean, videoTimeSec?: number): boolean {
     const state = this.analysisState(now);
-    if (inFlight || state === "idle" || state === "probe") return false;
-    // Only for a picture that stays as it is: nothing newly presented waits (a playing video
-    // always has one), no repeats are left to run, no retry is waiting out its back-off, and no
-    // capture was refused (the pointer's own move makes that picture due, `pointerMoved`).
-    if (!this.idle || this.refused) return false;
-    return now - this.lastHoverTriggerAt >= HOVER_TRIGGER_MIN_GAP_MS;
+    if (inFlight || state === "idle" || state === "probe" || this.refused) return false;
+    // A picture that stays as it is: nothing newly presented waits, no repeats are left to run,
+    // no retry is waiting out its back-off, and no capture was refused (the pointer's own move
+    // makes that picture due, `pointerMoved`).
+    if (this.idle) return now - this.lastHoverTriggerAt >= HOVER_TRIGGER_MIN_GAP_MS;
+    // With the picture's time (an active pointer, with a ready stage): a playing picture too.
+    return videoTimeSec !== undefined && this.playingSinceLast(videoTimeSec) && now - this.lastStartedAt >= Math.max(HOVER_TRIGGER_MIN_GAP_MS, this.relookSpacingMs);
+  }
+
+  /** Is the picture playing on from the newest analyzed frame: a newly presented frame waits, its
+   *  time has moved since that frame, and no retry is waiting out its back-off? A still picture
+   *  (its repeats, a seek's duplicate reports at the same time) is not. */
+  private playingSinceLast(videoTimeSec: number): boolean {
+    if (!this.pending || this.retryAt !== null || this.lastVideoTimeSec === null || this.discontinuitySinceLast) return false;
+    return Math.abs(videoTimeSec - this.lastVideoTimeSec) * 1000 >= 1;
   }
 
   /** An analysis of the current picture was started. */

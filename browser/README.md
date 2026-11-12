@@ -1142,6 +1142,10 @@ instead ("A pointer resting where the last look found no card", below). With
   `SHOWN_HOLD`, whose 5 s covers the usual gap.
 - Until 3 analyses have been measured, the fixed rate applies.
 - The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
+- The look asked at once for an unverified face on a playing video ("A playing video", below)
+  waits at least the median measured time divided by the share after the last look (from the
+  first measured analysis; at most 4000 ms), but not the fixed rate, so a fast computer still
+  asks on the pointer message.
 - The session learns within its own run and stores nothing.
 - A reused repeat (below) is not recorded: it took milliseconds and says nothing of how fast the
   worker analyzes.
@@ -1729,10 +1733,20 @@ another mode, because the pointer is what says which faces to verify.
   `geometricScope` is sent and every face the stage applies to is verified, so after the first repeat a
   move to another card is named at once from the result on screen, with no new look. A move to a
   not yet verified card while that repeat is in flight shows nothing until it answers (about a
-  second on the measured clips), and queues no extra look. A playing video has no such repeats and
-  is unchanged. The re-look waits for the picture's repeats and any retry to finish, never follows
+  second on the measured clips), and queues no extra look. A playing video has no such repeats
+  (next item). The re-look waits for the picture's repeats and any retry to finish, never follows
   a refused capture, and stops after the pointer's 10 s grace period. With the option off there
   is no re-look (the reuse of still repeats applies either way).
+- **A playing video.** Each look verifies the faces at the pointer as it was when the look was
+  asked for, so a face the pointer reaches after it stays unnamed until a look verifies it there.
+  With the geometric stage ready, an active pointer (within its grace period) on a face (or a
+  group) the newest analysis left unverified gets a look at once, with the pointer there, instead
+  of at the next cadence look: when the picture's time has moved since the newest analyzed
+  frame, nothing is in flight, no retry is waiting out its back-off, no capture was refused, and
+  the last look of any kind started at least `HOVER_TRIGGER_MIN_GAP_MS` ago. It is checked on each `pointer` message,
+  on a look's reply and on each tick, so a pointer that lands during a look in flight and rests
+  gets its look when that look returns, or at the next tick past the gap. While the stage is still
+  loading, and with no stage, nothing changes (no face is then left unverified by the worker).
 - **A pointer resting where the last look found no card** (any pointer-mode session, with this
   option or not) is looked at once every 2 s (`EMPTY_SPOT_INTERVAL_MS`) instead of at the fast rate, because each look of an empty spot costs a full analysis and has nothing to show. In the 10 s grace period that is about 5 looks, against about 20 on WebGPU with fast analyses (the fast rate is 500 ms) and 10 on WebAssembly (1000 ms). A card that arrives under the resting pointer shows up to about 1.5 s later than before on WebGPU (1 s later on WebAssembly), and at most about 2 s plus one analysis after it arrives. A move over the picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at once; the pointer leaving the picture does not, and a longer measured-pacing gap still wins. Nothing changes outside pointer mode or while a card shows.
 - **Otherwise no extra analysis** is asked for when the pointer moves. A card the pointer moves onto
