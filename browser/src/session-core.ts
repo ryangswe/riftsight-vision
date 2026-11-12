@@ -381,7 +381,7 @@ export class SessionCore {
     if (touch) this.scheduler.tapped(now);
     else this.scheduler.pointerMoved(now);
     if (this.st.state === "ready" && this.scheduler.hoverTriggerDue(now, this.videoTime(), this.inFlight !== null)) this.requestCapture("hover");
-    else this.relookForUnverified();
+    else this.relookForUnverified(true);
     this.publish();
   }
 
@@ -746,14 +746,20 @@ export class SessionCore {
    * as a look started by the pointer: at most once per `HOVER_TRIGGER_MIN_GAP_MS`, never while
    * one is in flight, with the repeats a newly presented picture gets. It stops by itself: that
    * look verifies the pointer's group, so nothing is unverified there any more.
+   *
+   * `moved`: called for a pointer message. With a ready stage, a playing picture is then looked at
+   * too (`relookDue` with the picture's time), instead of at the next cadence look; the last look
+   * of any kind must have started `HOVER_TRIGGER_MIN_GAP_MS` ago. A resting pointer (`tick`) waits
+   * for the cadence on a playing picture, as before.
    */
-  private relookForUnverified(): void {
+  private relookForUnverified(moved = false): void {
     if (!this.focusScope || this.st.state !== "ready" || !this.pointerAt || !this.result) return;
     const { analysis } = this.result;
     const { width, height } = analysis.frame;
     if (!(width > 0 && height > 0)) return;
     if (!pointerGroupNeedsLook(analysis, this.pointerAt.x * width, this.pointerAt.y * height, this.stageReady())) return;
-    if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null)) this.requestCapture("hover");
+    const playingAt = moved && this.stageReady() ? this.videoTime() : undefined;
+    if (this.scheduler.relookDue(this.deps.now(), this.inFlight !== null, playingAt)) this.requestCapture("hover");
   }
 
   /** Whether the geometric stage is ready: only then does a focus look retry the pointer's group
