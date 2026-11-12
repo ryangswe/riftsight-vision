@@ -182,6 +182,36 @@ describe("the shown card's outline", () => {
     expect(Object.keys(last).sort()).toEqual(["box", "cardId", "name", "others"]);
   });
 
+  it("row 7: a look's own wobble of the outline is not reported; a turn past 2 degrees or a side past 5 % is", () => {
+    const t = run(card(TURN));
+    const count = () => t.shownMessages().length;
+    const n = count();
+    t.step(card({ ...TURN, rotation: 13.5 }));
+    t.step(card({ ...TURN, localWidth: 0.155 }));
+    expect(count()).toBe(n);
+    t.step(card({ ...TURN, rotation: 14.5 }));
+    expect(count()).toBe(n + 1);
+    t.step(card({ ...TURN, rotation: 14.5, localWidth: 0.165 }));
+    expect(count()).toBe(n + 2);
+  });
+
+  it("row 7: a card near 1 degree, or near 45 degrees fitted the other way, is not reported each look", () => {
+    // Upright, then fitted at 0.8 degrees with the box's own sides: the same outline.
+    const t = run(card(null));
+    const n = t.shownMessages().length;
+    t.step(card({ rotation: 0.8, localWidth: 0.2, localHeight: 0.6 }));
+    expect(t.shownMessages()).toHaveLength(n);
+    // 44.5 degrees, then -44.5 with its sides swapped (150 x 250 px, then 250 x 150 px in a
+    // 1000 x 500 frame): the same outline.
+    const u = run(card({ rotation: 44.5, localWidth: 0.15, localHeight: 0.5 }));
+    const m = u.shownMessages().length;
+    u.step(card({ rotation: -44.5, localWidth: 0.25, localHeight: 0.3 }));
+    expect(u.shownMessages()).toHaveLength(m);
+    // Not swapped: another outline.
+    u.step(card({ rotation: -44.5, localWidth: 0.15, localHeight: 0.5 }));
+    expect(u.shownMessages()).toHaveLength(m + 1);
+  });
+
   it("row 7: SessionCore calls onShown once per outline change", () => {
     let turn: LayerCard = card(null);
     let now = 1_000;
@@ -234,6 +264,9 @@ describe("a card shown by the hold is marked held over the message", () => {
   it("carries held: true while a reading hold keeps a card the newest analysis does not see, and drops it when seen again", () => {
     const t = run(card(TURN), { hold: READING_HOLD });
     expect((t.shown.card as ShownCard).held).toBeUndefined();
+    t.step(null);
+    // One look that misses the card does not hide its outline; the second in a row does.
+    expect((t.shownMessages().at(-1)!.card as ShownCard).held).toBeUndefined();
     t.step(null);
     const held = t.shownMessages().at(-1)!;
     expect(held).toStrictEqual(
