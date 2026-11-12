@@ -203,6 +203,9 @@ export class FrameScheduler {
   private refused = false;
   /** Layout mode: the host also wants pointer-driven analysis. */
   private pointerAnalysis = false;
+  /** The least spacing of a playing relook after the last look, besides `HOVER_TRIGGER_MIN_GAP_MS`
+   *  (measured pacing's share; 0 without it). */
+  private relookSpacingMs = 0;
 
   /**
    * @param intervalMs The cadence of the mode: the fast cadence in pointer mode, the slow one
@@ -245,6 +248,14 @@ export class FrameScheduler {
 
   setReadingIntervalMs(ms: number): void {
     this.readingIntervalMs = ms;
+  }
+
+  /** Measured pacing: the least spacing, after the last look of any kind, of a look on a playing
+   *  picture that `relookDue` allows (`MeasuredPacer.spacingMs`), so that those looks keep
+   *  analysis within the pacer's share. `HOVER_TRIGGER_MIN_GAP_MS` applies when it is shorter.
+   *  0 (the default): that gap alone. */
+  setRelookSpacingMs(ms: number): void {
+    this.relookSpacingMs = ms;
   }
 
   /** A reading hold shows a card (true) or nothing (false, the default). While it does, a
@@ -491,7 +502,8 @@ export class FrameScheduler {
    * is active over the picture, with a ready geometric stage), a playing picture may be looked at again too: a newly
    * presented frame waits, its time has moved since the newest analyzed frame, and no retry is
    * waiting out its back-off. The cadence is not consulted, and the stale-frame threshold is not
-   * needed; the last look of any kind must have started at least `HOVER_TRIGGER_MIN_GAP_MS` ago.
+   * needed; the last look of any kind must have started at least `HOVER_TRIGGER_MIN_GAP_MS` ago, or
+   * the measured-pacing spacing (`setRelookSpacingMs`) if that is longer.
    * Without it, a playing picture waits for the cadence, as a still one with repeats left does.
    */
   relookDue(now: number, inFlight: boolean, videoTimeSec?: number): boolean {
@@ -502,7 +514,7 @@ export class FrameScheduler {
     // makes that picture due, `pointerMoved`).
     if (this.idle) return now - this.lastHoverTriggerAt >= HOVER_TRIGGER_MIN_GAP_MS;
     // With the picture's time (an active pointer, with a ready stage): a playing picture too.
-    return videoTimeSec !== undefined && this.playingSinceLast(videoTimeSec) && now - this.lastStartedAt >= HOVER_TRIGGER_MIN_GAP_MS;
+    return videoTimeSec !== undefined && this.playingSinceLast(videoTimeSec) && now - this.lastStartedAt >= Math.max(HOVER_TRIGGER_MIN_GAP_MS, this.relookSpacingMs);
   }
 
   /** Is the picture playing on from the newest analyzed frame: a newly presented frame waits, its

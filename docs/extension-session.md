@@ -334,7 +334,10 @@ all of these hold:
   its video time has moved since that frame;
 - nothing is in flight, no retry is waiting out its back-off, and no capture was refused since
   the picture was last answered;
-- the last look of any kind started at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) ago.
+- the last look of any kind started at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) ago, or, with
+  `measuredPacing`, the median measured analysis time divided by the share if that is longer
+  (once one analysis has been measured; at most 4000 ms), so these looks keep the pacer's share of
+  time spent analyzing.
 
 It is checked on each `pointer` message, on the reply of a look, and on each tick. So a pointer
 that lands on the face while a look is in flight, and rests there, gets its look when that look
@@ -347,8 +350,9 @@ in flight.
 Limits:
 
 - A pointer that rests past the grace period asks nothing more, as for a still picture's relook.
-- A stage that keeps leaving the face unverified gets a look up to every 250 ms while the pointer
-  is active, where it used to get one per cadence look.
+- A pointer that sweeps across unnamed cards on a playing video asks up to one look per 250 ms
+  (or per the measured-pacing spacing, when that is set and longer), where it used to wait for
+  the cadence.
 - A still picture, scope `"all"`, a session with no stage or a stage still loading, and the
   `"always-on"` mode are unchanged.
 - It changes when a look is asked for, not what a look answers.

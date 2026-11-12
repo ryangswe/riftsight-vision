@@ -594,6 +594,8 @@ export class SessionCore {
     const ep = this.st.backend;
     this.scheduler.setIntervalMs(this.pacer ? this.pacer.intervalMs(ep, this.mode) : cadenceMs(ep, this.mode));
     this.scheduler.setReadingIntervalMs(this.pacer ? this.pacer.readingMs(ep, this.maxAgeMs) : analyzeIntervalMs(ep));
+    // The playing relook keeps the pacer's share too, without the fixed rate under the cadence.
+    this.scheduler.setRelookSpacingMs(this.pacer ? this.pacer.spacingMs() : 0);
   }
 
   private onFrameResult(reply: FrameResult): void {

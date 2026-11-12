@@ -161,4 +161,14 @@ export class MeasuredPacer {
   slowMs(ep: ExecutionProvider | null): number {
     return pacedIntervalMs(analyzeIntervalMs(ep), MEASURED_PACING_SLOW_CEILING_MS, this.times, this.share);
   }
+
+  /** The least spacing between looks that keeps analysis within the share: the median of the
+   *  measured times divided by the share, at most `MEASURED_PACING_ACTIVE_CEILING_MS`, with no fixed
+   *  rate under it. It applies from the first measured analysis (0 before), because the looks it
+   *  spaces (the playing relook, `FrameScheduler.setRelookSpacingMs`) have no fixed rate to fall
+   *  back on. */
+  spacingMs(): number {
+    if (this.times.length === 0) return 0;
+    return Math.min(MEASURED_PACING_ACTIVE_CEILING_MS, recentMedian(this.times) / this.share);
+  }
 }

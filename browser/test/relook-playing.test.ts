@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { MEASURED_PACING_SHARE } from "../src/cadence.js";
 import { DRIVER_TICK_MS, FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import type { WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
@@ -22,7 +23,7 @@ const analysisOf = (verified: ReadonlySet<string>): FrameAnalysis =>
   ({
     frame: { width: 1000, height: 500 },
     hover: { selection: "accepted-nms", cards: [] },
-    boxes: SPEC.map(([id, x]): Box => ({ box: [x, 100, 200, 300], face: id === "A" || verified.has(id) ? { cardId: id } : { unverified: true, cardId: null } })),
+    boxes: SPEC.map(([id, x]): Box => ({ box: [x, 100, 200, 300], face: verified.has(id) ? { cardId: id } : { unverified: true, cardId: null } })),
   }) as unknown as FrameAnalysis;
 const hit = (a: { boxes: Box[] }, x: number, y: number) => {
   const i = a.boxes.findIndex((b) => x >= b.box[0]! && x <= b.box[0]! + b.box[2]! && y >= b.box[1]! && y <= b.box[1]! + b.box[3]!);
@@ -40,7 +41,8 @@ interface Setup {
   stage: "ready" | "loading" | "none";
   /** How long the worker takes to answer a look, in ms. */
   latencyMs?: number;
-  /** A look with the focus scope verifies nothing beyond A (a stage that keeps failing the face). */
+  /** A look with the focus scope verifies nothing beyond A. The worker does not answer so today
+   *  (a focus look verifies the pointer's group); this stands in for a face that stays unnamed. */
   neverVerify?: boolean;
 }
 
@@ -57,6 +59,9 @@ function session(setup: Setup) {
   const t = (): number => pausedAt ?? now / 1000;
   const captures: Array<{ requestId: number; at: number; inFlightBefore: boolean }> = [];
   const sent: Array<Extract<WorkerRequest, { kind: "frame" }>> = [];
+  /** `unverifyA`: answers leave A unverified as well, whatever the focus (a stand-in reply the
+   *  worker does not give today, to reach a guard). */
+  const fake = { unverifyA: false };
   /** The look in flight: its request and when it was asked; null when none. */
   let open: { requestId: number; at: number } | null = null;
   const options: SessionCoreOptions = { ...(setup.stage === "none" ? {} : { geometric: true }), ...setup.options };
@@ -89,11 +94,13 @@ function session(setup: Setup) {
     if (sent.length === before) return; // the picture was dropped (a seek): the look is finished
     const request = sent.at(-1)!;
     const verified = new Set<string>();
+    if (!fake.unverifyA) verified.add("A");
     if (request.geometricScope === "focus" && request.focus && !setup.neverVerify) {
       const boxes = SPEC.map(([, x]) => ({ x, y: 100, width: 200, height: 300 }));
       for (const i of focusGroup(boxes, request.focus)) verified.add(SPEC[i]![0]);
     }
-    core.fromWorker({ kind: "frame-result", envelope: request.envelope, videoTimeSec: t(), width: 1000, height: 500, workerMs: 5, analysis: analysisOf(verified) });
+    if (fake.unverifyA) verified.delete("A");
+    core.fromWorker({ kind: "frame-result", envelope: request.envelope, videoTimeSec: t(), width: 1000, height: 500, workerMs: setup.latencyMs ?? 50, analysis: analysisOf(verified) });
   };
 
   /** Run `ms` of time in 10 ms steps: a frame presented every 20 ms while playing, the look in
@@ -123,7 +130,7 @@ function session(setup: Setup) {
     for (let i = 0; i < 1_000 && captures.length === n; i++) run(10);
     if (captures.length === n) throw new Error("no look was asked");
   };
-  return { core, run, point, answer, asked, untilAsk, captures, sent, elapsed: () => now - start, isOpen: () => open !== null };
+  return { core, run, point, answer, asked, untilAsk, captures, sent, fake, clock: () => now, elapsed: () => now - start, isOpen: () => open !== null };
 }
 
 /** Moves every `every` ms from `from` to `to`, cycling through `xs`. */
@@ -225,7 +232,7 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     expect(s.core.hitAt(X.B, 0.5)?.cardId).toBe("B");
   });
 
-  it("a resting pointer on an unverified face asks nothing once its grace period is over", () => {
+  it("a resting pointer on a face that stays unverified asks nothing once its grace period is over", () => {
     const s = session({ ...READY_FOCUS, neverVerify: true });
     s.run(1_000, [[10, X.A]]);
     s.untilAsk();
@@ -236,10 +243,47 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     expect(atRest).toEqual([]);
   });
 
+  it("with measured pacing, a sweep keeps the pacer's share: a 900 ms worker", () => {
+    const paced: Setup = { stage: "ready", options: { geometricScope: "focus", measuredPacing: true }, latencyMs: 900 };
+    const s = session(paced);
+    const from = 3_000;
+    const to = 9_000;
+    s.run(to + 1_000, [[10, X.A], ...sweep(from, to, 30, [X.B, X.C])]);
+    const looks = s.asked().filter((a) => a >= from && a < to).length;
+    // The share is 0.25 (MEASURED_PACING_SHARE): 900 ms looks at most every 3600 ms, so at most
+    // the share of the window plus the one look its edge can cut.
+    expect(looks * 900).toBeLessThanOrEqual(MEASURED_PACING_SHARE * (to - from) + 900);
+    // Spaced at least the pacer's spacing apart, from the start.
+    const all = s.asked().filter((a) => a >= from);
+    for (let i = 1; i < all.length; i++) expect(all[i]! - all[i - 1]!).toBeGreaterThanOrEqual(900 / MEASURED_PACING_SHARE);
+  });
+
+  it("with measured pacing and a fast worker, the move still asks in the same call", () => {
+    const s = between({ stage: "ready", options: { geometricScope: "focus", measuredPacing: true }, latencyMs: 20 });
+    expect(s.point(X.B)).toBe(true);
+  });
+
+  it("a pointer past its grace period, with the reading state held by a card shown at it, gets no playing relook", () => {
+    const s = session({ ...READY_FOCUS, latencyMs: 50 });
+    s.run(1_000, [[10, X.A]]);
+    s.run(POINTER_GRACE_MS + 500); // the pointer rests on A, named: the reading state
+    expect(s.core.scheduler.analysisState(s.clock())).toBe("reading");
+    // A reply that leaves the pointer's own group unverified (a stand-in: the worker verifies the
+    // group of a look asked at a resting pointer) makes the group need a look while reading.
+    s.fake.unverifyA = true;
+    s.untilAsk();
+    s.run(60);
+    expect(s.core.hitAt(X.A, 0.5)).toBeNull();
+    expect(s.core.scheduler.analysisState(s.clock())).toBe("reading");
+    const at = s.elapsed();
+    s.run(700); // inside the reading cadence: nothing but the playing relook could ask
+    expect(s.asked().filter((a) => a > at)).toEqual([]);
+  });
+
   it("a sweep across unverified faces asks at most one look per HOVER_TRIGGER_MIN_GAP_MS, never two in flight", () => {
     for (const latencyMs of [20, 100, 300]) {
       const moves: Array<[number, number]> = [[10, X.A], ...sweep(1_000, 5_000, 30, [X.B, X.C])];
-      const s = session({ ...READY_FOCUS, latencyMs, neverVerify: true });
+      const s = session({ ...READY_FOCUS, latencyMs });
       s.run(6_000, moves);
       const at = s.asked().filter((a) => a >= 1_000);
       // The trigger does run: more looks than the same sweep while the stage loads (no trigger).
@@ -323,6 +367,23 @@ describe("FrameScheduler.relookDue with the picture's time", () => {
     const refused = playing();
     refused.lookRefused();
     expect(refused.relookDue(300, false, 1.3)).toBe(false);
+  });
+
+  it("is not due after a seek or a new source until the next look starts", () => {
+    const s = playing();
+    s.discontinuity();
+    s.framePresented();
+    expect(s.relookDue(300, false, 1.3)).toBe(false);
+  });
+
+  it("with a relook spacing, waits the longer of it and HOVER_TRIGGER_MIN_GAP_MS", () => {
+    const s = playing();
+    s.setRelookSpacingMs(600);
+    expect(s.relookDue(599, false, 1.3)).toBe(false);
+    expect(s.relookDue(600, false, 1.3)).toBe(true);
+    s.setRelookSpacingMs(100);
+    expect(s.relookDue(HOVER_TRIGGER_MIN_GAP_MS - 1, false, 1.3)).toBe(false);
+    expect(s.relookDue(HOVER_TRIGGER_MIN_GAP_MS, false, 1.3)).toBe(true);
   });
 
   it("is not due while repeats of a still picture wait, whatever the time given", () => {

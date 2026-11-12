@@ -1140,6 +1140,10 @@ instead ("A pointer resting where the last look found no card", below). With
   `SHOWN_HOLD`, whose 5 s covers the usual gap.
 - Until 3 analyses have been measured, the fixed rate applies.
 - The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
+- The look asked at once for an unverified face on a playing video ("A playing video", below)
+  waits at least the median measured time divided by the share after the last look (once one
+  analysis has been measured; at most 4000 ms), but not the fixed rate, so a fast computer still
+  asks on the pointer message.
 - The session learns within its own run and stores nothing.
 - A reused repeat (below) is not recorded: it took milliseconds and says nothing of how fast the
   worker analyzes.
