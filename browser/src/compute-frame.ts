@@ -39,7 +39,8 @@
 //   - With `geometricLoad: "pointer"`, the worker loads the release without the geometric stage,
 //     and the first `pointer` message has it load the stage once the release is ready (the
 //     worker's own `load-stage` request: no message between the two frames). After an idle unload
-//     the stage waits for a new `pointer` again: the one that resumes the frame does not count.
+//     the stage waits for a new `pointer` again; one that resumes the frame counts, an `intent`
+//     does not.
 //
 // Nothing here runs on its own: the caller calls `tick()` every `DRIVER_TICK_MS`.
 
@@ -227,14 +228,12 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     postShown(lastCard);
   };
 
-  /** True when it loaded the worker again. */
-  const resume = (): boolean => {
+  const resume = (): void => {
     lastActivityAt = env.now();
-    if (!idle) return false;
+    if (!idle) return;
     idle = false;
     postStatus("loading", null, null);
     ws.resume();
-    return true;
   };
 
   const checkIdle = (): void => {
@@ -260,14 +259,13 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
       case "intent":
         resume();
         return;
-      case "pointer": {
-        const resumed = resume();
+      case "pointer":
+        resume();
         core.pointer(message.x, message.y, message.mediaTime, message.touch);
         // After the look this pointer may have asked for: that look is answered without the stage.
-        // The pointer that resumes an idle frame does not count: the stage waits for a new one.
-        if (!resumed) ws.pointed();
+        // A pointer that resumes an idle frame counts for the release it reloads.
+        ws.pointed();
         return;
-      }
       case "leave":
         core.pointerLeft();
         return;

@@ -373,11 +373,10 @@ describe("the geometric stage across an unload", () => {
       return { t, heard };
     }
 
-    it.each(["a pointer message", "an intent message"])("after %s resumes, the stage waits for the next pointer once ready", (how) => {
+    it("after an intent message resumes, the stage waits for the next pointer once ready", () => {
       const { t, heard } = unloaded();
       heard.length = 0;
-      if (how === "a pointer message") t.pointer(0.9);
-      else t.send(tag({ kind: "intent" }));
+      t.send(tag({ kind: "intent" }));
       expect(t.workers).toHaveLength(2);
       expect(t.workers[1]!.posted).toEqual([plain]);
       // Still reported off for the idle time, not loading: nothing was asked of the new worker.
@@ -393,13 +392,35 @@ describe("the geometric stage across an unload", () => {
       expect(t.frame.restarts).toBe(0);
     });
 
-    it("the pointer that resumes the frame does not count; a new one while the resumed release loads does", () => {
-      const { t } = unloaded();
+    it("after a pointer message resumes, the stage is asked for once the resumed release is ready, once", () => {
+      const { t, heard } = unloaded();
+      heard.length = 0;
       t.pointer(0.9);
-      t.pointer(0.9);
+      expect(t.workers).toHaveLength(2);
+      expect(t.workers[1]!.posted).toEqual([plain]);
       expect(stageRequests(t.workers[1]!)).toEqual([]);
+      expect(t.frame.core!.status().geometric).toMatchObject({ state: "off", reason: "idle-unload" });
       t.loaded(t.workers[1]!);
+      expect(stageRequests(t.workers[1]!)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json" }]);
+      t.pointer(0.9);
       expect(stageRequests(t.workers[1]!)).toHaveLength(1);
+      expect(heard).toEqual([]);
+      expect(t.frame.restarts).toBe(0);
+    });
+
+    it("a pointer from before the unload does not carry over: an intent's resume asks for nothing", () => {
+      const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+      // A pointer while the first release loads is used up when it is ready.
+      t.pointer(0.9);
+      t.loaded(t.workers[0]!);
+      expect(stageRequests(t.workers[0]!)).toHaveLength(1);
+      t.send(tag({ kind: "leave" }));
+      t.run(IDLE_MS * 2, 500, true);
+      expect(t.frame.state).toBe("idle");
+      t.send(tag({ kind: "intent" }));
+      t.loaded(t.workers[1]!);
+      t.run(1_000);
+      expect(stageRequests(t.workers[1]!)).toEqual([]);
     });
 
     it("a stage the worker turned off stays off: the resumed worker is never asked for it", () => {

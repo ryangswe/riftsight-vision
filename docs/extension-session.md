@@ -395,8 +395,9 @@ message, no card shown and no look in flight. Time is counted from `ready`, by `
   loads the request without the stage. A stage that was running is reported off with the reason
   `idle-unload` while idle (to the status and to `onGeometricStatus`), and loading again on resume.
   With `geometricLoad: "pointer"` it stays reported off on resume: the resumed worker loads the
-  release without it, and waits for a new `pointer` message to load it again. The `pointer` that
-  resumes the frame does not count; a later one does, while the release loads or after.
+  release without it, and waits for a new `pointer` message to load it again. A `pointer` that
+  resumes the frame counts (the stage loads once the resumed release is ready); an `intent` that
+  resumes it does not, and a `pointer` from before the unload never carries over.
   The tilted retry is a setting of the release, not of the request: the new worker starts with it
   on, as after any restart.
 - The frame keeps the load request in effect while idle, so a remote release's files (its Blobs)

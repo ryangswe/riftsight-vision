@@ -25,8 +25,8 @@
 // With `geometricLoad: "pointer"` a worker loads its release without the geometric stage, and the
 // stage waits for the host's first `pointed()`: the session sends the worker `load-stage`, once
 // per worker, at that call when the release is ready, else as soon as it is. A call kept for a
-// release still loading does not outlast `suspend` or `stop`, so a resumed worker waits for a new
-// one; a restarted worker loads no stage either way.
+// release still loading does not outlast `suspend` or `stop`, so a resumed worker waits for a call
+// made after `resume`; a restarted worker loads no stage either way.
 //
 // With `chooseRelease` (remote/choose.ts) the page may run a remote release
 // (docs/remote-releases.md, rules 10 to 12). It is tried at most once: when the worker refuses it
