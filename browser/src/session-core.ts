@@ -72,7 +72,8 @@ export interface Shown {
   localHeight?: number;
   /** Under a reading hold only: true when the kept card's outline should not be drawn. `box`,
    *  with the outline fields, is where the card was last seen. It is set when an analysis shows the
-   *  card gone from there (another card named there, or nothing named or detected there), and when
+   *  card gone from there in `ShownHold.misses` analyses in a row (another card named there, or
+   *  nothing named or detected there), and when
    *  no recent analysis is left and none is coming (a resting pointer past its grace period on a
    *  playing video). It stays set until an analysis sees the card there again. Absent while the
    *  card is seen or its box is still detected there. */
@@ -82,7 +83,9 @@ export interface Shown {
 /** The shown card's hold: how long it survives analyses that do not see it at the pointer. */
 export interface ShownHold {
   /** Analyses in a row with nothing there before it goes. A reply with no analysis, or one too
-   *  old for the picture on screen when it comes back, is not one. */
+   *  old for the picture on screen when it comes back, is not one. Under a reading hold, analyses
+   *  in a row that show the card gone before its outline is hidden (`Shown.held`): one look that
+   *  misses a still card does not blink it. */
   misses: number;
   /** Time with no analysis seeing it before it goes, in ms. */
   maxMs: number;
@@ -98,7 +101,7 @@ export interface ShownHold {
    *  since, one that slid under a pointer at rest, or one uncovered under a pointer that only
    *  trembles inside its box, does not. The pointer leaving that
    *  area or the picture, a seek, a new source, a stop or a lost worker end it. It is marked
-   *  `held` once an analysis shows it gone, or once no recent analysis is left and none is coming
+   *  `held` once `misses` analyses in a row show it gone, or once no recent analysis is left and none is coming
    *  (`Shown.held`). In pointer mode, while it shows a card, a resting pointer is not analyzed
    *  after its grace period. */
   untilPointerLeaves?: boolean;
@@ -122,7 +125,8 @@ export interface SessionCoreDeps {
   /** Capture the picture on screen now, at a width within `analysisWidth`, and answer with
    *  `frame(requestId, …)` or `captureFailed(requestId, …)`. */
   capture(requestId: number, analysisWidth: AnalysisWidth): void;
-  /** What is shown at the pointer changed (the card, or its box). */
+  /** What is shown at the pointer changed: the card, whether its outline is drawn (`held`), or its
+   *  box by more than a look's own wobble (`STEADY_BOX`). */
   onShown?(card: Shown | null): void;
   /** Any field of the status changed. */
   onStatus?(status: SessionStatus): void;
@@ -316,7 +320,7 @@ export class SessionCore {
   private result: { analysis: FrameAnalysis; videoTimeSec: number } | null = null;
   private pointerAt: { x: number; y: number } | null = null;
   private mediaTime = 0;
-  private lastShownKey = "null";
+  private lastShown: Shown | null = null;
   private lastStatusKey = "";
   /** The card the hold keeps. Under a reading hold, `area` is the rectangle enclosing every box it
    *  was seen in at the pointer since it was first shown, which the pointer must stay on, and the
@@ -850,6 +854,7 @@ export class SessionCore {
       held.seenAt = this.deps.now();
       held.area = union(held.area, fresh.box);
       reading.gone = false;
+      reading.goneLooks = 0;
       reading.at = { ...this.pointerAt };
       reading.atFrom = this.current()?.analysis ?? null;
       if (evidence) {
@@ -866,8 +871,10 @@ export class SessionCore {
       this.held = this.newReadingHold(fresh);
       return fresh;
     }
-    if (evidence) reading.gone = this.missing(held.card);
-    else if (!reading.gone && this.current() === null && !this.scheduler.analysisActive(this.deps.now())) {
+    if (evidence) {
+      reading.goneLooks = this.missing(held.card) ? reading.goneLooks + 1 : 0;
+      reading.gone = reading.goneLooks >= Math.max(1, this.hold?.misses ?? SHOWN_HOLD.misses);
+    } else if (!reading.gone && this.current() === null && !this.scheduler.analysisActive(this.deps.now())) {
       reading.gone = true;
     }
     return reading.gone ? { ...held.card, held: true } : held.card;
@@ -876,7 +883,7 @@ export class SessionCore {
   private newReadingHold(card: Shown): NonNullable<SessionCore["held"]> {
     const analysis = this.current()?.analysis ?? null;
     const neighbors = this.neighborsIn(card.box, card).map((n) => ({ ...n, sighting: 0 }));
-    const reading: ReadingState = { neighbors, sightings: 0, evidence: analysis, gone: false, at: { ...this.pointerAt! }, atFrom: analysis };
+    const reading: ReadingState = { neighbors, sightings: 0, evidence: analysis, gone: false, goneLooks: 0, at: { ...this.pointerAt! }, atFrom: analysis };
     return { card, misses: 0, seenAt: this.deps.now(), area: card.box, reading };
   }
 
@@ -1022,12 +1029,14 @@ export class SessionCore {
     this.publishStatus();
   }
 
-  /** Report what is shown when it changed (the card, its box, or its outline). */
+  /** Report what is shown when it changed: another card or none, its outline drawn or not
+   *  (`held`), or its box moved beyond a look's own wobble on a still card (`steady`), so that a
+   *  tooltip or outline placed from the box does not jitter. */
   private publishShown(): void {
     const card = this.shown();
-    const key = card ? `${card.cardId}|${card.box.x}|${card.box.y}|${card.box.width}|${card.box.height}|${card.rotation ?? ""}|${card.localWidth ?? ""}|${card.localHeight ?? ""}|${card.held ? "held" : ""}` : "null";
-    if (key === this.lastShownKey) return;
-    this.lastShownKey = key;
+    const last = this.lastShown;
+    if (card === null ? last === null : last !== null && steady(last, card)) return;
+    this.lastShown = card;
     this.deps.onShown?.(card);
   }
 
@@ -1068,6 +1077,39 @@ interface Neighbor {
 const NEIGHBOR_SIGHTINGS = 3;
 const MAX_NEIGHBORS = 16;
 
+/** A look's box for a still card differs from the last by a few pixels. An edge that moved less
+ *  than this fraction of the card's size is not a change worth reporting; drift adds up against the
+ *  box last reported, so a card that does move is followed. */
+const STEADY_BOX = 0.05;
+/** The same for a turned card's tilt, in degrees. */
+const STEADY_TURN_DEG = 2;
+
+/** Whether `b` reports nothing new over `a`, the card last reported: the same card, its outline
+ *  drawn or not as before, and its box and outline within a look's own wobble. */
+function steady(a: Shown, b: Shown): boolean {
+  if (a.cardId !== b.cardId || (a.held === true) !== (b.held === true)) return false;
+  const w = Math.max(a.box.width, b.box.width) * STEADY_BOX;
+  const h = Math.max(a.box.height, b.box.height) * STEADY_BOX;
+  const edges = [
+    Math.abs(a.box.x - b.box.x) <= w,
+    Math.abs(a.box.x + a.box.width - (b.box.x + b.box.width)) <= w,
+    Math.abs(a.box.y - b.box.y) <= h,
+    Math.abs(a.box.y + a.box.height - (b.box.y + b.box.height)) <= h,
+  ];
+  if (edges.includes(false)) return false;
+  if (a.rotation === undefined || b.rotation === undefined) {
+    if (a.rotation !== b.rotation) return false;
+  } else if (Math.abs(a.rotation - b.rotation) > STEADY_TURN_DEG) {
+    return false;
+  }
+  return near(a.localWidth, b.localWidth) && near(a.localHeight, b.localHeight);
+}
+
+function near(a: number | undefined, b: number | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return Math.abs(a - b) <= Math.max(a, b) * STEADY_BOX;
+}
+
 /** Whether a neighbor (`id`, `box`) is the card `otherId` in `other`: about the same box, and the
  *  same card unless either was not named. */
 function sameCard(n: { cardId: string | null }, otherId: string | null, box: FractionBox, other: FractionBox, sameBoxIou: number): boolean {
@@ -1086,6 +1128,8 @@ interface ReadingState {
   evidence: FrameAnalysis | null;
   /** Whether the card is taken as gone: its outline is not drawn (`Shown.held`). */
   gone: boolean;
+  /** Analyses in a row, taken as evidence, that showed the card gone: at `ShownHold.misses` it is. */
+  goneLooks: number;
   /** Analyses that saw the kept card at the pointer since the hold began. */
   sightings: number;
   /** Where the pointer was when the kept card was last seen at it, and in which analysis: a

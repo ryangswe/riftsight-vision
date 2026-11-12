@@ -395,8 +395,8 @@ than 0.7.0 leaves it out.
     pointer, and the pointer has since moved into that box from outside it. A card that arrived since (laid on the
     kept card's spot, even partly, or after it moved away), one that slid under a pointer at
     rest, or one uncovered under a pointer that only trembles inside its box, does not.
-  - **The outline.** `shown` carries `held: true` once an analysis shows the card gone from where
-    it was (another card named there, or nothing named or detected there), and once no recent
+  - **The outline.** `shown` carries `held: true` once two analyses in a row show the card gone
+    from where it was (another card named there, or nothing named or detected there), and once no recent
     analysis is left and none is coming (a rest past the grace period on a playing video). It
     stays until an analysis sees the card there again, so it does not come and go between looks.
     Hide the outline while it is set, and keep the tooltip. A card whose box is still detected

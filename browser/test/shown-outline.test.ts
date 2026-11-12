@@ -235,6 +235,9 @@ describe("a card shown by the hold is marked held over the message", () => {
     const t = run(card(TURN), { hold: READING_HOLD });
     expect((t.shown.card as ShownCard).held).toBeUndefined();
     t.step(null);
+    // One look that misses the card does not hide its outline; the second in a row does.
+    expect((t.shownMessages().at(-1)!.card as ShownCard).held).toBeUndefined();
+    t.step(null);
     const held = t.shownMessages().at(-1)!;
     expect(held).toStrictEqual(
       tag({ kind: "shown", card: { cardId: "T-001", name: "Card One", box: { x: 0.1, y: 0.2, width: 0.2, height: 0.6 }, others: [], ...TURN, held: true } }),
