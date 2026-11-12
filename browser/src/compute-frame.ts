@@ -26,6 +26,10 @@
 //     card's details by a channel of its own (from `release.table`) has them out before the card.
 //     A card of a remote release whose id the worker confirmed carries that id (`releaseId`).
 //
+//   - A look on pointer entry (`entryLook`, on unless the extension passes false): while the
+//     content script has said `leave` and no `pointer` since, the core asks for no picture, and a
+//     load that ends under an active pointer asks at once (session-core.ts `entryLook`).
+//
 //   - With `idleUnloadMs`, a ready frame that has seen no `pointer` message, no `intent`, no shown
 //     card and no look in flight for that long ends its worker (the memory of a ready session only
 //     goes with the worker), reports the status `idle`, and its `tick` does nothing. A `pointer`
@@ -66,6 +70,11 @@ export interface ComputeFrameEnv extends Omit<WorkerSessionEnv, "capture" | "onS
    *  shown and no look in flight, and load it again on the next pointer or intent. A positive
    *  finite number; off when absent. Measured by `now()`, checked on each `tick()`. */
   idleUnloadMs?: number;
+  /** A look on pointer entry (the core's `entryLook`): no picture is asked for while the pointer
+   *  is off the picture, and a look starts as soon as it comes back to a stale picture, or as soon
+   *  as a load ends under an active pointer. On by default here (unlike a `SessionCore` made
+   *  directly); `false` turns it off. */
+  entryLook?: boolean;
 }
 
 export interface ComputeFrame {
@@ -174,12 +183,14 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
     instanceId: _instanceId,
     idleUnloadMs: _idleUnloadMs,
     keepLoadRequest: _keep,
+    entryLook: _entryLook,
     ...rest
   } = env;
 
   const ws = createWorkerSession({
     ...rest,
     keepLoadRequest: idleUnloadMs !== undefined,
+    entryLook: env.entryLook !== false,
     // The worker session makes its core before its first worker: a core exists from here on, so
     // the content script may send (a failed start still reports its status after `ready`).
     createWorker: () => {
