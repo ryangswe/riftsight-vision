@@ -18,7 +18,8 @@
     "preview:pages": "node scripts/pages-preview.mjs",
     "agreement": "node scripts/agreement.mjs",
     "test:webgpu": "node scripts/webgpu-test.mjs",
-    "user-wait": "node scripts/build.mjs && node scripts/user-wait.mjs"
+    "user-wait": "node scripts/build.mjs && node scripts/user-wait.mjs",
+    "hover-speed": "node scripts/build.mjs && node scripts/hover-speed.mjs"
   },
   "dependencies": {
     "onnxruntime-web": "1.29.0"
