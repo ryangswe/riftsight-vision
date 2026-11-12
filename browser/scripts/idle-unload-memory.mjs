@@ -7,9 +7,24 @@
 //
 //   npm run build && node scripts/idle-unload-memory.mjs --release FOLDER [--chrome PATH]
 //                         [--idle-ms 3000] [--settle-ms 4000] [--gc 1] [--late-ms 30000] [--removed 1] [--out REPORT.json]
+//                         [--geometric PATH [--geometric-load start|pointer] --gpu 1]
 //
 // `--removed 1` adds a phase that removes the frame's iframe and reads again, to tell memory the
 // frame held from memory the allocator keeps. `--late-ms` is the wait after the pressure notification.
+//
+// `--geometric PATH` loads the geometric stage too: PATH is its settings document, relative to the
+// release folder (`geometric/settings.json`). The stage needs WebGPU, so pass `--gpu 1` with it:
+// Chrome then starts with WebGPU instead of `--disable-gpu` (without it the stage reports itself
+// off). `--geometric-load pointer` passes `geometricLoad: "pointer"`, sends one `pointer` and a
+// `leave` after each `ready` (the stage then loads after the pointer), and refuses the pictures the
+// frame asks for, as a content script does once the pointer has left. With the default `start` no
+// pointer is sent. With `--geometric`, each ready phase is read once the stage is `ready` or `off`
+// (or the frame went idle first), and the report gives the stage's status at each phase and every
+// status it reported (`stage`: when the phase starts and after its read; `stageLog`, with the
+// `pointer` and `intent` messages the frame got, on the same clock). Each read first waits
+// `--settle-ms`, so with `--idle-ms` at or below it the ready phase is read after the unload; give
+// `--idle-ms` more than the stage's load time and the settle wait to read a ready stage. Without
+// these options nothing changes.
 //
 // Chrome is driven with puppeteer-core, as in user-wait.mjs (PUPPETEER_CORE_DIR, or installed in
 // this folder). Chrome is started by this script and only its own process tree is measured and
@@ -49,7 +64,7 @@ const given = {};
 for (let i = 0; i < args.length; i += 2) {
   const key = args[i]?.replace(/^--/, "");
   if (!key || args[i + 1] === undefined) {
-    console.error("Usage: node scripts/idle-unload-memory.mjs --release FOLDER [--chrome PATH] [--idle-ms N] [--settle-ms N] [--out FILE]");
+    console.error("Usage: node scripts/idle-unload-memory.mjs --release FOLDER [--chrome PATH] [--idle-ms N] [--settle-ms N] [--out FILE] [--geometric PATH [--geometric-load start|pointer] --gpu 1]");
     process.exit(2);
   }
   given[key] = args[i + 1];
@@ -59,6 +74,25 @@ if (!given.release || !chrome) {
   console.error("Needs --release FOLDER and a Chrome (--chrome PATH or CHROME=PATH).");
   process.exit(2);
 }
+const GEOMETRIC = given.geometric ?? null;
+if (GEOMETRIC !== null && (GEOMETRIC.startsWith("/") || GEOMETRIC.split(/[\\/]/).includes("..") || !inside(resolve(given.release), GEOMETRIC))) {
+  console.error("--geometric must be a path inside the release folder, relative to it.");
+  process.exit(2);
+}
+const GEOMETRIC_LOAD = given["geometric-load"] ?? "start";
+if (GEOMETRIC_LOAD !== "start" && GEOMETRIC_LOAD !== "pointer") {
+  console.error("--geometric-load must be start or pointer.");
+  process.exit(2);
+}
+if (given["geometric-load"] !== undefined && GEOMETRIC === null) {
+  console.error("--geometric-load needs --geometric.");
+  process.exit(2);
+}
+if (given.gpu !== undefined && given.gpu !== "0" && given.gpu !== "1") {
+  console.error("--gpu must be 0 or 1.");
+  process.exit(2);
+}
+const POINTER = GEOMETRIC_LOAD === "pointer";
 const IDLE_MS = Number(given["idle-ms"] ?? 3000);
 const SETTLE_MS = Number(given["settle-ms"] ?? 4000);
 const LATE_MS = Number(given["late-ms"] ?? 30_000);
@@ -93,10 +127,19 @@ const PARENT = `<!doctype html><meta charset="utf-8"><title>parent</title><scrip
 window.log = [];
 window.addEventListener("message", (e) => { if (e.data && e.data.probe === 1 && e.data.kind === "status") window.log.push({ state: e.data.state, error: e.data.error, at: performance.now() }); });
 window.addFrame = () => { const f = document.createElement("iframe"); f.src = "/frame.html"; f.hidden = true; document.body.append(f); window.frameEl = f; };
-window.say = (message) => window.frameEl.contentWindow.postMessage({ probe: 1, ...message }, location.origin);
+window.say = (message) => window.frameEl.contentWindow.postMessage({ probe: 1, ...message }, location.origin);${
+  POINTER
+    ? `
+// As a content script does once the pointer has left: every picture the frame asks for is refused.
+window.addEventListener("message", (e) => { if (e.data && e.data.probe === 1 && e.data.kind === "capture") window.say({ kind: "capture-failed", requestId: e.data.requestId, reason: "not-pointing" }); });`
+    : ""
+}
 </script>`;
 
 const FRAME = `<!doctype html><meta charset="utf-8"><script type="module">
+window.stageLog = [];
+// The pointer and intent messages the frame gets, on the same clock as the stage's statuses.
+window.addEventListener("message", (e) => { if (e.data && e.data.probe === 1 && (e.data.kind === "pointer" || e.data.kind === "intent")) window.stageLog.push({ message: e.data.kind, at: performance.now() }); });
 import { computeProtocol, DRIVER_TICK_MS, startComputeFrame } from "/lib/compute-session.js";
 const frame = startComputeFrame({
   win: window,
@@ -105,10 +148,15 @@ const frame = startComputeFrame({
   allowedParentOrigin: (origin) => origin === location.origin,
   protocol: computeProtocol("probe"),
   createWorker: () => new Worker("/lib/worker.js", { type: "module" }),
-  loadRequest: { kind: "load", releaseUrl: location.origin + "/release/release.json", wasmPaths: location.origin + "/lib/" },
+  loadRequest: { kind: "load", releaseUrl: location.origin + "/release/release.json", wasmPaths: location.origin + "/lib/"${
+    GEOMETRIC !== null ? `, geometricUrl: location.origin + "/release/" + ${JSON.stringify(GEOMETRIC)}` : ""
+  } },
   now: () => performance.now(),
-  idleUnloadMs: ${IDLE_MS},
+  idleUnloadMs: ${IDLE_MS},${POINTER ? `
+  geometricLoad: "pointer",` : ""}
+  onGeometricStatus: (s) => window.stageLog.push({ state: s.state, reason: s.reason, bytes: s.bytes, at: performance.now() }),
 });
+window.stage = () => frame.core?.status().geometric ?? null;
 setInterval(() => frame.tick(), DRIVER_TICK_MS);
 </script>`;
 
@@ -198,7 +246,7 @@ async function withChrome(run) {
     executablePath: chrome,
     headless: true,
     userDataDir: profileDir,
-    args: ["--disable-gpu", "--no-first-run", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"],
+    args: [given.gpu === "1" ? "--enable-unsafe-webgpu" : "--disable-gpu", "--no-first-run", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"],
   });
   const pid = browser.process().pid;
   try {
@@ -247,18 +295,42 @@ try {
     };
     const targets = async () => (await browserCdp.send("Target.getTargets")).targetInfos.filter((t) => t.type === "worker" || t.type === "service_worker" || t.type === "shared_worker").length;
     const phases = {};
+    // The stage's status in the frame (same origin): null when none was asked for.
+    const stage = () => tab.evaluate(() => window.frameEl.contentWindow.stage?.() ?? null);
+    const stageAt = {};
+    /** Read a phase, with the stage's status when the phase starts and after its read. */
+    const phase = async (name) => {
+      const atStart = await stage();
+      phases[name] = await read(pid);
+      stageAt[name] = { atStart, afterRead: await stage() };
+    };
+    /** With "pointer", one pointer over the picture and a leave; then, with a stage, wait until it
+     *  is ready or off, or the frame went idle first. */
+    const afterReady = async () => {
+      if (POINTER) await tab.evaluate(() => (window.say({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 0, touch: false }), window.say({ kind: "leave" })));
+      if (GEOMETRIC === null) return;
+      const began = Date.now();
+      for (;;) {
+        const s = await stage();
+        if (s && (s.state === "ready" || s.state === "off")) return;
+        if ((await states()).at(-1) === "idle") return;
+        if (Date.now() - began > 180_000) throw new Error(`the stage did not settle in 180 s: ${JSON.stringify(s)}`);
+        await sleep(100);
+      }
+    };
     await tab.evaluate(() => window.addFrame());
     await waitState("ready", 1);
     const workersWhileReady = await targets();
-    phases.ready = await read(pid);
+    await afterReady();
+    await phase("ready");
     // Idle: the frame ends its worker after IDLE_MS with no pointer.
     await waitState("idle", 1);
     // Right after the unload (the settle wait only), then after a critical memory-pressure
     // notification and a wait: macOS hands freed memory back lazily.
-    phases.idleRightAfter = await read(pid);
+    await phase("idleRightAfter");
     const workersAfterUnload = await targets();
     await purge(browserCdp);
-    phases.idle = await read(pid);
+    await phase("idle");
     // An intent loads it again; the time to ready is the page's clock from the message to the status.
     const sentAt = await tab.evaluate(() => {
       const at = performance.now();
@@ -267,12 +339,14 @@ try {
     });
     await waitState("ready", 2);
     const readyAt = await tab.evaluate(() => window.log.filter((l) => l.state === "ready")[1].at);
-    phases.reloaded = await read(pid);
+    await afterReady();
+    await phase("reloaded");
+    const stageLog = await tab.evaluate(() => window.frameEl.contentWindow.stageLog.map((l) => ({ ...l, at: Math.round(l.at) })));
     if (given.removed === "1") {
       await tab.evaluate(() => window.frameEl.remove());
       phases.frameRemoved = await read(pid);
     }
-    return { phases, workersWhileReady, workersAfterUnload, reloadMs: Math.round(readyAt - sentAt), statuses: await states(), version: await browser.version() };
+    return { phases, workersWhileReady, workersAfterUnload, reloadMs: Math.round(readyAt - sentAt), statuses: await states(), version: await browser.version(), stageAt, stageLog };
   });
   const phases = { noFrame: baseline.right, noFramePurged: baseline.purged, ...run.phases };
   const headline = mb(phases.idleRightAfter.footprint, phases.noFrame.footprint);
@@ -282,6 +356,7 @@ try {
     idleUnloadMs: IDLE_MS,
     settleMs: SETTLE_MS,
     statuses: run.statuses,
+    ...(GEOMETRIC !== null ? { geometric: GEOMETRIC, geometricLoad: GEOMETRIC_LOAD, stage: run.stageAt, stageLog: run.stageLog } : {}),
     workerTargets: { whileReady: run.workersWhileReady, afterUnload: run.workersAfterUnload },
     pressureThenWaitMs: LATE_MS,
     memoryMb: phases,

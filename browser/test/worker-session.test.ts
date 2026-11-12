@@ -907,7 +907,7 @@ describe("geometricLoad", () => {
     expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "c".repeat(64) }]);
   });
 
-  it("\"pointer\": a pointer kept for a release without a stage is spent when it is ready", () => {
+  it("\"pointer\": a pointer while a release without a stage loads sends the worker nothing beyond its load", () => {
     const { session, out } = harness({ geometricLoad: "pointer" });
     session.pointed();
     loaded(out.workers[0]!);
