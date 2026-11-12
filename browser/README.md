@@ -1454,7 +1454,8 @@ npm run hover-speed -- --chrome "$CHROME" --release /tmp/toy/release --clip /tmp
 "y", "expect", "scene"? }], "slowPoint"?, "pairs"?: [{ "a": {...}, "b": {...}, "scene"? }] }`), `--load play|hover`, `--options FILE`
 (`{ "frame": {...}, "load": {...}, "stage": "none|ready|off|failed" }`: extra `startComputeFrame`
 options and load-request fields such as `geometricUrl`), `--scenarios`, `--count`, `--h5-count`,
-`--gaps`, `--backend auto|wasm`, `--smoke`, `--expect-entry-look`, `--entry-ms`, `--limit`, `--out`.
+`--scenes FILE --art FOLDER`, `--gaps`, `--rest-ms` (H6, 2000 by default), `--backend auto|wasm`,
+`--smoke`, `--expect-entry-look`, `--entry-ms`, `--limit`, `--out`, `--chrome`, `--headed`.
 `npm run hover-speed -- --help` lists them.
 
 **Scenarios** (`--count` hovers each, 20 by default):
@@ -1489,8 +1490,9 @@ move: the frame reports when it posts `load` or `load-stage` to the worker and w
 `pointer`, and the page times the report's arrival, so each carries a few ms of latency. A field is null when its event came before this hover's
 move (for example a stage made ready at play), and the row's `stage` says its state at the move.
 
-**The stage is pinned.** With a stage in `--options` (or `"stage"` set), H2 waits for it to reach
-the intended state and fails the run when it reaches another; each row records the stage's state
+**The stage is pinned.** With a stage in `--options` (or `"stage"` set), every scenario but H1
+waits for it to reach the intended state, and the run ends with exit code 2
+(an error) when it reaches another; each row records the stage's state
 at the hover. The report records the backend, Chrome, the machine and the toolkit commit.
 
 When H5 did not run, the two entry-look gates are reported as not applicable (`detail.applicable` false) and do not fail.

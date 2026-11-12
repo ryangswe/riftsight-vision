@@ -7,8 +7,9 @@
 //
 //   npm run hover-speed -- --release FOLDER --clip FILE --rests FILE [--load play|hover]
 //        [--options FILE] [--scenes FILE --art FOLDER] [--scenarios H1,H2,H2P,H5,H6] [--count 20]
-//        [--h5-count N] [--gaps 1000,3000,12000] [--backend auto|wasm] [--smoke]
+//        [--h5-count N] [--rest-ms 2000] [--gaps 1000,3000,12000] [--backend auto|wasm] [--smoke]
 //        [--expect-entry-look] [--entry-ms 50] [--limit 10000] [--out REPORT.json] [--chrome PATH]
+//        [--headed]
 //
 // README.md, "Measuring hover speed", has the scenarios, the definition of cold and the gates.
 // Exit code: 0 for a completed run, 1 when a hard gate fails, 2 on an error. Elapsed times are
