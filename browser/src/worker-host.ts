@@ -3,9 +3,10 @@
 // can be tested: worker.ts gives it the real loaders and `postMessage`.
 //
 // The worker loads one release when told to, then answers each frame it is sent with what the
-// pipeline found. The geometric stage loads after the release, while frames are already
-// analyzed without it, and joins between two frames. It stays off where WebGPU is missing and
-// when any part fails to load; it is turned off for the rest of the session when it fails
+// pipeline found. The geometric stage loads after the release (with the `load` request, or later
+// on its own `load-stage` request), while frames are already analyzed without it, and joins
+// between two frames. It stays off where WebGPU is missing and when any part fails to load; it
+// is turned off for the rest of the session when it fails
 // during a frame (that frame is answered without it), when its GPU device is lost, and when the
 // watchdog trips. The tilted retry comes with the release when its document turns it on, and is
 // turned off for the session in the same two ways: a failure during a frame, or its own watchdog
@@ -71,6 +72,8 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
   let pendingStage: GeometricStage | null = null;
   /** Once off for the session, the stage never comes back. */
   let geometricOff = false;
+  /** A stage was asked for (by `load` or `load-stage`): it is loaded at most once. */
+  let stageAsked = false;
   /** Whether the watchdog may turn the stage off (the load request's `geometricWatchdog`). */
   let watchdogOn = true;
   /** The tilted retry's watchdog, once a release that turns it on has loaded; whether it may
@@ -231,12 +234,23 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
           },
           cards: result.cards,
         });
-        if (request.geometricUrl !== undefined) await loadStage(result, request.geometricUrl, request.geometricManifestSha256, request.geometricDebug === true);
+        if (request.geometricUrl !== undefined) {
+          stageAsked = true;
+          await loadStage(result, request.geometricUrl, request.geometricManifestSha256, request.geometricDebug === true);
+        }
       })
       .catch((error: unknown) => {
         if (loaded) return;
         deps.post(failed(error instanceof ReleaseError ? error.reason : `unexpected error while loading (${String(error)})`));
       });
+  }
+
+  /** The stage on a release already loaded without one. A frame in flight is not touched: the
+   *  stage waits for its end (`settleStage`). */
+  async function laterStage(request: Extract<WorkerRequest, { kind: "load-stage" }>): Promise<void> {
+    if (!loaded || stageAsked || geometricOff) return;
+    stageAsked = true;
+    await loadStage(loaded, request.geometricUrl, request.geometricManifestSha256, request.geometricDebug === true);
   }
 
   function frameResult(
@@ -310,6 +324,7 @@ export function createWorkerHost<D extends VoteDevice>(deps: WorkerHostDeps<D>):
     async handle(request: WorkerRequest): Promise<void> {
       if (request.kind === "ping") deps.post({ kind: "pong" });
       else if (request.kind === "load") await load(request);
+      else if (request.kind === "load-stage") await laterStage(request);
       else if (request.kind === "frame") await frame(request);
     },
   };

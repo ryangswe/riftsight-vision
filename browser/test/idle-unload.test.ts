@@ -353,6 +353,75 @@ describe("the geometric stage across an unload", () => {
     expect(t.frame.core!.status().geometric).toMatchObject({ state: "off", reason: "watchdog" });
     expect(heard).toEqual([]);
   });
+
+  describe("with geometricLoad \"pointer\"", () => {
+    const stageRequests = (w: FakeWorker) => w.posted.filter((m) => m.kind === "load-stage");
+    const plain: LoadRequest = { ...bundledLoad };
+    /** Loaded, the stage asked for at the first pointer and ready, the look answered, then idle. */
+    function unloaded() {
+      const heard: Array<[string, string | null]> = [];
+      const t = setup({ loadRequest: staged, geometricLoad: "pointer", onGeometricStatus: (s) => void heard.push([s.state, s.reason]) });
+      t.loaded(t.workers[0]!);
+      t.pointer(0.9);
+      expect(stageRequests(t.workers[0]!)).toHaveLength(1);
+      t.workers[0]!.reply({ kind: "geometric-status", state: "loading", reason: null, bytes: null });
+      t.workers[0]!.reply(stageReply("ready"));
+      t.answerLook(t.workers[0]!);
+      t.send(tag({ kind: "leave" }));
+      t.run(IDLE_MS * 2, 500, true);
+      expect(t.frame.state).toBe("idle");
+      return { t, heard };
+    }
+
+    it.each(["a pointer message", "an intent message"])("after %s resumes, the stage waits for the next pointer once ready", (how) => {
+      const { t, heard } = unloaded();
+      heard.length = 0;
+      if (how === "a pointer message") t.pointer(0.9);
+      else t.send(tag({ kind: "intent" }));
+      expect(t.workers).toHaveLength(2);
+      expect(t.workers[1]!.posted).toEqual([plain]);
+      // Still reported off for the idle time, not loading: nothing was asked of the new worker.
+      expect(t.frame.core!.status().geometric).toMatchObject({ state: "off", reason: "idle-unload" });
+      t.loaded(t.workers[1]!);
+      t.run(1_000);
+      expect(stageRequests(t.workers[1]!)).toEqual([]);
+      t.pointer(0.9);
+      expect(stageRequests(t.workers[1]!)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json" }]);
+      t.pointer(0.9);
+      expect(stageRequests(t.workers[1]!)).toHaveLength(1);
+      expect(heard).toEqual([]);
+      expect(t.frame.restarts).toBe(0);
+    });
+
+    it("a stage the worker turned off stays off: the resumed worker is never asked for it", () => {
+      const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+      t.loaded(t.workers[0]!);
+      t.pointer(0.9);
+      t.workers[0]!.reply(stageReply("off", "watchdog"));
+      t.answerLook(t.workers[0]!);
+      t.send(tag({ kind: "leave" }));
+      t.run(IDLE_MS * 2, 500, true);
+      t.pointer(0.9);
+      expect(t.workers[1]!.posted).toEqual([plainLoad(staged)]);
+      t.loaded(t.workers[1]!);
+      t.pointer(0.9);
+      expect(stageRequests(t.workers[1]!)).toEqual([]);
+      expect(t.frame.core!.status().geometric).toMatchObject({ state: "off", reason: "watchdog" });
+    });
+
+    it("unloads with the stage never asked for, and resumes with it still waiting", () => {
+      const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
+      t.loaded(t.workers[0]!);
+      t.run(IDLE_MS * 2);
+      expect(t.frame.state).toBe("idle");
+      expect(stageRequests(t.workers[0]!)).toEqual([]);
+      t.send(tag({ kind: "intent" }));
+      t.loaded(t.workers[1]!);
+      expect(t.frame.core!.status().geometric).toBe(null);
+      t.pointer(0.9);
+      expect(stageRequests(t.workers[1]!)).toHaveLength(1);
+    });
+  });
 });
 
 describe("what the frame holds (item: remote files)", () => {

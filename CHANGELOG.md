@@ -74,6 +74,15 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Browser: `startComputeFrame({ geometricLoad: "pointer" })` (also an option of
+  `createWorkerSession`) loads the geometric stage when the viewer points at the picture instead
+  of with the release. The worker loads the release without the stage, and the first `pointer`
+  message after the release is ready has it load the stage, by a new worker request, `load-stage`;
+  after an idle unload and resume the stage waits for a `pointer` again. A frame made when a video
+  plays then neither downloads nor holds the stage's index until the viewer points at it, and the
+  looks until the stage is ready run without it. A look in flight when the stage is asked for is
+  answered without it. No message is added between the two frames and `PROTOCOL_VERSION` stays 2.
+  The default, `"start"`, sends the worker the same messages as before.
 - Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
   stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
   can finish reading it after a player has moved the card. A card laid on its spot later, or one

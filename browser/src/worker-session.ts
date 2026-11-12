@@ -22,6 +22,11 @@
 // off for the rest of the session (resume loads the plain request). The request in effect is kept
 // only with `keepLoadRequest`.
 //
+// With `geometricLoad: "pointer"` a worker loads its release without the geometric stage, and the
+// stage waits for the host's first `pointed()` once that release is ready: the session then sends
+// the worker `load-stage`, once per worker. A resumed worker waits again; a restarted one loads no
+// stage either way.
+//
 // With `chooseRelease` (remote/choose.ts) the page may run a remote release
 // (docs/remote-releases.md, rules 10 to 12). It is tried at most once: when the worker refuses it
 // (rule 10), loads another id (rule 11) or never starts, a new worker loads the bundled release
@@ -57,6 +62,26 @@ export function plainLoad(request: LoadRequest): LoadRequest {
   return plain;
 }
 
+/** When the geometric stage of a load request is loaded: with the release ("start"), or at the
+ *  host's first `pointed()` after the release is ready ("pointer"). */
+export type GeometricLoad = "start" | "pointer";
+
+/** The load request without the stage, and the stage as its own request: what a worker gets
+ *  with `geometricLoad: "pointer"`. Null without a stage. */
+function splitStage(request: LoadRequest): { load: LoadRequest; stage: Extract<WorkerRequest, { kind: "load-stage" }> } | null {
+  const { geometricUrl, geometricManifestSha256, geometricDebug, ...load } = request;
+  if (geometricUrl === undefined) return null;
+  return {
+    load,
+    stage: {
+      kind: "load-stage",
+      geometricUrl,
+      ...(geometricManifestSha256 !== undefined ? { geometricManifestSha256 } : {}),
+      ...(geometricDebug !== undefined ? { geometricDebug } : {}),
+    },
+  };
+}
+
 /** The release in effect. */
 export interface ReleaseInEffect {
   /** "choosing" while `chooseRelease` decides. */
@@ -81,6 +106,10 @@ export interface WorkerSessionEnv {
   measuredPacing?: MeasuredPacingOption;
   /** `SessionOptions.geometricScope`; "all" when absent. */
   geometricScope?: GeometricScope;
+  /** When a load request's geometric stage loads: "start" (the default) with the release;
+   *  "pointer" at the first `pointed()` after the release is ready, and again after each `resume`.
+   *  Until then frames are analyzed without it and its status is not "loading". */
+  geometricLoad?: GeometricLoad;
   /** Hold a shown card through short gaps (`SHOWN_HOLD`); off when absent. */
   hold?: ShownHold;
   /** True: named cards follow their outline (`SessionOptions.rotatedOutlines`). */
@@ -126,6 +155,9 @@ export interface WorkerSession {
   readonly release: ReleaseInEffect;
   /** Call every `DRIVER_TICK_MS`. */
   tick(): void;
+  /** The viewer pointed at the picture. With `geometricLoad: "pointer"`, the first call after the
+   *  release is ready asks the worker for the geometric stage; otherwise it does nothing. */
+  pointed(): void;
   /** The worker was ended by `suspend` and `resume` has not been called. */
   readonly suspended: boolean;
   /** End the worker to give its memory back, keeping the core and the release in effect; false
@@ -147,6 +179,9 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
   // Before `chooseRelease`, which builds the core later: a bad share throws here, to the caller.
   resolveMeasuredPacing(env.measuredPacing);
   resolveGeometricScope(env.geometricScope, env.mode);
+  const geometricLoad = env.geometricLoad ?? "start";
+  if (geometricLoad !== "start" && geometricLoad !== "pointer") throw new RangeError(`createWorkerSession: geometricLoad must be "start" or "pointer": ${String(geometricLoad)}`);
+  const stageWithRelease = geometricLoad === "start";
   let worker: WorkerLike | null = null;
   let core: SessionCore | null = null;
   let restarts = 0;
@@ -166,6 +201,9 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
   let resuming = false;
   /** The pointer id of the remote release in effect (for the log line of a restart). */
   let remotePointer: string | null = null;
+  /** With `geometricLoad: "pointer"`: the stage the current worker's request carries, until
+   *  `pointed()` sends it. */
+  let stageWaiting: Extract<WorkerRequest, { kind: "load-stage" }> | null = null;
   const release: ReleaseInEffect = { source: env.chooseRelease ? "choosing" : "bundled", id: null, reason: null, table: null };
 
   const decision = (d: Pick<ReleaseDecision, "source" | "reason" | "pointer"> & Partial<ReleaseDecision>): void => {
@@ -192,7 +230,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
         ...(env.rotatedOutlines ? { rotatedOutlines: true } : {}),
         ...(env.entryLook !== undefined ? { entryLook: env.entryLook } : {}),
         ...(env.geometricScope === "focus" ? { geometricScope: "focus" as const } : {}),
-        geometric: request.geometricUrl !== undefined,
+        geometric: stageWithRelease && request.geometricUrl !== undefined,
       },
     );
 
@@ -262,7 +300,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     decision({ source: "bundled", reason, pointer: t.pointer.id, reused: t.reused, downloaded: t.downloaded, ms: t.ms });
     const request = t.fallback ?? env.loadRequest;
     // The stage's status and the load's progress follow the request now loading.
-    core?.reloading({ geometric: request.geometricUrl !== undefined });
+    core?.reloading({ geometric: stageWithRelease && request.geometricUrl !== undefined });
     startOrFail(request);
   };
 
@@ -317,8 +355,11 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
   };
 
   const startWorker = (request: LoadRequest): void => {
+    stageWaiting = null;
     const w = env.createWorker();
     if (env.keepLoadRequest) requestInEffect = request;
+    // The request in effect keeps its stage: a resume splits it again.
+    const split = stageWithRelease ? null : splitStage(request);
     w.onmessage = (event) => {
       if (w === worker) onReply(event.data);
     };
@@ -326,7 +367,8 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       if (w === worker) onWorkerError(event);
     };
     worker = w;
-    w.postMessage(request);
+    w.postMessage(split ? split.load : request);
+    stageWaiting = split ? split.stage : null;
   };
 
   /** A worker that cannot even be made: recognition is off for this page, as when a load fails. */
@@ -382,6 +424,13 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     tick() {
       if (!stopped && !suspended) core?.tick();
     },
+    pointed() {
+      // Only to the worker that loaded the release now ready; a remote release still tried is not.
+      if (!stageWaiting || stopped || suspended || trying || !worker || core?.status().state !== "ready") return;
+      const request = stageWaiting;
+      stageWaiting = null;
+      worker.postMessage(request);
+    },
     suspend() {
       if (stopped || suspended || trying || !worker || !requestInEffect || core?.status().state !== "ready") return false;
       suspended = true;
@@ -396,8 +445,9 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       if (stopped || !suspended || !resumeRequest) return;
       suspended = false;
       resuming = true;
-      // The stage loads again with the request, or stays off.
-      if (resumeRequest.geometricUrl !== undefined) core?.reloading({ geometric: true });
+      // The stage loads again with the request (or, with "pointer", at the next pointer once
+      // ready), or stays off.
+      if (stageWithRelease && resumeRequest.geometricUrl !== undefined) core?.reloading({ geometric: true });
       startOrFail(resumeRequest);
     },
     stop() {
