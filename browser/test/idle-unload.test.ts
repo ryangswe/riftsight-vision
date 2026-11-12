@@ -393,6 +393,15 @@ describe("the geometric stage across an unload", () => {
       expect(t.frame.restarts).toBe(0);
     });
 
+    it("the pointer that resumes the frame does not count; a new one while the resumed release loads does", () => {
+      const { t } = unloaded();
+      t.pointer(0.9);
+      t.pointer(0.9);
+      expect(stageRequests(t.workers[1]!)).toEqual([]);
+      t.loaded(t.workers[1]!);
+      expect(stageRequests(t.workers[1]!)).toHaveLength(1);
+    });
+
     it("a stage the worker turned off stays off: the resumed worker is never asked for it", () => {
       const t = setup({ loadRequest: staged, geometricLoad: "pointer" });
       t.loaded(t.workers[0]!);

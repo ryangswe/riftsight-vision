@@ -604,7 +604,6 @@ describe("a compute frame on a worker host", () => {
 
   it("with \"pointer\", opens no index before the first pointer once ready, and one after it", async () => {
     const f = frameOnHost({ geometricLoad: "pointer" });
-    f.pointer();
     await f.settle();
     expect(f.frame.state).toBe("ready");
     for (let i = 0; i < 8; i++) {
@@ -621,6 +620,15 @@ describe("a compute frame on a worker host", () => {
     f.pointer();
     await f.settle();
     expect(f.opens()).toBe(1);
+  });
+
+  it("with \"pointer\", a pointer while the release loads opens the index once it is ready", async () => {
+    const f = frameOnHost({ geometricLoad: "pointer" });
+    f.pointer();
+    expect(f.opens()).toBe(0);
+    await f.settle();
+    expect(f.opens()).toBe(1);
+    expect(f.frame.core!.status().geometric).toMatchObject({ state: "ready" });
   });
 
   it("by default opens the index with the release, before any pointer", async () => {

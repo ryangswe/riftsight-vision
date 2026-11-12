@@ -352,11 +352,13 @@ option `geometricLoad` says when it loads:
 - `"start"` (the default, and the behavior before the option): with the release. Its status reads
   `loading` from the start.
 - `"pointer"`: the worker loads the release without the stage, and the first `pointer` message
-  after the release is ready has the worker load it. A frame made when a video plays then neither
-  downloads nor holds the stage's index until the viewer points at the picture. Until then its
-  status is `null` (or stays `off` with the reason `idle-unload` after a resume); it reads
-  `loading` once the worker has the request. A `pointer` that arrives while the release
-  loads does not count, and an `intent`, a `presented` or a `hello` never does.
+  has the worker load it: at once when the release is ready, or as soon as it is when the
+  `pointer` arrived while it loaded (a pointer resting over the video through the load). A frame
+  made when a video plays then neither downloads nor holds the stage's index until the viewer
+  points at the picture. Until then its status is `null` (or stays `off` with the reason
+  `idle-unload` after a resume); it reads `loading` once the worker has the request. An
+  `intent`, a `presented` or a `hello` never counts, and a `pointer` kept for a load is dropped
+  when the frame stops.
 - With `"pointer"`, the looks after that `pointer` run without the stage for as long as it takes
   to load, as looks do whenever it is still loading. A look the worker is analyzing when the
   request arrives is answered without the stage, and the stage joins after it.
@@ -393,8 +395,8 @@ message, no card shown and no look in flight. Time is counted from `ready`, by `
   loads the request without the stage. A stage that was running is reported off with the reason
   `idle-unload` while idle (to the status and to `onGeometricStatus`), and loading again on resume.
   With `geometricLoad: "pointer"` it stays reported off on resume: the resumed worker loads the
-  release without it, and the first `pointer` message after that release is ready has the worker
-  load it again, as after the frame started.
+  release without it, and waits for a new `pointer` message to load it again. The `pointer` that
+  resumes the frame does not count; a later one does, while the release loads or after.
   The tilted retry is a setting of the release, not of the request: the new worker starts with it
   on, as after any restart.
 - The frame keeps the load request in effect while idle, so a remote release's files (its Blobs)

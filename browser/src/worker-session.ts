@@ -23,9 +23,10 @@
 // only with `keepLoadRequest`.
 //
 // With `geometricLoad: "pointer"` a worker loads its release without the geometric stage, and the
-// stage waits for the host's first `pointed()` once that release is ready: the session then sends
-// the worker `load-stage`, once per worker. A resumed worker waits again; a restarted one loads no
-// stage either way.
+// stage waits for the host's first `pointed()`: the session sends the worker `load-stage`, once
+// per worker, at that call when the release is ready, else as soon as it is. A call kept for a
+// release still loading does not outlast `suspend` or `stop`, so a resumed worker waits for a new
+// one; a restarted worker loads no stage either way.
 //
 // With `chooseRelease` (remote/choose.ts) the page may run a remote release
 // (docs/remote-releases.md, rules 10 to 12). It is tried at most once: when the worker refuses it
@@ -107,7 +108,8 @@ export interface WorkerSessionEnv {
   /** `SessionOptions.geometricScope`; "all" when absent. */
   geometricScope?: GeometricScope;
   /** When a load request's geometric stage loads: "start" (the default) with the release;
-   *  "pointer" at the first `pointed()` after the release is ready, and again after each `resume`.
+   *  "pointer" at the first `pointed()` (or, for a call while the release loads, once it is ready),
+   *  and again after each `resume`.
    *  Until then frames are analyzed without it and its status is not "loading". */
   geometricLoad?: GeometricLoad;
   /** Hold a shown card through short gaps (`SHOWN_HOLD`); off when absent. */
@@ -155,8 +157,9 @@ export interface WorkerSession {
   readonly release: ReleaseInEffect;
   /** Call every `DRIVER_TICK_MS`. */
   tick(): void;
-  /** The viewer pointed at the picture. With `geometricLoad: "pointer"`, the first call after the
-   *  release is ready asks the worker for the geometric stage; otherwise it does nothing. */
+  /** The viewer pointed at the picture. With `geometricLoad: "pointer"`, the first call asks the
+   *  worker for the geometric stage: at once when the release is ready, else as soon as it is
+   *  (not after `suspend` or `stop`). Otherwise it does nothing. */
   pointed(): void;
   /** The worker was ended by `suspend` and `resume` has not been called. */
   readonly suspended: boolean;
@@ -204,6 +207,19 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
   /** With `geometricLoad: "pointer"`: the stage the current worker's request carries, until
    *  `pointed()` sends it. */
   let stageWaiting: Extract<WorkerRequest, { kind: "load-stage" }> | null = null;
+  /** `pointed()` was called while the release loaded: the stage goes once it is ready. */
+  let pointedWhileLoading = false;
+
+  /** Send the waiting stage to a worker whose release is ready; false when it cannot go yet. */
+  const sendStage = (): boolean => {
+    // Only to the worker that loaded the release now ready; a remote release still tried is not.
+    if (!stageWaiting || stopped || suspended || trying || !worker || core?.status().state !== "ready") return false;
+    const request = stageWaiting;
+    stageWaiting = null;
+    pointedWhileLoading = false;
+    worker.postMessage(request);
+    return true;
+  };
   const release: ReleaseInEffect = { source: env.chooseRelease ? "choosing" : "bundled", id: null, reason: null, table: null };
 
   const decision = (d: Pick<ReleaseDecision, "source" | "reason" | "pointer"> & Partial<ReleaseDecision>): void => {
@@ -253,6 +269,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     // before the core publishes its failed status, so a host that reads `stopped` then sees it.
     if (reply.kind === "release-status" && !reply.ok) turnOff();
     core.fromWorker(reply);
+    if (reply.kind === "release-status" && pointedWhileLoading) sendStage();
   };
 
   /** Recognition is off for good: the worker is ended and the session stopped. The caller then
@@ -425,15 +442,13 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       if (!stopped && !suspended) core?.tick();
     },
     pointed() {
-      // Only to the worker that loaded the release now ready; a remote release still tried is not.
-      if (!stageWaiting || stopped || suspended || trying || !worker || core?.status().state !== "ready") return;
-      const request = stageWaiting;
-      stageWaiting = null;
-      worker.postMessage(request);
+      if (sendStage() || stopped || suspended || !stageWaiting) return;
+      if (core?.status().state === "loading") pointedWhileLoading = true;
     },
     suspend() {
       if (stopped || suspended || trying || !worker || !requestInEffect || core?.status().state !== "ready") return false;
       suspended = true;
+      pointedWhileLoading = false;
       resumeRequest = geometricOff ? plainLoad(requestInEffect) : requestInEffect;
       const ended = worker;
       worker = null;
@@ -452,6 +467,7 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     },
     stop() {
       stopped = true;
+      pointedWhileLoading = false;
       trying = null;
       worker?.terminate();
       worker = null;

@@ -77,8 +77,9 @@ break the public surface; this file names each break and how to migrate.
 - Browser: `startComputeFrame({ geometricLoad: "pointer" })` (also an option of
   `createWorkerSession`) loads the geometric stage when the viewer points at the picture instead
   of with the release. The worker loads the release without the stage, and the first `pointer`
-  message after the release is ready has it load the stage, by a new worker request, `load-stage`;
-  after an idle unload and resume the stage waits for a `pointer` again. A frame made when a video
+  message has it load the stage, by a new worker request, `load-stage`, once the release is ready
+  (a `pointer` that arrived while it loaded counts); after an idle unload and resume the stage
+  waits for a new `pointer` again. A frame made when a video
   plays then neither downloads nor holds the stage's index until the viewer points at it, and the
   looks until the stage is ready run without it. A look in flight when the stage is asked for is
   answered without it. No message is added between the two frames and `PROTOCOL_VERSION` stays 2.
