@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MEASURED_PACING_SHARE } from "../src/cadence.js";
+import { MEASURED_PACING_SHARE, MeasuredPacer } from "../src/cadence.js";
 import { DRIVER_TICK_MS, FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import type { WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
@@ -44,6 +44,8 @@ interface Setup {
   /** A look with the focus scope verifies nothing beyond A. The worker does not answer so today
    *  (a focus look verifies the pointer's group); this stands in for a face that stays unnamed. */
   neverVerify?: boolean;
+  /** The recognizer's execution provider (default "webgpu"). */
+  ep?: "webgpu" | "wasm";
 }
 
 /**
@@ -80,7 +82,7 @@ function session(setup: Setup) {
     },
     options,
   );
-  core.fromWorker({ kind: "release-status", ok: true, error: null, release: { analysisWidth: { min: 720, max: 1920 }, hoverMaxAgeMs: 2000, recognizer: { ep: "webgpu" } } as never, cards: [] });
+  core.fromWorker({ kind: "release-status", ok: true, error: null, release: { analysisWidth: { min: 720, max: 1920 }, hoverMaxAgeMs: 2000, recognizer: { ep: setup.ep ?? "webgpu" } } as never, cards: [] });
   if (setup.stage === "ready") core.fromWorker({ kind: "geometric-status", state: "ready", reason: null, bytes: 10 });
   const bitmap = { width: 1000, height: 500, close() {} } as unknown as ImageBitmap;
 
@@ -253,9 +255,28 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     // The share is 0.25 (MEASURED_PACING_SHARE): 900 ms looks at most every 3600 ms, so at most
     // the share of the window plus the one look its edge can cut.
     expect(looks * 900).toBeLessThanOrEqual(MEASURED_PACING_SHARE * (to - from) + 900);
-    // Spaced at least the pacer's spacing apart, from the start.
+    // Spaced at least the pacer's spacing apart over the whole sweep (by then 3 or more analyses
+    // have been measured and the cadence is paced too).
     const all = s.asked().filter((a) => a >= from);
     for (let i = 1; i < all.length; i++) expect(all[i]! - all[i - 1]!).toBeGreaterThanOrEqual(900 / MEASURED_PACING_SHARE);
+  });
+
+  it("with measured pacing, the spacing applies from the first measured analysis", () => {
+    // The pacer's own figure after one analysis of 900 ms.
+    const pacer = new MeasuredPacer(MEASURED_PACING_SHARE);
+    expect(pacer.spacingMs()).toBe(0);
+    pacer.record(900);
+    expect(pacer.spacingMs()).toBe(900 / MEASURED_PACING_SHARE);
+    // In a session on WebAssembly (a fixed 1000 ms cadence until 3 analyses are measured, so the
+    // staleness rule needs 1000 ms of video): the first look, asked at 10 ms, replies at 910 ms.
+    // Moves onto the unverified faces right after it, before the frame is stale or the cadence is
+    // due, ask nothing: the playing relook waits 900 / share after the first look, not the bare
+    // HOVER_TRIGGER_MIN_GAP_MS.
+    const s = session({ stage: "ready", options: { geometricScope: "focus", measuredPacing: true }, latencyMs: 900, ep: "wasm" });
+    s.run(980, [[10, X.A], ...sweep(920, 980, 10, [X.B, X.C])]);
+    expect(s.asked()).toEqual([10]);
+    const relooks = s.sent.filter((r) => r.focus && r.focus.x !== 200);
+    expect(relooks).toEqual([]);
   });
 
   it("with measured pacing and a fast worker, the move still asks in the same call", () => {

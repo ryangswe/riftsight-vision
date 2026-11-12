@@ -336,8 +336,10 @@ all of these hold:
   the picture was last answered;
 - the last look of any kind started at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) ago, or, with
   `measuredPacing`, the median measured analysis time divided by the share if that is longer
-  (once one analysis has been measured; at most 4000 ms), so these looks keep the pacer's share of
-  time spent analyzing.
+  (from the first measured analysis; at most 4000 ms), so these looks keep the pacer's share of
+  time spent analyzing up to that 4000 ms ceiling. Above it (an analysis longer than the share of
+  4000 ms, 1000 ms at the default 0.25) they come every 4000 ms and take a larger share, as the
+  cadence does at its own ceiling.
 
 It is checked on each `pointer` message, on the reply of a look, and on each tick. So a pointer
 that lands on the face while a look is in flight, and rests there, gets its look when that look

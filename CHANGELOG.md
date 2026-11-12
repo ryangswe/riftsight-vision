@@ -18,7 +18,8 @@ break the public surface; this file names each break and how to migrate.
   each tick, so a pointer that lands during a look in flight and rests gets its look when that
   look returns. It keeps every existing bound: one look in flight, at least
   `HOVER_TRIGGER_MIN_GAP_MS` since the last look of any kind (or, with `measuredPacing`, the
-  median measured analysis time divided by the share, if longer:
+  median measured analysis time divided by the share, if longer, from the first measured
+  analysis and at most 4000 ms:
   `FrameScheduler.setRelookSpacingMs`, `MeasuredPacer.spacingMs`), the retry back-off, a refused
   capture, the pointer's grace period, the page's gate and the `entryLook` rule. A still
   picture, scope `"all"`, a session with no stage or a stage still loading, and the `"always-on"`
