@@ -388,7 +388,9 @@ function handler(role) {
     else if (role === "frame" && path.startsWith("/release/")) file = inside(resolve(given.release), path.slice("/release/".length));
     else if (path.startsWith("/lib/")) file = inside(dist, path.slice("/lib/".length));
     if (!file || !existsSync(file) || !statSync(file).isFile()) return response.writeHead(404).end("not found\n");
-    response.writeHead(200, { "content-type": TYPES[extname(file).toLowerCase()] ?? "application/octet-stream", "cache-control": "no-store" });
+    // With its size: a body sent without one (chunked) sometimes never finished reaching a worker
+    // in headless Chrome, and the release load waited until the run timed out.
+    response.writeHead(200, { "content-type": TYPES[extname(file).toLowerCase()] ?? "application/octet-stream", "cache-control": "no-store", "content-length": statSync(file).size });
     createReadStream(file).pipe(response);
   };
 }
