@@ -319,7 +319,9 @@ describe("whenIdle (row 8)", () => {
 describe("a frame made at play and dropped when idle", () => {
   it("remove() runs once, the play trigger does not fire again, and the next trusted move over the video makes the frame", () => {
     const p = page();
-    const playVideo = Object.assign(fakeTarget(), { paused: true, ended: false });
+    // The video the control watches: registered while paused, then it plays.
+    const playVideo = p.video;
+    playVideo.paused = true;
     const trigger = vi.fn();
     loadWhen(playVideo as unknown as HTMLVideoElement, "play", trigger);
     playVideo.paused = false;
@@ -333,7 +335,7 @@ describe("a frame made at play and dropped when idle", () => {
     playVideo.fire("playing");
     expect(trigger).toHaveBeenCalledTimes(1);
     expect(p.whenIdle.make).not.toHaveBeenCalled();
-    expect(p.frames.flatMap((f) => f.got)).toEqual([]);
+    expect(p.frames).toHaveLength(1);
     p.move({ isTrusted: false });
     expect(p.whenIdle.make).not.toHaveBeenCalled();
     p.move();

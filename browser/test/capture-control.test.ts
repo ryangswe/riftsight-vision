@@ -246,7 +246,7 @@ describe("the message guard", () => {
 });
 
 describe("a frame made at play holds no capture authority", () => {
-  it("a request from the right frame, accepted by every other check, is refused with NOT_POINTING until a trusted pointer arrives", async () => {
+  it("a request from the right frame, accepted by every other check, is refused with NOT_POINTING when no pointer holds authority", async () => {
     // The frame is the one the control knows, trusted, with the right origin, tag and request; the
     // video is playing, attached and connected, and a card is even on show. Only the gate refuses.
     const h = connected();
@@ -273,7 +273,7 @@ describe("a frame made at play holds no capture authority", () => {
     expect(h.pendingBitmaps).toEqual([]);
   });
 
-  it("makes no picture and sends no capture-related message when the frame is made by loadWhen and nobody points", async () => {
+  it("sends no frame or pointer message and takes no picture when the frame is made by loadWhen and nobody points", async () => {
     const h = setup();
     const made = vi.fn(() => {
       h.control.attach(asVideo(h.video));

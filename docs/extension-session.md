@@ -508,29 +508,31 @@ const handle = loadWhen(video, "play", () => document.documentElement.append(ifr
 ### When to make the frame
 
 Recommended: make the compute frame when the video plays, not at the first pointer move.
-`loadWhen(video, "play", make)` does that (see "Making the frame at play" below).
+`loadWhen(video, "play", make)` does that (see "Making the frame at play" above).
 
 - The load then happens before the first hover. The viewer who points at a playing video finds a
   ready frame, instead of waiting for the frame and the models to load behind the pointer.
 - Make the tooltip frame with it. A product that shows a card in a frame of its own should create
   that frame in the same `make`, so the first card does not wait on a second load.
 - The idle clock runs from `ready`. A frame made at play and never pointed at reports `idle`
-  `idleUnloadMs` after it is ready (see "Idle unload"). A first hover after that is cold, as it
+  `idleUnloadMs` after it is ready (pointer mode, no `intent`; see "Idle unload"). A first hover after that is cold, as it
   is without this recommendation.
 - A frame made at play holds no capture authority. In pointer mode it sends no `capture` request
   until a `pointer` message arrives, and the page still decides each capture: a `capture`
   request that reaches the content script with no trusted pointer behind it is refused with
-  `NOT_POINTING`, whoever sent it. In `"always-on"` mode there is no such wait: the frame can ask
+  `NOT_POINTING`. A request from anywhere else, or an untrusted one, is ignored before the gate
+  with no reply (`fromExtensionFrame`). In `"always-on"` mode there is no such wait: the frame can ask
   for pictures, and the page refuses them without a pointer. "No requests before a pointer"
   holds in pointer mode only.
 - A product's own triggers must respect `control.frameRemoved`. Once `whenIdle.remove()` has
   run, the next frame comes from the trusted move or tap over the video; a trigger of the
   product's own (a `playing` event, a route change) must not make it.
 - `loadWhen(video, "play")` waits for a `playing` event, not `play`, and runs `make()` at once
-  for a video that is already playing when it is registered. A video already playing when a
-  product picks it as the main one (for example a mini player growing back to full size) is
-  therefore only loaded at its next `playing` event (a seek or a stall) or at the first trusted
-  move, unless the product checks `!video.paused` itself and calls `make()`.
+  for a video that is already playing when it is registered. It checks once when registered, then
+  waits for `playing`. Register it when you pick the main video. If you register earlier, or use
+  your own `playing` listener, a video already playing when it becomes the main one (a mini
+  player growing back) loads only at its next `playing` event (a seek or a stall) or at your own
+  pointer trigger.
 
 ## Wiring: the compute frame
 

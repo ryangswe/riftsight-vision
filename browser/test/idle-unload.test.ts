@@ -591,7 +591,7 @@ describe("a frame made by loadWhen at play, in pointer mode", () => {
     // The video keeps presenting pictures the whole time (pointer mode is the default), and nobody points.
     const present = (ms: number) => {
       for (let left = ms; left > 0; left -= 250) {
-        t!.send(tag({ kind: "presented", mediaTime: 1 + left / 1000 }));
+        t!.send(tag({ kind: "presented", mediaTime: 1 + (ms - left) / 1000 }));
         t!.run(250, 250, true);
       }
     };
