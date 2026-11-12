@@ -1017,6 +1017,8 @@ most once a second, on a trusted pointer move anywhere in the page while the vid
 helper `loadWhen(video, "play", make)` (same module as `createCaptureControl`) calls `make` once
 when the video plays, so a product can make the compute frame at play instead of at the first
 pointer move; `stop()` removes its listener.
+[When to make the frame](../docs/extension-session.md#when-to-make-the-frame) says why that is
+the recommended time, and what it does and does not change about capture.
 
 By default an idle frame stays and reloads its worker in place. Ending the worker leaves the
 frame's own renderer process running, which on a real release costs about 90 MB of footprint more
@@ -1428,6 +1430,89 @@ into another folder as above. A run needs the built `dist/` (`npm run build`), `
 with `PUPPETEER_CORE_DIR` set, a Chrome binary named by `CHROME` that is built for the runner's
 architecture, Python with this repository's requirements to write the toy folder, and a few
 minutes per run on the toy clip. It prints a report and asserts nothing.
+
+## Measuring hover speed
+
+How fast does the first tooltip come on the two-frame path? `npm run hover-speed` serves a page
+from 127.0.0.1 that plays a clip, with a stand-in content script (`dist/page-capture.js`,
+`createCaptureControl`) and, in an iframe on a second local origin, the compute frame
+(`dist/compute-session.js`) with the real worker on a release. The pointer moves through the
+browser's input, so its events are trusted. It is a small harness on the two-frame fixtures, not a
+benchmark platform. It needs what `user-wait` needs (a built `dist/`, `puppeteer-core`, a Chrome).
+
+```
+npm run hover-speed -- --chrome "$CHROME" --release /tmp/toy/release --clip /tmp/toy/table.png \
+  --scenes test/fixtures/user-wait-toy-scenes.json --art /tmp/toy/art \
+  --rests test/fixtures/hover-speed-toy-rests.json --out report.json
+```
+
+**Options.** `--release`, `--clip`, `--rests` (as in `user-wait`; the script is `{ "hovers": [{ "x",
+"y", "expect", "scene"? }], "slowPoint"?, "pairs"?: [{ "a": {...}, "b": {...}, "scene"? }] }`), `--load play|hover`, `--options FILE`
+(`{ "frame": {...}, "load": {...}, "stage": "none|ready|off|failed" }`: extra `startComputeFrame`
+options and load-request fields such as `geometricUrl`), `--scenarios`, `--count`, `--h5-count`,
+`--gaps`, `--backend auto|wasm`, `--smoke`, `--expect-entry-look`, `--entry-ms`, `--limit`, `--out`.
+`npm run hover-speed -- --help` lists them.
+
+**Scenarios** (`--count` hovers each, 20 by default):
+
+| Id | Scenario |
+|---|---|
+| H1 | Cold first hover: the frame is made at the hover |
+| H2 | First hover after the frame was made at play (`--load play`) and was ready for at least 2 s, with the stage in its intended state |
+| H2P | One slow paused point (`slowPoint`), after the stage is ready; at most 5 hovers |
+| H6 | A later new card while playing: with the stage ready and `"geometricScope": "focus"` in `--options`, the pointer rests on card A (`--rest-ms`, 2 s by default, plus up to 250 ms that varies by trial so the move does not always land on one phase of the look cadence), then moves to card B, which was in the scene during A's looks. Needs `pairs` in the script, `--load play` and `--scenarios H6` (it is not in the default list); each B hover is a row with `aOutcome`, `aShownMs` and `restOnAMs`, and the report summarizes H6 by pair (`byPair`) because pairs can behave differently |
+| H5 | The pointer onto a playing video after 1, 3 and 12 s off the picture (`--gaps`, `--h5-count` per gap) |
+
+**What is cold.** H1 opens a new browser context for every hover (no shared HTTP cache, storage or
+code cache; the server also sends `no-store`), and makes a new frame and worker. The harness is
+loopback and bundled: it does not model a remote release download. The report says so.
+
+**One clock.** Times are read in the parent page: the trusted move, the picture request's arrival
+and `onShown`. The compute frame only reports which request it received and the stage's state; no
+time from another context is subtracted from the page's.
+
+**No success-only statistics.** Every hover is a row with an outcome: `match` (the expected card
+showed), `wrong`, `miss` (the session answered with nothing) or `timeout`. Each stays in the
+denominator; `allHoversMs` counts a non-match at `--limit`, and `matchedOnlyMs` is given apart. A
+run with recognition failures is still a completed run; a harness or setup error is exit code 2.
+Each H5 row carries its gap, whether the match came from a new picture request or an earlier result
+(`shownVia`), the time to the first request after the move (`askedMs`, null when none came) and
+the requests that arrived while the pointer was off the picture. The report groups H5 by gap.
+
+**Stage timing.** A relative `load.geometricUrl` in `--options` is read against the release folder.
+Each row also has `loadStageSentMs`, `firstPointerInMs` and `stageReadyMs`, in ms from the trusted
+move: the frame reports when it posts `load` or `load-stage` to the worker and when it receives a
+`pointer`, and the page times the report's arrival, so each carries a few ms of latency. A field is null when its event came before this hover's
+move (for example a stage made ready at play), and the row's `stage` says its state at the move.
+
+**The stage is pinned.** With a stage in `--options` (or `"stage"` set), H2 waits for it to reach
+the intended state and fails the run when it reaches another; each row records the stage's state
+at the hover. The report records the backend, Chrome, the machine and the toolkit commit.
+
+When H5 did not run, the two entry-look gates are reported as not applicable (`detail.applicable` false) and do not fail.
+
+**Hard gates.** Exit code 0 for a completed run, 1 when a gate fails, 2 on an error.
+- Always: no picture request before a trusted pointer was over the picture; no picture delivered
+  for a request that arrived while capture was not allowed; no request arriving while another is
+  outstanding; no request off 127.0.0.1; a complete report.
+- With `--expect-entry-look`: no picture request while the pointer is off the picture (a request
+  within 50 ms of the leave is taken as already on its way), and, for an H5 return after 1 s or more
+  with nothing outstanding, a request within `--entry-ms` (50) of the move. Without the flag these
+  two are reported and do not fail the run, so the same command gives a before and an after.
+
+A fetch the compute frame's worker makes off loopback is not listed by `loopback-only`: the page's
+request interception does not see worker requests. The browser's host-resolver rule blocks it, and
+it shows as a load failure of the release or the stage.
+
+An H2 or H5 hover that changes the scene first waits for a presented frame and at least 300 ms
+before the move, so the old table is not what the first look sees. A row with `wrongFirst: true`
+showed another card before the expected one; read such rows as a race or a stale card.
+`--expect-entry-look` is refused without H5 and a gap of 1 s or more, and its same-call gate fails
+when no H5 hover was eligible. The one limit for a hover is `--limit`; a script has no limit field.
+
+Elapsed times are evidence to read, not thresholds. `--smoke` is one forced WebAssembly run
+(three hovers, gaps of 1 and 3 s): it shows that the path works on that backend and promises no
+numbers.
 
 ## What is in it
 
