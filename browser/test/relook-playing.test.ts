@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// Focus scope with a ready geometric stage, on a playing video: a pointer that reaches a face the
-// newest analysis left unverified asks for a look on that pointer message, instead of waiting for
-// the next cadence look (frame-scheduler.ts `relookDue` with the picture's time). Everything else
-// asks exactly when it asked before: the ask times of the comparison scenarios below were
-// recorded on the code before the change.
+// Focus scope with a ready geometric stage, on a playing video: an active pointer on a face the
+// newest analysis left unverified gets a look at once (on its pointer message, on the reply of a
+// look that was in flight, or on a tick), instead of waiting for the next cadence look
+// (frame-scheduler.ts `relookDue` with the picture's time). Everything else asks exactly when it
+// asked before: the ask times of the comparison scenarios below were recorded on the code before
+// the change.
 
 import { describe, expect, it } from "vitest";
 
-import { DRIVER_TICK_MS, FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS } from "../src/frame-scheduler.js";
+import { DRIVER_TICK_MS, FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import type { WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
 import { focusGroup } from "../src/recognition.js";
@@ -204,6 +205,37 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     expect(retry.point(X.B)).toBe(false);
   });
 
+  // The pointer lands on B while a look is in flight (asked with the pointer on A) and rests:
+  // the relook comes when that look returns, or HOVER_TRIGGER_MIN_GAP_MS after it started if later.
+  // Before this, the resting pointer waited for the next scheduled look (2 s here: that look found
+  // no named card at the pointer, so the empty-spot gap applied).
+  it.each([
+    ["returns after the gap: on the reply", 300, 300],
+    ["returns inside the gap: at the next tick past it", 100, HOVER_TRIGGER_MIN_GAP_MS],
+  ] as const)("a pointer that lands during a look in flight and rests; the look %s", (_, latencyMs, after) => {
+    const s = session({ ...READY_FOCUS, latencyMs });
+    s.run(1_000, [[10, X.A]]);
+    s.untilAsk();
+    const inFlight = s.asked().at(-1)!;
+    expect(s.point(X.B)).toBe(false); // a look is in flight
+    s.run(2_000);
+    const later = s.asked().filter((a) => a > inFlight);
+    expect(later[0]).toBe(inFlight + after);
+    expect(s.sent.find((r) => r.focus?.x === 700)).toMatchObject({ geometricScope: "focus", focus: { x: 700, y: 250 } });
+    expect(s.core.hitAt(X.B, 0.5)?.cardId).toBe("B");
+  });
+
+  it("a resting pointer on an unverified face asks nothing once its grace period is over", () => {
+    const s = session({ ...READY_FOCUS, neverVerify: true });
+    s.run(1_000, [[10, X.A]]);
+    s.untilAsk();
+    s.point(X.B);
+    s.run(POINTER_GRACE_MS + 2_000);
+    const atRest = s.asked().filter((a) => a > s.elapsed() - 1_500);
+    // Past the grace period nothing is analyzed at all (no card shows, so no reading state).
+    expect(atRest).toEqual([]);
+  });
+
   it("a sweep across unverified faces asks at most one look per HOVER_TRIGGER_MIN_GAP_MS, never two in flight", () => {
     for (const latencyMs of [20, 100, 300]) {
       const moves: Array<[number, number]> = [[10, X.A], ...sweep(1_000, 5_000, 30, [X.B, X.C])];
@@ -254,15 +286,6 @@ describe("unchanged: the ask times recorded before the change", () => {
     const s = session({ stage: "ready", options: { mode: "always-on" } });
     s.run(4_000, [[10, X.A], ...crossing(500, 3_500)]);
     expect(s.asked()).toEqual(PLAYING_ALWAYS_ON);
-  });
-
-  it("focus scope with a ready stage, playing: a pointer that reached an unverified face while a look was in flight, then rests, asks as before (only a pointer message triggers)", () => {
-    const s = session({ ...READY_FOCUS, latencyMs: 100 });
-    s.run(1_000, [[10, X.A]]);
-    s.untilAsk();
-    expect(s.point(X.B)).toBe(false); // a look is in flight
-    s.run(2_000);
-    expect(s.asked()).toEqual(PLAYING_FOCUS_READY_RESTING);
   });
 
   it("focus scope with a ready stage, playing, the pointer moving on a named face only", () => {
@@ -320,5 +343,4 @@ const PLAYING_ALL_READY: number[] = [10, 570, 1130, 1690, 2250, 2750, 3250, 3750
 const PLAYING_FOCUS_NO_STAGE: number[] = [10, 570, 1130, 1690, 2250, 2750, 3250, 3750];
 const PLAYING_FOCUS_LOADING: number[] = [10, 570, 1130, 1690, 2250, 2750, 3250, 3750];
 const PLAYING_ALWAYS_ON: number[] = [10, 1060, 2110, 3160];
-const PLAYING_FOCUS_READY_RESTING: number[] = [10, 750, 1250, 3250];
 const PLAYING_FOCUS_READY_NAMED: number[] = [10, 530, 1050, 1570, 2090, 2610, 3130, 3750];

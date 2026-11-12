@@ -51,8 +51,8 @@
 // until it is verified. `relookDue` lets the session look again, with the pointer there, once per
 // `HOVER_TRIGGER_MIN_GAP_MS`, and the look gets a newly presented picture's repeats. On a playing
 // video the same face is unnamed until a look verifies it there: when the session's geometric
-// stage is ready, a pointer move onto it makes a look due at once (`relookDue` with the picture's
-// time) instead of at the next cadence look, once the last look of any kind started at least
+// stage is ready, an active pointer on it makes a look due at once (`relookDue` with the
+// picture's time) instead of at the next cadence look, once the last look of any kind started at least
 // `HOVER_TRIGGER_MIN_GAP_MS` ago, never while one is in flight or a retry waits out its back-off.
 //
 // Replies. Every frame request carries an envelope (messages.ts) and `replyRejection` decides
@@ -487,8 +487,8 @@ export class FrameScheduler {
    * unlike `requestLook` it marks nothing stale and clears nothing: a still picture is analyzed
    * again with the repeats a newly presented one gets (`started` with the "hover" trigger).
    *
-   * With `videoTimeSec`, the time of the picture on screen (the session gives it for a pointer
-   * move, with a ready geometric stage), a playing picture may be looked at again too: a newly
+   * With `videoTimeSec`, the time of the picture on screen (the session gives it while the pointer
+   * is active over the picture, with a ready geometric stage), a playing picture may be looked at again too: a newly
    * presented frame waits, its time has moved since the newest analyzed frame, and no retry is
    * waiting out its back-off. The cadence is not consulted, and the stale-frame threshold is not
    * needed; the last look of any kind must have started at least `HOVER_TRIGGER_MIN_GAP_MS` ago.
@@ -501,7 +501,7 @@ export class FrameScheduler {
     // no retry is waiting out its back-off, and no capture was refused (the pointer's own move
     // makes that picture due, `pointerMoved`).
     if (this.idle) return now - this.lastHoverTriggerAt >= HOVER_TRIGGER_MIN_GAP_MS;
-    // With the picture's time (a pointer move, with a ready stage): a playing picture too.
+    // With the picture's time (an active pointer, with a ready stage): a playing picture too.
     return videoTimeSec !== undefined && this.playingSinceLast(videoTimeSec) && now - this.lastStartedAt >= HOVER_TRIGGER_MIN_GAP_MS;
   }
 

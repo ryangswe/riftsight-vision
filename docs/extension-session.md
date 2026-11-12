@@ -323,17 +323,22 @@ unverified, and nothing is named on them. A pointer that reaches such a face on 
 used to wait for the next cadence look: the relook for an unverified face was limited to a still
 picture, and the staleness rule above needs `max(400, intervalInEffectMs)` ms of video time.
 
-Now a `pointer` message that lands on a face the newest analysis left unverified (or on a group
-of overlapping faces that holds one, which is where nothing is named) asks for a look on that
-message, with the pointer there, when all of these hold:
+Now a pointer on a face the newest analysis left unverified (or on a group of overlapping faces
+that holds one, which is where nothing is named) gets a look with the pointer there as soon as
+all of these hold:
 
 - the session is ready and the geometric stage is ready;
+- the pointer is active over the picture: a move within the grace period (10 s,
+  `POINTER_GRACE_MS`), or a tap whose window is still open;
 - the picture is playing on from the newest analyzed frame: a newly presented frame waits and
   its video time has moved since that frame;
 - nothing is in flight, no retry is waiting out its back-off, and no capture was refused since
   the picture was last answered;
 - the last look of any kind started at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) ago.
 
+It is checked on each `pointer` message, on the reply of a look, and on each tick. So a pointer
+that lands on the face while a look is in flight, and rests there, gets its look when that look
+returns, or 250 ms after that look started if the reply came sooner (at the next tick past it).
 The page's gate still decides on the capture, and with `entryLook` nothing is asked while the
 pointer is off the picture. A pointer on a named face, or on no face, asks nothing extra. A sweep
 across several unverified faces asks at most one look per 250 ms, and never a second while one is
@@ -341,8 +346,9 @@ in flight.
 
 Limits:
 
-- A pointer message triggers it; a tick does not. A pointer that reached the face while a look was in flight
-  and then rests waits for the next scheduled look, as before.
+- A pointer that rests past the grace period asks nothing more, as for a still picture's relook.
+- A stage that keeps leaving the face unverified gets a look up to every 250 ms while the pointer
+  is active, where it used to get one per cadence look.
 - A still picture, scope `"all"`, a session with no stage or a stage still loading, and the
   `"always-on"` mode are unchanged.
 - It changes when a look is asked for, not what a look answers.

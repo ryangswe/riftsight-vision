@@ -11,12 +11,14 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
-- Browser: in focus scope (`geometricScope: "focus"`) with the geometric stage ready, a `pointer`
-  message that lands on a face the newest analysis left unverified asks for a look at once on a
-  playing video too, with the pointer there, instead of waiting for the next cadence look. Before,
-  that relook was limited to a still picture. It keeps every existing bound: one look in flight, at
-  least `HOVER_TRIGGER_MIN_GAP_MS` since the last look of any kind, the retry back-off, a refused
-  capture, the page's gate and the `entryLook` rule. A pointer message triggers it; a tick does not. A still
+- Browser: in focus scope (`geometricScope: "focus"`) with the geometric stage ready, an active
+  pointer on a face the newest analysis left unverified gets a look at once on a playing video
+  too, with the pointer there, instead of waiting for the next cadence look. Before, that relook
+  was limited to a still picture. It is checked on the `pointer` message, on a look's reply and on
+  each tick, so a pointer that lands during a look in flight and rests gets its look when that
+  look returns. It keeps every existing bound: one look in flight, at least
+  `HOVER_TRIGGER_MIN_GAP_MS` since the last look of any kind, the retry back-off, a refused
+  capture, the pointer's grace period, the page's gate and the `entryLook` rule. A still
   picture, scope `"all"`, a session with no stage or a stage still loading, and the `"always-on"`
   mode are unchanged, and no answer changes. `FrameScheduler.relookDue` takes an optional third
   argument, the picture's video time, which allows the playing case. No message is added;
