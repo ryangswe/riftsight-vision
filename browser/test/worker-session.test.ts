@@ -895,6 +895,25 @@ describe("geometricLoad", () => {
     expect(stageRequests(w)).toHaveLength(1);
   });
 
+  it("\"pointer\": a pointer while a remote release without a stage is tried has the fallback's stage asked for at ready", async () => {
+    const remote = { ...remoteChoice(), fallback: staged } as RemoteReleaseChoice;
+    const { session, out } = await setup(remote, { geometricLoad: "pointer" });
+    expect(out.workers[0]!.posted[0]).not.toHaveProperty("geometricUrl");
+    session.pointed();
+    out.workers[0]!.reply(statusFail("no WebGPU"));
+    const w = out.workers[1]!;
+    expect(w.posted).toEqual([{ kind: "load", releaseUrl: BUNDLED_URL, wasmPaths: "w/" }]);
+    loaded(w);
+    expect(stageRequests(w)).toEqual([{ kind: "load-stage", geometricUrl: "geometric.json", geometricManifestSha256: "c".repeat(64) }]);
+  });
+
+  it("\"pointer\": a pointer kept for a release without a stage is spent when it is ready", () => {
+    const { session, out } = harness({ geometricLoad: "pointer" });
+    session.pointed();
+    loaded(out.workers[0]!);
+    expect(out.workers[0]!.posted).toEqual([bundledLoad]);
+  });
+
   it("\"pointer\": a fallback worker waits for the stage of its own request", async () => {
     const remote: RemoteReleaseChoice = { ...remoteChoice(), request: { kind: "load", releaseUrl: "release.json", files: {}, wasmPaths: "w/", geometricUrl: "geo.json" }, fallback: staged } as RemoteReleaseChoice;
     const { session, out } = await setup(remote, { geometricLoad: "pointer" });

@@ -262,8 +262,9 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
       case "pointer":
         resume();
         core.pointer(message.x, message.y, message.mediaTime, message.touch);
-        // After the look this pointer may have asked for: that look is answered without the stage.
-        // A pointer that resumes an idle frame counts for the release it reloads.
+        // After the look: the look this pointer asked for is not delayed by the stage; one the
+        // worker is already analyzing is answered without it. A pointer that resumes an idle
+        // frame counts for the release it reloads.
         ws.pointed();
         return;
       case "leave":

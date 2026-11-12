@@ -207,7 +207,8 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
   /** With `geometricLoad: "pointer"`: the stage the current worker's request carries, until
    *  `pointed()` sends it. */
   let stageWaiting: Extract<WorkerRequest, { kind: "load-stage" }> | null = null;
-  /** `pointed()` was called while the release loaded: the stage goes once it is ready. */
+  /** `pointed()` was called while a release loaded: decided when one is ready (a fallback's
+   *  request may carry a stage that the release first tried did not). */
   let pointedWhileLoading = false;
 
   /** Send the waiting stage to a worker whose release is ready; false when it cannot go yet. */
@@ -269,7 +270,11 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
     // before the core publishes its failed status, so a host that reads `stopped` then sees it.
     if (reply.kind === "release-status" && !reply.ok) turnOff();
     core.fromWorker(reply);
-    if (reply.kind === "release-status" && pointedWhileLoading) sendStage();
+    if (reply.kind === "release-status" && pointedWhileLoading) {
+      sendStage();
+      // Decided once a release is ready (or failed): a later stage needs a later pointer.
+      if (core.status().state !== "loading") pointedWhileLoading = false;
+    }
   };
 
   /** Recognition is off for good: the worker is ended and the session stopped. The caller then
@@ -442,7 +447,8 @@ export function createWorkerSession(env: WorkerSessionEnv): WorkerSession {
       if (!stopped && !suspended) core?.tick();
     },
     pointed() {
-      if (sendStage() || stopped || suspended || !stageWaiting) return;
+      if (stageWithRelease || sendStage() || stopped || suspended) return;
+      // Kept even when no stage waits yet: a fallback may bring one.
       if (core?.status().state === "loading") pointedWhileLoading = true;
     },
     suspend() {

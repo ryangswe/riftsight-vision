@@ -83,7 +83,11 @@ break the public surface; this file names each break and how to migrate.
   plays then neither downloads nor holds the stage's index until the viewer points at it, and the
   looks until the stage is ready run without it. A look in flight when the stage is asked for is
   answered without it. No message is added between the two frames and `PROTOCOL_VERSION` stays 2.
-  The default, `"start"`, sends the worker the same messages as before.
+  The default, `"start"`, sends the worker the same messages as before. A host that runs
+  `createWorkerSession` directly with `"pointer"` calls `session.pointed()` on each pointer over
+  the picture; otherwise the stage never loads. Two public types grow, which matters for code
+  that switches over them exhaustively or fakes them: `WorkerRequest` has a `load-stage` variant,
+  and `WorkerSession` has `pointed()`.
 - Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
   stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
   can finish reading it after a player has moved the card. A card laid on its spot later, or one

@@ -362,6 +362,9 @@ option `geometricLoad` says when it loads:
 - With `"pointer"`, the looks after that `pointer` run without the stage for as long as it takes
   to load, as looks do whenever it is still loading. A look the worker is analyzing when the
   request arrives is answered without the stage, and the stage joins after it.
+- `startComputeFrame` reports each `pointer` message to its session. A host that runs
+  `createWorkerSession` directly with `"pointer"` calls `session.pointed()` on each pointer over
+  the picture; otherwise the stage never loads.
 - The request is the worker's own `load-stage` message, between the compute frame and its worker,
   which are vendored together. No message is added between the two frames, and `PROTOCOL_VERSION`
   is unchanged.
@@ -410,6 +413,8 @@ message, no card shown and no look in flight. Time is counted from `ready`, by `
   or `failed`, as the posted status says (the core's own status reads `loading` while idle).
 - `createWorkerSession` has the calls for it, `suspend()` and `resume()`, and `suspended`; its
   `keepLoadRequest` option (set by the compute frame when `idleUnloadMs` is) keeps the request.
+  With `geometricLoad: "pointer"` it also has `pointed()`, which a host that runs it directly
+  calls on each pointer over the picture; otherwise the stage never loads.
 
 ### Where a load's time goes
 
