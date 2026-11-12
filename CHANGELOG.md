@@ -146,6 +146,10 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- Browser: `npm run hover-speed` and `scripts/idle-unload-memory.mjs` serve each file with its
+  size (`content-length`). Sent without it, a release file sometimes never finished reaching the
+  compute frame's worker in headless Chrome, and the load waited until the run timed out ("timed
+  out waiting for the frame to be ready").
 - Browser: `scripts/idle-unload-memory.mjs` took its `ready` reading after the unload with its own
   defaults (`--idle-ms 3000`, `--settle-ms 4000`), so a ready frame was under-reported, and the
   README's statement that the toy release cannot show the drop was wrong. The default `--idle-ms`
