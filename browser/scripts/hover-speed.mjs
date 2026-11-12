@@ -6,7 +6,7 @@
 // from the trusted move, read in the page, to `onShown` with the expected card.
 //
 //   npm run hover-speed -- --release FOLDER --clip FILE --rests FILE [--load play|hover]
-//        [--options FILE] [--scenes FILE --art FOLDER] [--scenarios H1,H2,H2P,H5] [--count 20]
+//        [--options FILE] [--scenes FILE --art FOLDER] [--scenarios H1,H2,H2P,H5,H6] [--count 20]
 //        [--h5-count N] [--gaps 1000,3000,12000] [--backend auto|wasm] [--smoke]
 //        [--expect-entry-look] [--entry-ms 50] [--limit 10000] [--out REPORT.json] [--chrome PATH]
 //
@@ -44,6 +44,7 @@ const USAGE = `Usage: npm run hover-speed -- --release FOLDER --clip FILE --rest
   --scenarios LIST   which of H1,H2,H2P,H5 to run (default: all that --load allows)
   --count N          hovers per H1 and H2 (default ${DEFAULT_COUNT}); H2P runs at most 5
   --h5-count N       hovers per gap in H5 (default --count)
+  --rest-ms MS       H6: how long the pointer rests on card A before it moves to card B (default 2000)
   --gaps LIST        H5 gaps off the picture in ms (default ${DEFAULT_GAPS_MS.join(",")})
   --backend B        auto (the release picks; default) or wasm (forced WebAssembly)
   --smoke            the forced WebAssembly smoke run: --backend wasm, 3 hovers, gaps 1000,3000
@@ -58,7 +59,7 @@ const USAGE = `Usage: npm run hover-speed -- --release FOLDER --clip FILE --rest
 
 const args = process.argv.slice(2);
 const flags = new Set(["--smoke", "--expect-entry-look", "--headed", "--help"]);
-const known = new Set(["--release", "--clip", "--rests", "--load", "--options", "--scenes", "--art", "--scenarios", "--count", "--h5-count", "--gaps", "--backend", "--entry-ms", "--limit", "--out", "--chrome"]);
+const known = new Set(["--release", "--clip", "--rests", "--load", "--options", "--scenes", "--art", "--scenarios", "--count", "--h5-count", "--rest-ms", "--gaps", "--backend", "--entry-ms", "--limit", "--out", "--chrome"]);
 const given = {};
 function usageError(problem) {
   console.error(`${problem}\n\n${USAGE}`);
@@ -89,6 +90,7 @@ const positive = (name, fallback) => {
 };
 const count = smoke && given.count === undefined ? 3 : positive("count", DEFAULT_COUNT);
 const h5Count = smoke && given["h5-count"] === undefined ? 3 : positive("h5-count", count);
+const restMs = positive("rest-ms", 2000);
 const gaps = (given.gaps ?? (smoke ? "1000,3000" : DEFAULT_GAPS_MS.join(","))).split(",").map(Number);
 if (gaps.some((g) => !(g >= 0))) usageError(`--gaps ${given.gaps}: not a list of ms`);
 const limitMs = Number(given.limit ?? DEFAULT_LIMIT_MS);
@@ -574,6 +576,32 @@ async function runH2P() {
   }
 }
 
+/** H6: on a playing video, with the stage ready, the pointer rests on card A and then moves to
+ *  card B, which was in the scene during A's looks. Each B hover is a row. */
+async function runH6() {
+  if (!script.pairs) {
+    warnings.push("H6 skipped: the script has no pairs");
+    return;
+  }
+  if (stageIntended !== "ready") warnings.push(`H6 ran with stageIntended ${stageIntended}: it is meant for a ready stage`);
+  if ((options.frame ?? {}).geometricScope !== "focus") warnings.push('H6 ran without frame.geometricScope "focus" in --options');
+  const c = await readyContext();
+  try {
+    for (let trial = 0; trial < count; trial += 1) {
+      const pair = script.pairs[trial % script.pairs.length];
+      if (pair.scene !== undefined) {
+        await c.tab.evaluate((sc) => window.hs.setScene(sc), pair.scene);
+        await c.tab.evaluate(() => window.hs.afterFrame());
+      }
+      await hover(c, pair.a, { scenario: "H6-A", trial });
+      await sleep(restMs);
+      rows.push(await hover(c, pair.b, { scenario: "H6", trial, pair: trial % script.pairs.length, restOnAMs: restMs, observeMs: DEFAULT_OBSERVE_MS, cold: "playing video, stage pinned, pointer rested on card A, then moved to card B" }));
+    }
+  } finally {
+    await finish(c);
+  }
+}
+
 async function runH5() {
   const c = loadMode === "play" ? await readyContext() : await (async () => {
     const warm = await openContext("hover");
@@ -619,7 +647,7 @@ async function runH5() {
 
 let code = 0;
 try {
-  const runners = { H1: runH1, H2: runH2, H2P: runH2P, H5: runH5 };
+  const runners = { H1: runH1, H2: runH2, H2P: runH2P, H5: runH5, H6: runH6 };
   for (const name of scenarios) await runners[name]();
   const chromeVersion = await browser.version();
   const profile = {

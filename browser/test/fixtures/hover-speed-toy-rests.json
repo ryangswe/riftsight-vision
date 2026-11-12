@@ -1,5 +1,5 @@
 {
-  "about": "Hovers on the toy tables of user-wait-toy-scenes.json (run with --scenes and --art). Each hover first switches the scene, so the card under the pointer is not the one the last analysis saw. x and y are fractions of the picture; expect is the card id the toy release names there. slowPoint is a stand-in for a point that needs the geometric stage; the toy release has none.",
+  "about": "Hovers on the toy tables of user-wait-toy-scenes.json (run with --scenes and --art). Each hover first switches the scene, so the card under the pointer is not the one the last analysis saw. x and y are fractions of the picture; expect is the card id the toy release names there. slowPoint is a stand-in for a point that needs the geometric stage; the toy release has none. pairs are H6's card A and card B in scene A.",
   "hovers": [
     {
       "x": 0.125,
@@ -55,5 +55,33 @@
     "y": 0.21,
     "expect": "TOY-003",
     "scene": "A"
-  }
+  },
+  "pairs": [
+    {
+      "a": {
+        "x": 0.125,
+        "y": 0.27,
+        "expect": "TOY-001"
+      },
+      "b": {
+        "x": 0.86,
+        "y": 0.27,
+        "expect": "TOY-011"
+      },
+      "scene": "A"
+    },
+    {
+      "a": {
+        "x": 0.64,
+        "y": 0.27,
+        "expect": "TOY-007"
+      },
+      "b": {
+        "x": 0.38,
+        "y": 0.21,
+        "expect": "TOY-003"
+      },
+      "scene": "A"
+    }
+  ]
 }

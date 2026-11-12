@@ -1445,7 +1445,7 @@ npm run hover-speed -- --chrome "$CHROME" --release /tmp/toy/release --clip /tmp
 ```
 
 **Options.** `--release`, `--clip`, `--rests` (as in `user-wait`; the script is `{ "hovers": [{ "x",
-"y", "expect", "scene"? }], "slowPoint"? }`), `--load play|hover`, `--options FILE`
+"y", "expect", "scene"? }], "slowPoint"?, "pairs"?: [{ "a": {...}, "b": {...}, "scene"? }] }`), `--load play|hover`, `--options FILE`
 (`{ "frame": {...}, "load": {...}, "stage": "none|ready|off|failed" }`: extra `startComputeFrame`
 options and load-request fields such as `geometricUrl`), `--scenarios`, `--count`, `--h5-count`,
 `--gaps`, `--backend auto|wasm`, `--smoke`, `--expect-entry-look`, `--entry-ms`, `--limit`, `--out`.
@@ -1458,6 +1458,7 @@ options and load-request fields such as `geometricUrl`), `--scenarios`, `--count
 | H1 | Cold first hover: the frame is made at the hover |
 | H2 | First hover after the frame was made at play (`--load play`) and was ready for at least 2 s, with the stage in its intended state |
 | H2P | One slow paused point (`slowPoint`), after the stage is ready; at most 5 hovers |
+| H6 | A later new card while playing: with the stage ready and `"geometricScope": "focus"` in `--options`, the pointer rests on card A (`--rest-ms`, 2 s by default), then moves to card B, which was in the scene during A's looks. Needs `pairs` in the script; each B hover is a row |
 | H5 | The pointer onto a playing video after 1, 3 and 12 s off the picture (`--gaps`, `--h5-count` per gap) |
 
 **What is cold.** H1 opens a new browser context for every hover (no shared HTTP cache, storage or

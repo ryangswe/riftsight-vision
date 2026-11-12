@@ -49,6 +49,15 @@ describe("script and options checks", () => {
     expect(core.scriptProblem({ ...good, limitMs: 500 })).toMatch(/--limit/);
     expect(core.scriptProblem({ hovers: [{ x: 0, y: 0, expect: "A", limitMs: 5 }] })).toMatch(/--limit/);
   });
+  it("checks the A and B pairs of H6", () => {
+    const a = { x: 0.1, y: 0.2, expect: "A" };
+    const b = { x: 0.8, y: 0.2, expect: "B" };
+    expect(core.scriptProblem({ ...good, pairs: [{ a, b, scene: "S" }] })).toBeNull();
+    expect(core.scriptProblem({ ...good, pairs: [] })).toMatch(/non-empty/);
+    expect(core.scriptProblem({ ...good, pairs: [{ a, b: a }] })).toMatch(/different cards/);
+    expect(core.scriptProblem({ ...good, pairs: [{ a, b: { ...b, scene: "S" } }] })).toMatch(/name the scene on the pair/);
+    expect(core.scriptProblem({ ...good, pairs: [{ a, b: { x: 2, y: 0, expect: "B" } }] })).toMatch(/pairs\[0\]\.b/);
+  });
   it("refuses options the harness sets itself", () => {
     expect(core.optionsProblem({ frame: { idleUnloadMs: 5000 }, load: { geometricUrl: "x" }, stage: "ready" })).toBeNull();
     expect(core.optionsProblem({ stage: "maybe" })).toMatch(/stage/);

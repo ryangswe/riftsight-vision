@@ -21,7 +21,7 @@ export const DEFAULT_ENTRY_MS = 50;
 export const STALE_GAP_MS = 1000;
 export const DEFAULT_GAPS_MS = [1000, 3000, 12_000];
 export const DEFAULT_COUNT = 20;
-export const SCENARIOS = ["H1", "H2", "H2P", "H5"];
+export const SCENARIOS = ["H1", "H2", "H2P", "H5", "H6"];
 export const STAGE_STATES = ["none", "ready", "off", "failed"];
 
 const round = (value) => Math.round(value * 100) / 100;
@@ -41,7 +41,7 @@ export function stats(values) {
 /** The script: points to hover, each with the card expected there (and optionally a scene). */
 export function scriptProblem(script) {
   if (typeof script !== "object" || script === null || Array.isArray(script)) return "the script must be an object";
-  const { hovers, slowPoint } = script;
+  const { hovers, slowPoint, pairs } = script;
   if (!Array.isArray(hovers) || hovers.length === 0) return "the script needs a non-empty hovers list";
   const point = (p, where) => {
     if (typeof p !== "object" || p === null) return `${where}: not an object`;
@@ -57,6 +57,21 @@ export function scriptProblem(script) {
   if (slowPoint !== undefined) {
     const problem = point(slowPoint, "slowPoint");
     if (problem) return problem;
+  }
+  if (pairs !== undefined) {
+    if (!Array.isArray(pairs) || pairs.length === 0) return "pairs must be a non-empty list";
+    for (let i = 0; i < pairs.length; i += 1) {
+      const pair = pairs[i];
+      if (typeof pair !== "object" || pair === null) return `pairs[${i}]: not an object`;
+      for (const key of ["a", "b"]) {
+        const problem = point(pair[key], `pairs[${i}].${key}`);
+        if (problem) return problem;
+        if ("limitMs" in pair[key]) return "limitMs is not a point field: the one limit is --limit";
+        if (pair[key].scene !== undefined) return `pairs[${i}].${key}: name the scene on the pair`;
+      }
+      if (pair.a.expect === pair.b.expect) return `pairs[${i}]: a and b must expect different cards`;
+      if (pair.scene !== undefined && typeof pair.scene !== "string") return `pairs[${i}]: scene must be a name`;
+    }
   }
   if ("limitMs" in script) return "limitMs is not a script field: the one limit is --limit";
   for (const h of [...hovers, ...(slowPoint ? [slowPoint] : [])]) if ("limitMs" in h) return "limitMs is not a point field: the one limit is --limit";
