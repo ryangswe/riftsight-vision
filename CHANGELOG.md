@@ -19,7 +19,9 @@ break the public surface; this file names each break and how to migrate.
   script no longer refuses a `capture` at every cadence after the pointer leaves. A look in flight
   at the leave, the retry back-off, the hover spacing, the 2 s empty-spot gap, the repeats of a
   still picture and the reading hold are unchanged, and so is the `"always-on"` mode. A slow,
-  buffering or long-cadence video may still wait for the cadence. Pass `entryLook: false` to
+  buffering or long-cadence video may still wait for the cadence. With `idleUnloadMs`, the idle
+  unload can come up to about the 10 s grace period sooner after a leave, because the asks the
+  page refused, which counted as activity, are no longer made. Pass `entryLook: false` to
   `startComputeFrame` to turn it off. A `SessionCore` made directly has it off unless given
   `entryLook: true`. No message is added; `PROTOCOL_VERSION` stays 2. See
   [docs/extension-session.md](docs/extension-session.md#pointer-entry).

@@ -2766,6 +2766,27 @@ describe("SessionCore: a look on pointer entry (entryLook)", () => {
       expect(p.run(2_000, "answer")).toBe(0);
     });
 
+    it.each([
+      ["a restart", { restart: true } as const],
+      ["an idle resume", { idle: true } as const],
+    ])("after %s, a load under a mouse resting past the grace period, with a card shown just before, asks nothing in its own call", (_, how) => {
+      const p = playing();
+      p.load();
+      p.enter();
+      p.respond("answer");
+      // The mouse rests on the card past the grace period: the scheduler is reading.
+      p.run(POINTER_GRACE_MS + 1_000, "answer");
+      expect(p.core.scheduler.analysisState(clock)).toBe("reading");
+      p.core.workerStopped(how);
+      clock += 3_000;
+      // A tick now would look: the pointer is over the picture and the scheduler still reading.
+      expect(p.core.scheduler.analysisState(clock)).toBe("reading");
+      const before = p.out.captures.length;
+      p.load();
+      expect(p.out.captures.length).toBe(before);
+      expect(p.core.scheduler.pointerActive(clock)).toBe(false);
+    });
+
     it("a load that fails asks nothing", () => {
       const p = playing();
       p.enter();
