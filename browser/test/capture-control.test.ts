@@ -10,6 +10,7 @@ import {
   type CaptureControlOptions,
   createCaptureControl,
   fromExtensionFrame,
+  loadWhen,
   NOT_POINTING,
   PICTURE_CHANGED,
   postWithTransfer,
@@ -241,6 +242,48 @@ describe("the message guard", () => {
     // The real frame's capture still works.
     await captureNow(h);
     expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+  });
+});
+
+describe("a frame made at play holds no capture authority", () => {
+  it("a request from the right frame, accepted by every other check, is refused with NOT_POINTING until a trusted pointer arrives", async () => {
+    // The frame is the one the control knows, trusted, with the right origin, tag and request; the
+    // video is playing, attached and connected, and a card is even on show. Only the gate refuses.
+    const h = connected();
+    expect(h.video.paused).toBe(false);
+    h.show("card");
+    expect(h.control.connected).toBe(true);
+    expect(h.control.captureAllowedNow()).toBe(false);
+    expect(h.deliver({ kind: "capture", requestId: 1, analysisWidth: RANGE })).toBe(true);
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, reason: NOT_POINTING, retry: false });
+    expect(h.pendingBitmaps).toEqual([]);
+    expect(h.sent.some((m) => m.kind === "frame")).toBe(false);
+  });
+
+  it("is refused again once the authority a hover gave has lapsed", async () => {
+    const h = connected();
+    h.hover();
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    h.advance(MAX_REST_MS + 1);
+    h.request(2);
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+    expect(h.pendingBitmaps).toEqual([]);
+  });
+
+  it("makes no picture and sends no capture-related message when the frame is made by loadWhen and nobody points", async () => {
+    const h = setup();
+    const made = vi.fn(() => {
+      h.control.attach(asVideo(h.video));
+      h.ready();
+    });
+    loadWhen(asVideo(h.video), "play", made);
+    expect(made).toHaveBeenCalledTimes(1);
+    h.advance(10 * MAX_REST_MS);
+    expect(h.sent.filter((m) => m.kind === "frame" || m.kind === "pointer")).toEqual([]);
+    expect(h.pendingBitmaps).toEqual([]);
   });
 });
 
@@ -784,5 +827,35 @@ describe("postWithTransfer", () => {
     const orphan = fakeBitmap();
     expect(postWithTransfer(null, {}, ORIGIN, orphan as unknown as ImageBitmap)).toBe(false);
     expect(orphan.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("loadWhen waits for playing, not play", () => {
+  const video = (paused: boolean) => Object.assign(fakeTarget(), { paused, ended: false });
+
+  it("listens for playing and never for play", () => {
+    const seen: string[] = [];
+    const v = video(true);
+    const add = v.addEventListener;
+    v.addEventListener = (type: string, fn: Listener) => {
+      seen.push(type);
+      add(type, fn);
+    };
+    const make = vi.fn();
+    loadWhen(v as unknown as HTMLVideoElement, "play", make);
+    expect(seen).toEqual(["playing"]);
+    v.paused = false;
+    v.fire("play");
+    expect(make).not.toHaveBeenCalled();
+    v.fire("playing");
+    expect(make).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls make at once for a video already playing when it is registered, with no event", () => {
+    const v = video(false);
+    const make = vi.fn();
+    loadWhen(v as unknown as HTMLVideoElement, "play", make);
+    expect(make).toHaveBeenCalledTimes(1);
+    expect(v.count()).toBe(0);
   });
 });

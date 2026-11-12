@@ -325,6 +325,15 @@ message, no card shown and no look in flight. Time is counted from `ready`, by `
   or `failed`, as the posted status says (the core's own status reads `loading` while idle).
 - `createWorkerSession` has the calls for it, `suspend()` and `resume()`, and `suspended`; its
   `keepLoadRequest` option (set by the compute frame when `idleUnloadMs` is) keeps the request.
+- The idle clock runs from `ready`, not from the moment the frame was made. A frame made at play
+  (see "When to make the frame") spends its load time before the clock starts, and then waits
+  `idleUnloadMs` for a pointer. If none comes, the worker ends and the status reads `idle`.
+- A first hover after the unload is cold: the worker loads again, which takes as long as any
+  load, and the look waits for it. Making the frame at play moves that cost ahead of a hover
+  only while the frame has not yet gone idle.
+- A product's own triggers must respect `control.frameRemoved`. After `whenIdle.remove()` the
+  next frame is made by the trusted move or tap over the video, not by a load trigger of the
+  product's own; see "Dropping the frame when idle".
 
 ### Where a load's time goes
 
@@ -495,6 +504,33 @@ video is already playing, else at its next `playing` event; never for a paused o
 ```js
 const handle = loadWhen(video, "play", () => document.documentElement.append(iframe));
 ```
+
+### When to make the frame
+
+Recommended: make the compute frame when the video plays, not at the first pointer move.
+`loadWhen(video, "play", make)` does that (see "Making the frame at play" below).
+
+- The load then happens before the first hover. The viewer who points at a playing video finds a
+  ready frame, instead of waiting for the frame and the models to load behind the pointer.
+- Make the tooltip frame with it. A product that shows a card in a frame of its own should create
+  that frame in the same `make`, so the first card does not wait on a second load.
+- The idle clock runs from `ready`. A frame made at play and never pointed at reports `idle`
+  `idleUnloadMs` after it is ready (see "Idle unload"). A first hover after that is cold, as it
+  is without this recommendation.
+- A frame made at play holds no capture authority. In pointer mode it sends no `capture` request
+  until a `pointer` message arrives, and the page still decides each capture: a `capture`
+  request that reaches the content script with no trusted pointer behind it is refused with
+  `NOT_POINTING`, whoever sent it. In `"always-on"` mode there is no such wait: the frame can ask
+  for pictures, and the page refuses them without a pointer. "No requests before a pointer"
+  holds in pointer mode only.
+- A product's own triggers must respect `control.frameRemoved`. Once `whenIdle.remove()` has
+  run, the next frame comes from the trusted move or tap over the video; a trigger of the
+  product's own (a `playing` event, a route change) must not make it.
+- `loadWhen(video, "play")` waits for a `playing` event, not `play`, and runs `make()` at once
+  for a video that is already playing when it is registered. A video already playing when a
+  product picks it as the main one (for example a mini player growing back to full size) is
+  therefore only loaded at its next `playing` event (a seek or a stall) or at the first trusted
+  move, unless the product checks `!video.paused` itself and calls `make()`.
 
 ## Wiring: the compute frame
 

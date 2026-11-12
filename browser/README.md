@@ -1017,6 +1017,8 @@ most once a second, on a trusted pointer move anywhere in the page while the vid
 helper `loadWhen(video, "play", make)` (same module as `createCaptureControl`) calls `make` once
 when the video plays, so a product can make the compute frame at play instead of at the first
 pointer move; `stop()` removes its listener.
+[When to make the frame](../docs/extension-session.md#when-to-make-the-frame) says why that is
+the recommended time, and what it does and does not change about capture.
 
 By default an idle frame stays and reloads its worker in place. Ending the worker leaves the
 frame's own renderer process running, which on a real release costs about 90 MB of footprint more

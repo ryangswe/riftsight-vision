@@ -3,7 +3,7 @@
 // getter (row 9). Stand-in window, video and frames; no network.
 import { describe, expect, it, vi } from "vitest";
 
-import { createCaptureControl, type CaptureControlOptions } from "../src/capture-control.js";
+import { createCaptureControl, loadWhen, type CaptureControlOptions } from "../src/capture-control.js";
 import { startComputeFrame, type ComputeFrameEnv } from "../src/compute-frame.js";
 import { computeProtocol, PROTOCOL_VERSION } from "../src/compute-messages.js";
 import type { ReleaseStatus, WorkerReply } from "../src/messages.js";
@@ -313,6 +313,32 @@ describe("whenIdle (row 8)", () => {
     expect(old.kinds()).toContain("intent");
     expect(p.whenIdle.remove).not.toHaveBeenCalled();
     expect(p.whenIdle.make).not.toHaveBeenCalled();
+  });
+});
+
+describe("a frame made at play and dropped when idle", () => {
+  it("remove() runs once, the play trigger does not fire again, and the next trusted move over the video makes the frame", () => {
+    const p = page();
+    const playVideo = Object.assign(fakeTarget(), { paused: true, ended: false });
+    const trigger = vi.fn();
+    loadWhen(playVideo as unknown as HTMLVideoElement, "play", trigger);
+    playVideo.paused = false;
+    playVideo.fire("playing");
+    expect(trigger).toHaveBeenCalledTimes(1);
+    p.status("idle");
+    expect(p.whenIdle.remove).toHaveBeenCalledTimes(1);
+    expect(p.control.frameRemoved).toBe(true);
+    // A stall, a seek or a loop fires `playing` again; the trigger is spent and the control makes nothing.
+    playVideo.fire("playing");
+    playVideo.fire("playing");
+    expect(trigger).toHaveBeenCalledTimes(1);
+    expect(p.whenIdle.make).not.toHaveBeenCalled();
+    expect(p.frames.flatMap((f) => f.got)).toEqual([]);
+    p.move({ isTrusted: false });
+    expect(p.whenIdle.make).not.toHaveBeenCalled();
+    p.move();
+    expect(p.whenIdle.make).toHaveBeenCalledTimes(1);
+    expect(p.frames[1]!.kinds()).toEqual(["hello"]);
   });
 });
 
