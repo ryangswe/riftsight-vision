@@ -13,6 +13,8 @@
     "lint": "oxlint --type-aware --deny-warnings",
     "test": "tsc --noEmit && vitest run",
     "build": "node scripts/build.mjs",
+    "vendor": "node scripts/vendor.mjs",
+    "vendor-check": "node scripts/vendor-check.mjs",
     "demo": "node scripts/build.mjs && node scripts/demo-server.mjs",
     "build:pages": "node scripts/build-pages.mjs",
     "preview:pages": "node scripts/pages-preview.mjs",

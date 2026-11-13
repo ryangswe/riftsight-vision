@@ -11,6 +11,7 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- `npm run vendor -- --into FOLDER` and `npm run vendor-check -- FOLDER` (in `browser/`): copy the built runtime, its TypeScript declarations, ONNX Runtime and OpenCV.js files, license texts and the hover spec from one commit into a product's folder, with one manifest of the commit, the ONNX Runtime pin and each file's SHA-256; and check the folder against it and, when this checkout is at that commit, against its build. The folder also gets a stand-alone `cardvision-vendor-check.mjs` (Node built-ins only) that repeats the checks except the build comparison. A run refuses to delete files it did not put in the folder and restores the previous folder if it fails. `npm run build` now writes `dist/types/`, the entry `.d.ts` files and `dist/build-info.json`. Nothing under `browser/src` changes.
 - `npm run slow-clock` (in `browser/`): a deterministic model of the look scheduling on a virtual
   clock, with a stand-in worker whose analysis time, picture delay and playback rate are
   parameters. Test tooling only; nothing under `browser/src` changes.
