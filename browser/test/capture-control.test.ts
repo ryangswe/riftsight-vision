@@ -287,6 +287,102 @@ describe("a frame made at play holds no capture authority", () => {
   });
 });
 
+describe("a slow start: the frame becomes ready while a mouse rests over the picture", () => {
+  const status = (h: ReturnType<typeof setup>, state: "loading" | "ready" | "idle") => h.deliver({ kind: "status", state, error: null, backend: state === "ready" ? "webgpu" : null });
+  /** Hovered, then at rest past the grace period, the frame still loading. */
+  const resting = (restMs = 25_000) => {
+    const h = connected();
+    status(h, "loading");
+    h.hover();
+    h.advance(restMs);
+    h.clear();
+    return h;
+  };
+
+  it("gives one picture when the frame becomes ready past the grace period, and refuses the next", async () => {
+    const h = resting();
+    expect(h.control.captureAllowedNow()).toBe(false);
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(true);
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    expect(h.control.captureAllowedNow()).toBe(false);
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("without the frame becoming ready, a resting mouse past the grace period gets nothing (as before)", async () => {
+    const h = resting();
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("gives nothing past MAX_REST_MS of the last trusted move", async () => {
+    const h = resting(MAX_REST_MS);
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+    const late = resting(MAX_REST_MS - 1_000);
+    status(late, "ready");
+    late.advance(1_000);
+    await captureNow(late, 1);
+    expect(late.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("gives nothing for a tap, nor for a pointer that left", async () => {
+    const tapped = connected();
+    status(tapped, "loading");
+    tapped.tap();
+    tapped.advance(POINTER_GRACE_MS + 1);
+    status(tapped, "ready");
+    await captureNow(tapped, 1);
+    expect(tapped.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+
+    const left = resting();
+    left.hover(5_000, 5_000); // off the picture: the gate is cleared
+    status(left, "ready");
+    await captureNow(left, 1);
+    expect(left.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("a capture that failed for want of a picture keeps the grant for its retry: still one picture", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.video.readyState = 1;
+    h.request(1);
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, retry: true });
+    h.video.readyState = 4;
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 2 });
+    await captureNow(h, 3);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 3, reason: NOT_POINTING });
+  });
+
+  it("a card found keeps the gate open under the usual rules; a ready status repeated grants nothing", async () => {
+    const h = resting();
+    status(h, "ready");
+    await captureNow(h, 1);
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(false);
+    h.show("card");
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 2 });
+  });
+
+  it("a later load (loading, then ready) grants one picture again; a new trusted move drops a grant", async () => {
+    const h = resting();
+    status(h, "ready");
+    await captureNow(h, 1);
+    status(h, "loading");
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(true);
+    h.hover();
+    h.advance(POINTER_GRACE_MS + 1);
+    expect(h.control.captureAllowedNow()).toBe(false);
+  });
+});
+
 describe("capture authority", () => {
   it("refuses a never-hovered page, whatever the frame asks", async () => {
     const h = connected();
@@ -845,9 +941,9 @@ describe("loadWhen waits for playing, not play", () => {
     loadWhen(v as unknown as HTMLVideoElement, "play", make);
     expect(seen).toEqual(["playing"]);
     v.paused = false;
-    v.fire("play");
+    v.fire("play", { isTrusted: true });
     expect(make).not.toHaveBeenCalled();
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     expect(make).toHaveBeenCalledTimes(1);
   });
 

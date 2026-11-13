@@ -109,7 +109,7 @@ export function resolveGeometricScope(scope: GeometricScope | undefined, mode: A
 }
 
 /** The median of the last `MEASURED_PACING_WINDOW` values. */
-function recentMedian(timesMs: readonly number[]): number {
+export function recentMedian(timesMs: readonly number[]): number {
   const sorted = timesMs.slice(-MEASURED_PACING_WINDOW).sort((a, b) => a - b);
   const mid = sorted.length >> 1;
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
@@ -160,17 +160,5 @@ export class MeasuredPacer {
   /** The wait in always-on mode. */
   slowMs(ep: ExecutionProvider | null): number {
     return pacedIntervalMs(analyzeIntervalMs(ep), MEASURED_PACING_SLOW_CEILING_MS, this.times, this.share);
-  }
-
-  /** The least spacing between looks that keeps analysis within the share, up to the ceiling: the
-   *  median of the measured times divided by the share, at most `MEASURED_PACING_ACTIVE_CEILING_MS`
-   *  (4000 ms), with no fixed rate under it. Above the ceiling (an analysis longer than the share of
-   *  4000 ms: 1000 ms at the default 0.25) the spacing stays 4000 ms and analysis takes a larger
-   *  share, as the cadence does at its own ceiling. It applies from the first measured analysis
-   *  (0 before), because the looks it spaces (the playing relook,
-   *  `FrameScheduler.setRelookSpacingMs`) have no fixed rate to fall back on. */
-  spacingMs(): number {
-    if (this.times.length === 0) return 0;
-    return Math.min(MEASURED_PACING_ACTIVE_CEILING_MS, recentMedian(this.times) / this.share);
   }
 }

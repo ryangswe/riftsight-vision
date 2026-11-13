@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MEASURED_PACING_SHARE, MeasuredPacer } from "../src/cadence.js";
+import { ACTIVE_ANALYZE_INTERVAL_MS, MEASURED_PACING_SHARE } from "../src/cadence.js";
 import { DRIVER_TICK_MS, FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import type { WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
@@ -156,11 +156,26 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     expect(s.isOpen()).toBe(false);
     return s;
   };
+  /** As `between`, then on to 10 ms short of the fast cadence (F, 500 ms on WebGPU) after that
+   *  look's start: a tick, and so the next cadence look, is 10 ms away. */
+  const nearF = (setup: Setup) => {
+    const s = session(setup);
+    s.run(1_000, [[10, X.A]]);
+    s.untilAsk(); // a cadence look, at a tick
+    const started = s.elapsed();
+    s.run(ACTIVE_ANALYZE_INTERVAL_MS - 10);
+    expect(s.isOpen()).toBe(false);
+    expect(s.elapsed() - started).toBe(ACTIVE_ANALYZE_INTERVAL_MS - 10);
+    return { s, started };
+  };
 
-  it.each([["entry look off", {}], ["entry look on", { entryLook: true }]] as const)("%s: asks for a look on that pointer message, focused on the face", (_, extra) => {
-    const s = between({ ...READY_FOCUS, options: { ...READY_FOCUS.options, ...extra } });
+  it.each([["entry look off", {}], ["entry look on", { entryLook: true }]] as const)("%s: asks for a look on the pointer message F after the last start, focused on the face, before the tick", (_, extra) => {
+    const { s, started } = nearF({ ...READY_FOCUS, options: { ...READY_FOCUS.options, ...extra } });
     expect(s.core.hitAt(X.B, 0.5)).toBeNull(); // B is unverified: not named
-    expect(s.point(X.B)).toBe(true);
+    expect(s.point(X.B)).toBe(false); // 490 ms since the last start: under F
+    s.run(10, [[started + ACTIVE_ANALYZE_INTERVAL_MS, X.B]]);
+    expect(s.asked().at(-1)).toBe(started + ACTIVE_ANALYZE_INTERVAL_MS);
+    expect(s.core.scheduler.lastTrigger).toBe("hover"); // the move's, not the tick's
     s.answer();
     expect(s.sent.at(-1)).toMatchObject({ geometricScope: "focus", focus: { x: 700, y: 250 } });
     expect(s.core.hitAt(X.B, 0.5)?.cardId).toBe("B");
@@ -173,6 +188,11 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     }
     const all = between({ stage: "ready" });
     expect(all.point(X.B)).toBe(false);
+  });
+
+  it("a move under F after the last start asks nothing: the spacing is F, not the 250 ms minimum (S-C7)", () => {
+    const s = between(READY_FOCUS);
+    expect(s.point(X.B)).toBe(false);
   });
 
   it("asks nothing extra while the pointer moves on a named face", () => {
@@ -215,12 +235,12 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
   });
 
   // The pointer lands on B while a look is in flight (asked with the pointer on A) and rests:
-  // the relook comes when that look returns, or HOVER_TRIGGER_MIN_GAP_MS after it started if later.
-  // Before this, the resting pointer waited for the next scheduled look (2 s here: that look found
-  // no named card at the pointer, so the empty-spot gap applied).
+  // the relook comes when that look returns, or F (500 ms on WebGPU) after it started if later.
+  // Before the relook, the resting pointer waited for the next scheduled look (2 s here: that look
+  // found no named card at the pointer, so the empty-spot gap applied).
   it.each([
-    ["returns after the gap: on the reply", 300, 300],
-    ["returns inside the gap: at the next tick past it", 100, HOVER_TRIGGER_MIN_GAP_MS],
+    ["returns after F: on the reply", 600, 600],
+    ["returns inside F: at F, the next tick", 100, ACTIVE_ANALYZE_INTERVAL_MS],
   ] as const)("a pointer that lands during a look in flight and rests; the look %s", (_, latencyMs, after) => {
     const s = session({ ...READY_FOCUS, latencyMs });
     s.run(1_000, [[10, X.A]]);
@@ -245,32 +265,29 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     expect(atRest).toEqual([]);
   });
 
-  it("with measured pacing, a sweep keeps the pacer's share: a 900 ms worker", () => {
+  it("with measured pacing, a sweep's relooks are not paced: a 900 ms worker looks again F after the last start, not the paced 3600 ms (S-C7, S-P2)", () => {
     const paced: Setup = { stage: "ready", options: { geometricScope: "focus", measuredPacing: true }, latencyMs: 900 };
     const s = session(paced);
     const from = 3_000;
     const to = 9_000;
     s.run(to + 1_000, [[10, X.A], ...sweep(from, to, 30, [X.B, X.C])]);
-    const looks = s.asked().filter((a) => a >= from && a < to).length;
-    // The share is 0.25 (MEASURED_PACING_SHARE): 900 ms looks at most every 3600 ms, so at most
-    // the share of the window plus the one look its edge can cut.
-    expect(looks * 900).toBeLessThanOrEqual(MEASURED_PACING_SHARE * (to - from) + 900);
-    // Spaced at least the pacer's spacing apart over the whole sweep (by then 3 or more analyses
-    // have been measured and the cadence is paced too).
-    const all = s.asked().filter((a) => a >= from);
-    for (let i = 1; i < all.length; i++) expect(all[i]! - all[i - 1]!).toBeGreaterThanOrEqual(900 / MEASURED_PACING_SHARE);
+    const all = s.asked().filter((a) => a >= from && a < to);
+    // By then 3 or more analyses have been measured: the cadence is paced at 900 / 0.25 = 3600 ms.
+    expect(s.core.scheduler.intervalInEffectMs(s.clock())).toBe(900 / MEASURED_PACING_SHARE);
+    // The relooks are spaced at least F and at least one look apart (one in flight), and closer
+    // than the paced wait.
+    for (let i = 1; i < all.length; i++) {
+      expect(all[i]! - all[i - 1]!).toBeGreaterThanOrEqual(Math.max(ACTIVE_ANALYZE_INTERVAL_MS, 900));
+      expect(all[i]! - all[i - 1]!).toBeLessThan(900 / MEASURED_PACING_SHARE);
+    }
+    expect(all.length).toBeGreaterThan((to - from) / (900 / MEASURED_PACING_SHARE) + 1);
   });
 
-  it("with measured pacing, the spacing applies from the first measured analysis", () => {
-    // The pacer's own figure after one analysis of 900 ms.
-    const pacer = new MeasuredPacer(MEASURED_PACING_SHARE);
-    expect(pacer.spacingMs()).toBe(0);
-    pacer.record(900);
-    expect(pacer.spacingMs()).toBe(900 / MEASURED_PACING_SHARE);
+  it("with measured pacing, the relook waits F from the last start, on WebAssembly 1000 ms", () => {
     // In a session on WebAssembly (a fixed 1000 ms cadence until 3 analyses are measured, so the
     // staleness rule needs 1000 ms of video): the first look, asked at 10 ms, replies at 910 ms.
     // Moves onto the unverified faces right after it, before the frame is stale or the cadence is
-    // due, ask nothing: the playing relook waits 900 / share after the first look, not the bare
+    // due, ask nothing: the playing relook waits F (1000 ms) after the first look, not the bare
     // HOVER_TRIGGER_MIN_GAP_MS.
     const s = session({ stage: "ready", options: { geometricScope: "focus", measuredPacing: true }, latencyMs: 900, ep: "wasm" });
     s.run(980, [[10, X.A], ...sweep(920, 980, 10, [X.B, X.C])]);
@@ -279,9 +296,11 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     expect(relooks).toEqual([]);
   });
 
-  it("with measured pacing and a fast worker, the move still asks in the same call", () => {
-    const s = between({ stage: "ready", options: { geometricScope: "focus", measuredPacing: true }, latencyMs: 20 });
-    expect(s.point(X.B)).toBe(true);
+  it("with measured pacing and a fast worker, the move at F still asks in the same call", () => {
+    const { s, started } = nearF({ stage: "ready", options: { geometricScope: "focus", measuredPacing: true }, latencyMs: 20 });
+    s.run(10, [[started + ACTIVE_ANALYZE_INTERVAL_MS, X.B]]);
+    expect(s.asked().at(-1)).toBe(started + ACTIVE_ANALYZE_INTERVAL_MS);
+    expect(s.core.scheduler.lastTrigger).toBe("hover");
   });
 
   it("a pointer past its grace period, with the reading state held by a card shown at it, gets no playing relook", () => {
@@ -301,17 +320,18 @@ describe("a pointer onto an unverified face on a playing video, with the stage r
     expect(s.asked().filter((a) => a > at)).toEqual([]);
   });
 
-  it("a sweep across unverified faces asks at most one look per HOVER_TRIGGER_MIN_GAP_MS, never two in flight", () => {
+  it("a sweep across unverified faces asks at most one look per F, never two in flight", () => {
     for (const latencyMs of [20, 100, 300]) {
       const moves: Array<[number, number]> = [[10, X.A], ...sweep(1_000, 5_000, 30, [X.B, X.C])];
       const s = session({ ...READY_FOCUS, latencyMs });
       s.run(6_000, moves);
       const at = s.asked().filter((a) => a >= 1_000);
-      // The trigger does run: more looks than the same sweep while the stage loads (no trigger).
+      // Unpaced, F is the cadence: the trigger asks no more looks than the same sweep while the
+      // stage loads (no trigger), only sooner after a reply that leaves the pointer's face unverified.
       const loading = session({ stage: "loading", options: { geometricScope: "focus" }, latencyMs });
       loading.run(6_000, moves);
-      expect(at.length, `latency ${latencyMs}`).toBeGreaterThan(loading.asked().filter((a) => a >= 1_000).length);
-      for (let i = 1; i < at.length; i++) expect(at[i]! - at[i - 1]!, `latency ${latencyMs}, look ${i}`).toBeGreaterThanOrEqual(HOVER_TRIGGER_MIN_GAP_MS);
+      expect(at.length, `latency ${latencyMs}`).toBeGreaterThanOrEqual(loading.asked().filter((a) => a >= 1_000).length);
+      for (let i = 1; i < at.length; i++) expect(at[i]! - at[i - 1]!, `latency ${latencyMs}, look ${i}`).toBeGreaterThanOrEqual(ACTIVE_ANALYZE_INTERVAL_MS);
       expect(s.captures.some((c) => c.inFlightBefore), `latency ${latencyMs}`).toBe(false);
     }
   });

@@ -773,6 +773,17 @@ describe("a look on pointer entry (entryLook)", () => {
     expect(captureCount(t)).toBe(1);
   });
 
+  it("a slow start: a load that ends under a mouse resting past the grace period posts the ready status, then one capture", () => {
+    const t = setup({});
+    t.send(pointerAt());
+    t.clock.now += 25_000;
+    loaded(t.workers[0]!);
+    const kinds = t.messages().map((m) => (m.kind === "status" ? `status:${String(m.state)}` : m.kind)).filter((k) => k === "status:ready" || k === "capture");
+    expect(kinds).toEqual(["status:ready", "capture"]);
+    t.frame!.tick();
+    expect(captureCount(t)).toBe(1);
+  });
+
   it.each(ON_OFF)("%s: what is asked off the picture after a leave, and on the return to a stale picture", (_, over, on) => {
     const t = setup(over);
     const w = t.workers[0]!;

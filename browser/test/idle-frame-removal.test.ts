@@ -325,14 +325,14 @@ describe("a frame made at play and dropped when idle", () => {
     const trigger = vi.fn();
     loadWhen(playVideo as unknown as HTMLVideoElement, "play", trigger);
     playVideo.paused = false;
-    playVideo.fire("playing");
+    playVideo.fire("playing", { isTrusted: true });
     expect(trigger).toHaveBeenCalledTimes(1);
     p.status("idle");
     expect(p.whenIdle.remove).toHaveBeenCalledTimes(1);
     expect(p.control.frameRemoved).toBe(true);
     // A stall, a seek or a loop fires `playing` again; the trigger is spent and the control makes nothing.
-    playVideo.fire("playing");
-    playVideo.fire("playing");
+    playVideo.fire("playing", { isTrusted: true });
+    playVideo.fire("playing", { isTrusted: true });
     expect(trigger).toHaveBeenCalledTimes(1);
     expect(p.whenIdle.make).not.toHaveBeenCalled();
     expect(p.frames).toHaveLength(1);

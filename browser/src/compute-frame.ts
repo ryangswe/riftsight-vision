@@ -28,7 +28,10 @@
 //
 //   - A look on pointer entry (`entryLook`, on unless the extension passes false): while the
 //     content script has said `leave` and no `pointer` since, the core asks for no picture, and a
-//     load that ends under an active pointer asks at once (session-core.ts `entryLook`).
+//     load that ends under an active pointer asks at once (session-core.ts `entryLook`). A load
+//     that ends under a mouse resting past its grace period asks one look (a slow start); the
+//     `ready` status is posted before that look's `capture`, so the content script's gate knows
+//     the load ended when the request arrives (capture-control.ts).
 //
 //   - With `idleUnloadMs`, a ready frame that has seen no `pointer` message, no `intent`, no shown
 //     card and no look in flight for that long ends its worker (the memory of a ready session only
