@@ -1010,8 +1010,10 @@ the transfer of pictures. [docs/extension-session.md](../docs/extension-session.
 messages between them, the controller's rule and a sketch of each side. One case of that rule: when
 the compute frame becomes ready (its model loaded) while a mouse still rests over the picture past
 its 10 s grace period, the content script gives one picture, within 60 s (`MAX_REST_MS`) of the
-last trusted move. If that look finds a card, the card keeps the gate open under the usual rules;
-if not, nothing more is taken until the pointer moves. A tap gets no such picture.
+last trusted move, for the capture the frame asks for at once (an unspent grant lapses after
+500 ms, `SLOW_START_GRANT_MS`, or at a seek). If that look finds a card, the card keeps the gate
+open under the usual rules; if not, nothing more is taken until the pointer moves. A tap gets no
+such picture.
 
 Two options keep a page light. `startComputeFrame({ idleUnloadMs })` (off when absent) ends the
 worker after that many milliseconds with no pointer over the picture, no `intent`, no card
@@ -1244,8 +1246,8 @@ instead ("A pointer resting where the last look found no card", below). With
   The look starts as late as keeps its answer on screen for its whole lifetime, and no later than
   the paced wait. B is F until a round trip is known and 3 analyses are measured, and with pacing
   off. For example, on WebGPU with W = 800 ms (P = 3200 ms) and R = 850 ms, B is 900 ms. B is in
-  wall time and is compared with video time, as the cadence is. In `"always-on"` mode the threshold
-  stays the cadence in effect.
+  wall time and is compared with video age as B times the playback rate (at 0.75 times, 900 ms of
+  wall time is 675 ms of video). In `"always-on"` mode the threshold stays the cadence in effect.
 - **Looks a viewer waits on are not paced:** the look when a load ends under an active pointer (at
   once), the prompt retry of a failed capture and the look after a cut add no gap of their own, and
   the look asked at once for an unverified face on a playing video ("A playing video", below) comes
@@ -1253,8 +1255,10 @@ instead ("A pointer resting where the last look found no card", below). With
   The empty-spot rest, the reading looks, `"always-on"` looks and the retries that are not prompt
   stay paced.
 - The playback rate comes from the host when it can read it (`createSession` reads its video's;
-  `SessionCoreDeps.playbackRate`), and is otherwise measured from the video times the host reports
-  over 2 s or more of wall time (an extension's compute frame); it is 1 until known.
+  `SessionCoreDeps.playbackRate`), or from the `rate` the content script sends with `pointer` and
+  `presented` (`createCaptureControl` sends its video's). Otherwise it is measured from the video
+  times the host reports, over continuous play only: 2 s or more of wall time, each report
+  advancing the video and within 500 ms of the one before, no seek between. It is 1 until known.
 - The session learns within its own run and stores nothing.
 - A reused repeat (below) is not recorded: it took milliseconds and says nothing of how fast the
   worker analyzes.

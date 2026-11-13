@@ -50,10 +50,10 @@ tag. A parser keeps only the fields it knows: extra fields are ignored.
 | `kind` | Fields | Checked on arrival |
 | --- | --- | --- |
 | `hello` | `version` | a positive integer: the content script's `PROTOCOL_VERSION` |
-| `pointer` | `x`, `y`, `mediaTime`, `touch` | `x` and `y` in fractions of the picture, from 0 to 1; `mediaTime` a finite number of seconds; `touch` a boolean |
+| `pointer` | `x`, `y`, `mediaTime`, `touch`, `rate`? | `x` and `y` in fractions of the picture, from 0 to 1; `mediaTime` a finite number of seconds; `touch` a boolean; `rate` (optional) the video's `playbackRate`: a finite number, clamped to `MIN_PLAYBACK_RATE` (0.0625) to `MAX_PLAYBACK_RATE` (16), dropped otherwise |
 | `leave` | none | |
 | `intent` | none | the viewer is probably about to want recognition; sent only with the controller's `intent: "page"` (below). A frame that unloaded its worker when idle loads it again; otherwise it counts as activity. Added in version 2. |
-| `presented` | `mediaTime` | a finite number |
+| `presented` | `mediaTime`, `rate`? | `mediaTime` a finite number; `rate` as for `pointer` |
 | `discontinuity` | `newSource` | a boolean: `false` for a seek, `true` for another source |
 | `cut` | none | reserved: no page helper sends it yet |
 | `frame` | `requestId`, `bitmap`, `mediaTime` | `requestId` a positive integer; `bitmap` an `ImageBitmap` of 1 to `MAX_FRAME_SIDE` (4096) pixels a side; `mediaTime` a finite number. A refused frame's bitmap is closed. |
@@ -182,15 +182,20 @@ authority of trusted pointer events (`event.isTrusted`), and checks again at eac
   the next tap works.
 - **Slow start** (hover only): when the compute frame's `status` becomes `ready` (its model
   loaded; the handshake is not the moment) while a mouse rests over the picture past its grace
-  period, the next capture the frame asks for is given, as long as the last trusted point is still
-  over the picture and within `MAX_REST_MS` (60 s) of the last trusted event. It is one picture:
-  that capture spends the grant whatever it brings, except a capture that failed for want of a
-  picture (`retry: true`), whose prompt retry is part of the same picture. If the look finds a
-  card, the card keeps the gate open under the hover rule above; if not, nothing more is given
-  until the pointer moves. A new trusted move, a full reset and a new frame instance drop the
-  grant; a `ready` status repeated (with no other status between) grants nothing. The frame posts
-  its `ready` status before the capture the load asks for, so the grant is there when the request
-  arrives. A tap gets none.
+  period, a grant opens for the next capture the frame asks for, as long as the last trusted point
+  is still over the picture and within `MAX_REST_MS` (60 s) of the last trusted event. The frame
+  posts its `ready` status before the capture the load asks for, so the request comes at once: an
+  unspent grant expires after `SLOW_START_GRANT_MS` (500 ms). It is one picture: that capture
+  spends the grant whatever it brings, except a capture that failed for want of a picture
+  (`retry: true`) under the grant, whose prompt retry is part of the same picture (the grant then
+  waits `SLOW_START_RETRY_MS`, 2500 ms, for it). If the look finds a card, the card keeps the gate
+  open under the hover rule above; if not, nothing more is given until the pointer moves. A new
+  trusted move, a seek or a new source, a full reset and a new frame instance drop the grant; a
+  `ready` status repeated (with no other status between) grants nothing. A mouse still within its
+  grace period gets no grant (the grace period covers it), and a tap gets none. The slow start
+  applies to a pointer the frame learned of before its grace period ended: a pointer that rested
+  past it before the handshake is not kept (see the handshake above), so a page cannot remake the
+  frame to get a picture each time.
 - **Before every capture**, the last trusted point is checked again against the picture as it is
   laid out now, with `eligible`. A video that moved away under a resting pointer clears the gate
   and refuses the capture. The default `eligible` checks geometry only: something laid over the
@@ -223,8 +228,9 @@ trusted pointer event.
 
 `captureAllowed(state, now, limits)` (`capture-gate.ts`) is the pure rule, the 60 s cap
 included, that the controller applies to its four fields (`inside`, `lastTrustedPointerAt`,
-`tooltipShowing`, `lastTooltipAt`; `gateState()` returns them); `slowStartAllowed` is the slow
-start's check (inside, within the 60 s cap), which the controller applies once per grant. A product
+`tooltipShowing`, `lastTooltipAt`; `gateState()` returns them); `slowStartAllowed` (also exported
+from `page-capture.js`) is the slow start's check (inside, within the 60 s cap), which the
+controller applies once per grant. A product
 that keeps its own bookkeeping can use them, and must then do everything above itself.
 
 **Listening.** `listen(window, document)` takes pointer events and `visibilitychange` on
@@ -288,7 +294,7 @@ When the pointer comes back, the existing staleness rule decides, in video time.
 is stale when
 
 ```text
-abs(now - lastStarted) * 1000 > max(400, B)
+abs(now - lastStarted) * 1000 > max(400, B * rate)
 B = max(F, min(P, L - R - M))
 ```
 
@@ -296,9 +302,12 @@ where `now` is the video time of the picture on screen, `lastStarted` the video 
 newest look asked for, both in seconds, F the fast cadence (500 ms on WebGPU, 1000 ms on
 WebAssembly), P the paced wait of an active pointer (F with pacing off, and until 3 analyses are
 measured), L the answer's lifetime in wall time (the release's `hover.maxAgeMs` divided by the
-playback rate, which the compute frame measures from the video times it is sent), R the median
-round trip of the last 5 analyses that were not reused, and M one driver tick (250 ms). B is F until
-a round trip is known. A stale look is asked for on that `pointer` message itself, when the session
+playback rate `rate`), R the median round trip of the last 5 analyses that were not reused, and M
+one driver tick (250 ms). B is F until a round trip is known. B is wall time, so it is compared
+with video age as B times the rate. The rate is the `rate` the content script sends with `pointer`
+and `presented` (its video's `playbackRate`); a content script that sends none leaves the compute
+frame to measure it over continuous play (two reports at least 2 s apart, each advancing the video
+and within 500 ms of the one before, no seek between); it is 1 until known. A stale look is asked for on that `pointer` message itself, when the session
 is ready, nothing is in flight, no retry is waiting out its back-off and the last look started by
 the pointer is at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) old. Without this, the frame went on asking at the cadence for the
 10 s after a leave, the content script refused each request, and each refused request counted as

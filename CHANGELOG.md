@@ -24,9 +24,15 @@ break the public surface; this file names each break and how to migrate.
   move, the frame asks for one look and the content script gives one picture for it (a failed
   capture's prompt retry is part of that picture). A card it finds keeps showing under the usual
   rules; if it finds none, nothing more is taken until the pointer moves. A tap gets no such
-  picture. The compute frame now posts its `ready` status before the capture a load asks for.
-  `SessionCoreDeps.playbackRate` (optional) lets a host that can read its video's playback rate
-  give it; `createSession` does.
+  picture, and an unspent grant lapses after `SLOW_START_GRANT_MS` or at a seek. The compute frame
+  now posts its `ready` status before the capture a load asks for. `slowStartAllowed`,
+  `SLOW_START_GRANT_MS` and `SLOW_START_RETRY_MS` are exported from `page-capture.js`.
+- Browser runtime: the playback rate. The `pointer` and `presented` messages take an optional
+  `rate`, the video's `playbackRate`, which `createCaptureControl` sends; the compute frame keeps it
+  when it is a finite number, clamped to `MIN_PLAYBACK_RATE` to `MAX_PLAYBACK_RATE`.
+  `PROTOCOL_VERSION` stays 2: a side that does not send it still works. `SessionCoreDeps.playbackRate`
+  and `WorkerSessionEnv.playbackRate` (optional) let a host that reads its video's rate give it;
+  `createSession` does.
 
 ### Changed
 
@@ -36,12 +42,16 @@ break the public surface; this file names each break and how to migrate.
   (`hover.maxAgeMs` over the playback rate), R the median recent round trip and M one driver tick.
   So the answer stays on screen for its lifetime, where the paced wait alone could leave the card
   unnamed until the next cadence look. Looks a viewer waits on are no longer paced: the look when
-  a load ends asks at once, and the focus re-look of a playing picture is spaced by the fast
-  cadence from start to start instead of by the measured-pacing spacing. Keep-fresh looks (the
+  a load ends asks at once (or as soon as a waiting retry is due), and the focus re-look of a
+  playing picture is spaced by the fast cadence from start to start instead of by the
+  measured-pacing spacing. With pacing off that spacing moves from 250 ms to the fast cadence
+  (500 ms on WebGPU, 1000 ms on WebAssembly). Keep-fresh looks (the
   empty-spot rest, reading looks, `"always-on"` looks and retries that are not prompt) stay paced.
   Under `SHOWN_HOLD`, the reading wait of a resting pointer is at most L + `maxMs` - R - M once a
-  round trip is known, so a card that stays where it is keeps showing between two looks. Without a
-  playback rate from the host, the session measures it from the video times it is sent.
+  round trip is known, so a card that stays where it is keeps showing between two looks. B is wall
+  time and is compared with video age as B times the playback rate. Without a rate from the host or
+  the messages, the session measures it from the video times it is sent, over continuous play
+  only (a pause, a stall or a seek starts the measure over).
 - Browser runtime: the back-off holds on every path. While the retry of an unanswered look waits
   out its back-off, no look of any kind starts: the cadence on a playing video, a pointer move over
   a stale picture, a cut and the end of a load used to be able to start one sooner.
