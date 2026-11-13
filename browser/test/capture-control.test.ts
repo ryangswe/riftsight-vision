@@ -388,6 +388,31 @@ describe("a slow start: the frame becomes ready while a mouse rests over the pic
     expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
   });
 
+  it("opens no grant when the frame became ready just before the grace period ended", async () => {
+    const h = connected();
+    status(h, "loading");
+    h.hover();
+    h.advance(POINTER_GRACE_MS - 100);
+    status(h, "ready");
+    h.advance(200); // past the grace period, within what a grant would last
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, reason: NOT_POINTING });
+  });
+
+  it("a seek during a granted capture that then fails for want of a picture: no re-grant", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.video.readyState = 1;
+    h.request(1); // granted; the grab is still pending
+    h.video.fire("seeking");
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, retry: true });
+    h.video.readyState = 4;
+    h.advance(200); // within a re-grant's wait, past the grace period
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
   it("a seek drops an unspent grant", async () => {
     const h = resting();
     status(h, "ready");

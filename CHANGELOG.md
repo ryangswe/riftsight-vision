@@ -37,7 +37,7 @@ break the public surface; this file names each break and how to migrate.
 ### Changed
 
 - Browser runtime: budgeted pacing. The look a pointer move asks for over a stale picture now
-  starts when the newest look's picture is older than max(400, B) ms, where
+  starts when the newest look's picture is older than max(400, B × rate) ms, where
   B = max(F, min(P, L - R - M)): F the fast cadence, P the paced wait, L the answer's lifetime
   (`hover.maxAgeMs` over the playback rate), R the median recent round trip and M one driver tick.
   So the answer stays on screen for its lifetime, where the paced wait alone could leave the card

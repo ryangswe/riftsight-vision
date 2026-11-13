@@ -1240,7 +1240,7 @@ instead ("A pointer resting where the last look found no card", below). With
 - Until 3 analyses have been measured, the fixed rate applies.
 - The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
 - **The stale-picture look** (a pointer move over a picture whose newest look is stale, "the
-  staleness rule") starts when that look's picture is more than max(400, B) ms of video time away,
+  staleness rule") starts when that look's picture is more than max(400, B × rate) ms of video time away,
   with B = max(F, min(P, L − R − 250)): F the fast rate (500 ms on WebGPU, 1000 ms on
   WebAssembly), P the paced wait of an active pointer, L the lifetime and R the round trip above.
   The look starts as late as keeps its answer on screen for its whole lifetime, and no later than

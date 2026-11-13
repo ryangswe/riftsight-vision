@@ -288,6 +288,12 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   /** A slow start's grant: the next capture may be given past the grace period until this time
    *  (see the top); -Infinity for none. */
   let slowStartUntil = -Infinity;
+  /** Counts grants dropped by an event (a move, a seek, a reset, the frame leaving ready), so a capture that fails after one re-grants nothing. */
+  let slowStartCleared = 0;
+  const dropGrant = (): void => {
+    slowStartUntil = -Infinity;
+    slowStartCleared++;
+  };
   /** Counts full resets, so a capture begun before one is not sent after it. */
   let resets = 0;
   let handshake: Handshake | null = null;
@@ -338,7 +344,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   function reset(): void {
     const had = authority !== null;
     authority = null;
-    slowStartUntil = -Infinity;
+    dropGrant();
     tooltipShowing = false;
     lastTooltipAt = -Infinity;
     resets++;
@@ -410,7 +416,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       if (at) {
         authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now() };
         // A move: the grace period runs again, and a slow start is not owed.
-        slowStartUntil = -Infinity;
+        dropGrant();
         sendPointer(at);
       } else if (authority?.kind === "hover") {
         reset();
@@ -472,7 +478,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
         presented: (mediaTime) => send({ kind: "presented", mediaTime, ...rateOf(video) }),
         discontinuity: (newSource) => {
           // A seek or a new source: the picture the slow start was for is gone.
-          slowStartUntil = -Infinity;
+          dropGrant();
           // Another source in the same element: nothing the viewer pointed at carries over.
           if (newSource) reset();
           send({ kind: "discontinuity", newSource });
@@ -540,7 +546,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     // within its window is told again, with the picture's time; an expired one is not.
     const kept = authority;
     frameState = null;
-    slowStartUntil = -Infinity;
+    dropGrant();
     tooltipShowing = false;
     lastTooltipAt = -Infinity;
     resets++;
@@ -561,10 +567,11 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       allowed = captureAllowedNow();
     } catch (error) {
       // A product `eligible` that throws: refuse, with nothing left in flight.
-      slowStartUntil = -Infinity;
+      dropGrant();
       return refuse(String(error));
     }
     slowStartUntil = -Infinity;
+    const dropsBefore = slowStartCleared;
     if (!allowed) return refuse(NOT_POINTING);
     const begun = { watch, source: watch?.source, handshake, resets };
     captureInFlight = true;
@@ -586,7 +593,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     }
     if (grab.kind === "failed") {
       // No picture was taken: the frame's prompt retry is part of the slow start's one picture.
-      if (granted && grab.retry) slowStartUntil = now() + SLOW_START_RETRY_MS;
+      if (granted && grab.retry && slowStartCleared === dropsBefore) slowStartUntil = now() + SLOW_START_RETRY_MS;
       return refuse(grab.reason, grab.retry);
     }
     postWithTransfer(connectedFrame(), protocol.tag({ kind: "frame", requestId, bitmap: grab.bitmap, mediaTime: grab.mediaTime }), frameOrigin, grab.bitmap);
@@ -610,7 +617,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
         // picture (a slow start), however long it has rested within `MAX_REST_MS`.
         const was = frameState;
         frameState = message.state;
-        if (message.state !== "ready") slowStartUntil = -Infinity;
+        if (message.state !== "ready") dropGrant();
         else if (was !== "ready" && authority?.kind === "hover" && now() - authority.at >= (options.limits?.graceMs ?? POINTER_GRACE_MS) && slowStartAllowed(gateState(), now(), options.limits)) {
           slowStartUntil = now() + SLOW_START_GRANT_MS;
         }

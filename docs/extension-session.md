@@ -357,7 +357,7 @@ In focus scope (`geometricScope: "focus"`) with the geometric stage ready, a loo
 faces at the pointer as it was when the look was asked for and leaves the other faces
 unverified, and nothing is named on them. A pointer that reaches such a face on a playing video
 used to wait for the next cadence look: the relook for an unverified face was limited to a still
-picture, and the staleness rule above needs `max(400, B)` ms of video time.
+picture, and the staleness rule above needs `max(400, B × rate)` ms of video time.
 
 Now a pointer on a face the newest analysis left unverified (or on a group of overlapping faces
 that holds one, which is where nothing is named) gets a look with the pointer there as soon as
