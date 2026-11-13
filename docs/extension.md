@@ -68,7 +68,8 @@ session and the worker. The toolkit builds both halves, `dist/page-capture.js` a
 `createCaptureControl`, that gives the compute frame pictures only on the authority of the
 viewer's own pointer events. [extension-session.md](extension-session.md) describes the messages
 between them, the controller's rule, and what stays the extension's: the tooltip, the site's
-rules, card details and the store's wording. Both entries are
+rules, card details and the store's wording. [hover-spec.md](hover-spec.md) states how hovers
+behave, clause by clause, each with the test that checks it. Both entries are
 [experimental](stability.md#experimental).
 
 ## Card pictures
