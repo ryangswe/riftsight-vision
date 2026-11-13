@@ -1735,11 +1735,25 @@
       "id": "S-X4",
       "group": "X",
       "title": "A product vendors the runtime from one toolkit commit",
-      "status": "changes in 0.14.0",
-      "tests": [],
-      "pending": [
-        "vendoring check"
-      ]
+      "status": "changes in a product release",
+      "tests": [
+        {
+          "file": "vendor.test.ts",
+          "line": 362,
+          "target": false
+        },
+        {
+          "file": "vendor.test.ts",
+          "line": 520,
+          "target": false
+        },
+        {
+          "file": "vendor.test.ts",
+          "line": 697,
+          "target": false
+        }
+      ],
+      "pending": []
     }
   ]
 }

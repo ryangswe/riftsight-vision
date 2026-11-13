@@ -1007,12 +1007,13 @@ Test: `compute-frame.test.ts:214`, `capture-control.test.ts:937`
 Every runtime file a product ships, this clause index included, comes from one toolkit commit,
 recorded with each file's hash in one manifest and checked against that commit's built files.
 
-Status: changes in 0.14.0.
+Status: changes in a product release.
 
 Example: a product updates two files from a newer commit and leaves the rest: the check fails.
 
-Today: one product records the hashes of its vendored files and checks them; the other has no
-check.
+Today: the toolkit's `npm run vendor` and `npm run vendor-check` (and the stand-alone checker they
+write into the folder) do this; one product records the hashes of its vendored files with its own
+script and the other has no check, until each adopts the toolkit's tool.
 
-Test: pending (vendoring check)
+Test: `vendor.test.ts:362`, `vendor.test.ts:520`, `vendor.test.ts:697`
 
