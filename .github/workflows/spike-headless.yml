@@ -80,12 +80,12 @@ jobs:
             const sets = [
               ["unsafe-webgpu", ["--enable-unsafe-webgpu"]],
               ["unsafe-webgpu+vulkan+swiftshader", ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=swiftshader", "--use-webgpu-adapter=swiftshader"]],
+              ["unsafe-webgpu+unsafe-swiftshader", ["--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]],
             ];
             for (const [name, args] of sets) {
               const browser = await puppeteer.launch({ executablePath: process.env.CHROME, headless: process.env.MODE !== "xvfb", args });
               const page = await browser.newPage();
-              await page.goto("http://127.0.0.1:1/").catch(() => {});
-              await page.goto("about:blank");
+              await page.goto("http://127.0.0.1:8099/");
               const r = await page.evaluate(async () => {
                 if (!navigator.gpu) return "no navigator.gpu (insecure context or disabled)";
                 try { const a = await navigator.gpu.requestAdapter(); return a ? "adapter: " + JSON.stringify({ info: a.info ? { vendor: a.info.vendor, architecture: a.info.architecture, description: a.info.description } : null, fallback: a.isFallbackAdapter }) : "requestAdapter returned null"; } catch (e) { return "error " + e; }
@@ -95,6 +95,10 @@ jobs:
             }
           })();
           JS
+          mkdir "$RUNNER_TEMP/www" && echo ok > "$RUNNER_TEMP/www/index.html"
+          python3 -m http.server 8099 --bind 127.0.0.1 --directory "$RUNNER_TEMP/www" > /dev/null 2>&1 &
+          SERVER=$!
+          trap 'kill $SERVER' EXIT
           MODE=${{ matrix.mode }} ; export MODE
           if [ "$MODE" = xvfb ]; then WRAP="xvfb-run -a"; else WRAP=; fi
           $WRAP node "$RUNNER_TEMP/webgpu-probe.cjs" 2>&1 | tee "$RUNNER_TEMP/out/webgpu.log"
