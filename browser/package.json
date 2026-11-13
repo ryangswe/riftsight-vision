@@ -19,7 +19,8 @@
     "agreement": "node scripts/agreement.mjs",
     "test:webgpu": "node scripts/webgpu-test.mjs",
     "user-wait": "node scripts/build.mjs && node scripts/user-wait.mjs",
-    "hover-speed": "node scripts/build.mjs && node scripts/hover-speed.mjs"
+    "hover-speed": "node scripts/build.mjs && node scripts/hover-speed.mjs",
+    "slow-clock": "node scripts/slow-clock.mjs"
   },
   "dependencies": {
     "onnxruntime-web": "1.29.0"
