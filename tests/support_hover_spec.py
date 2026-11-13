@@ -24,16 +24,19 @@ SPEC = ROOT / "docs" / "hover-spec.md"
 INDEX = ROOT / "docs" / "hover-spec.json"
 BROWSER_TESTS = ROOT / "browser" / "test"
 
-STATUSES = ("changes in 0.14.0", "open decision")
+STATUSES = ("changes in 0.14.0", "changes in a product release", "open decision")
+CHANGES = STATUSES[:2]
 PENDING_KINDS = ("slow-clock test", "real-browser test", "vendoring check")
 
 GROUP = re.compile(r"^## ([A-Z])\. (.+?)\s*$")
 CLAUSE_HEAD = re.compile(r"^### (S-.*)$")
 CLAUSE = re.compile(r"^### (S-([A-CFGHPWX])([1-9][0-9]*)) — (\S.*?)\s*$")
-ID_MENTION = re.compile(r"\bS-[A-CFGHPWX][0-9]+\b")
+ID_MENTION = re.compile(r"\bS-[A-Z][0-9]+\b")
+FILE_TOKEN = re.compile(r"^[A-Za-z0-9_./-]+\.(?:test\.ts|py)(?::.*)?$")
 REF = re.compile(r"^([A-Za-z0-9_./-]+\.(?:test\.ts|py)):([1-9][0-9]*)$")
 PENDING = re.compile(r"pending \(([^)]*)\)")
-TS_TEST_LINE = re.compile(r"^\s*it(?:\.each\b|\()")
+TS_TEST_LINE = re.compile(r"^\s*it(?:\.each\b|\.fails\b|\()")
+TS_TARGET_LINE = re.compile(r"^\s*it\.fails\b")
 PY_TEST_LINE = re.compile(r"^\s*(?:async\s+)?def test_")
 
 
@@ -54,6 +57,12 @@ def resolve(name: str, line: int, root: Path = ROOT) -> str | None:
     if not pattern.match(lines[line - 1]):
         return f"{name}:{line} -> not an it( / it.each( / def test_ line: {lines[line - 1].strip()[:60]!r}"
     return None
+
+
+def is_target(name: str, line: int, root: Path = ROOT) -> bool:
+    """True when the line is an ``it.fails(`` test: it pins the behavior a clause is changing to."""
+    lines = test_file(name, root).read_text(encoding="utf-8").splitlines()
+    return bool(TS_TARGET_LINE.match(lines[line - 1]))
 
 
 def paragraphs(body: list[str]) -> list[str]:
@@ -121,17 +130,31 @@ def parse(text: str, root: Path = ROOT) -> tuple[dict, list[str]]:
             problems.append(f"{where}: duplicate clause id {cid}")
         seen.add(cid)
         paras = paragraphs(body)
-        status = "stable"
+        status = "current"
         marks = [p for p in paras if p.startswith("Status:")]
         if len(marks) > 1:
             problems.append(f"{cid}: more than one Status line")
         if marks:
             value = marks[0][len("Status:"):].strip()
-            known = next((s for s in STATUSES if value == s or value.startswith(s + ".") or value.startswith(s + " ")), None)
+            known = next((s for s in STATUSES if value in (s, s + ".")), None)
             if known is None:
-                problems.append(f"{cid}: unknown status {value!r}")
+                problems.append(f"{cid}: unknown status, or words after it: {value!r}")
             else:
                 status = known
+        if status in CHANGES and not any(p.startswith("Today:") for p in paras):
+            problems.append(f"{cid}: a clause marked {status!r} needs a Today paragraph")
+        for para in paras:
+            if para.startswith("Test:"):
+                continue
+            for token in re.findall(r"`([^`]*)`", para):
+                if FILE_TOKEN.match(token):
+                    ref = REF.match(token)
+                    if not ref:
+                        problems.append(f"{cid}: malformed test reference `{token}`")
+                    else:
+                        bad = resolve(ref.group(1), int(ref.group(2)), root)
+                        if bad:
+                            problems.append(f"{cid}: test reference {bad}")
         tests: list[dict] = []
         pending: list[str] = []
         test_paras = [p for p in paras if p.startswith("Test:")]
@@ -148,7 +171,12 @@ def parse(text: str, root: Path = ROOT) -> tuple[dict, list[str]]:
                 bad = resolve(name, line_no, root)
                 if bad:
                     problems.append(f"{cid}: test reference {bad}")
-                tests.append({"file": name, "line": line_no})
+                target = bad is None and is_target(name, line_no, root)
+                if target and status not in CHANGES:
+                    problems.append(f"{cid}: `{token}` is an it.fails test, which pins a change, in a clause that is not changing")
+                if target and "target" not in content:
+                    problems.append(f"{cid}: `{token}` pins the target and the Test paragraph does not say \"target\"")
+                tests.append({"file": name, "line": line_no, "target": target})
             for kind in PENDING.findall(content):
                 if kind not in PENDING_KINDS:
                     problems.append(f"{cid}: unknown pending kind {kind!r}")

@@ -22,7 +22,9 @@ Rule.
 
 Status: changes in 0.14.0.
 
-Test: `x.test.ts:2`, pending (real-browser test)
+Today: it does less.
+
+Test: `x.test.ts:2`, pending (real-browser test); the target: `x.test.ts:5`
 
 ### S-A2 — Two
 
@@ -36,7 +38,7 @@ Test: `x.test.ts:4`
 def tree(tmp_path: Path) -> Path:
     folder = tmp_path / "browser" / "test"
     folder.mkdir(parents=True)
-    (folder / "x.test.ts").write_text('describe("d", () => {\n  it("a", () => {});\n  // c\n  it.each([1])("b", () => {});\n});\n')
+    (folder / "x.test.ts").write_text('describe("d", () => {\n  it("a", () => {});\n  // c\n  it.each([1])("b", () => {});\n  it.fails("t", () => {});\n});\n')
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_y.py").write_text("import x\n\ndef test_a():\n    pass\n")
     return tmp_path
@@ -63,10 +65,10 @@ def test_the_index_is_complete():
 def test_a_good_fixture_parses(tree):
     index, problems = parse(GOOD, tree)
     assert problems == []
-    first, second = index["clauses"]
-    assert (first["id"], first["group"], first["title"], first["status"]) == ("S-A1", "A", "One", "changes in 0.14.0")
-    assert first["tests"] == [{"file": "x.test.ts", "line": 2}] and first["pending"] == ["real-browser test"]
-    assert second["status"] == "stable"
+    one, second = index["clauses"]
+    assert (one["id"], one["group"], one["title"], one["status"]) == ("S-A1", "A", "One", "changes in 0.14.0")
+    assert one["tests"] == [{"file": "x.test.ts", "line": 2, "target": False}, {"file": "x.test.ts", "line": 5, "target": True}] and one["pending"] == ["real-browser test"]
+    assert second["status"] == "current"
 
 
 def test_a_python_test_line_resolves(tree):
@@ -81,7 +83,7 @@ def test_a_python_test_line_resolves(tree):
     ("S-A2 — Two", "S-A2 - Two", "malformed clause heading"),
     ("S-A2 — Two", "S-B2 — Two", "sits under group 'A'"),
     ("`x.test.ts:4`", "`x.test.ts:3`", "not an it( / it.each( / def test_ line"),
-    ("`x.test.ts:4`", "`x.test.ts:99`", "the file has 5 lines"),
+    ("`x.test.ts:4`", "`x.test.ts:99`", "the file has 6 lines"),
     ("`x.test.ts:4`", "`gone.test.ts:4`", "no such file"),
     ("`x.test.ts:4`", "`x.test.ts`", "malformed test reference"),
     ("`x.test.ts:4`", "`x.test.ts:0`", "malformed test reference"),
@@ -90,13 +92,25 @@ def test_a_python_test_line_resolves(tree):
     ("Test: `x.test.ts:4`", "Test: none yet", "no reference and no pending mark"),
     ("Test: `x.test.ts:4`", "", "exactly one Test paragraph"),
     ("Status: changes in 0.14.0.", "Status: later", "unknown status"),
+    ("Status: changes in 0.14.0.", "Status: changes in 0.14.0. After it, more.", "words after it"),
+    ("Status: changes in 0.14.0.", "Status: changes in a product release", None),
+    ("Today: it does less.\n\n", "", "needs a Today paragraph"),
+    ("Rule. See S-A1.", "Rule. See S-Z1.", "S-Z1 is mentioned but no clause has that id"),
+    ("Rule. See S-A1.", "Rule. See `x.test.ts:3`.", "not an it( / it.each( / def test_ line"),
+    ("Rule. See S-A1.", "Rule. See `gone.test.ts:3`.", "no such file"),
+    ("Rule. See S-A1.", "Rule. See `x.test.ts`.", "malformed test reference"),
+    ("; the target: `x.test.ts:5`", "; `x.test.ts:5`", 'does not say "target"'),
+    ("Test: `x.test.ts:4`", "Test: the target `x.test.ts:5`", "not changing"),
     ("See S-A1.", "See S-A9.", "S-A9 is mentioned but no clause has that id"),
 ])
 def test_a_fault_is_found(tree, old, new, expected):
     text = GOOD.replace(old, new)
     assert text != GOOD
     found = problems_of(text, tree)
-    assert any(expected in line for line in found), found
+    if expected is None:
+        assert found == []
+    else:
+        assert any(expected in line for line in found), found
 
 
 def test_a_second_status_line_is_a_fault(tree):

@@ -16,8 +16,8 @@ break the public surface; this file names each break and how to migrate.
   parameters. Test tooling only; nothing under `browser/src` changes.
 - Docs: `docs/hover-spec.md`, a draft spec of how card hovers behave, as numbered clauses with
   their tests, and `docs/hover-spec.json`, its generated index (`python tests/support_hover_spec.py`;
-  a test fails when the two differ). Some clauses state behavior planned for 0.14.0 and are marked
-  as changing in it.
+  a test fails when the two differ). Some clauses state behavior planned for 0.14.0, and some
+  behavior planned for the product hosts' next release; each is marked.
 
 ### Changed
 

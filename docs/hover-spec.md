@@ -29,10 +29,16 @@ where a game needs something else.
   real scheduler and session on a virtual clock, `pending (real-browser test)` a test that runs
   the extension in a browser, `pending (vendoring check)` the check that a product's vendored
   files match one toolkit commit.
-- **Marks.** `Status: changes in 0.14.0` marks a clause that states the behavior of toolkit 0.14.0
-  and that the toolkit's runtime, or the page code a product vendors from it, does not meet yet.
-  The clause states the rule after the change and `Today:` says what happens now. `Status: open
-  decision` marks a choice not made yet; both options are stated and none is picked here.
+- **Marks.** A clause with no mark is met by the code today.
+  - `Status: changes in 0.14.0` marks a clause that states the behavior of toolkit 0.14.0, which
+    the toolkit's code does not meet yet.
+  - `Status: changes in a product release` marks a clause whose code lives in the product hosts.
+    The hosts take the change in their next release, and once the shared host exists it carries it.
+  - A clause with either mark states the rule after the change, and a `Today:` paragraph says what
+    happens now (without naming a product: "one product ..."). A test that pins the target is
+    marked "target" in the clause.
+  - `Status: open decision` marks a choice not made yet. The clause says what the code does
+    today, or states the options, and picks none.
 - **Order.** A clause id keeps its meaning, so a clause added later takes the next number of its
   group and sits where it reads naturally. The ids in a group need not run in order on the page.
 
@@ -48,10 +54,12 @@ where a game needs something else.
   2000 ms.
 - **Max age (A):** 2000 ms of video time by default (S-W2). **Lifetime (L):** A divided by the
   playback rate, in milliseconds of wall time: how long an answer can stay on screen.
-- **Round trip (R):** the median of the last 5 times from a picture being asked for to its reply.
+- **Round trip (R):** the median of the last 5 times from a picture being asked for to its reply,
+  over the analyzed replies that were not reused (S-P4).
   **Margin (M):** one driver tick, 250 ms (`DRIVER_TICK_MS`).
 - **Keep-fresh look:** a look that keeps the card on screen current while the viewer is not
-  waiting on an answer. **Viewer-waiting look:** a look that starts because the viewer arrived or
+  waiting on an answer. The stale-picture look a pointer move asks for is one; a resting active
+  pointer's cadence look is another, and the budget of S-P5 bounds the former, not the latter. **Viewer-waiting look:** a look that starts because the viewer arrived or
   asked for something (S-P2).
 
 ### The standard options
@@ -83,7 +91,7 @@ The compute frame and the tooltip frame are made together when the main video pl
 is already playing, else at its next `playing` event. A paused or ended video makes nothing. A
 `playing` event that the page makes (not trusted) is ignored. The pages are in S-G2 and S-G3.
 
-Status: changes in 0.14.0. After it, `loadWhen` ignores an untrusted `playing` event.
+Status: changes in 0.14.0.
 
 Example: a watch page opens with its video playing: both frames are made at once. A watch page
 opens paused: they are made at the `playing` event when the viewer presses play. A page script
@@ -151,14 +159,16 @@ Test: `idle-frame-removal.test.ts:128`, `idle-frame-removal.test.ts:228`,
 
 When the viewer turns hovers on and the main video is playing on a load-at-play page, both frames
 are made at once in the tab in front, also after an idle unload. A background tab whose frames were
-unloaded waits until it comes to the front, as a keep-card change does (S-H3). It is the viewer's
-own choice, not a load trigger of the product.
+unloaded waits until it comes to the front, as a keep-card change does (S-H3).
 
-Status: changes in 0.14.0.
+Status: changes in a product release.
 
 Example: the frames were removed for idleness; the viewer switches hovers off and on in the popup
 while the video plays: in the tab in front both frames are made at once, before any pointer move.
 In a second tab that is behind, nothing is made until the viewer brings it to the front.
+
+Today: one product makes the frames in every tab at once, with no wait for the front tab; the other
+makes none until a trusted play or pointer event.
 
 Test: pending (real-browser test)
 
@@ -167,8 +177,15 @@ Test: pending (real-browser test)
 A video that plays in a background tab makes the frames as a visible one does (S-A1). No picture
 is taken while the page is hidden (S-B6).
 
-Example: a viewer opens a stream in a new background tab: the model loads there. Nothing is
-captured until the viewer brings the tab to the front and points at the video.
+Status: open decision.
+
+This clause states what the code does today. Whether a background tab should wait for the front
+(as in S-A7 and S-H3) is not decided.
+
+Example: a watch page is open in a tab behind the front tab, and the page changes in place to the
+next video: the frames are made when that video plays. No picture is taken until the tab is shown
+and the viewer points at the video. A background tab that was never in front may not play its
+video at all; the real-browser test settles that.
 
 Test: pending (real-browser test)
 
@@ -189,10 +206,13 @@ When a page script removes the compute frame or the tooltip frame, both are made
 trusted `playing` event of the main video or the next trusted pointer move over its picture, as
 after an idle unload (S-A6). Nothing is made again on a timer or on an untrusted event.
 
-Status: changes in 0.14.0.
+Status: changes in a product release.
 
 Example: a page deletes the hover frames while the viewer watches: nothing happens until the viewer
 moves the mouse over the picture, and then both frames are made and connect.
+
+Today: the toolkit makes frames again after an idle unload and at no other time. The products check at some events
+whether their frames are still in the page, and the two do not make them again at the same moments.
 
 Test: pending (real-browser test)
 
@@ -217,7 +237,8 @@ A mouse or pen gives pictures within 10 s (`POINTER_GRACE_MS`) of its last trust
 picture, then while a card shows and for 5 s (`READING_LINGER_MS`) after one last showed. In
 every case the last trusted point must still be over the picture.
 
-A frame that becomes ready after the 10 s gives one more picture (S-B13).
+From 0.14.0, a frame that becomes ready after the 10 s gives one more picture (S-B13, which is
+changing in 0.14.0).
 
 Example: the pointer stops over the video at 0 s with no card: pictures are given until 10 s. It
 stops on a shown card that goes at 14 s: pictures are given until 19 s.
@@ -235,11 +256,13 @@ Test: `capture-gate.test.ts:41`, `capture-control.test.ts:371`
 
 ### S-B13 — A frame that becomes ready late gets one picture for a pointer that still rests
 
-When the compute frame becomes ready after the 10 s of S-B2 have passed, and a trusted pointer still
-rests over the picture, one picture is taken at that moment, and never later than 60 s
-(`MAX_REST_MS`) after the last trusted pointer move. If that look finds a card, the card keeps
-showing under the rules of S-B2 and S-B3. If it finds nothing, no further picture is taken until
-the pointer moves. A tap gets no such picture: S-B4 is unchanged for a cold start.
+When the compute frame becomes ready (the model is loaded; the handshake is not the moment) after
+the 10 s of S-B2 have passed, and a trusted pointer still rests over the picture, one picture is
+taken at that moment, and never later than 60 s (`MAX_REST_MS`) after the last trusted pointer
+move. If that look finds a card, the card keeps showing under the rules of S-B2 and S-B3. If it
+finds nothing, no further picture is taken until the pointer moves. A capture that fails and is
+retried promptly (S-C10) is part of the one picture, not a second one. A tap gets no such picture:
+S-B4 is unchanged for a cold start.
 
 Status: changes in 0.14.0.
 
@@ -268,7 +291,7 @@ A video that moved away under a resting pointer clears the gate and refuses the 
 
 Example: the page scrolls the player 400 px up under a resting mouse: the next capture is refused.
 
-Test: `capture-control.test.ts:331`, `capture-control.test.ts:397`
+Test: `capture-control.test.ts:331`, `capture-control.test.ts:347`
 
 ### S-B6 — Leaving, hiding the page or changing the video clears all authority
 
@@ -334,7 +357,7 @@ Test: `capture-control.test.ts:793`, `session-core.test.ts:1883`; in a product: 
 
 ### S-B12 — A product's privacy page states the gate's timings as the code has them
 
-A product's privacy page gives the windows of S-B2 to S-B4 and the idle time of S-A4, and a test
+A product's privacy page gives the windows of S-B2 to S-B4, the one-picture rule of S-B13 and the idle time of S-A4, and a test
 fails when a constant and the page disagree.
 
 Example: `MAX_REST_MS` changes from 60000 to 45000 and the page still says 60 seconds: the test
@@ -356,7 +379,7 @@ playing video is looked at on the fast cadence (or the paced wait, S-P1).
 Example: WebGPU, unpaced, the pointer moving over cards on a playing video: a look about every
 500 ms (1000 ms on WebAssembly). No pointer activity for 10 s and no card shown: no look.
 
-Test: `scheduler.test.ts:101`, `scheduler.test.ts:107`, `scheduler.test.ts:116`
+Test: `scheduler.test.ts:101`, `scheduler.test.ts:107`
 
 ### S-C2 — A pointer resting on a shown card is looked at on the slow cadence
 
@@ -394,7 +417,7 @@ retry is waiting (S-C11), the last pointer-started look began at least 250 ms ag
 look's picture is stale: more than `max(400, B)` ms of video time away, where B is the budget of
 S-P5.
 
-Status: changes in 0.14.0. After it, the threshold is the budget and not the interval in effect.
+Status: changes in 0.14.0.
 
 Example: WebGPU, unpaced, a round trip of 100 ms: B is 500 ms. The pointer leaves at video 10.0 s and
 returns at 13.0 s: 3000 ms is more than 500 ms, so the return asks on that message.
@@ -403,8 +426,8 @@ Today: the threshold is `max(400, interval in effect)`. Paced at W = 800 ms the 
 3200 ms; a return at video age 2500 ms asks nothing, and the card (older than 2000 ms) shows
 nothing until the next cadence look.
 
-Test: `scheduler.test.ts:258`, `scheduler.test.ts:268`, `session-core.test.ts:2543`; the budget:
-pending (slow-clock test)
+Test: `scheduler.test.ts:258`, `scheduler.test.ts:268`, `session-core.test.ts:2543`; today's
+threshold on a slow computer: `slow-clock.test.ts:238`; the target: `slow-clock.test.ts:244`
 
 ### S-C6 — When a load ends with the pointer active, the look is asked at once
 
@@ -426,7 +449,7 @@ flight, no retry waits, no capture was refused, and the last look of any kind be
 ago (500 ms on WebGPU, 1000 ms on WebAssembly). The spacing is fixed: it is not the budget of S-P5
 and not the paced interval.
 
-Status: changes in 0.14.0. After it, the spacing is F from start to start.
+Status: changes in 0.14.0.
 
 Example: WebGPU, a look began 300 ms ago and answered: the pointer moves onto an unverified card and
 the look is asked at 500 ms after the last start, on the next pointer message or tick.
@@ -434,8 +457,9 @@ the look is asked at 500 ms after the last start, on the next pointer message or
 Today: the spacing is `max(250, median worker time of the last 5 looks divided by the share,
 up to 4000)`. Paced at W = 900 ms it is 3600 ms from the last look.
 
-Test: `relook-playing.test.ts:160`, `relook-playing.test.ts:198`, `relook-playing.test.ts:248`; the
-spacing: pending (slow-clock test)
+Test: `relook-playing.test.ts:160`, `relook-playing.test.ts:198`, `relook-playing.test.ts:248`;
+today's spacing: `slow-clock.test.ts:216`, `slow-clock.test.ts:224`; the target:
+`slow-clock.test.ts:221`
 
 ### S-C8 — A pointer on an unverified card of a still picture asks for a look again
 
@@ -467,8 +491,9 @@ makes the same picture due again after 250 ms, 500 ms, 1000 ms, then every 2000 
 capture is retried when its back-off runs out; the others also wait for the cadence. An analyzed
 answer, a seek or a new source start the back-off over; the pointer leaving does not.
 
-Example: a paused picture's look comes back busy three times in a row: the next three are due 250,
-500 and 1000 ms after each.
+Example: WebGPU, a paused picture's look comes back busy at once: the retry is due 250 ms later,
+and as a retry that is not prompt it also waits for the cadence, so it starts 500 ms after the look
+started. Three busy answers in a row make the next three due 250, 500 and 1000 ms after each.
 
 Test: `scheduler.test.ts:472`, `scheduler.test.ts:558`, `scheduler.test.ts:565`,
 `session-core.test.ts:1947`
@@ -489,14 +514,16 @@ Today: the paths that wait for the retry are the cadence of a still picture, the
 playing relook. The cadence on a playing video (`due`), the stale-picture path (`hoverTriggerDue`)
 and a cut can start a look before the retry's time.
 
-Test: `scheduler.test.ts:539`, `scheduler.test.ts:757`, `scheduler.test.ts:832`; the cadence, the
-stale-picture path and a cut: pending (slow-clock test)
+Test: `scheduler.test.ts:539`, `scheduler.test.ts:757`, `scheduler.test.ts:832`; today's start
+before the retry (the stale-picture path, then the cadence at 50 frames per second):
+`slow-clock.test.ts:254`, `slow-clock.test.ts:267`; the target: `slow-clock.test.ts:260`,
+`slow-clock.test.ts:274`; the cut path: pending (slow-clock test)
 
 ### S-C12 — A refused capture is not retried; the next pointer move asks again
 
 A capture refused for a reason other than the picture (the gate, an unreadable video) is retried by
 nothing and grows no back-off. It blocks the unverified-card looks until a picture is received or
-answered, or the picture changes; the next pointer move asks again, at the cadence.
+answered, or a seek or a new source; the next pointer move asks again, at the cadence.
 
 Example: a capture is refused while the pointer is outside; the pointer comes back and rests
 without moving: nothing is asked. It moves: one look is asked.
@@ -559,7 +586,7 @@ Test: `session-core.test.ts:328`, `capture-control.test.ts:739`, `relook-playing
 
 Looks started by the pointer (S-C5, S-C7, S-C8) begin at least 250 ms
 (`HOVER_TRIGGER_MIN_GAP_MS`) after the one before. S-C5 counts from the last pointer-started look;
-S-C7 counts from the last look of any kind, and its spacing F is longer.
+S-C7 counts from the last look of any kind and can require a longer spacing.
 
 Example: a pointer crosses a stale picture with moves at 0, 100 and 200 ms: one look, at 0 ms.
 
@@ -573,15 +600,22 @@ slowed by it (S-P2).
 
 ### S-P1 — Keep-fresh looks are paced from the measured analysis time
 
-With pacing on (standard), the wait between keep-fresh looks is P = max(F, min(C, W / 0.25)), where
-the ceiling C is 4000 ms while the pointer is active, 6750 ms (A + 5000 − 250) while it rests on a
-shown card, and 8000 ms in always-on mode. P is F (the slow cadence when resting or always-on) until
-3 looks have been measured, and when pacing is off. Keep-fresh looks are the cadence looks, the
-reading looks, the empty-spot rest (S-C14), always-on looks, the retries that are not prompt, and the
-stale-picture look, whose start is also bounded by S-P5.
+With pacing on (standard), the wait between keep-fresh looks is P = max(Q, min(C, W / 0.25)). The
+floor Q and the ceiling C depend on the state:
 
-Example: WebAssembly, W = 900 ms: the wait is 3600 ms. WebGPU, W = 50 ms: 200 ms is under the
-fixed 500 ms, so the wait stays 500 ms.
+- pointer active: Q is F, C is 4000 ms;
+- pointer resting on a shown card: Q is the slow cadence (1000 ms on WebGPU, 2000 ms on
+  WebAssembly), C is 6750 ms (A + 5000 − 250);
+- always-on mode: Q is the slow cadence, C is 8000 ms.
+
+P is Q until 3 looks have been measured, and when pacing is off. Keep-fresh looks are the cadence
+looks, the reading looks, the empty-spot rest (S-C14), always-on looks, the retries that are not
+prompt and the stale-picture look. From 0.14.0 the start of the stale-picture look is also bounded
+by S-P5.
+
+Example: WebAssembly, pointer active, W = 900 ms: the wait is 3600 ms. WebGPU, pointer active,
+W = 50 ms: 200 ms is under F, so the wait stays 500 ms. WebGPU, pointer resting, W = 200 ms: 800 ms
+is under the slow cadence, so the wait is 1000 ms.
 
 Test: `measured-pacing.test.ts:29`, `measured-pacing.test.ts:43`, `measured-pacing.test.ts:64`,
 `scheduler.test.ts:961`
@@ -597,6 +631,8 @@ with F the fast cadence, P the paced interval of the active pointer (S-P1, ceili
 L the lifetime (A divided by the playback rate), R the round trip and M the 250 ms margin. So a
 look starts as late as keeps the answer on screen for the whole of its lifetime, and no later than
 the paced wait. It does not start at the fixed fast cadence when that is earlier than needed.
+B bounds the stale-picture look that a pointer move asks for, and no other look. The cadence look of a pointer
+that is active and resting stays at P.
 
 - **Floor.** B is never below F. When L − R − M is under F (the computer is too slow to keep a card
   fresh), B is F.
@@ -617,14 +653,16 @@ W = 800 ms, R = 900 ms: L − R − M = 850 ms is under F, so B = 1000 ms.
 
 Today: the threshold is `max(400, interval in effect)`, which is P without the lifetime bound.
 
-Test: pending (slow-clock test)
+Test: today's threshold on a slow computer: `slow-clock.test.ts:238`; the target:
+`slow-clock.test.ts:244`
 
 ### S-P2 — Looks a viewer waits for are not slowed by pacing
 
 Looks that start because the viewer arrived or asked are not held back by the paced wait: the
-unverified-card looks (S-C7, S-C8), spaced F from start to start, the look when a load ends (S-C6),
-a prompt retry (S-C10) and a cut in an in-page session (S-C9). Each still keeps one look in flight,
-the 250 ms gap and the back-off (S-C11). Keep-fresh looks (S-P1, S-P5) stay paced, so the empty-spot
+unverified-card looks, the look when a load ends (S-C6), a prompt retry (S-C10) and a cut in an
+in-page session (S-C9). The focus re-look of a playing picture (S-C7) is spaced F from start to
+start; the re-look of a still picture (S-C8) stays 250 ms from the last pointer-started look. The
+others add no gap of their own. Each keeps one look in flight and the back-off (S-C11). Keep-fresh looks (S-P1, S-P5) stay paced, so the empty-spot
 rest, the reading looks, always-on looks and the retries that are not prompt are not changed by this
 clause.
 
@@ -641,8 +679,8 @@ Test: pending (slow-clock test)
 
 ### S-P3 — Under the shown hold, a reading look comes before the card's hold runs out
 
-With `SHOWN_HOLD`, once a round trip is known the reading wait is at most A + 5000 − R − M, in place
-of the 6750 ms ceiling, so the next answer lands before the card's age plus the hold run out and a
+With `SHOWN_HOLD`, once a round trip is known the reading wait is at most L + 5000 − R − M, where L
+is A divided by the playback rate, in place of the 6750 ms ceiling, so the next answer lands before the card's age plus the hold run out and a
 card that stays where it is does not go between two looks. The wait is not below the slow cadence,
 and not above the paced wait of S-P1.
 
@@ -650,12 +688,14 @@ Status: changes in 0.14.0.
 
 Example: W = 1600 ms, R = 1600 ms, pacing on, the pointer resting on a card past its 10 s: the wait is
 min(6400, 2000 + 5000 − 1600 − 250) = 5150 ms, and the next answer lands 6750 ms after the last
-look's picture, inside the 7000 ms of the card's age plus the hold.
+look's picture, inside the 7000 ms of the card's age plus the hold. At 1.25 times playback, L is
+1600 ms: with W = R = 1500 ms the wait is min(6000, 1600 + 5000 − 1500 − 250) = 4850 ms, and the
+answer lands 6350 ms after the last look's picture, inside the card's life of 6600 ms.
 
 Today: the reading ceiling is 6750 ms (2000 + 5000 − 250). At W = 1600 ms the wait is 6400 ms and
 the next answer lands 8000 ms after the last look's picture, so the card is gone for about 1 s.
 
-Test: pending (slow-clock test)
+Test: today's gap: `slow-clock.test.ts:194`; the target: `slow-clock.test.ts:202`
 
 ### S-P4 — The pacer learns from analyses that were not reused
 
@@ -728,7 +768,7 @@ Test: `session-core.test.ts:886`, `session-core.test.ts:974`, `session-core.test
 ### S-W6 — With keep-card off, a card is kept through short gaps
 
 Under the shown hold, a card stays until two analyses in a row have nothing there, or 5 s pass
-with no analysis seeing it. Another card at the pointer, or the pointer leaving the card's box, end
+after the card was last named (a naming counts up to A after its picture). Another card at the pointer, or the pointer leaving the card's box, end
 it at once. A reply that analyzed nothing, or that came back older than 2000 ms of video, is not a
 miss.
 
@@ -771,7 +811,7 @@ there, until a look verifies it (S-C7, S-C8).
 Example: the pointer moves from a verified card onto a strip where an unverified card overlaps it:
 the tooltip goes until the next look answers.
 
-Test: `geometric-focus.test.ts:1090`, `relook-playing.test.ts:160`
+Test: `geometric-focus.test.ts:1090`
 
 ## F. Outline
 
@@ -802,7 +842,9 @@ Test: `shown-outline.test.ts:112`, `shown-outline.test.ts:121`, `tilt.test.ts:40
 
 ### S-F3 — A turned outline near the picture's edge
 
-Status: open decision. Both options:
+Status: open decision.
+
+Both options:
 
 - **Upright-box fallback.** A turned outline that would reach past the picture is drawn as the
   card's box clipped to the picture, upright. The box can cover pixels where a hover does not count.
@@ -836,10 +878,13 @@ Active pages: on `www.youtube.com`, `/watch`, `/embed/…`, `/live/…` and a ch
 (`/@name/live`, `/channel/…/live`, `/c/…/live`, `/user/…/live`); every page on `www.twitch.tv`.
 Elsewhere a pointer counts for nothing, at each event and at each capture.
 
-Status: changes in 0.14.0.
+Status: changes in a product release.
 
 Example: on `www.youtube.com`, the path `/@name/live` is active and `/@name/videos` is not. A
 `/watch` page on the host `m.youtube.com` is not.
+
+Today: one product checks the page at each event and at each capture; the other checks it at a
+pointer move and not at a capture.
 
 Test: pending (real-browser test)
 
@@ -856,17 +901,22 @@ Test: pending (real-browser test)
 ### S-G3 — On Twitch, channel, video and clip pages load at play; seven side pages wait for a hover
 
 A channel's page, a past broadcast (`/videos/<digits>`) and a clip (`/<channel>/clip/<slug>`) load
-at play. The front page, directories and the site's other pages wait for a hover (S-A2). The list
-of those site pages is one list, shared by the products, and it includes these seven: `/following`,
-`/creatorcamp`, `/collections`, `/payments`, `/privacy`, `/products` and `/team`. The address check
-is also one shared check, and it is strict: an address that is not one of the load-at-play forms
-waits for a hover.
+at play. The side-page list is exactly these seven: `/following`, `/creatorcamp`, `/collections`,
+`/payments`, `/privacy`, `/products` and `/team`. On them hovers load at a hover, not at play.
+Other addresses that are not a channel, video or clip, such as the front page, directories, search
+and settings, wait for a hover too. The list and the address check are one shared list and one
+strict check, shared by the products: an address that is not one of the load-at-play forms waits
+for a hover. The details of the address rule may change when its route table is reviewed.
 In-page navigation with no new `playing` event loads at the earliest pointer.
 
-Status: changes in 0.14.0.
+Status: changes in a product release.
 
 Example: on `www.twitch.tv`, the path `/name/clip/AbC-123` playing loads at once. The path
 `/following` playing loads at the earliest pointer move over the picture.
+
+Today: the two products keep different lists of site pages and different address rules. They
+differ on these seven pages, on repeated slashes, on the case of `/videos/` and on the characters
+a clip slug may have.
 
 Test: pending (real-browser test)
 
@@ -888,10 +938,13 @@ When the page's address is no longer an active page (S-G1), a pointer over the p
 nothing, at each event and at each capture, also under a resting pointer. The check runs at every
 capture, and not at a pointer move alone.
 
-Status: changes in 0.14.0.
+Status: changes in a product release.
 
 Example: the viewer leaves a watch page for the home page and the video goes on in a miniplayer:
 moving or resting over it takes no picture.
+
+Today: one product checks the page at each event and at each capture; the other checks it at a
+pointer move and not at a capture.
 
 Test: pending (real-browser test)
 
@@ -971,6 +1024,12 @@ Test: `compute-frame.test.ts:214`, `capture-control.test.ts:784`
 Every runtime file a product ships, this clause index included, comes from one toolkit commit,
 recorded with each file's hash in one manifest and checked against that commit's built files.
 
+Status: changes in 0.14.0.
+
 Example: a product updates two files from a newer commit and leaves the rest: the check fails.
 
+Today: one product records the hashes of its vendored files and checks them; the other has no
+check.
+
 Test: pending (vendoring check)
+

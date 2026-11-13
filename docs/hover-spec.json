@@ -20,19 +20,23 @@
       "tests": [
         {
           "file": "idle-unload.test.ts",
-          "line": 719
+          "line": 719,
+          "target": false
         },
         {
           "file": "idle-unload.test.ts",
-          "line": 729
+          "line": 729,
+          "target": false
         },
         {
           "file": "idle-unload.test.ts",
-          "line": 742
+          "line": 742,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 836
+          "line": 836,
+          "target": false
         }
       ],
       "pending": []
@@ -41,7 +45,7 @@
       "id": "S-A2",
       "group": "A",
       "title": "Elsewhere, the opening trusted pointer over the picture makes the frames",
-      "status": "stable",
+      "status": "current",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -51,15 +55,17 @@
       "id": "S-A3",
       "group": "A",
       "title": "The geometric stage loads at the earliest pointer, not at play",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 924
+          "line": 924,
+          "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 973
+          "line": 973,
+          "target": false
         }
       ],
       "pending": []
@@ -68,19 +74,22 @@
       "id": "S-A4",
       "group": "A",
       "title": "After 10 idle minutes, the worker ends and both frames are removed",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "idle-unload.test.ts",
-          "line": 134
+          "line": 134,
+          "target": false
         },
         {
           "file": "idle-unload.test.ts",
-          "line": 170
+          "line": 170,
+          "target": false
         },
         {
           "file": "idle-frame-removal.test.ts",
-          "line": 101
+          "line": 101,
+          "target": false
         }
       ],
       "pending": []
@@ -89,19 +98,22 @@
       "id": "S-A5",
       "group": "A",
       "title": "A pointer, a shown card or a look in flight keeps the model loaded",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "idle-unload.test.ts",
-          "line": 508
+          "line": 508,
+          "target": false
         },
         {
           "file": "idle-unload.test.ts",
-          "line": 522
+          "line": 522,
+          "target": false
         },
         {
           "file": "idle-unload.test.ts",
-          "line": 537
+          "line": 537,
+          "target": false
         }
       ],
       "pending": []
@@ -110,23 +122,27 @@
       "id": "S-A6",
       "group": "A",
       "title": "After an idle unload, a trusted move or tap over the video makes the frames again",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "idle-frame-removal.test.ts",
-          "line": 128
+          "line": 128,
+          "target": false
         },
         {
           "file": "idle-frame-removal.test.ts",
-          "line": 228
+          "line": 228,
+          "target": false
         },
         {
           "file": "idle-frame-removal.test.ts",
-          "line": 240
+          "line": 240,
+          "target": false
         },
         {
           "file": "idle-frame-removal.test.ts",
-          "line": 320
+          "line": 320,
+          "target": false
         }
       ],
       "pending": []
@@ -135,7 +151,7 @@
       "id": "S-A7",
       "group": "A",
       "title": "Turning hovers back on while the video plays loads at once in the tab in front",
-      "status": "changes in 0.14.0",
+      "status": "changes in a product release",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -145,7 +161,7 @@
       "id": "S-A8",
       "group": "A",
       "title": "A background tab loads at play but takes no picture",
-      "status": "stable",
+      "status": "open decision",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -155,15 +171,17 @@
       "id": "S-A9",
       "group": "A",
       "title": "A worker that stops is restarted once; a second stop turns recognition off",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 324
+          "line": 324,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2238
+          "line": 2238,
+          "target": false
         }
       ],
       "pending": []
@@ -172,7 +190,7 @@
       "id": "S-A10",
       "group": "A",
       "title": "A frame the page deletes is made again at the next trusted play or pointer move",
-      "status": "changes in 0.14.0",
+      "status": "changes in a product release",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -182,11 +200,12 @@
       "id": "S-B1",
       "group": "B",
       "title": "Pictures are taken on trusted pointer events alone",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 299
+          "line": 299,
+          "target": false
         }
       ],
       "pending": []
@@ -195,19 +214,22 @@
       "id": "S-B2",
       "group": "B",
       "title": "A hover gives pictures for 10 s, then while a card shows and 5 s after",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-gate.test.ts",
-          "line": 15
+          "line": 15,
+          "target": false
         },
         {
           "file": "capture-gate.test.ts",
-          "line": 26
+          "line": 26,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 318
+          "line": 318,
+          "target": false
         }
       ],
       "pending": []
@@ -216,15 +238,17 @@
       "id": "S-B3",
       "group": "B",
       "title": "Nothing is captured more than 60 s after the last trusted pointer event",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-gate.test.ts",
-          "line": 41
+          "line": 41,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 371
+          "line": 371,
+          "target": false
         }
       ],
       "pending": []
@@ -243,19 +267,22 @@
       "id": "S-B4",
       "group": "B",
       "title": "A tap gives pictures for 10 s and no longer",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 513
+          "line": 513,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 524
+          "line": 524,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 552
+          "line": 552,
+          "target": false
         }
       ],
       "pending": []
@@ -264,15 +291,17 @@
       "id": "S-B5",
       "group": "B",
       "title": "Before every capture, the last trusted point is checked against the picture now",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 331
+          "line": 331,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 397
+          "line": 347,
+          "target": false
         }
       ],
       "pending": []
@@ -281,11 +310,12 @@
       "id": "S-B6",
       "group": "B",
       "title": "Leaving, hiding the page or changing the video clears all authority",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 445
+          "line": 445,
+          "target": false
         }
       ],
       "pending": []
@@ -294,15 +324,17 @@
       "id": "S-B7",
       "group": "B",
       "title": "No picture is asked for before a pointer is over the video",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 291
+          "line": 291,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1786
+          "line": 1786,
+          "target": false
         }
       ],
       "pending": []
@@ -311,19 +343,22 @@
       "id": "S-B8",
       "group": "B",
       "title": "A frame made at play holds no capture authority",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 249
+          "line": 249,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 276
+          "line": 276,
+          "target": false
         },
         {
           "file": "idle-unload.test.ts",
-          "line": 678
+          "line": 678,
+          "target": false
         }
       ],
       "pending": []
@@ -332,19 +367,22 @@
       "id": "S-B9",
       "group": "B",
       "title": "Messages count when trusted and from the right window and origin",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 208
+          "line": 208,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 227
+          "line": 227,
+          "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 187
+          "line": 187,
+          "target": false
         }
       ],
       "pending": []
@@ -353,15 +391,17 @@
       "id": "S-B10",
       "group": "B",
       "title": "A late reply after a reset revives nothing",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 416
+          "line": 416,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 470
+          "line": 470,
+          "target": false
         }
       ],
       "pending": []
@@ -370,15 +410,17 @@
       "id": "S-B11",
       "group": "B",
       "title": "Off means off",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 793
+          "line": 793,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1883
+          "line": 1883,
+          "target": false
         }
       ],
       "pending": [
@@ -389,7 +431,7 @@
       "id": "S-B12",
       "group": "B",
       "title": "A product's privacy page states the gate's timings as the code has them",
-      "status": "stable",
+      "status": "current",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -399,19 +441,17 @@
       "id": "S-C1",
       "group": "C",
       "title": "Looks follow the pointer: the fast cadence while it is active",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 101
+          "line": 101,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 107
-        },
-        {
-          "file": "scheduler.test.ts",
-          "line": 116
+          "line": 107,
+          "target": false
         }
       ],
       "pending": []
@@ -420,15 +460,17 @@
       "id": "S-C2",
       "group": "C",
       "title": "A pointer resting on a shown card is looked at on the slow cadence",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 177
+          "line": 177,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 195
+          "line": 195,
+          "target": false
         }
       ],
       "pending": []
@@ -437,15 +479,17 @@
       "id": "S-C3",
       "group": "C",
       "title": "Under the reading hold, a resting pointer on a kept card gets no looks",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 163
+          "line": 163,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1369
+          "line": 1369,
+          "target": false
         }
       ],
       "pending": []
@@ -454,15 +498,17 @@
       "id": "S-C4",
       "group": "C",
       "title": "Nothing is asked for while the pointer is off the picture",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 776
+          "line": 776,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2555
+          "line": 2555,
+          "target": false
         }
       ],
       "pending": []
@@ -475,42 +521,57 @@
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 258
+          "line": 258,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 268
+          "line": 268,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2543
+          "line": 2543,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 238,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 244,
+          "target": true
         }
       ],
-      "pending": [
-        "slow-clock test"
-      ]
+      "pending": []
     },
     {
       "id": "S-C6",
       "group": "C",
       "title": "When a load ends with the pointer active, the look is asked at once",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 2694
+          "line": 2694,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2706
+          "line": 2706,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2746
+          "line": 2746,
+          "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 765
+          "line": 765,
+          "target": false
         }
       ],
       "pending": []
@@ -523,30 +584,47 @@
       "tests": [
         {
           "file": "relook-playing.test.ts",
-          "line": 160
+          "line": 160,
+          "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 198
+          "line": 198,
+          "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 248
+          "line": 248,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 216,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 224,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 221,
+          "target": true
         }
       ],
-      "pending": [
-        "slow-clock test"
-      ]
+      "pending": []
     },
     {
       "id": "S-C8",
       "group": "C",
       "title": "A pointer on an unverified card of a still picture asks for a look again",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "geometric-focus.test.ts",
-          "line": 927
+          "line": 927,
+          "target": false
         }
       ],
       "pending": []
@@ -555,15 +633,17 @@
       "id": "S-C9",
       "group": "C",
       "title": "In an in-page session, a cut under a shown card asks for a look at once",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 1908
+          "line": 1908,
+          "target": false
         },
         {
           "file": "session.test.ts",
-          "line": 616
+          "line": 616,
+          "target": false
         }
       ],
       "pending": []
@@ -572,23 +652,27 @@
       "id": "S-C10",
       "group": "C",
       "title": "A look that comes back unanswered is retried after 250, 500, 1000, then 2000 ms",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 472
+          "line": 472,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 558
+          "line": 558,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 565
+          "line": 565,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1947
+          "line": 1947,
+          "target": false
         }
       ],
       "pending": []
@@ -601,15 +685,38 @@
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 539
+          "line": 539,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 757
+          "line": 757,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 832
+          "line": 832,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 254,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 267,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 260,
+          "target": true
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 274,
+          "target": true
         }
       ],
       "pending": [
@@ -620,19 +727,22 @@
       "id": "S-C12",
       "group": "C",
       "title": "A refused capture is not retried; the next pointer move asks again",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 798
+          "line": 798,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 806
+          "line": 806,
+          "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 383
+          "line": 383,
+          "target": false
         }
       ],
       "pending": []
@@ -641,15 +751,17 @@
       "id": "S-C13",
       "group": "C",
       "title": "A look with no reply is given up on after 5 s, or 15 s before the opening analysis",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 1988
+          "line": 1988,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2002
+          "line": 2002,
+          "target": false
         }
       ],
       "pending": []
@@ -658,23 +770,27 @@
       "id": "S-C14",
       "group": "C",
       "title": "A pointer resting on an empty spot is looked at every 2 s",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 892
+          "line": 892,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 919
+          "line": 919,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 961
+          "line": 961,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2429
+          "line": 2429,
+          "target": false
         }
       ],
       "pending": []
@@ -683,15 +799,17 @@
       "id": "S-C15",
       "group": "C",
       "title": "A still picture is analyzed three times, then not again until it changes",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 64
+          "line": 64,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 71
+          "line": 71,
+          "target": false
         }
       ],
       "pending": []
@@ -700,11 +818,12 @@
       "id": "S-C16",
       "group": "C",
       "title": "A repeat of an unchanged still picture reuses the look before it",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "geometric-focus.test.ts",
-          "line": 1316
+          "line": 1316,
+          "target": false
         }
       ],
       "pending": []
@@ -713,19 +832,22 @@
       "id": "S-C17",
       "group": "C",
       "title": "One look in flight",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 328
+          "line": 328,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 739
+          "line": 739,
+          "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 304
+          "line": 304,
+          "target": false
         }
       ],
       "pending": []
@@ -734,15 +856,17 @@
       "id": "S-C18",
       "group": "C",
       "title": "Pointer-started looks are at least 250 ms apart",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
-          "line": 274
+          "line": 274,
+          "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 189
+          "line": 189,
+          "target": false
         }
       ],
       "pending": []
@@ -751,23 +875,27 @@
       "id": "S-P1",
       "group": "P",
       "title": "Keep-fresh looks are paced from the measured analysis time",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "measured-pacing.test.ts",
-          "line": 29
+          "line": 29,
+          "target": false
         },
         {
           "file": "measured-pacing.test.ts",
-          "line": 43
+          "line": 43,
+          "target": false
         },
         {
           "file": "measured-pacing.test.ts",
-          "line": 64
+          "line": 64,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 961
+          "line": 961,
+          "target": false
         }
       ],
       "pending": []
@@ -777,10 +905,19 @@
       "group": "P",
       "title": "A stale picture is looked at early enough that the answer stays within its lifetime",
       "status": "changes in 0.14.0",
-      "tests": [],
-      "pending": [
-        "slow-clock test"
-      ]
+      "tests": [
+        {
+          "file": "slow-clock.test.ts",
+          "line": 238,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 244,
+          "target": true
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-P2",
@@ -797,24 +934,35 @@
       "group": "P",
       "title": "Under the shown hold, a reading look comes before the card's hold runs out",
       "status": "changes in 0.14.0",
-      "tests": [],
-      "pending": [
-        "slow-clock test"
-      ]
+      "tests": [
+        {
+          "file": "slow-clock.test.ts",
+          "line": 194,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 202,
+          "target": true
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-P4",
       "group": "P",
       "title": "The pacer learns from analyses that were not reused",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "geometric-focus.test.ts",
-          "line": 1424
+          "line": 1424,
+          "target": false
         },
         {
           "file": "measured-pacing.test.ts",
-          "line": 181
+          "line": 181,
+          "target": false
         }
       ],
       "pending": []
@@ -823,15 +971,17 @@
       "id": "S-W1",
       "group": "W",
       "title": "A card is shown when it is named; a box detected and not named shows nothing",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "hover.test.ts",
-          "line": 116
+          "line": 116,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1813
+          "line": 1813,
+          "target": false
         }
       ],
       "pending": []
@@ -840,15 +990,17 @@
       "id": "S-W2",
       "group": "W",
       "title": "A result more than 2000 ms of video from the picture on screen is not shown",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session.test.ts",
-          "line": 453
+          "line": 453,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 304
+          "line": 304,
+          "target": false
         }
       ],
       "pending": []
@@ -857,19 +1009,22 @@
       "id": "S-W3",
       "group": "W",
       "title": "Nothing from before a seek or a new source is shown",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 284
+          "line": 284,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 297
+          "line": 297,
+          "target": false
         },
         {
           "file": "scheduler.test.ts",
-          "line": 996
+          "line": 996,
+          "target": false
         }
       ],
       "pending": []
@@ -878,27 +1033,32 @@
       "id": "S-W4",
       "group": "W",
       "title": "With keep-card on, a card stays while the pointer stays where it was seen",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 696
+          "line": 696,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 834
+          "line": 834,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 849
+          "line": 849,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 856
+          "line": 856,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1362
+          "line": 1362,
+          "target": false
         }
       ],
       "pending": []
@@ -907,19 +1067,22 @@
       "id": "S-W5",
       "group": "W",
       "title": "Under the reading hold, moving onto an overlapping card shows it",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 886
+          "line": 886,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 974
+          "line": 974,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1169
+          "line": 1169,
+          "target": false
         }
       ],
       "pending": []
@@ -928,27 +1091,32 @@
       "id": "S-W6",
       "group": "W",
       "title": "With keep-card off, a card is kept through short gaps",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 508
+          "line": 508,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 519
+          "line": 519,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 570
+          "line": 570,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 596
+          "line": 596,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 627
+          "line": 627,
+          "target": false
         }
       ],
       "pending": []
@@ -957,23 +1125,27 @@
       "id": "S-W7",
       "group": "W",
       "title": "A kept card seen gone is marked held until it is seen again",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 723
+          "line": 723,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 769
+          "line": 769,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1014
+          "line": 1014,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1075
+          "line": 1075,
+          "target": false
         }
       ],
       "pending": []
@@ -982,19 +1154,22 @@
       "id": "S-W8",
       "group": "W",
       "title": "A shown card is reported again when it changes, not for a look's wobble",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "shown-outline.test.ts",
-          "line": 185
+          "line": 185,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 744
+          "line": 744,
+          "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 802
+          "line": 802,
+          "target": false
         }
       ],
       "pending": []
@@ -1003,15 +1178,12 @@
       "id": "S-W9",
       "group": "W",
       "title": "In focus scope, nothing is shown where an unverified card overlaps the pointer",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "geometric-focus.test.ts",
-          "line": 1090
-        },
-        {
-          "file": "relook-playing.test.ts",
-          "line": 160
+          "line": 1090,
+          "target": false
         }
       ],
       "pending": []
@@ -1020,7 +1192,7 @@
       "id": "S-F1",
       "group": "F",
       "title": "The outline is the shown card's box on the picture, shown with the tooltip",
-      "status": "stable",
+      "status": "current",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1030,19 +1202,22 @@
       "id": "S-F2",
       "group": "F",
       "title": "A turned card is hovered and outlined along its own edges",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "shown-outline.test.ts",
-          "line": 112
+          "line": 112,
+          "target": false
         },
         {
           "file": "shown-outline.test.ts",
-          "line": 121
+          "line": 121,
+          "target": false
         },
         {
           "file": "tilt.test.ts",
-          "line": 405
+          "line": 405,
+          "target": false
         }
       ],
       "pending": []
@@ -1061,11 +1236,12 @@
       "id": "S-F4",
       "group": "F",
       "title": "A held card keeps its tooltip and loses its outline",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "shown-outline.test.ts",
-          "line": 264
+          "line": 264,
+          "target": false
         }
       ],
       "pending": [
@@ -1076,7 +1252,7 @@
       "id": "S-G1",
       "group": "G",
       "title": "Hovers run on watch, live and embed pages on YouTube, and on Twitch",
-      "status": "changes in 0.14.0",
+      "status": "changes in a product release",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1086,7 +1262,7 @@
       "id": "S-G2",
       "group": "G",
       "title": "On YouTube, watch and live pages load at play; embeds wait for a hover",
-      "status": "stable",
+      "status": "current",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1096,7 +1272,7 @@
       "id": "S-G3",
       "group": "G",
       "title": "On Twitch, channel, video and clip pages load at play; seven side pages wait for a hover",
-      "status": "changes in 0.14.0",
+      "status": "changes in a product release",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1106,11 +1282,12 @@
       "id": "S-G4",
       "group": "G",
       "title": "The main video is the largest one on show",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 490
+          "line": 490,
+          "target": false
         }
       ],
       "pending": [
@@ -1121,7 +1298,7 @@
       "id": "S-G5",
       "group": "G",
       "title": "After in-page navigation off an active page, a shrunk player is not captured",
-      "status": "changes in 0.14.0",
+      "status": "changes in a product release",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1131,7 +1308,7 @@
       "id": "S-H1",
       "group": "H",
       "title": "One switch turns hovers on and off, at once, in every tab",
-      "status": "stable",
+      "status": "current",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1141,7 +1318,7 @@
       "id": "S-H2",
       "group": "H",
       "title": "Keep-card picks the hold: on by default",
-      "status": "stable",
+      "status": "current",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1151,7 +1328,7 @@
       "id": "S-H3",
       "group": "H",
       "title": "A keep-card change remakes the compute frame: now in front, later behind",
-      "status": "stable",
+      "status": "current",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1161,11 +1338,12 @@
       "id": "S-X1",
       "group": "X",
       "title": "Scheduling never changes what an analysis answers",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "geometric-focus.test.ts",
-          "line": 1316
+          "line": 1316,
+          "target": false
         }
       ],
       "pending": [
@@ -1176,11 +1354,12 @@
       "id": "S-X2",
       "group": "X",
       "title": "The two halves come from one release of the contract",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 662
+          "line": 662,
+          "target": false
         }
       ],
       "pending": []
@@ -1189,15 +1368,17 @@
       "id": "S-X3",
       "group": "X",
       "title": "Pictures go to the extension's compute frame and nowhere else",
-      "status": "stable",
+      "status": "current",
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 214
+          "line": 214,
+          "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 784
+          "line": 784,
+          "target": false
         }
       ],
       "pending": []
@@ -1206,7 +1387,7 @@
       "id": "S-X4",
       "group": "X",
       "title": "A product vendors the runtime from one toolkit commit",
-      "status": "stable",
+      "status": "changes in 0.14.0",
       "tests": [],
       "pending": [
         "vendoring check"
