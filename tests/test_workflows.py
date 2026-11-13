@@ -572,3 +572,15 @@ def test_the_facts_step_fails_when_the_publish_runs_cannot_be_listed(tmp_path, t
     environment = release_facts_tools(tmp_path, tools, runs_fail=True)
     done = run_step(steps_of("release.yml")["Gather the facts"]["run"], ROOT, environment)
     assert done.returncode != 0 and not (tmp_path / "env").exists()
+
+
+def test_publish_installs_the_uploaded_version_from_the_index_with_read_only_power():
+    text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
+    job = text.split("\n  installed:\n", 1)[1]
+    assert "    needs: pypi\n" in job and "    if: inputs.target == 'pypi' && github.ref_type == 'tag'\n" in job
+    assert "    permissions:\n      contents: read\n" in job
+    for forbidden in ("id-token", "environment:", "secrets.", "contents: write"):
+        assert forbidden not in job
+    assert 'pip install --no-cache-dir "cardvision==${version}"' in job and "cardvision.__version__" in job
+    assert "for attempt in 1 2 3 4 5" in job and "sleep 60" in job
+    assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)

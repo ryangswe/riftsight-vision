@@ -91,3 +91,29 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  installed:
+    name: The uploaded version installs from the index
+    if: inputs.target == 'pypi' && github.ref_type == 'tag'
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the version from the index in a fresh environment and print it
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python -m venv /tmp/fresh
+          for attempt in 1 2 3 4 5; do
+            if /tmp/fresh/bin/python -m pip install --no-cache-dir "cardvision==${version}"; then
+              /tmp/fresh/bin/python -c "import cardvision; print(cardvision.__version__)"
+              exit 0
+            fi
+            echo "Attempt ${attempt} of 5 failed; the index may not list ${version} yet." >&2
+            sleep 60
+          done
+          echo "cardvision ${version} did not install from the index after 5 tries." >&2
+          exit 1
