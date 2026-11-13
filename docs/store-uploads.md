@@ -62,7 +62,7 @@ For a product's first release through the workflow, go in this order:
 
 1. **Push the tag.** The build job builds and checks, and the upload job waits for approval.
 2. **Reject that upload job** on the run page. One upload job runs at a time (the jobs share a
-   concurrency group), and a job waiting for approval holds the slot.
+   concurrency group), and a job waiting for approval may hold the slot.
 3. **Run a precheck.** "Run workflow" on the tag (Use workflow from: the tag) with `upload` and
    `precheck_only` ticked. Approve it. The upload job signs in to both stores, reads their state
    and reports "Prechecks passed". It uploads nothing. A tag push never sets `precheck_only`, and
