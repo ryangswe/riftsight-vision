@@ -1,0 +1,178 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# A throwaway spike on the branch spike/headless-ci: can a GitHub-hosted runner run real card
+# recognition in Chrome for Testing? Layer 1 is this repository's hover-speed harness on the toy
+# release; layer 3 is a public product extension, built the way its own CI builds it and loaded
+# unpacked. Each layer runs headless and under xvfb (headed). Not for main.
+name: Spike headless CI
+
+on:
+  push:
+    branches: [spike/headless-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRODUCT_REF: 407f03336f56f5f0fbbabd19f7e8269b80d5a8e0
+
+jobs:
+  toolkit:
+    name: Layer 1, toolkit harness, ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [headless, xvfb]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: browser/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          set -eux
+          python -m pip install --require-hashes -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          (cd browser && npm ci)
+          npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
+          npx --yes @puppeteer/browsers@2 install chrome@stable --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
+          echo "CHROME=$(tail -n1 "$RUNNER_TEMP/cft.txt" | cut -d' ' -f2-)" >> "$GITHUB_ENV"
+          sudo apt-get install -y xvfb
+          mkdir -p "$RUNNER_TEMP/out"
+      - name: Write the toy release
+        run: python tests/test_browser_fixtures.py --demo "$RUNNER_TEMP/toy"
+      - name: Hover-speed smoke on WebAssembly
+        id: hs
+        continue-on-error: true
+        working-directory: browser
+        env:
+          PUPPETEER_CORE_DIR: ${{ runner.temp }}/pcore
+        run: |
+          set -u
+          if [ "${{ matrix.mode }}" = xvfb ]; then HEADED=--headed; WRAP="xvfb-run -a -s '-screen 0 1400x1000x24'"; else HEADED=; WRAP=; fi
+          date +%T
+          eval $WRAP npm run hover-speed -- --chrome "$CHROME" --release "$RUNNER_TEMP/toy/release" --clip "$RUNNER_TEMP/toy/table.png" \
+            --scenes test/fixtures/user-wait-toy-scenes.json --art "$RUNNER_TEMP/toy/art" \
+            --rests test/fixtures/hover-speed-toy-rests.json --smoke $HEADED --out "$RUNNER_TEMP/out/report.json" \
+            > "$RUNNER_TEMP/out/hover-speed.log" 2>&1
+          code=$?
+          date +%T
+          echo "exit $code" | tee -a "$RUNNER_TEMP/out/hover-speed.log"
+          tail -n 60 "$RUNNER_TEMP/out/hover-speed.log"
+          exit $code
+      - name: WebGPU adapter probe
+        continue-on-error: true
+        env:
+          PUPPETEER_CORE_DIR: ${{ runner.temp }}/pcore
+        run: |
+          cat > "$RUNNER_TEMP/webgpu-probe.cjs" <<'JS'
+          const puppeteer = require(process.env.PUPPETEER_CORE_DIR + "/node_modules/puppeteer-core");
+          (async () => {
+            const sets = [
+              ["unsafe-webgpu", ["--enable-unsafe-webgpu"]],
+              ["unsafe-webgpu+vulkan+swiftshader", ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=swiftshader", "--use-webgpu-adapter=swiftshader"]],
+            ];
+            for (const [name, args] of sets) {
+              const browser = await puppeteer.launch({ executablePath: process.env.CHROME, headless: process.env.MODE !== "xvfb", args });
+              const page = await browser.newPage();
+              await page.goto("http://127.0.0.1:1/").catch(() => {});
+              await page.goto("about:blank");
+              const r = await page.evaluate(async () => {
+                if (!navigator.gpu) return "no navigator.gpu (insecure context or disabled)";
+                try { const a = await navigator.gpu.requestAdapter(); return a ? "adapter: " + JSON.stringify({ info: a.info ? { vendor: a.info.vendor, architecture: a.info.architecture, description: a.info.description } : null, fallback: a.isFallbackAdapter }) : "requestAdapter returned null"; } catch (e) { return "error " + e; }
+              });
+              console.log(name + " -> " + r);
+              await browser.close();
+            }
+          })();
+          JS
+          MODE=${{ matrix.mode }} ; export MODE
+          if [ "$MODE" = xvfb ]; then WRAP="xvfb-run -a"; else WRAP=; fi
+          $WRAP node "$RUNNER_TEMP/webgpu-probe.cjs" 2>&1 | tee "$RUNNER_TEMP/out/webgpu.log"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: toolkit-${{ matrix.mode }}
+          path: ${{ runner.temp }}/out
+      - name: Fail if the harness failed
+        if: steps.hs.outcome == 'failure'
+        run: exit 1
+
+  product:
+    name: Layer 3, a product extension, ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [headless, xvfb]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/kenbunshoku
+          ref: ${{ env.PRODUCT_REF }}
+          path: product
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install and build a dev build with the real release
+        working-directory: product
+        run: |
+          set -eux
+          npm ci
+          npm install --no-save puppeteer-core@25.17.0
+          mkdir -p "$RUNNER_TEMP/release" "$RUNNER_TEMP/out"
+          # the release pins are read from the product's own CI file
+          for v in RELEASE_REPO RELEASE_COMMIT RELEASE_JSON_SHA256; do
+            export "$v=$(sed -n "s/^  $v: //p" .github/workflows/tests.yml)"
+          done
+          cd "$RUNNER_TEMP/release"
+          for file in release.json catalog.json bank.json bank.identity-groups.json accept.json \
+            detector.onnx recognizer.onnx SHA256SUMS; do
+            curl -sSfL --retry 3 -o "$file" "$RELEASE_REPO/resolve/$RELEASE_COMMIT/$file"
+          done
+          echo "$RELEASE_JSON_SHA256  release.json" | sha256sum -c -
+          sha256sum -c SHA256SUMS
+          cd "$GITHUB_WORKSPACE/product"
+          npm run build -- --dev --release "$RUNNER_TEMP/release" --out dist
+          npx --yes @puppeteer/browsers@2 install chrome@stable --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
+          echo "CHROME=$(tail -n1 "$RUNNER_TEMP/cft.txt" | cut -d' ' -f2-)" >> "$GITHUB_ENV"
+          sudo apt-get install -y xvfb ffmpeg
+      - name: Render a short synthetic clip (VP8, no H.264 in Chrome for Testing)
+        run: |
+          ffmpeg -loglevel error -f lavfi -i "testsrc2=size=1280x720:rate=15:duration=8" \
+            -c:v libvpx -b:v 2M -an "$RUNNER_TEMP/clip.webm"
+          ls -l "$RUNNER_TEMP/clip.webm"
+      - name: Smoke run with the extension loaded unpacked
+        id: smoke
+        continue-on-error: true
+        working-directory: product
+        run: |
+          set -u
+          if [ "${{ matrix.mode }}" = xvfb ]; then HEADED=--headful; WRAP="xvfb-run -a -s '-screen 0 1500x1100x24'"; else HEADED=; WRAP=; fi
+          date +%T
+          eval $WRAP node test/smoke/smoke.mjs --chrome "$CHROME" --video "$RUNNER_TEMP/clip.webm" \
+            --at 2 --grid 4x3 $HEADED --screenshot "$RUNNER_TEMP/out/shot.png" \
+            > "$RUNNER_TEMP/out/smoke.log" 2>&1
+          code=$?
+          date +%T
+          echo "exit $code" | tee -a "$RUNNER_TEMP/out/smoke.log"
+          cat "$RUNNER_TEMP/out/smoke.log"
+          exit $code
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: product-${{ matrix.mode }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: warn
+      - name: Fail if the smoke run failed
+        if: steps.smoke.outcome == 'failure'
+        run: exit 1
