@@ -56,6 +56,51 @@ It is [experimental](stability.md#experimental).
 job alone, or both jobs with `upload` ticked. A run from a branch is refused, so the workflow
 that runs is always the tag's.
 
+### The first run
+
+For a product's first release through the workflow, go in this order:
+
+1. **Push the tag.** The build job builds and checks, and the upload job waits for approval.
+2. **Reject that upload job** on the run page. One upload job runs at a time (the jobs share a
+   concurrency group), and a job waiting for approval may hold the slot.
+3. **Run a precheck.** "Run workflow" on the tag (Use workflow from: the tag) with `upload` and
+   `precheck_only` ticked. Approve it. The upload job signs in to both stores, reads their state
+   and reports "Prechecks passed". It uploads nothing. A tag push never sets `precheck_only`, and
+   a run from a branch is refused.
+4. **The real upload.** "Run workflow" on the tag with `upload` only, and approve it.
+
+### Checking a pull request without a tag
+
+`store-upload.mjs check` takes the tag as an argument, so a pull request can run it with the tag
+the version would get. The template does not include such a job; add one to a separate workflow
+file, `.github/workflows/store-check.yml` (it must not hold store credentials), with the same build, lint and check steps as the
+template's build job, and replace the tag lookup:
+
+```yaml
+on: pull_request
+jobs:
+  store-check:
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm run store:build   # the product's own build into out/
+      - run: |
+          version=$(node -p "require('./package.json').version")   # or the version the release file names
+          node vendor/cardvision-browser/node/store-upload.mjs check --config store/store.config.json \
+            --release "store/releases/$version.json" --tag "v$version" --tag-prefix v \
+            --permissions store/permissions.json --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip \
+            --workflow .github/workflows/store-release.yml \\
+            --workflow .github/workflows/store-check.yml --summary "$GITHUB_STEP_SUMMARY"
+```
+
+Add the template's `--previous-permissions`, `--firefox-source` and `--lint` options as the
+product's release needs them.
+
 If one store fails after the other succeeded, the run page lists what was done before the
 failure. Re-run the failed job: a store that already has this version submitted or published is
 skipped, and the other one is finished. The upload jobs of two runs never overlap.
@@ -116,8 +161,17 @@ Nothing secret is in a repository or passes through a chat. In the product's rep
 - **Firefox:** `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`, from the account's API credentials page
   on addons.mozilla.org.
 
-Set the environment's required reviewer to the store account's holder and its deployment policy
-to the release tags (`v*`, or the product's `TAG_PREFIX` followed by `*`).
+An account that already has AMO API credentials: reuse them. Do not generate a new key, because
+regenerating it revokes the old one for everything else that uses it.
+
+The `store` environment's settings (Settings, Environments):
+
+- **Required reviewers:** the store account's holder.
+- **Prevent self-review:** unticked when the account holder is the only maintainer, so they can
+  approve their own run (a team with a second maintainer may keep it ticked).
+- **Allow administrators to bypass:** unticked, so the approval cannot be skipped.
+- **Deployment branches and tags:** selected tags only, `v*` (or the product's `TAG_PREFIX` followed
+  by `*`).
 
 ## A private repository
 
