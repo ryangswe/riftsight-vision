@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Vendoring a built runtime into a product (scripts/vendor-lib.mjs) and checking it. Fixtures only:
 // a made-up toolkit checkout with a made-up build, no network, no real build.
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -85,6 +86,7 @@ describe("vendoring a runtime", () => {
       "LICENSE",
       "NOTICE",
       "THIRD-PARTY-NOTICES.txt",
+      "cardvision-vendor-check.mjs",
       "cardvision.js",
       "compute-session.js",
       "hover-spec.json",
@@ -254,5 +256,49 @@ describe("checking a vendored runtime", () => {
     expect(lib.checkVendor(into)[0]).toMatch(/not a version 1 manifest/);
     rmSync(join(into, lib.MANIFEST));
     expect(lib.checkVendor(into)[0]).toMatch(/is missing from/);
+  });
+});
+
+describe("the stand-alone checker in the vendored folder", () => {
+  const vendored = () => {
+    const kit = fakeToolkit("one");
+    const into = join(temp(), "v");
+    vendor(kit, into);
+    return { kit, into, toolkit: { root: kit.root, dist: kit.dist, commit: COMMIT_A } };
+  };
+  const runChecker = (dir: string) => spawnSync(process.execPath, [join(dir, "cardvision-vendor-check.mjs"), dir], { encoding: "utf-8" });
+
+  it("is listed in the manifest, imports nothing but Node built-ins, and passes on a good folder", () => {
+    const { into, toolkit } = vendored();
+    expect(manifestOf(into).files["cardvision-vendor-check.mjs"].sha256).toBe(sha(readFileSync(join(into, "cardvision-vendor-check.mjs"), "utf-8")));
+    const imports = [...readFileSync(join(into, "cardvision-vendor-check.mjs"), "utf-8").matchAll(/^import .* from "([^"]+)"/gm)].map((m) => m[1]);
+    expect(imports.length).toBeGreaterThan(0);
+    expect(imports.every((name) => (name ?? "").startsWith("node:"))).toBe(true);
+    const done = runChecker(into);
+    expect([done.status, done.stdout]).toEqual([0, `${into} matches cardvision-vendor.json\n`]);
+    expect(lib.checkVendor(into, toolkit)).toEqual([]);
+  });
+
+  it("fails on a tampered file", () => {
+    const { into } = vendored();
+    appendFileSync(join(into, "worker.js"), "x");
+    const done = runChecker(into);
+    expect(done.status).toBe(1);
+    expect(done.stderr).toMatch(/worker\.js differs from the SHA-256/);
+  });
+
+  it("is itself checked: a changed checker fails its own run and the toolkit's check", () => {
+    const { into, toolkit } = vendored();
+    appendFileSync(join(into, "cardvision-vendor-check.mjs"), "\n// quiet\n");
+    const done = runChecker(into);
+    expect(done.status).toBe(1);
+    expect(done.stderr).toMatch(/cardvision-vendor-check\.mjs differs from the SHA-256/);
+    const problems = lib.checkVendor(into, toolkit) as string[];
+    expect(problems.some((p) => p.startsWith("cardvision-vendor-check.mjs differs from the SHA-256"))).toBe(true);
+  });
+
+  it("takes exactly one folder argument", () => {
+    const { into } = vendored();
+    expect(spawnSync(process.execPath, [join(into, "cardvision-vendor-check.mjs")], { encoding: "utf-8" }).status).toBe(2);
   });
 });

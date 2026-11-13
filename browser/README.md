@@ -1091,7 +1091,14 @@ commit, and the toolkit's own lock when this checkout is at the manifest's commi
 license files are listed and not empty. When this checkout is at the manifest's commit and
 `dist/` was built from it, each file is also compared with that build, so two files updated from a
 newer commit, with the manifest edited to match, still fail. Without such a build the comparison is
-skipped and the command says so. To update, check out the newer commit, build, and run `npm run vendor` again.
+skipped and the command says so.
+
+`npm run vendor` also writes `cardvision-vendor-check.mjs` into the folder, listed in the manifest
+like any file. It is generated from the same module, uses only Node built-ins, and does everything
+`vendor-check` does except the comparison with a build, so a product's CI can run
+`node vendor/cardvision-browser/cardvision-vendor-check.mjs vendor/cardvision-browser` with no
+toolkit checkout. The tests cover the OpenCV path with made-up files; the real path is checked when
+a product with the geometric stage first adopts the tool. To update, check out the newer commit, build, and run `npm run vendor` again.
 
 ### `loadRelease(url, options)` and `analyzeFrame(loaded, frame)`
 
