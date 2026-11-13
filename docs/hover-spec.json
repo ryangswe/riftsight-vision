@@ -185,7 +185,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 2239,
+          "line": 2240,
           "target": false
         }
       ],
@@ -266,42 +266,42 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 2767,
+          "line": 2768,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2780,
+          "line": 2781,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2792,
+          "line": 2793,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2806,
+          "line": 2807,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2821,
+          "line": 2822,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2830,
+          "line": 2831,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2845,
+          "line": 2846,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2757,
+          "line": 2758,
           "target": false
         },
         {
@@ -444,7 +444,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1787,
+          "line": 1788,
           "target": false
         }
       ],
@@ -530,7 +530,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1884,
+          "line": 1885,
           "target": false
         }
       ],
@@ -599,7 +599,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1370,
+          "line": 1371,
           "target": false
         }
       ],
@@ -618,7 +618,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 2556,
+          "line": 2557,
           "target": false
         }
       ],
@@ -642,12 +642,12 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 2544,
+          "line": 2545,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 268,
+          "line": 273,
           "target": false
         },
         {
@@ -676,27 +676,27 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 2695,
+          "line": 2696,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2707,
+          "line": 2708,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2747,
+          "line": 2748,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2866,
+          "line": 2867,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2888,
+          "line": 2889,
           "target": false
         },
         {
@@ -715,47 +715,47 @@
       "tests": [
         {
           "file": "relook-playing.test.ts",
-          "line": 172,
+          "line": 180,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 193,
+          "line": 201,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 218,
+          "line": 226,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 241,
+          "line": 249,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 268,
+          "line": 276,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 286,
+          "line": 294,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 299,
+          "line": 307,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 323,
+          "line": 331,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 249,
+          "line": 254,
           "target": false
         }
       ],
@@ -783,7 +783,7 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 1909,
+          "line": 1910,
           "target": false
         },
         {
@@ -817,7 +817,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1948,
+          "line": 1949,
           "target": false
         }
       ],
@@ -826,12 +826,17 @@
     {
       "id": "S-C11",
       "group": "C",
-      "title": "No look of any kind starts before a waiting retry is due",
+      "title": "A waiting retry holds every look but the one a move or tap onto a different card starts",
       "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
           "line": 539,
+          "target": false
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 585,
           "target": false
         },
         {
@@ -846,17 +851,22 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 282,
+          "line": 287,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 289,
+          "line": 290,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 293,
+          "line": 295,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 311,
           "target": false
         },
         {
@@ -871,37 +881,142 @@
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 285,
+          "line": 286,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 292,
+          "line": 294,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 298,
+          "line": 301,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 305,
+          "line": 309,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 315,
+          "line": 316,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 322,
+          "line": 325,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 341,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 352,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 373,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 383,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 400,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 407,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 413,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 420,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 430,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 437,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 476,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 484,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 492,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 500,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 512,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 520,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 526,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 555,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 564,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 574,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 584,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2920,
+          "line": 2921,
           "target": false
         }
       ],
@@ -925,7 +1040,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 403,
+          "line": 411,
           "target": false
         }
       ],
@@ -939,12 +1054,12 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 1989,
+          "line": 1990,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2003,
+          "line": 2004,
           "target": false
         }
       ],
@@ -973,7 +1088,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 2430,
+          "line": 2431,
           "target": false
         }
       ],
@@ -1030,7 +1145,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 323,
+          "line": 331,
           "target": false
         }
       ],
@@ -1049,7 +1164,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 209,
+          "line": 217,
           "target": false
         }
       ],
@@ -1092,17 +1207,17 @@
       "tests": [
         {
           "file": "slow-clock.test.ts",
-          "line": 268,
+          "line": 273,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 306,
+          "line": 327,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 324,
+          "line": 345,
           "target": false
         },
         {
@@ -1216,27 +1331,27 @@
       "tests": [
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 343,
+          "line": 458,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 355,
+          "line": 470,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2866,
+          "line": 2867,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2888,
+          "line": 2889,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 268,
+          "line": 276,
           "target": false
         }
       ],
@@ -1250,42 +1365,32 @@
       "tests": [
         {
           "file": "slow-clock.test.ts",
-          "line": 220,
+          "line": 225,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 227,
+          "line": 232,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 341,
+          "line": 362,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 348,
+          "line": 369,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 355,
+          "line": 376,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 360,
-          "target": false
-        },
-        {
-          "file": "slow-clock.test.ts",
-          "line": 366,
-          "target": false
-        },
-        {
-          "file": "slow-clock.test.ts",
-          "line": 378,
+          "line": 381,
           "target": false
         },
         {
@@ -1295,12 +1400,22 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 394,
+          "line": 399,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 401,
+          "line": 408,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 415,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 422,
           "target": false
         }
       ],
@@ -1338,7 +1453,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1814,
+          "line": 1815,
           "target": false
         }
       ],
@@ -1395,27 +1510,27 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 697,
+          "line": 698,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 835,
+          "line": 836,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 850,
+          "line": 851,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 857,
+          "line": 858,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1363,
+          "line": 1364,
           "target": false
         }
       ],
@@ -1429,17 +1544,17 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 887,
+          "line": 888,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 975,
+          "line": 976,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1170,
+          "line": 1171,
           "target": false
         }
       ],
@@ -1453,27 +1568,27 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 509,
+          "line": 510,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 520,
+          "line": 521,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 571,
+          "line": 572,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 597,
+          "line": 598,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 628,
+          "line": 629,
           "target": false
         }
       ],
@@ -1487,22 +1602,22 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 724,
+          "line": 725,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 770,
+          "line": 771,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1015,
+          "line": 1016,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1076,
+          "line": 1077,
           "target": false
         }
       ],
@@ -1521,12 +1636,12 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 745,
+          "line": 746,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 803,
+          "line": 804,
           "target": false
         }
       ],

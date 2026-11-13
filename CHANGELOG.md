@@ -9,6 +9,23 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Changed
+
+- A pointer move or tap onto a different card now starts a look even while a retry waits out its
+  back-off (250, 500, 1000, then every 2000 ms), whether or not the picture is stale. On a playing
+  picture it still keeps the re-look spacing from the last look's start (500 ms on WebGPU, 1000 ms
+  on WebAssembly), never later than the same move gets with no retry waiting; a move held back by
+  it, the 250 ms gap or a look in flight is asked again at each tick until it starts.
+  In 0.14.0rc1 it waited for the retry; in 0.13.0 any move over a stale picture could start a
+  look past it. Now a move within one card waits for the retry, as do the cadence on a playing
+  video, repeats of a picture, reading looks, a cut, a load that ends and a re-look with the
+  pointer at rest. The card is the face box under the pointer in the newest analyzed answer; with
+  no answer yet (or one older than the hover max age), the pointer must be more than 4 % of the
+  picture from where the last look started (`NEW_CARD_DISTANCE`). The 250 ms gap between pointer-started looks, the re-look spacing
+  on a playing picture and one look in flight still hold. A move does not reset the back-off, and
+  a look it starts that comes back unanswered moves the back-off to its next step.
+  `PROTOCOL_VERSION` and the session options do not change.
+
 ## [0.14.0rc1] - 2026-11-13
 
 A release candidate, because products rely on the timing it changes. The browser runtime paces

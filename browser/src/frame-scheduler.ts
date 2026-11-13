@@ -73,9 +73,11 @@
 // a showing tooltip changes without a seek (a cut), `requestLook` asks for a look at once,
 // whatever the cadence.
 //
-// The back-off holds on every path: while a retry waits out its back-off, no look of any kind is
-// due (`due`, `hoverTriggerDue`, `relookDue`, `loadEndDue`), whatever asks: the cadence, a pointer
-// move over a stale picture, a cut, the end of a load. A seek or a new source drops the retry.
+// The back-off holds on every path but one: while a retry waits out its back-off, no look is due
+// (`due`, `relookDue`, `loadEndDue`), whatever asks: the cadence, repeats, reading looks, a cut,
+// the end of a load, a re-look with the pointer at rest. The one that skips it is the look a
+// pointer move or tap starts onto a different card (`hoverTriggerDue` with `ontoNewCard`). A
+// seek or a new source drops the retry.
 //
 // This file holds no timers and touches no element: the policy is a pure function of the
 // events and times it is given, so it can be tested with a made-up clock.
@@ -334,11 +336,12 @@ export class FrameScheduler {
    * (`ANALYSIS_WATCHDOG_MS`, or `FIRST_ANALYSIS_WATCHDOG_MS` before the first analysis). The still picture's other repeats are dropped, and the same picture
    * counts as newly presented again after a back-off, so that a paused video is looked at again
    * (with its repeats). This is not `requestLook`, which would also make the picture stale and
-   * let every pointer move look again at once, past the back-off.
+   * let every pointer move look again at once, whether or not the picture
+   * changed; only a move onto a different card starts a look past the back-off (`hoverTriggerDue`).
    *
    * With `prompt` (a capture that failed for want of a picture: it may come any moment), the
    * retry is due as soon as the back-off runs out, whatever the cadence, as a `requestLook` is;
-   * it still marks nothing stale, so a pointer move cannot skip the back-off. Otherwise (the
+   * it still marks nothing stale, so a move within one card cannot skip the back-off. Otherwise (the
    * worker busy, or no reply) the retry also waits for the cadence.
    */
   lookUnanswered(now: number, opts: { prompt?: boolean } = {}): void {
@@ -397,8 +400,9 @@ export class FrameScheduler {
     return this.retryAt !== null && now >= this.retryAt;
   }
 
-  /** Is a retry waiting out its back-off? Then no look of any kind starts (the one guard every
-   *  path that starts a look goes through). */
+  /** Is a retry waiting out its back-off? Then the cadence, repeats of a picture, reading looks,
+   *  a cut, a load that ends and a re-look all wait for it. Only a pointer move or tap onto a
+   *  different card skips it (`hoverTriggerDue`). */
   retryWaiting(now: number): boolean {
     return this.retryAt !== null && now < this.retryAt;
   }
@@ -420,7 +424,8 @@ export class FrameScheduler {
    *  When a look went unanswered and its retry was used up without an answer, or a look's
    *  capture was refused (say while the pointer was outside), the picture is due again now, at
    *  the cadence: a paused picture would otherwise never be looked at again. A retry still
-   *  waiting keeps its back-off: a pointer move never shortens it. */
+   *  waiting keeps its back-off, and a move does not reset it; only a move onto a different card
+   *  starts a look past it (`hoverTriggerDue`). */
   pointerMoved(now: number): void {
     this.pointerInside = true;
     this.lastPointerAt = now;
@@ -521,12 +526,29 @@ export class FrameScheduler {
    * The pointer moved over the picture: should the current picture be analyzed at once? Yes
    * when analysis may run, nothing is in flight, no retry waits out its back-off, the last
    * analysis started this way is at least `HOVER_TRIGGER_MIN_GAP_MS` ago, and the newest analyzed
-   * frame is stale. The cadence is not consulted.
+   * frame is stale. The cadence is not consulted. A tap asks the same way.
+   *
+   * A retry waiting out its back-off holds this look back, with one exception: `ontoNewCard`,
+   * the session's word that the move or tap put the pointer on a different card from the one it
+   * was on when the last look started. That look starts whether or not the picture is stale (a
+   * paused one never is), at the gap above and, on a playing picture, the spacing of a re-look
+   * (`setRelookSpacingMs`, the fast cadence: 500 ms on WebGPU, 1000 ms on WebAssembly) from the
+   * last start of any look. That is never later than the same move gets with no retry waiting.
+   * A move that these limits hold back is asked again by the session at each tick until it
+   * starts (`SessionCore.tick`). A move within one card waits for the retry,
+   * stale or not. The move does not shorten or reset the back-off: a look it starts that comes
+   * back unanswered moves the back-off to its next step. Only an analyzed answer, a seek, a new
+   * source, or a picture received after a failed capture (`pictureReceived`) starts it over.
    */
-  hoverTriggerDue(now: number, videoTimeSec: number, inFlight: boolean): boolean {
+  hoverTriggerDue(now: number, videoTimeSec: number, inFlight: boolean, ontoNewCard = false): boolean {
     const state = this.analysisState(now);
-    if (inFlight || state === "idle" || state === "probe" || this.retryWaiting(now)) return false;
+    if (inFlight || state === "idle" || state === "probe") return false;
     if (now - this.lastHoverTriggerAt < HOVER_TRIGGER_MIN_GAP_MS) return false;
+    if (this.retryWaiting(now)) {
+      if (!ontoNewCard) return false;
+      const playing = this.lastVideoTimeSec !== null && Math.abs(videoTimeSec - this.lastVideoTimeSec) * 1000 >= 1;
+      return !playing || now - this.lastStartedAt >= Math.max(HOVER_TRIGGER_MIN_GAP_MS, this.relookSpacingMs);
+    }
     return this.frameStale(videoTimeSec, now);
   }
 

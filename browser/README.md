@@ -1254,6 +1254,21 @@ instead ("A pointer resting where the last look found no card", below). With
   F after the last look started, not the paced wait. Each keeps one look in flight and the back-off.
   The empty-spot rest, the reading looks, `"always-on"` looks and the retries that are not prompt
   stay paced.
+- **A retry waiting out its back-off** (250, 500, 1000, then every 2000 ms after an unanswered
+  look) holds back the cadence, repeats, reading looks, a cut, a load that ends, a re-look with
+  the pointer at rest and a move within the same card: they wait for the retry. Only a pointer
+  move or tap onto a different card skips it: it starts a look, stale picture or not, from the
+  one the pointer was on when the last look started. The card is
+  the face box under the pointer in the newest analyzed answer (an empty spot is not a new card);
+  with no answer yet, the pointer must be more than 4 % of the picture (`NEW_CARD_DISTANCE`) from
+  where it was; an answer older than the release's hover max age counts as no answer. That look
+  keeps the 250 ms gap between pointer-started looks, one look in flight and, on a playing
+  picture, the re-look spacing F from the last look's start (500 ms on WebGPU, 1000 ms on
+  WebAssembly): it can start no sooner than that, and never later than the same move would with no
+  retry waiting. A move held back by these limits is asked again at each 250 ms tick until it
+  starts, so a pointer that lands and rests gets its look at F, not when the retry is due. A move does not reset the back-off; if the
+  look comes back unanswered, the next step applies; an analyzed answer, a seek, a new source and
+  a picture received after a failed capture start it over.
 - The playback rate comes from the host when it can read it (`createSession` reads its video's;
   `SessionCoreDeps.playbackRate`), or from the `rate` the content script sends with `pointer` and
   `presented` (`createCaptureControl` sends its video's). Otherwise it is measured from the video

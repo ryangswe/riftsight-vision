@@ -24,6 +24,11 @@ import {
 } from "./support/slow-clock.js";
 
 const mv = (at: number, px: number, py: number): ScenarioEvent => ({ at, kind: "move", px, py });
+const sweepMoves = (from: number, to: number, every: number): ScenarioEvent[] => {
+  const out: ScenarioEvent[] = [];
+  for (let t = from, i = 0; t <= to; t += every, i++) out.push(mv(t, 200 + (i % 2) * 4, 250));
+  return out;
+};
 const custom = (over: Partial<Scenario> & Pick<Scenario, "durationMs" | "events">): Scenario => ({ name: "custom", summary: "", layout: ABC, startReady: true, ...over });
 const jiggleOnA = (every: number, to: number): ScenarioEvent[] => {
   const out: ScenarioEvent[] = [];
@@ -279,26 +284,42 @@ describe("what budgeted pacing fixed, under the rule current", () => {
   // The back-off bypass: a look fails at 500, its retry is due at 750, a trusted move at 600. The
   // video presents a frame a second, so the cadence has no frame waiting.
   const backoff = (rule: Rule) => runScenario(scenarioNamed("retry-backoff"), { workerMs: 500, measuredPacing: false, rule });
-  it("back-off: the move at 600 ms starts nothing; the second look is the retry at 750 ms (before: 600 ms)", () => {
+  it("back-off: a move within one card at 600 ms starts nothing; the second look is the retry at 750 ms (S-C11)", () => {
     expect(backoff("current").looks.slice(0, 2).map((l) => l.at)).toEqual([0, 750]);
+  });
+  it("back-off: a move at 600 ms onto a different card (no answer yet: far from where the last look started) starts a look at once (S-C11; rc1: waited for 750 ms)", () => {
+    const events: ScenarioEvent[] = [mv(0, 200, 250), mv(600, 700, 250)];
+    const run = runScenario(custom({ durationMs: 4_000, events, failLooks: [1], frameEveryMs: 1_000 }), { workerMs: 500, measuredPacing: false, rule: "current" });
+    expect(run.looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [600, "hover"]]);
+  });
+  it("back-off: a jiggle on one card through a failing streak asks as often as the ladder alone (S-C11, S-C10)", () => {
+    const failAll = Array.from({ length: 60 }, (_, i) => i + 1);
+    const run = (events: ScenarioEvent[]) => runScenario(custom({ durationMs: 10_000, events, failLooks: failAll }), { workerMs: 500, measuredPacing: false, rule: "current" });
+    const still = run([mv(0, 200, 250)]);
+    const jiggle = run(sweepMoves(0, 10_000, 100));
+    expect(jiggle.looks.length).toBe(still.looks.length);
+    expect(still.looks.length).toBeLessThanOrEqual(8);
   });
 
   // The same on the cadence path at a normal frame rate: `due()` started a look on the newly
   // presented frame while the retry (due 250 ms after the failure) was still waiting.
   const backoff50 = () => runScenario(scenarioNamed("retry-backoff-50fps"), { workerMs: 500, measuredPacing: false, rule: "current" });
-  it("back-off at 50 fps: no look of any kind before the due retry, 750 ms (before: the cadence at 500 ms)", () => {
+  it("back-off at 50 fps: with no move, no look of any kind before the due retry, 750 ms (the cadence waits; before: 500 ms)", () => {
     expect(backoff50().looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [750, "cadence"]]);
   });
 
-  it("back-off on the cut path: a cut while a retry waits starts nothing before it is due", () => {
-    // A look fails at 500 (the retry is due at 750); at 600 the picture under the shown card
-    // changes and the host reports a cut. A card was shown by an earlier look.
-    const events: ScenarioEvent[] = [mv(0, 200, 250), mv(1_100, 204, 250), { at: 1_850, kind: "layout", cards: [{ id: "A", x: 100, y: 100, w: 200, h: 300 }] }];
-    const run = runScenario(custom({ durationMs: 4_000, events, failLooks: [2] }), { workerMs: 500, measuredPacing: false, rule: "current" });
-    const failed = run.looks[1]!.at; // the second look fails 500 ms after it starts
-    const retryAt = failed + 500 + 250;
+  it("back-off on the cut path: a cut while a retry waits starts nothing before it is due (S-C11)", () => {
+    // The worker takes 700 ms: the second look (750) fails at 1450 and its retry is due at 1700,
+    // with a 250 ms tick (1500) in between. The cut at 1460 would start at that tick if it skipped
+    // the back-off; it starts at the tick after the retry is due (1750). The move at 900 came while
+    // that look was in flight.
+    const events: ScenarioEvent[] = [mv(0, 200, 250), mv(900, 204, 250), { at: 1_460, kind: "layout", cards: [{ id: "A", x: 100, y: 100, w: 200, h: 300 }] }];
+    const run = runScenario(custom({ durationMs: 5_000, events, failLooks: [2] }), { workerMs: 700, measuredPacing: false, rule: "current" });
+    const failed = run.looks[1]!.at;
+    const retryAt = failed + 700 + 250;
+    expect(retryAt % 250).not.toBe(0);
     expect(run.looks.filter((l) => l.at > failed).every((l) => l.at >= retryAt)).toBe(true);
-    expect(run.looks.some((l) => l.at === retryAt)).toBe(true);
+    expect(run.looks.find((l) => l.trigger === "cut")?.at).toBe(1_750);
   });
 });
 

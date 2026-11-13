@@ -339,7 +339,8 @@ describe("HostSession", () => {
     expect(session.lastFrameError).toBeNull();
     clock += FIRST_ANALYSIS_WATCHDOG_MS - ANALYSIS_WATCHDOG_MS;
     // A move just before the give-up, so the pointer is not at rest (POINTER_GRACE_MS).
-    session.fromContent({ kind: "pointer", x: 0.31, y: 0.5, mediaTime: 5, touch: false });
+    // (Back at 0.2, where the look started: within the same card, so nothing asks past the retry.)
+    session.fromContent({ kind: "pointer", x: 0.2, y: 0.5, mediaTime: 5, touch: false });
     session.tick();
     expect(session.lastFrameError).toBe("no reply");
     // Changed from the product test (2 in the same tick): the given-up look drops the still

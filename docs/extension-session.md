@@ -271,10 +271,20 @@ capture that failed with `retry: true`) makes the same picture due again after 2
 1 s, then every 2 s. The watchdog gives up on a look after 5 s, or after 15 s until the worker's
 first analysis since its release loaded: that one warms the models up, and on a slow machine it
 can take several times as long. A failed capture is retried promptly: once its back-off runs out, the look is
-due whatever the cadence; the other retries also wait for the cadence. A pointer move never
-shortens a back-off still waiting, and no look of any kind starts while one waits: not the
-cadence on a playing video, not a pointer move over a stale picture, not a relook, not a cut, not
-the look when a load ends. A seek or a new source drops the retry with its picture. A refusal (`retry: false`: the gate, an unreadable video, a
+due whatever the cadence; the other retries also wait for the cadence. A pointer move
+never shortens or resets a back-off still waiting. While one waits, the cadence on a playing video,
+repeats, reading looks, a cut, the look when a load ends, a relook with the pointer at rest and a
+move within the same card all wait for it. Only a pointer move or tap onto a different card skips
+it: it starts a look when it puts the pointer on a different card from the one it was on when the
+last look started, stale picture or not (a paused one never is). The card is the face box under the pointer in the
+newest analyzed answer (another box, or a box where there was none; an empty spot is not a new
+card); with no analyzed answer yet (or one older than the release's hover max age), the pointer must be
+more than `NEW_CARD_DISTANCE` (4 % of the picture) from where it was. That look keeps one look in
+flight, the 250 ms gap and, on a playing picture, the re-look spacing F from the last start (500
+ms on WebGPU, 1000 ms on WebAssembly; never later than the same move gets with no retry waiting).
+A move held back by these is asked again at each tick until it starts. If it comes back unanswered the back-off moves to its next
+step. An analyzed answer, a seek, a new source and a picture received after a failed capture start
+the back-off over. A seek or a new source drops the retry with its picture. A refusal (`retry: false`: the gate, an unreadable video, a
 picture too large, no 2D context) is retried by nothing and grows no back-off; the next pointer
 move over the picture asks again, at the cadence, as it does when a retry was used up with no
 answer. So a viewer who leaves a paused video and comes back gets a look. After failed captures,
@@ -308,7 +318,7 @@ with video age as B times the rate. The rate is the `rate` the content script se
 and `presented` (its video's `playbackRate`); a content script that sends none leaves the compute
 frame to measure it over continuous play (two reports at least 2 s apart, each advancing the video
 and within 500 ms of the one before, no seek between); it is 1 until known. A stale look is asked for on that `pointer` message itself, when the session
-is ready, nothing is in flight, no retry is waiting out its back-off and the last look started by
+is ready, nothing is in flight and the last look started by
 the pointer is at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) old. Without this, the frame went on asking at the cadence for the
 10 s after a leave, the content script refused each request, and each refused request counted as
 the newest look: a pointer that came back within those 10 s waited for the cadence.
@@ -369,7 +379,8 @@ all of these hold:
 - the picture is playing on from the newest analyzed frame: a newly presented frame waits and
   its video time has moved since that frame;
 - nothing is in flight, no retry is waiting out its back-off, and no capture was refused since
-  the picture was last answered;
+  the picture was last answered (this relook waits for the retry; only the look a pointer move or
+  tap onto a different card starts skips it);
 - the last look of any kind started at least F ago, start to start: the fast cadence, 500 ms on
   WebGPU and 1000 ms on WebAssembly. The viewer waits on this look, so it is not paced: with
   `measuredPacing` the spacing is still F, not the paced wait.
