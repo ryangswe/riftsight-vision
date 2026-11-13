@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   ABC,
   budgetedSpacingMs,
+  MAX_AGE_MS,
   renderReport,
   ruleSpacingsMs,
   RULES,
@@ -99,6 +100,24 @@ describe("the harness", () => {
     expect(run.metrics.ageAvgMs!).toBeGreaterThan(500);
     expect(run.metrics.ageMaxMs!).toBeGreaterThan(run.metrics.ageAvgMs!);
     expect(run.metrics.shownMs).toBeGreaterThan(10_000);
+  });
+
+  it("under SHOWN_HOLD at 2x with a look of 1200 ms the gaps are unavoidable by the cycle clause alone", () => {
+    // 2 x 1200 fits the hold's lifetime (1000 + 5000 ms), but a 1200 ms answer is over 1000 ms old (wall) on arrival.
+    const run = runScenario(scenarioNamed("rest-past-grace"), { workerMs: [300, 1200], hold: "shown", playbackRate: 2 });
+    expect(run.gaps.length).toBeGreaterThan(0);
+    expect(run.gaps.every((g) => !g.avoidable)).toBe(true);
+  });
+
+  it("without a hold no answer on screen is older than the max age (plus one frame of display)", () => {
+    for (const rule of RULES) {
+      for (const focus of [false, true]) {
+        for (const workerMs of [200, 1200, 1700]) {
+          const age = runScenario(scenarioNamed("viewer-session"), { workerMs, hold: "none", focus, rule }).metrics.ageMaxMs;
+          expect(age ?? 0, `${rule} focus=${focus} W=${workerMs}`).toBeLessThanOrEqual(MAX_AGE_MS + 20);
+        }
+      }
+    }
   });
 
   it("a gap beside a look slower than the answer's life is unavoidable", () => {

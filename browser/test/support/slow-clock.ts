@@ -262,8 +262,8 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   const workerSamples: number[] = [];
   /** Wall time at which a reply was delivered and the time it spent in the loop (capture + worker). */
   const answers: Array<{ at: number; cycleMs: number }> = [];
-  /** The video time of the result that names the card on screen now. */
-  let shownResultSec = mediaSec;
+  /** The video time of the newest result that named each card: the age of the name on screen. */
+  const namedAtSec = new Map<string, number>();
   const busy: Array<{ at: number; ms: number }> = [];
   let ageIntegral = 0;
   let shownMs = 0;
@@ -314,8 +314,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
     };
     schedule(clock + workerMs, () => {
       core.fromWorker(reply);
-      const under = pointerPx ? topAt(layout, pointerPx.x, pointerPx.y) : null;
-      if (analysis && under && (displayed as Shown | null)?.cardId === under.id) shownResultSec = reply.videoTimeSec;
+      if (analysis) for (const c of (analysis as unknown as { hover: { cards: Array<{ cardId: string | null }> } }).hover.cards) if (c.cardId) namedAtSec.set(c.cardId, reply.videoTimeSec);
       if (analysis && !reused) {
         workerSamples.push(workerMs);
         roundTrips.push(core.status().lastRoundTripMs ?? workerMs);
@@ -456,7 +455,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
       const shown = displayed as Shown | null;
       const correct = shown !== null && shown.cardId === now.card;
       if (correct) {
-        const age = (mediaSec - shownResultSec) * 1000;
+        const age = (mediaSec - (namedAtSec.get(now.card) ?? mediaSec)) * 1000;
         ageIntegral += age * STEP_MS;
         shownMs += STEP_MS;
         ageMax = Math.max(ageMax, age);
@@ -634,14 +633,14 @@ export const VIEWER_SESSION: Scenario = {
 };
 
 /** The fan swept at 20 phases: phase i starts i x 50 ms later (0, 50, ..., 950 ms: against the ticks
- *  and the cadence) and i x 6 px to the right (0, 6, ..., 114 px, one card pitch: against the card
- *  edges, so that the moves land in different places on each card). */
+ *  and the cadence) and, independently, ((7 i) mod 20) x 6 px to the right (the same 0, 6, ..., 114 px
+ *  in another order, one card pitch: against the card edges), so that the two shifts do not cancel. */
 export const SWEEP_PHASES: readonly number[] = Array.from({ length: 20 }, (_, i) => i);
 export const SWEEP_START_MS = 5_000;
 export const SWEEP_LENGTH_MS = 5_200;
 export function sweepScenario(phase: number): Scenario {
   const at = phase * 50;
-  const dx = phase * 6;
+  const dx = ((phase * 7) % 20) * 6;
   return {
     name: `sweep-${phase}`, summary: "wander 5 s, then sweep five cards", durationMs: 12_000 + at, layout: FAN, startReady: true,
     events: [...jiggle(0, 4000, 400, 40, 450), ...sweep(SWEEP_START_MS + at, SWEEP_START_MS + SWEEP_LENGTH_MS + at, 100, 160 + dx, 740 + dx, 250)],
@@ -698,16 +697,18 @@ const LEGEND = `Columns (ms unless noted). lat: from the pointer arriving on a c
 analysis; a visit never named counts at its dwell; unnamed = such visits never named / such visits). age: the age, in video ms, of the
 answer on screen, time-weighted over the time the pointer is on a card the screen names correctly (mean and max). gap: time with the pointer on a card already named once and
 nothing (or another card) displayed; avoid / unavoid split it by whether 2 x (capture + analysis)
-fits in the answer's lifetime (max age 2000 ms, divided by the playback rate); a hold lengthens what
-is displayed, so under SHOWN_HOLD the lifetime is the max age plus the hold's 5000 ms, and under the
-reading hold it is unbounded. looks/min: looks
+fits in the lifetime, and the look cycle (capture + analysis) is at most the answer's life, since a
+slower answer expires on arrival. The answer's life is the max age (2000 ms) divided by the playback
+rate; a hold lengthens what is displayed, so under SHOWN_HOLD the lifetime is that answer life plus the
+hold's 5000 ms (wall time, not divided), and under the reading hold it is unbounded. looks/min: looks
 started per minute. busy: share of the run the worker spends analyzing.
 The rules: current (today); strict (a look the viewer waits on starts at the backend's fixed fast cadence);
 budgeted (the stale-picture threshold only is max(F, min(paced interval, answer lifetime - round trip - 250)),
 the focus re-look at F); budgeted+relook (the re-look spacing also gets that budget). The budget uses the
 answer's wall lifetime, 2000 ms over the playback rate (1000 ms at 2x), but is compared with video age as
-the code compares its cadence, which is a limitation that applies to strict too: its 500 ms threshold
-refreshes every 250 ms of wall time at 2x and every 1000 ms at 0.5x. Entry looks, the reading ceiling, the empty-spot rest
+the code compares its cadence, which is a limitation that applies to strict too: its threshold
+(500 ms on WebGPU, 1000 ms on WebAssembly) refreshes every 250 ms (WebGPU) or 500 ms (WebAssembly) of
+wall time at 2x, and every 1000 ms (WebGPU) or 2000 ms (WebAssembly) at 0.5x. Entry looks, the reading ceiling, the empty-spot rest
 and retries are the same under every rule.
 This is a model of the scheduling policy on a virtual clock, not a browser measurement.`;
 
@@ -778,7 +779,7 @@ function sweepTable(): string {
       }
     }
   }
-  return plainTable("Table 1c: a sweep across the fan, dwells 0.6, 1.1, 1.0, 1.1 and 1.4 s (geometric stage in focus scope, the only path with a re-look), pooled over 20 phases (start 0, 50, ..., 950 ms later and 0, 6, ..., 114 px to the right: against the ticks and the card edges); looks and busy over the sweep window only; visits = eligible visits per sweep; unnamed = eligible visits never named / eligible visits; latency counts a card never named at its dwell", head, lines, 3);
+  return plainTable("Table 1c: a sweep across the fan, dwells per card 0.6 to 1.4 s at phase 0 (0.6, 1.1, 1.0, 1.1, 1.4 s) and varying with the phase (geometric stage in focus scope, the only path with a re-look), pooled over 20 phases (start 0, 50, ..., 950 ms later and, independently, 0, 6, ..., 114 px to the right in another order: against the ticks and the card edges); looks and busy over the sweep window only; visits = eligible visits per sweep; unnamed = eligible visits never named / eligible visits; latency counts a card never named at its dwell", head, lines, 3);
 }
 
 /** The moving-pointer table: one card, the pointer moving every 100 ms for 12 s. */
