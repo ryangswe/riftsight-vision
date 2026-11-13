@@ -266,6 +266,40 @@ describe("the pieces", () => {
     expect(build).not.toMatch(/secrets\.|CWS_ACCESS_TOKEN|id-token/);
   });
 
+  it("the template's precheck input reaches the upload command only for a dispatched upload", () => {
+    const text = readFileSync(join(TEMPLATES, "store-release.yml"), "utf-8");
+    // A dispatch input, off by default; the upload job still runs only for a push or `upload`.
+    expect(text).toMatch(/\n {6}precheck_only:\n(?: {8}.*\n)*? {8}type: boolean\n {8}default: false\n/);
+    expect(text).toMatch(/\n {4}if: \(github\.event_name == 'push' \|\| inputs\.upload\) && /);
+    // A tag push never sets it: the variable is true only for a workflow_dispatch event.
+    expect(text).toMatch(/\n {10}PRECHECK_ONLY: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.precheck_only \}\}\n/);
+    // A branch run is still refused.
+    expect(text).toMatch(/if: github\.ref_type != 'tag'/);
+    const upload = text.slice(text.indexOf("\n  upload:"));
+    expect(text.slice(0, text.indexOf("\n  upload:"))).not.toMatch(/PRECHECK_ONLY|--precheck-only/);
+
+    // Run the upload step's script with a stand-in tool that prints its arguments.
+    const lines = upload.slice(upload.indexOf("- name: Check both stores, then upload")).split("\n");
+    const start = lines.findIndex((l) => l.trim() === "run: |") + 1;
+    const body: string[] = [];
+    for (const l of lines.slice(start)) {
+      if (l.trim() !== "" && !l.startsWith("          ")) break;
+      body.push(l.slice(10));
+    }
+    const dir = mkdtempSync(join(tmpdir(), "store-upload-test-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "tool.sh"), 'echo "$@"\n');
+    const run = (precheck: string): string =>
+      execFileSync("bash", ["-eo", "pipefail", "-c", `node() { shift; sh "${join(dir, "tool.sh")}" "$@"; }\n${body.join("\n")}`], {
+        cwd: dir,
+        env: { PATH: process.env.PATH, TAG: "v1.2.3", TAG_PREFIX: "v", STORE_TOOL: "x", GITHUB_STEP_SUMMARY: "s.md", PRECHECK_ONLY: precheck },
+        encoding: "utf-8",
+      });
+    expect(run("true")).toMatch(/^upload .* --precheck-only --summary s\.md\n$/);
+    for (const off of ["", "false"]) expect(run(off)).not.toContain("--precheck-only");
+    expect(run("")).toMatch(/^upload .* --summary s\.md\n$/);
+  });
+
   it("the template finds the newest earlier release tag of its own prefix, without pre-releases", () => {
     const text = readFileSync(join(TEMPLATES, "store-release.yml"), "utf-8");
     const step = text.slice(text.indexOf("- name: The previous release's permissions"));

@@ -10,7 +10,9 @@
 # then does it get store access. It checks both stores before uploading anything.
 #
 # Pushing the tag runs both jobs. "Run workflow" on the tag (Actions page, "Use workflow from":
-# the tag) runs the build alone, or both with `upload` ticked. A run from a branch is refused. If
+# the tag) runs the build alone, or both with `upload` ticked; with `precheck_only` ticked too, the
+# upload job signs in and reads both stores but uploads nothing. A tag push never sets it, and a
+# run from a branch is refused. If
 # one store failed after the other succeeded, re-run the failed job: the store that already has
 # the version is skipped.
 #
@@ -28,6 +30,10 @@ on:
     inputs:
       upload:
         description: "Also run the upload job (off: build and check only)"
+        type: boolean
+        default: false
+      precheck_only:
+        description: "With upload: sign in and read both stores, upload nothing"
         type: boolean
         default: false
 
@@ -151,10 +157,13 @@ jobs:
           CWS_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          # "true" only for a dispatched run with `precheck_only` ticked; empty on a tag push.
+          PRECHECK_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.precheck_only }}
         run: |
           version="${TAG#"$TAG_PREFIX"}"
           source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
+          precheck=""; if [ "$PRECHECK_ONLY" = "true" ]; then precheck="--precheck-only"; fi
           node "$STORE_TOOL" upload --config store/store.config.json --release "store/releases/$version.json" \
             --targets chrome,firefox --hashes out/hashes.json \
             --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \
-            --summary "$GITHUB_STEP_SUMMARY"
+            $precheck --summary "$GITHUB_STEP_SUMMARY"
