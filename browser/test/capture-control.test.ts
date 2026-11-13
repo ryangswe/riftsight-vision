@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   acceptComputeOut,
   CAPTURE_PENDING,
+  SLOW_START_GRANT_MS,
   type CaptureControlOptions,
   createCaptureControl,
   fromExtensionFrame,
@@ -287,6 +288,169 @@ describe("a frame made at play holds no capture authority", () => {
   });
 });
 
+describe("a slow start: the frame becomes ready while a mouse rests over the picture", () => {
+  const status = (h: ReturnType<typeof setup>, state: "loading" | "ready" | "idle") => h.deliver({ kind: "status", state, error: null, backend: state === "ready" ? "webgpu" : null });
+  /** Hovered, then at rest past the grace period, the frame still loading. */
+  const resting = (restMs = 25_000) => {
+    const h = connected();
+    status(h, "loading");
+    h.hover();
+    h.advance(restMs);
+    h.clear();
+    return h;
+  };
+
+  it("gives one picture when the frame becomes ready past the grace period, and refuses the next", async () => {
+    const h = resting();
+    expect(h.control.captureAllowedNow()).toBe(false);
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(true);
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    expect(h.control.captureAllowedNow()).toBe(false);
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("without the frame becoming ready, a resting mouse past the grace period gets nothing (as before)", async () => {
+    const h = resting();
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("gives nothing past MAX_REST_MS of the last trusted move", async () => {
+    const h = resting(MAX_REST_MS);
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+    const late = resting(MAX_REST_MS - 1_000);
+    status(late, "ready");
+    late.advance(1_000);
+    await captureNow(late, 1);
+    expect(late.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("gives nothing for a tap, nor for a pointer that left", async () => {
+    const tapped = connected();
+    status(tapped, "loading");
+    tapped.tap();
+    tapped.advance(POINTER_GRACE_MS + 1);
+    status(tapped, "ready");
+    await captureNow(tapped, 1);
+    expect(tapped.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+
+    const left = resting();
+    left.hover(5_000, 5_000); // off the picture: the gate is cleared
+    status(left, "ready");
+    await captureNow(left, 1);
+    expect(left.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("a capture that failed for want of a picture keeps the grant for its retry: still one picture", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.video.readyState = 1;
+    h.request(1);
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, retry: true });
+    h.video.readyState = 4;
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 2 });
+    await captureNow(h, 3);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 3, reason: NOT_POINTING });
+  });
+
+  it("a card found keeps the gate open under the usual rules; a ready status repeated grants nothing", async () => {
+    const h = resting();
+    status(h, "ready");
+    await captureNow(h, 1);
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(false);
+    h.show("card");
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 2 });
+  });
+
+  it("opens no grant for a mouse still within its grace period when the frame becomes ready", async () => {
+    const h = resting(5_000);
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(true); // the grace period itself
+    h.advance(POINTER_GRACE_MS - 5_000 + 1);
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("an unspent grant expires after SLOW_START_GRANT_MS", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.advance(SLOW_START_GRANT_MS);
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("opens no grant when the frame became ready just before the grace period ended", async () => {
+    const h = connected();
+    status(h, "loading");
+    h.hover();
+    h.advance(POINTER_GRACE_MS - 100);
+    status(h, "ready");
+    h.advance(200); // past the grace period, within what a grant would last
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, reason: NOT_POINTING });
+  });
+
+  it("a seek during a granted capture that then fails for want of a picture: no re-grant", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.video.readyState = 1;
+    h.request(1); // granted; the grab is still pending
+    h.video.fire("seeking");
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, retry: true });
+    h.video.readyState = 4;
+    h.advance(200); // within a re-grant's wait, past the grace period
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("a seek drops an unspent grant", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.video.fire("seeking");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("a capture that failed for want of a picture re-grants only when a grant allowed it", async () => {
+    // Within the grace period, no grant: the failed capture opens none for after the grace period.
+    const h = connected();
+    status(h, "ready");
+    h.hover();
+    h.advance(POINTER_GRACE_MS - 100);
+    h.video.readyState = 1;
+    h.request(1);
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, retry: true });
+    h.video.readyState = 4;
+    h.advance(200); // past the grace period, within a re-grant's wait
+    expect(h.control.captureAllowedNow()).toBe(false);
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("a later load (loading, then ready) grants one picture again; a new trusted move drops a grant", async () => {
+    const h = resting();
+    status(h, "ready");
+    await captureNow(h, 1);
+    status(h, "loading");
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(true);
+    h.hover();
+    h.advance(POINTER_GRACE_MS + 1);
+    expect(h.control.captureAllowedNow()).toBe(false);
+  });
+});
+
 describe("capture authority", () => {
   it("refuses a never-hovered page, whatever the frame asks", async () => {
     const h = connected();
@@ -303,6 +467,20 @@ describe("capture authority", () => {
     expect(h.sent).toEqual([]);
     await captureNow(h);
     expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("sends the video's playback rate with pointer and presented messages", () => {
+    const h = setup();
+    Object.assign(h.video, { playbackRate: 1.5 });
+    h.control.attach(asVideo(h.video));
+    h.ready();
+    expect(h.sent.find((m) => m.kind === "presented")).toMatchObject({ rate: 1.5 });
+    h.clear();
+    h.hover();
+    expect(h.sent).toEqual([expect.objectContaining({ kind: "pointer", rate: 1.5 })]);
+    h.clear();
+    h.video.fire("timeupdate");
+    expect(h.sent).toEqual([expect.objectContaining({ kind: "presented", rate: 1.5 })]);
   });
 
   it("gives a picture after a trusted hover, with the pointer message dated by the watch", async () => {
@@ -845,9 +1023,9 @@ describe("loadWhen waits for playing, not play", () => {
     loadWhen(v as unknown as HTMLVideoElement, "play", make);
     expect(seen).toEqual(["playing"]);
     v.paused = false;
-    v.fire("play");
+    v.fire("play", { isTrusted: true });
     expect(make).not.toHaveBeenCalled();
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     expect(make).toHaveBeenCalledTimes(1);
   });
 

@@ -45,12 +45,14 @@ a minor release** (0.X.0), not only at 1.0. The changelog names each change.
   (`browser/src/page-capture-entry.ts`), neither part of `browser/src/index.ts`, and the
   two-frame contract they implement, [extension-session.md](extension-session.md): its messages,
   their field limits and the tag rule. Among those exports: `SessionCore` (with `workerStopped`
-  and `reloading`), `SessionCoreDeps.mediaTimeNow`, `createWorkerSession`,
-  `WorkerSessionEnv.mediaTimeNow`, `startComputeFrame` and its types (`ComputeFrameEnv`,
+  and `reloading`, and the optional `rate` of its `pointer` and `presented`),
+  `SessionCoreDeps.mediaTimeNow`, `SessionCoreDeps.playbackRate`, `createWorkerSession`,
+  `WorkerSessionEnv.mediaTimeNow`, `WorkerSessionEnv.playbackRate`, `startComputeFrame` and its types (`ComputeFrameEnv`,
   `ComputeFrame`, `ComputeFrameWindow`), `DRIVER_TICK_MS`, `computeProtocol`, `MAX_FRAME_SIDE`,
-  `MAX_OTHER_BOXES`, `MAX_REASON_LENGTH`, `MAX_TEXT_LENGTH`, `grabFrame` with the `GrabDeps`
+  `MAX_OTHER_BOXES`, `MAX_REASON_LENGTH`, `MAX_TEXT_LENGTH`, `MIN_PLAYBACK_RATE`,
+  `MAX_PLAYBACK_RATE`, the messages' optional `rate` field, `grabFrame` with the `GrabDeps`
   options `requireConnected` and `maxSide`, `watchVideo`, `captureAllowed` with `MAX_REST_MS` and
-  `GateLimits.restMs`, `createCaptureControl` and its types (`CaptureControlOptions`,
+  `GateLimits.restMs`, `slowStartAllowed` with `SLOW_START_GRANT_MS` and `SLOW_START_RETRY_MS`, `createCaptureControl` and its types (`CaptureControlOptions`,
   `CaptureControl`, `CaptureProblem`), its refusal reasons (`NOT_POINTING`, `CAPTURE_PENDING`,
   `PICTURE_CHANGED`), `fromExtensionFrame`,
   `acceptComputeOut`, `postWithTransfer`, `PROTOCOL_VERSION`, and `ComputeFrame.instance`.

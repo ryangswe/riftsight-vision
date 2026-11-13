@@ -50,10 +50,10 @@ tag. A parser keeps only the fields it knows: extra fields are ignored.
 | `kind` | Fields | Checked on arrival |
 | --- | --- | --- |
 | `hello` | `version` | a positive integer: the content script's `PROTOCOL_VERSION` |
-| `pointer` | `x`, `y`, `mediaTime`, `touch` | `x` and `y` in fractions of the picture, from 0 to 1; `mediaTime` a finite number of seconds; `touch` a boolean |
+| `pointer` | `x`, `y`, `mediaTime`, `touch`, `rate`? | `x` and `y` in fractions of the picture, from 0 to 1; `mediaTime` a finite number of seconds; `touch` a boolean; `rate` (optional) the video's `playbackRate`: a finite number, clamped to `MIN_PLAYBACK_RATE` (0.0625) to `MAX_PLAYBACK_RATE` (16), dropped otherwise |
 | `leave` | none | |
 | `intent` | none | the viewer is probably about to want recognition; sent only with the controller's `intent: "page"` (below). A frame that unloaded its worker when idle loads it again; otherwise it counts as activity. Added in version 2. |
-| `presented` | `mediaTime` | a finite number |
+| `presented` | `mediaTime`, `rate`? | `mediaTime` a finite number; `rate` as for `pointer` |
 | `discontinuity` | `newSource` | a boolean: `false` for a seek, `true` for another source |
 | `cut` | none | reserved: no page helper sends it yet |
 | `frame` | `requestId`, `bitmap`, `mediaTime` | `requestId` a positive integer; `bitmap` an `ImageBitmap` of 1 to `MAX_FRAME_SIDE` (4096) pixels a side; `mediaTime` a finite number. A refused frame's bitmap is closed. |
@@ -180,6 +180,22 @@ authority of trusted pointer events (`event.isTrusted`), and checks again at eac
   take the touch and the page sees only `pointerleave`. And the window is not stretched for a
   cold start: on a slow machine, a tap made while the models still load may show nothing, and
   the next tap works.
+- **Slow start** (hover only): when the compute frame's `status` becomes `ready` (its model
+  loaded; the handshake is not the moment) while a mouse rests over the picture past its grace
+  period, a grant opens for the next capture the frame asks for, as long as the last trusted point
+  is still over the picture and within `MAX_REST_MS` (60 s) of the last trusted event. The frame
+  posts its `ready` status before the capture the load asks for, so the request comes at once: an
+  unspent grant expires after `SLOW_START_GRANT_MS` (500 ms). It is one picture: that capture
+  spends the grant whatever it brings, except a capture that failed for want of a picture
+  (`retry: true`) under the grant, whose prompt retry is part of the same picture (the grant then
+  waits `SLOW_START_RETRY_MS`, 2500 ms, for it). If the look finds a card, the card keeps the gate
+  open under the hover rule above; if not, nothing more is given until the pointer moves. A new
+  trusted move, a seek or a new source, a full reset and a new frame instance drop the grant; a
+  `ready` status repeated (with no other status between) grants nothing. A mouse still within its
+  grace period gets no grant (the grace period covers it), and a tap gets none. The slow start
+  applies to a pointer the frame learned of before its grace period ended: a pointer that rested
+  past it before the handshake is not kept (see the handshake above), so a page cannot remake the
+  frame to get a picture each time.
 - **Before every capture**, the last trusted point is checked again against the picture as it is
   laid out now, with `eligible`. A video that moved away under a resting pointer clears the gate
   and refuses the capture. The default `eligible` checks geometry only: something laid over the
@@ -205,14 +221,17 @@ The page can still steer what the frame reports as `shown` (it can post `pointer
 so the "card showing" branch is only as strong as the hover it rests on: it never starts
 capture, and it ends with any reset or failed check of the last trusted point. That is the
 promise to describe, and no more: pictures are taken on a trusted hover over the picture, for a
-bounded time after a tap, and, while a card shows and for a few seconds after one last showed
-(`READING_LINGER_MS`), only as long as the last trusted point is still over the picture; never
-more than 60 s (`MAX_REST_MS`) after the last trusted pointer event.
+bounded time after a tap, once when the model finishes loading under a resting mouse, and, while a
+card shows and for a few seconds after one last showed (`READING_LINGER_MS`), only as long as the
+last trusted point is still over the picture; never more than 60 s (`MAX_REST_MS`) after the last
+trusted pointer event.
 
 `captureAllowed(state, now, limits)` (`capture-gate.ts`) is the pure rule, the 60 s cap
 included, that the controller applies to its four fields (`inside`, `lastTrustedPointerAt`,
-`tooltipShowing`, `lastTooltipAt`; `gateState()` returns them). A product that keeps its own
-bookkeeping can use it, and must then do everything above itself.
+`tooltipShowing`, `lastTooltipAt`; `gateState()` returns them); `slowStartAllowed` (also exported
+from `page-capture.js`) is the slow start's check (inside, within the 60 s cap), which the
+controller applies once per grant. A product
+that keeps its own bookkeeping can use them, and must then do everything above itself.
 
 **Listening.** `listen(window, document)` takes pointer events and `visibilitychange` on
 `window`, in the capture phase (`visibilitychange`, fired at the document, reaches the window
@@ -253,7 +272,9 @@ capture that failed with `retry: true`) makes the same picture due again after 2
 first analysis since its release loaded: that one warms the models up, and on a slow machine it
 can take several times as long. A failed capture is retried promptly: once its back-off runs out, the look is
 due whatever the cadence; the other retries also wait for the cadence. A pointer move never
-shortens a back-off still waiting. A refusal (`retry: false`: the gate, an unreadable video, a
+shortens a back-off still waiting, and no look of any kind starts while one waits: not the
+cadence on a playing video, not a pointer move over a stale picture, not a relook, not a cut, not
+the look when a load ends. A seek or a new source drops the retry with its picture. A refusal (`retry: false`: the gate, an unreadable video, a
 picture too large, no 2D context) is retried by nothing and grows no back-off; the next pointer
 move over the picture asks again, at the cadence, as it does when a retry was used up with no
 answer. So a viewer who leaves a paused video and comes back gets a look. After failed captures,
@@ -273,14 +294,22 @@ When the pointer comes back, the existing staleness rule decides, in video time.
 is stale when
 
 ```text
-abs(now - lastStarted) * 1000 > max(400, intervalInEffectMs)
+abs(now - lastStarted) * 1000 > max(400, B * rate)
+B = max(F, min(P, L - R - M))
 ```
 
 where `now` is the video time of the picture on screen, `lastStarted` the video time of the
-newest look asked for, both in seconds, and `intervalInEffectMs` the cadence the scheduler uses
-at that moment. A stale look is asked for on that `pointer` message itself, when the session is
-ready, nothing is in flight and the last look started by the pointer is at least 250 ms
-(`HOVER_TRIGGER_MIN_GAP_MS`) old. Without this, the frame went on asking at the cadence for the
+newest look asked for, both in seconds, F the fast cadence (500 ms on WebGPU, 1000 ms on
+WebAssembly), P the paced wait of an active pointer (F with pacing off, and until 3 analyses are
+measured), L the answer's lifetime in wall time (the release's `hover.maxAgeMs` divided by the
+playback rate `rate`), R the median round trip of the last 5 analyses that were not reused, and M
+one driver tick (250 ms). B is F until a round trip is known. B is wall time, so it is compared
+with video age as B times the rate. The rate is the `rate` the content script sends with `pointer`
+and `presented` (its video's `playbackRate`); a content script that sends none leaves the compute
+frame to measure it over continuous play (two reports at least 2 s apart, each advancing the video
+and within 500 ms of the one before, no seek between); it is 1 until known. A stale look is asked for on that `pointer` message itself, when the session
+is ready, nothing is in flight, no retry is waiting out its back-off and the last look started by
+the pointer is at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) old. Without this, the frame went on asking at the cadence for the
 10 s after a leave, the content script refused each request, and each refused request counted as
 the newest look: a pointer that came back within those 10 s waited for the cadence.
 
@@ -289,12 +318,19 @@ A tap counts as a pointer over the picture until the content script sends `leave
 a hidden page and a replaced video. A tap after a mouse leave asks as a mouse move does.
 
 When a load ends (the first load, a fallback, a restart or an idle resume) with the pointer
-eligible, the frame runs one scheduling evaluation at once, as the next tick would, instead of
-waiting up to `DRIVER_TICK_MS` for that tick. Eligible means over the picture with pointer
-activity within the grace period (10 s, `POINTER_GRACE_MS`) for a mouse, or a tap whose window
-(the same 10 s from the tap) is still open. A pointer that rests longer than that, or that left,
-is not eligible. No pointer activity is made up for it, and the content script's gate still
-decides on the capture.
+eligible, the frame asks for a look at once, instead of waiting up to `DRIVER_TICK_MS` for the
+next tick or for the cadence: the viewer is waiting on it, so the paced wait does not hold it back.
+Only a retry waiting out its back-off does. Eligible means over the picture with pointer activity
+within the grace period (10 s, `POINTER_GRACE_MS`) for a mouse, or a tap whose window (the same
+10 s from the tap) is still open. A pointer that left is not eligible. No pointer activity is made
+up for it, and the content script's gate still decides on the capture.
+
+A mouse that rests over the picture past the grace period, within `MAX_REST_MS` (60 s) of its last
+activity, gets a slow start instead: one look when the load ends, and its failed capture's prompt
+retry, but nothing else. If that look finds a card, the card keeps analysis going under the usual
+rules (the reading state, and the gate's card-showing branch); if it finds nothing, nothing more is
+asked until the pointer moves. A tap whose window closed gets none. The frame posts the `ready`
+status before that look's `capture` ("Who may make the extension take a picture").
 
 Limits:
 
@@ -302,8 +338,8 @@ Limits:
   finishes asks no second one. If the page refuses that capture, the refused look still counts
   as the newest one, so a return soon after it can wait for the cadence; no time is rolled back.
 - Staleness is measured in video time, not wall-clock time. A video that plays slowly or
-  buffers, or a long cadence (the reading cadence, measured pacing, WebAssembly), may not pass
-  it after a given time away, and the return then waits for the cadence as before.
+  buffers, or a long budget B (WebAssembly, measured pacing with a short round trip), may not
+  pass it after a given time away, and the return then waits for the cadence as before.
 - A paused picture with a current result is not stale: a return asks for no new analysis. A
   face left unverified in focus scope (`geometricScope: "focus"`) still gets its relook, and
   repeats scheduled before the leave run after the return.
@@ -321,7 +357,7 @@ In focus scope (`geometricScope: "focus"`) with the geometric stage ready, a loo
 faces at the pointer as it was when the look was asked for and leaves the other faces
 unverified, and nothing is named on them. A pointer that reaches such a face on a playing video
 used to wait for the next cadence look: the relook for an unverified face was limited to a still
-picture, and the staleness rule above needs `max(400, intervalInEffectMs)` ms of video time.
+picture, and the staleness rule above needs `max(400, B × rate)` ms of video time.
 
 Now a pointer on a face the newest analysis left unverified (or on a group of overlapping faces
 that holds one, which is where nothing is named) gets a look with the pointer there as soon as
@@ -334,27 +370,24 @@ all of these hold:
   its video time has moved since that frame;
 - nothing is in flight, no retry is waiting out its back-off, and no capture was refused since
   the picture was last answered;
-- the last look of any kind started at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) ago, or, with
-  `measuredPacing`, the median measured analysis time divided by the share if that is longer
-  (from the first measured analysis; at most 4000 ms), so these looks keep the pacer's share of
-  time spent analyzing up to that 4000 ms ceiling. Above it (an analysis longer than the share of
-  4000 ms, 1000 ms at the default 0.25) they come every 4000 ms and take a larger share, as the
-  cadence does at its own ceiling.
+- the last look of any kind started at least F ago, start to start: the fast cadence, 500 ms on
+  WebGPU and 1000 ms on WebAssembly. The viewer waits on this look, so it is not paced: with
+  `measuredPacing` the spacing is still F, not the paced wait.
 
 It is checked on each `pointer` message, on the reply of a look, and on each tick. So a pointer
 that lands on the face while a look is in flight, and rests there, gets its look when that look
-returns, or 250 ms after that look started if the reply came sooner (at the next tick past it).
+returns, or F after that look started if the reply came sooner (on the next message or tick).
 The page's gate still decides on the capture, and with `entryLook` nothing is asked while the
 pointer is off the picture. A pointer on a named face, or on no face, asks nothing extra. A sweep
-across several unverified faces asks at most one look per 250 ms, and never a second while one is
-in flight.
+across several unverified faces asks at most one look per F, and never a second while one is in
+flight.
 
 Limits:
 
 - A pointer that rests past the grace period asks nothing more, as for a still picture's relook.
-- A pointer that sweeps across unnamed cards on a playing video asks up to one look per 250 ms
-  (or per the measured-pacing spacing, when that is set and longer), where it used to wait for
-  the cadence.
+- A pointer that sweeps across unnamed cards on a playing video asks up to one look per F, where
+  it used to wait for the cadence. With measured pacing on a slow computer that is more analysis
+  than the pacer's share while the sweep lasts.
 - A still picture, scope `"all"`, a session with no stage or a stage still loading, and the
   `"always-on"` mode are unchanged.
 - It changes when a look is asked for, not what a look answers.
@@ -638,7 +671,7 @@ own choice to use them, so the product may make the frame at once, on a playing 
 hover would. Without the option nothing changes: the frame stays and reloads in place.
 
 **Making the frame at play.** `loadWhen(video, "play", make)` calls `make` once: at once if the
-video is already playing, else at its next `playing` event; never for a paused or ended video.
+video is already playing, else at its next trusted `playing` event; never for a paused or ended video.
 `stop()` on the result removes the listener.
 
 ```js
@@ -668,8 +701,9 @@ Recommended: make the compute frame when the video plays, not at the first point
   run, the next frame comes from the trusted move or tap over the video; a trigger of the
   product's own (a `playing` event, a route change) must not make it. The viewer turning the
   product's hovers back on is the viewer's choice, not such a trigger, and may make it at once.
-- `loadWhen(video, "play")` waits for a `playing` event, not `play`, and runs `make()` at once
-  for a video that is already playing when it is registered. It checks once when registered, then
+- `loadWhen(video, "play")` waits for a trusted `playing` event, not `play`, and runs `make()` at
+  once for a video that is already playing when it is registered. A `playing` event a page script
+  dispatches (`isTrusted` false) is ignored. It checks once when registered, then
   waits for `playing`. Register it when you pick the main video. If you register earlier, or use
   your own `playing` listener, a video already playing when it becomes the main one (a mini
   player growing back) loads only at its next `playing` event (a seek or a stall) or at your own

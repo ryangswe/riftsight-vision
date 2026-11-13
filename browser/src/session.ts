@@ -316,6 +316,8 @@ export function createSession(source: FrameSource, options: SessionOptions): Ses
     // The max-age rule, the staleness rule and a look's date read the video's time when they
     // run, as 0.5 did: a paused video reports no frame, and its time is still known.
     mediaTimeNow: () => mediaTime(),
+    // How long an answer may stay on screen in wall time: the max age over the playback rate.
+    ...(video ? { playbackRate: () => video.playbackRate } : {}),
     onShown: changedNow,
     onStatus: changedNow,
     onAnalysis,

@@ -305,6 +305,18 @@ describe("messages to the core", () => {
     ]);
   });
 
+  it("passes a message's playback rate on to the core", () => {
+    const t = setup();
+    loaded(t.workers[0]!);
+    const core = t.frame!.core!;
+    const pointer = vi.spyOn(core, "pointer");
+    const presented = vi.spyOn(core, "presented");
+    t.send(tag({ kind: "pointer", x: 0.25, y: 0.75, mediaTime: 3, touch: false, rate: 2 }));
+    t.send(tag({ kind: "presented", mediaTime: 4, rate: 0.5 }));
+    expect(pointer).toHaveBeenCalledWith(0.25, 0.75, 3, false, 2);
+    expect(presented).toHaveBeenCalledWith(4, 0.5);
+  });
+
   it("runs the core's driver on tick", () => {
     const t = setup();
     const tick = vi.spyOn(t.frame!.core!, "tick");
@@ -769,6 +781,17 @@ describe("a look on pointer entry (entryLook)", () => {
     loaded(t.workers[0]!);
     expect(captureCount(t)).toBe(asked);
     // Either way one look, by the next tick at the latest.
+    t.frame!.tick();
+    expect(captureCount(t)).toBe(1);
+  });
+
+  it("a slow start: a load that ends under a mouse resting past the grace period posts the ready status, then one capture", () => {
+    const t = setup({});
+    t.send(pointerAt());
+    t.clock.now += 25_000;
+    loaded(t.workers[0]!);
+    const kinds = t.messages().map((m) => (m.kind === "status" ? `status:${String(m.state)}` : m.kind)).filter((k) => k === "status:ready" || k === "capture");
+    expect(kinds).toEqual(["status:ready", "capture"]);
     t.frame!.tick();
     expect(captureCount(t)).toBe(1);
   });

@@ -28,7 +28,10 @@
 //
 //   - A look on pointer entry (`entryLook`, on unless the extension passes false): while the
 //     content script has said `leave` and no `pointer` since, the core asks for no picture, and a
-//     load that ends under an active pointer asks at once (session-core.ts `entryLook`).
+//     load that ends under an active pointer asks at once (session-core.ts `entryLook`). A load
+//     that ends under a mouse resting past its grace period asks one look (a slow start); the
+//     `ready` status is posted before that look's `capture`, so the content script's gate knows
+//     the load ended when the request arrives (capture-control.ts).
 //
 //   - With `idleUnloadMs`, a ready frame that has seen no `pointer` message, no `intent`, no shown
 //     card and no look in flight for that long ends its worker (the memory of a ready session only
@@ -261,7 +264,8 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
         return;
       case "pointer":
         resume();
-        core.pointer(message.x, message.y, message.mediaTime, message.touch);
+        if (message.rate === undefined) core.pointer(message.x, message.y, message.mediaTime, message.touch);
+        else core.pointer(message.x, message.y, message.mediaTime, message.touch, message.rate);
         // After the look: the look this pointer asked for is not delayed by the stage; one the
         // worker is already analyzing is answered without it. A pointer that resumes an idle
         // frame counts for the release it reloads.
@@ -271,7 +275,8 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
         core.pointerLeft();
         return;
       case "presented":
-        core.presented(message.mediaTime);
+        if (message.rate === undefined) core.presented(message.mediaTime);
+        else core.presented(message.mediaTime, message.rate);
         return;
       case "discontinuity":
         core.discontinuity(message.newSource);

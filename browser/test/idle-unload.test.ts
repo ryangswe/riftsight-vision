@@ -683,7 +683,7 @@ describe("a frame made by loadWhen at play, in pointer mode", () => {
     });
     expect(t).toBeUndefined();
     video.paused = false;
-    video.fire("playing");
+    video.fire("playing", { isTrusted: true });
     expect(t).toBeDefined();
     t!.loaded(t!.workers[0]!);
     expect(t!.states()).toEqual(["ready"]);
@@ -721,7 +721,7 @@ describe("loadWhen (row 5)", () => {
     const make = vi.fn();
     loadWhen(v as unknown as HTMLVideoElement, "play", make);
     expect(make).toHaveBeenCalledTimes(1);
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     expect(make).toHaveBeenCalledTimes(1);
     expect(v.count()).toBe(0);
   });
@@ -731,10 +731,24 @@ describe("loadWhen (row 5)", () => {
     const make = vi.fn();
     loadWhen(v as unknown as HTMLVideoElement, "play", make);
     expect(make).not.toHaveBeenCalled();
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     v.paused = false;
-    v.fire("playing");
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
+    v.fire("playing", { isTrusted: true });
+    expect(make).toHaveBeenCalledTimes(1);
+    expect(v.count()).toBe(0);
+  });
+
+  it("ignores a playing event a page script made (not trusted), and waits for the browser's", () => {
+    const v = video({ paused: true, ended: false });
+    const make = vi.fn();
+    loadWhen(v as unknown as HTMLVideoElement, "play", make);
+    v.paused = false;
+    v.fire("playing", { isTrusted: false });
+    v.fire("playing", {});
+    expect(make).not.toHaveBeenCalled();
+    expect(v.count()).toBe(1);
+    v.fire("playing", { isTrusted: true });
     expect(make).toHaveBeenCalledTimes(1);
     expect(v.count()).toBe(0);
   });
@@ -743,7 +757,7 @@ describe("loadWhen (row 5)", () => {
     const v = video({ paused: false, ended: true });
     const make = vi.fn();
     loadWhen(v as unknown as HTMLVideoElement, "play", make);
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     expect(make).not.toHaveBeenCalled();
   });
 
@@ -755,14 +769,14 @@ describe("loadWhen (row 5)", () => {
     const make = vi.fn();
     loadWhen(v as unknown as HTMLVideoElement, "play", make);
     v.paused = false;
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     v.fire("waiting");
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     v.ended = true;
     v.fire("ended");
     v.ended = false;
     v.fire("seeked");
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     expect(make).toHaveBeenCalledTimes(1);
   });
 
@@ -774,7 +788,7 @@ describe("loadWhen (row 5)", () => {
     handle.stop();
     expect(v.count()).toBe(0);
     v.paused = false;
-    v.fire("playing");
+    v.fire("playing", { isTrusted: true });
     expect(make).not.toHaveBeenCalled();
   });
 });

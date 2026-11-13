@@ -14,30 +14,37 @@
 // The rules apply to the looks a viewer is waiting on: the stale-picture look a pointer move asks
 // for (`FrameScheduler.hoverTriggerDue`) and the focus re-look of a playing picture
 // (`FrameScheduler.relookDue`). They are installed on the scheduler instance of a run, so
-// `browser/src` is unchanged and "current" is today's code untouched. Notation: F is the fixed
+// `browser/src` is unchanged and "current" is the code untouched. The code now runs the budgeted
+// rule, so "current" and "budgeted" give the same runs (a test checks it); the other rules are kept
+// for comparison. Notation: F is the fixed
 // fast cadence of the backend (`activeAnalyzeIntervalMs`: 500 ms WebGPU, 1000 ms WebAssembly); A is
 // the release's max age (2000 ms); P is the paced interval (`pacedIntervalMs` over the worker
 // times when measured pacing is on: max(F, min(4000, median of the last 5 worker times / share)),
 // and F while fewer than 3 times are known or pacing is off); R is the median of the last 5 round
 // trips (capture asked for to reply, ms); M is the margin, one driver tick (250 ms).
 //
-//   current:  stale threshold = max(400, cadence in effect); re-look spacing = max(250, 4 x median
-//             worker time, up to 4000), as the code does today. Nothing is replaced.
+//   current:  the code as it is: the budgeted rule below (session-core.ts `staleBudgetMs`, the
+//             re-look at F). Nothing is replaced. (Before the budgeted rule the code had stale
+//             threshold = max(400, cadence in effect) and re-look spacing = max(250, 4 x median
+//             worker time, up to 4000).)
 //   strict:   stale threshold = max(400, F); re-look spacing = F.
 //   budgeted: B = max(F, min(P, L - R - M)) with L = A / playback rate, the answer's lifetime in
-//             wall ms; stale threshold = max(400, B); re-look spacing = F (as strict).
+//             wall ms; stale threshold = max(400, B x playback rate), in video ms; re-look
+//             spacing = F (as strict).
 //             Warm-up (no round trip yet): B = F. A negative L - R - M gives B = F. A floor F
 //             above the ceiling P gives B = F (the floor wins, as in `pacedIntervalMs`). With
-//             pacing off, P = F, so B = F. Limitation: the threshold is compared with video age
-//             (as the code compares the cadence today), while B is in wall ms.
+//             pacing off, P = F, so B = F. B is in wall ms, so it is compared with video age as
+//             B x rate (strict keeps comparing F with video age as it is).
 //   budgeted+relook: as budgeted, and the re-look spacing is also B.
 //
-// Both candidates leave the entry looks (first load, re-entry, idle reload: `due()`), the reading
-// ceiling, the empty-spot rest and the retries as they are.
+// Every rule runs on the code's own entry looks (first load, re-entry, idle reload), reading wait
+// (with the shown hold's deadline), empty-spot rest and retries, and keeps every other limit: one
+// look in flight, at least 250 ms between looks a pointer asks for, the back-off of an unanswered
+// look on every path, and the paced cadence of looks nobody is waiting on (the empty-spot rest,
+// reading looks, always-on mode).
 //
-// Both candidates keep every other limit: one look in flight, at least 250 ms between looks a
-// pointer asks for, the back-off of an unanswered look, and the paced cadence of looks nobody is
-// waiting on (the empty-spot rest, reading looks, always-on mode).
+// The host gives the core the video's playback rate (`SessionCoreDeps.playbackRate`), as
+// `createSession` does; an extension's compute frame measures it from the times it is sent.
 
 import { activeAnalyzeIntervalMs, MEASURED_PACING_ACTIVE_CEILING_MS, MEASURED_PACING_MIN_SAMPLES, MEASURED_PACING_SHARE, MEASURED_PACING_WINDOW } from "../../src/cadence.js";
 import { DRIVER_TICK_MS, HOVER_MAX_AGE_MS, STALE_FRAME_MS } from "../../src/frame-scheduler.js";
@@ -67,6 +74,9 @@ export interface SlowClockConfig {
   measuredPacing: boolean;
   /** The geometric stage is on, with focus scope: a look verifies only the pointer's group. */
   focus: boolean;
+  /** The host gives the core the playback rate (`SessionCoreDeps.playbackRate`), as `createSession`
+   *  does; false: the core measures it from the reported video times. Default true. */
+  hostRate?: boolean;
 }
 
 export const DEFAULT_CONFIG: Readonly<SlowClockConfig> = Object.freeze({
@@ -111,8 +121,9 @@ export type ScenarioEvent =
   | { at: number; kind: "pause" }
   | { at: number; kind: "resume" }
   | { at: number; kind: "seek"; bySec: number }
-  /** The picture changes under the pointer without a seek; the host reports a cut when a card shows. */
-  | { at: number; kind: "layout"; cards: readonly CardSpec[] }
+  /** The picture changes under the pointer without a seek; the host reports a cut when a card shows,
+   *  unless `cut` is false (an extension's content script detects no cuts). */
+  | { at: number; kind: "layout"; cards: readonly CardSpec[]; cut?: boolean }
   /** The worker is ended on purpose (idle unload). */
   | { at: number; kind: "unload" }
   /** The release is installed (the session becomes ready). */
@@ -191,6 +202,8 @@ export interface RunResult {
   busy: Array<{ at: number; ms: number }>;
   /** Per residence: the card, its arrival, and the latency to the first correct name (null: never). */
   residences: Array<{ card: string; startMs: number; dwellMs: number; latencyMs: number | null }>;
+  /** Every change of the card displayed: when, and its id (null: nothing). */
+  shown: Array<{ at: number; cardId: string | null }>;
 }
 
 // ------------------------------------------------------------------ the run
@@ -265,6 +278,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   /** The video time of the newest result that named each card: the age of the name on screen. */
   const namedAtSec = new Map<string, number>();
   const busy: Array<{ at: number; ms: number }> = [];
+  const shownLog: Array<{ at: number; cardId: string | null }> = [];
   let ageIntegral = 0;
   let shownMs = 0;
   let ageMax = 0;
@@ -334,7 +348,11 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
       },
       onShown: (card) => {
         displayed = card;
+        if ((shownLog.at(-1)?.cardId ?? null) !== (card?.cardId ?? null)) shownLog.push({ at: clock, cardId: card?.cardId ?? null });
       },
+      // The host reads its video's rate, as `createSession` does (an extension's compute frame
+      // measures it from the times it is sent instead).
+      ...(cfg.hostRate === false ? {} : { playbackRate: () => cfg.playbackRate }),
       hoverAt: hit as never,
     },
     options,
@@ -342,6 +360,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
 
   installRule(core, cfg.rule, {
     lifetimeMs: MAX_AGE_MS / cfg.playbackRate,
+    playbackRate: cfg.playbackRate,
     fastCadence,
     pacedMs: () => (cfg.measuredPacing && workerSamples.length >= MEASURED_PACING_MIN_SAMPLES ? Math.max(fastCadence, Math.min(MEASURED_PACING_ACTIVE_CEILING_MS, median(workerSamples) / MEASURED_PACING_SHARE)) : fastCadence),
     roundTripMs: () => (roundTrips.length === 0 ? null : median(roundTrips)),
@@ -377,7 +396,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
           return;
         case "layout":
           layout = e.cards;
-          if (displayed) core.cut();
+          if (displayed && e.cut !== false) core.cut();
           return;
         case "unload":
           core.workerStopped({ idle: true });
@@ -496,7 +515,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
     looksPerMinute: (looks.length * 60_000) / scenario.durationMs,
     busyShare: busyMs / scenario.durationMs,
   };
-  return { scenario: scenario.name, config: cfg, metrics, gaps, looks, busy, residences };
+  return { scenario: scenario.name, config: cfg, metrics, gaps, looks, busy, residences, shown: shownLog };
 }
 
 // ------------------------------------------------------------------ the candidate rules
@@ -505,6 +524,8 @@ export interface RuleInputs {
   fastCadence: number;
   /** The answer's lifetime in wall ms: the max age over the playback rate. */
   lifetimeMs: number;
+  /** Video seconds per wall second (default 1). */
+  playbackRate?: number;
   /** P: the paced interval for a pointer-waiting look. */
   pacedMs(): number;
   /** R: the median recent round trip, or null before one is known. */
@@ -534,7 +555,10 @@ export function ruleSpacingsMs(rule: Rule, inputs: RuleInputs): { staleMs: numbe
 function installRule(core: SessionCore, rule: Rule, inputs: RuleInputs): void {
   if (rule === "current") return;
   const sched = core.scheduler;
-  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, ruleSpacingsMs(rule, inputs)!.staleMs);
+  // The budgeted rules' B is wall time and is compared with video age as B x rate; strict keeps F
+  // compared with video age as it is.
+  const toVideo = rule === "strict" ? 1 : (inputs.playbackRate ?? 1);
+  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, ruleSpacingsMs(rule, inputs)!.staleMs * toVideo);
   const relook = sched.relookDue.bind(sched);
   sched.relookDue = (now: number, inFlight: boolean, videoTimeSec?: number): boolean => {
     sched.setRelookSpacingMs(ruleSpacingsMs(rule, inputs)!.relookMs);
@@ -702,21 +726,22 @@ slower answer expires on arrival. The answer's life is the max age (2000 ms) div
 rate; a hold lengthens what is displayed, so under SHOWN_HOLD the lifetime is that answer life plus the
 hold's 5000 ms (wall time, not divided), and under the reading hold it is unbounded. looks/min: looks
 started per minute. busy: share of the run the worker spends analyzing.
-The rules: current (today); strict (a look the viewer waits on starts at the backend's fixed fast cadence);
-budgeted (the stale-picture threshold only is max(F, min(paced interval, answer lifetime - round trip - 250)),
-the focus re-look at F); budgeted+relook (the re-look spacing also gets that budget). The budget uses the
-answer's wall lifetime, 2000 ms over the playback rate (1000 ms at 2x), but is compared with video age as
-the code compares its cadence, which is a limitation that applies to strict too: its threshold
+The rules: current (the code as it is, which runs the budgeted rule: its rows equal budgeted's); strict (a
+look the viewer waits on starts at the backend's fixed fast cadence); budgeted (the stale-picture threshold
+only is max(F, min(paced interval, answer lifetime - round trip - 250)), the focus re-look at F);
+budgeted+relook (the re-look spacing also gets that budget). The budget uses the
+answer's wall lifetime, 2000 ms over the playback rate (1000 ms at 2x), and is compared with video age as
+B x rate. Strict compares its threshold with video age as it is, which is a limitation: its threshold
 (500 ms on WebGPU, 1000 ms on WebAssembly) refreshes every 250 ms (WebGPU) or 500 ms (WebAssembly) of
-wall time at 2x, and every 1000 ms (WebGPU) or 2000 ms (WebAssembly) at 0.5x. Entry looks, the reading ceiling, the empty-spot rest
-and retries are the same under every rule.
+wall time at 2x, and every 1000 ms (WebGPU) or 2000 ms (WebAssembly) at 0.5x. Entry looks, the reading wait
+(with the shown hold's deadline), the empty-spot rest and retries are the same under every rule.
 This is a model of the scheduling policy on a virtual clock, not a browser measurement.`;
 
 const FOOTNOTE_2X = `Footnote. At 2x playback an answer lives 1000 ms of wall time, so rows with W of 1200 or more name nothing under any rule.`;
 
-const FOOTNOTE = `Footnote. A gap at W of 1400 or more under SHOWN_HOLD is a reading-wait problem: a reading deadline that includes
-the hold removes it, and none of these rules models that, so the rules cannot differ there. It is the
-reading deadline's to fix, not the choice between these rules.`;
+const FOOTNOTE = `Footnote. Under SHOWN_HOLD the reading wait has a deadline that includes the hold (at most the answer lifetime
++ 5000 - round trip - 250 ms), so a resting pointer on a card that stays keeps its name between two
+looks; it is the same under every rule.`;
 
 export const TABLE_WORKER_MS = [200, 500, 800, 1200, 1700] as const;
 export const BOUNDARY_WORKER_MS = [125, 400, 1000, 1400, 2000] as const;

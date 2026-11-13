@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // The slow-clock harness (test/support/slow-clock.ts) and what it finds in the look scheduling.
-// Four behaviors of today's code (the blink, the relook spacing, the stale threshold and the back-off bypass) are written as expected failures under the rule "current": each
-// states the old value and the intended one, and flips to a failure of the test when the code is
-// fixed (then the test is turned into a plain assertion). The empty-spot rest is intended and is
-// an ordinary invariant. Nothing here reaches a network or a real clock.
+// Four behaviors the harness found (the blink, the relook spacing, the stale threshold and the
+// back-off bypass) were fixed by budgeted pacing; each is checked here under the rule "current"
+// (the code as it is), with the value before the fix in its title. The empty-spot rest is
+// intended and is an ordinary invariant. Nothing here reaches a network or a real clock.
 import { describe, expect, it } from "vitest";
 
 import {
   ABC,
+  type CardSpec,
   budgetedSpacingMs,
   MAX_AGE_MS,
   renderReport,
@@ -71,10 +72,14 @@ describe("the harness", () => {
     expect(tooSlow.gaps.every((g) => !g.avoidable)).toBe(true);
   });
 
-  it("under SHOWN_HOLD a gap is judged against the hold's lifetime: the W = 1700 blink is avoidable", () => {
-    const run = runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1700, hold: "shown" });
-    expect(run.gaps.length).toBeGreaterThan(0);
-    expect(run.gaps.every((g) => g.avoidable)).toBe(true);
+  it("under SHOWN_HOLD a gap is judged against the hold's lifetime: a seek's gap at W = 1200 is avoidable, without a hold it is not", () => {
+    // 2 x 1200 is more than the answer's 2000 ms, and less than 2000 + the hold's 5000 ms.
+    const shown = runScenario(scenarioNamed("seek"), { workerMs: 1200, hold: "shown" });
+    expect(shown.gaps.length).toBeGreaterThan(0);
+    expect(shown.gaps.every((g) => g.avoidable)).toBe(true);
+    const none = runScenario(scenarioNamed("seek"), { workerMs: 1200, hold: "none" });
+    expect(none.gaps.length).toBeGreaterThan(0);
+    expect(none.gaps.every((g) => !g.avoidable)).toBe(true);
   });
 
   it("counts a visit as eligible only when its dwell lasts one capture plus analysis, and censors unnamed ones at their dwell", () => {
@@ -186,47 +191,72 @@ describe("pacing: an empty spot rests max(interval, 2000) (intended)", () => {
   }
 });
 
-describe("known behaviors of today's code, under the rule current (expected failures)", () => {
-  // Blink: a resting pointer, SHOWN_HOLD, pacing on, playing, W between 1400 and 2000.
-  // The reading wait (up to 6750 ms) outlasts what the hold keeps (5000 ms) plus a name's life.
+describe("the code runs the budgeted rule", () => {
+  it("current and budgeted give the same runs over the report's configurations", () => {
+    const scenarios = [scenarioNamed("viewer-session"), scenarioNamed("pointer-moving"), scenarioNamed("rest-past-grace"), scenarioNamed("retry-backoff-50fps"), scenarioNamed("card-covered")];
+    for (const scenario of scenarios) {
+      for (const workerMs of [200, 800, 1700, VARYING_WORKER_MS]) {
+        for (const backend of ["webgpu", "wasm"] as const) {
+          for (const playbackRate of [0.5, 1, 1.25, 2]) {
+            for (const hold of ["none", "shown", "reading"] as const) {
+              const cfg: Partial<SlowClockConfig> = { workerMs, backend, playbackRate, hold, focus: true };
+              const current = runScenario(scenario, { ...cfg, rule: "current" });
+              const budgeted = runScenario(scenario, { ...cfg, rule: "budgeted" });
+              expect([current.looks, current.metrics], `${scenario.name} ${JSON.stringify(cfg)}`).toEqual([budgeted.looks, budgeted.metrics]);
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
+describe("what budgeted pacing fixed, under the rule current", () => {
+  // Blink: a resting pointer, SHOWN_HOLD, pacing on, playing, W between 1400 and 2000. The reading
+  // wait (up to 6750 ms) outlasted what the hold keeps (5000 ms) plus a name's life; the reading
+  // deadline (S-P3) brings the next answer in first.
   const rest1700 = () => runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1700, hold: "shown", measuredPacing: true, rule: "current" });
 
-  it("blink today: W = 1700, rest 45 s: 4 gaps of 1450 ms, 5800 ms in all", () => {
+  it("blink: W = 1700, rest 45 s: no gap (before: 4 gaps of 1450 ms, 5800 ms in all)", () => {
     const run = rest1700();
-    expect(run.gaps.map((g) => g.lengthMs)).toEqual([1450, 1450, 1450, 1450]);
-    expect(run.metrics.gapTotalMs).toBe(5800);
+    expect(run.gaps).toEqual([]);
+    expect(run.metrics.gapTotalMs).toBe(0);
+    expect(run.residences).toHaveLength(1);
+    expect(run.residences[0]!.latencyMs).not.toBeNull();
   });
-  it("blink: the run has gaps to compare", () => {
-    expect(rest1700().gaps.length).toBeGreaterThan(0);
-  });
-  it.fails("blink: old 5800 ms of gap, intended 0 (SHOWN_HOLD keeps the name through a rest)", () => {
-    expect(rest1700().metrics.gapTotalMs).toBe(0);
+  it("blink: the reading looks come at the deadline, 2000 + 5000 - 1700 - 250 = 5050 ms, on the next tick", () => {
+    const starts = rest1700().looks.map((l) => l.at).filter((t) => t > 12_000);
+    const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
+    expect(gaps.length).toBeGreaterThan(3);
+    for (const g of gaps) expect(g).toBe(5_250);
   });
 
-  // Relook spacing, no floor: a pointer arrives on an unverified card while a look is in
-  // flight; the paced spacing (4 x W up to 4000) holds the focus re-look back.
-  const warmed = (rule: Rule) => {
+  // Relook spacing: a pointer arrives on an unverified card while a look is in flight; the paced
+  // spacing (4 x W up to 4000) held the focus re-look back. It is F now (S-C7).
+  const arriving = (rule: Rule, at: number) => {
     const events: ScenarioEvent[] = [];
-    for (let t = 0, i = 0; t <= 4000; t += 400, i++) events.push(mv(t, 200 + (i % 2) * 4, 250));
-    events.push(mv(5400, 700, 250));
+    for (let t = 0, i = 0; t <= Math.min(4000, at - 100); t += 400, i++) events.push(mv(t, 200 + (i % 2) * 4, 250));
+    events.push(mv(at, 700, 250));
     return runScenario(custom({ durationMs: 14_000, events }), { workerMs: 800, focus: true, rule });
   };
-  const latencyOnB = (rule: Rule): number => warmed(rule).residences.find((r) => r.card === "B")?.latencyMs ?? Infinity;
+  const latencyOnB = (rule: Rule, at = 5400): number => arriving(rule, at).residences.find((r) => r.card === "B")?.latencyMs ?? Infinity;
 
-  it("relook spacing today: B, reached during a look, is named after 3900 ms", () => {
-    const run = warmed("current");
-    expect(run.looks.some((l) => l.at === 5250)).toBe(true); // a look is in flight when the pointer arrives
-    expect(latencyOnB("current")).toBe(3900);
+  it("relook spacing: B, reached at 5400 ms, is named in 800 ms (before: 3900 ms); the move itself asks, the picture being older than B", () => {
+    const run = arriving("current", 5400);
+    expect(run.looks.find((l) => l.at === 5400)?.trigger).toBe("hover");
+    expect(latencyOnB("current")).toBe(800);
   });
-  it.fails("relook spacing: old 3900 ms, intended at most 1600 ms (rest of the look + one re-look)", () => {
-    expect(latencyOnB("current")).toBeLessThanOrEqual(1600);
-  });
-  it("relook spacing: under strict the same arrival is named within 1600 ms", () => {
-    expect(latencyOnB("strict")).toBeLessThanOrEqual(1600);
+  it("relook spacing: B, reached during a look in flight, is looked at on that look's reply (F after its start), and named within 1600 ms", () => {
+    const run = arriving("current", 3300);
+    const inFlight = run.looks.find((l) => l.at === 3200);
+    expect(inFlight).toBeDefined(); // a look is in flight when the pointer arrives
+    expect(run.looks.some((l) => l.at === 4000)).toBe(true); // its reply, 800 ms after its start
+    expect(latencyOnB("current", 3300)).toBeLessThanOrEqual(1600);
+    expect(latencyOnB("current", 3300)).toBe(latencyOnB("strict", 3300));
   });
 
-  // Stale threshold: the newest answer is older than 2000 ms but younger than the paced
-  // interval (4000 ms): a move asks for nothing until the cadence.
+  // Stale threshold: the newest answer is older than 2000 ms but younger than the paced interval
+  // (4000 ms): a move asked for nothing until the cadence. The budget B is 550 ms here.
   const staleMove = (rule: Rule) => {
     const events: ScenarioEvent[] = [];
     for (let t = 0, i = 0; t <= 2800; t += 400, i++) events.push(mv(t, 200 + (i % 2) * 4, 250));
@@ -235,43 +265,146 @@ describe("known behaviors of today's code, under the rule current (expected fail
   };
   const staleLatency = (rule: Rule): number => staleMove(rule).residences.find((r) => r.card === "B")?.latencyMs ?? Infinity;
 
-  it("stale threshold today: a move at video age 2250 ms names B after 2950 ms", () => {
+  it("stale threshold: a move at video age 2250 ms names B in 1200 ms, a look starting at the move (before: 2950 ms)", () => {
     const run = staleMove("current");
     const lastBefore = Math.max(...run.looks.map((l) => l.at).filter((t) => t < 4750));
     expect(4750 - lastBefore).toBe(2250); // older than the 2000 ms max age, younger than the 4000 ms paced interval
-    expect(staleLatency("current")).toBe(2950);
+    expect(run.looks.find((l) => l.at === 4750)?.trigger).toBe("hover");
+    expect(staleLatency("current")).toBe(1200);
   });
-  it.fails("stale threshold: old 2950 ms, intended at most 1400 ms (a look starts at the move)", () => {
-    expect(staleLatency("current")).toBeLessThanOrEqual(1400);
-  });
-  it("stale threshold: under strict the same move is named in 1200 ms", () => {
+  it("stale threshold: as under strict", () => {
     expect(staleLatency("strict")).toBe(1200);
   });
 
   // The back-off bypass: a look fails at 500, its retry is due at 750, a trusted move at 600. The
   // video presents a frame a second, so the cadence has no frame waiting.
   const backoff = (rule: Rule) => runScenario(scenarioNamed("retry-backoff"), { workerMs: 500, measuredPacing: false, rule });
-  it("back-off bypass today: the move at 600 ms starts the second look", () => {
-    expect(backoff("current").looks.slice(0, 2).map((l) => l.at)).toEqual([0, 600]);
-  });
-  it("back-off bypass: the run has a second look", () => {
-    expect(backoff("current").looks.length).toBeGreaterThan(1);
-  });
-  it.fails("back-off bypass: old 600 ms, intended not before 750 ms (a move never shortens a back-off)", () => {
-    expect(backoff("current").looks[1]?.at ?? -1).toBeGreaterThanOrEqual(750);
+  it("back-off: the move at 600 ms starts nothing; the second look is the retry at 750 ms (before: 600 ms)", () => {
+    expect(backoff("current").looks.slice(0, 2).map((l) => l.at)).toEqual([0, 750]);
   });
 
-  // The same bypass on the cadence path at a normal frame rate: `due()` starts a look on the
-  // newly presented frame while the retry (due 250 ms after the failure) is still waiting.
+  // The same on the cadence path at a normal frame rate: `due()` started a look on the newly
+  // presented frame while the retry (due 250 ms after the failure) was still waiting.
   const backoff50 = () => runScenario(scenarioNamed("retry-backoff-50fps"), { workerMs: 500, measuredPacing: false, rule: "current" });
-  it("back-off bypass at 50 fps today: the cadence starts the second look at 500 ms, 250 ms before the retry", () => {
-    const run = backoff50();
-    expect(run.looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [500, "cadence"]]);
+  it("back-off at 50 fps: no look of any kind before the due retry, 750 ms (before: the cadence at 500 ms)", () => {
+    expect(backoff50().looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [750, "cadence"]]);
   });
-  it("back-off bypass at 50 fps: the run has a second look", () => {
-    expect(backoff50().looks.length).toBeGreaterThan(1);
+
+  it("back-off on the cut path: a cut while a retry waits starts nothing before it is due", () => {
+    // A look fails at 500 (the retry is due at 750); at 600 the picture under the shown card
+    // changes and the host reports a cut. A card was shown by an earlier look.
+    const events: ScenarioEvent[] = [mv(0, 200, 250), mv(1_100, 204, 250), { at: 1_850, kind: "layout", cards: [{ id: "A", x: 100, y: 100, w: 200, h: 300 }] }];
+    const run = runScenario(custom({ durationMs: 4_000, events, failLooks: [2] }), { workerMs: 500, measuredPacing: false, rule: "current" });
+    const failed = run.looks[1]!.at; // the second look fails 500 ms after it starts
+    const retryAt = failed + 500 + 250;
+    expect(run.looks.filter((l) => l.at > failed).every((l) => l.at >= retryAt)).toBe(true);
+    expect(run.looks.some((l) => l.at === retryAt)).toBe(true);
   });
-  it.fails("back-off bypass at 50 fps: old 500 ms, intended no look of any kind before a due retry (750 ms)", () => {
-    expect(backoff50().looks[1]?.at ?? -1).toBeGreaterThanOrEqual(750);
+});
+
+describe("the budget below and above 1x: video age is compared with B x rate (S-P5)", () => {
+  it("0.75x, a pointer moving on one card, no hold: no gap at W = 800 or 1200 (before the B x rate comparison: 1340 ms and 900 ms)", () => {
+    for (const workerMs of [800, 1200]) {
+      const run = runScenario(scenarioNamed("pointer-moving"), { workerMs, hold: "none", playbackRate: 0.75 });
+      expect(run.gaps, `W=${workerMs}`).toEqual([]);
+      expect(run.metrics.ageMaxMs!, `W=${workerMs}`).toBeLessThanOrEqual(MAX_AGE_MS + 20);
+    }
+  });
+});
+
+describe("the measured playback rate (no host rate): pauses do not skew it", () => {
+  const pauses = (): Scenario => {
+    const events: ScenarioEvent[] = [];
+    for (let t = 0, i = 0; t <= 12_000; t += 100, i++) events.push(mv(t, 200 + (i % 2) * 4, 250));
+    events.push({ at: 3_000, kind: "pause" }, { at: 4_000, kind: "resume" }, { at: 7_000, kind: "pause" }, { at: 8_000, kind: "resume" });
+    events.sort((x, y) => x.at - y.at);
+    return custom({ durationMs: 12_000, events });
+  };
+
+  it("a pointer moving on one card through two 1 s pauses: the measured rate gives the runs the host rate gives", () => {
+    for (const workerMs of [500, 800, 1200]) {
+      for (const hold of ["none", "shown"] as const) {
+        const host = runScenario(pauses(), { workerMs, hold, focus: true });
+        const measured = runScenario(pauses(), { workerMs, hold, focus: true, hostRate: false });
+        expect([measured.looks, measured.metrics], `W=${workerMs} ${hold}`).toEqual([host.looks, host.metrics]);
+      }
+    }
+  });
+});
+
+describe("the shown hold's reading deadline (S-P3), and the other holds", () => {
+  const restSpacing = (cfg: Partial<SlowClockConfig>): number[] => {
+    const starts = runScenario(scenarioNamed("rest-past-grace"), { measuredPacing: true, ...cfg }).looks.map((l) => l.at).filter((t) => t > 13_000);
+    return starts.slice(1).map((t, i) => t - starts[i]!);
+  };
+
+  it("SHOWN_HOLD, W = R = 1600: the wait is min(6400, 2000 + 5000 - 1600 - 250) = 5150 ms, on the next tick", () => {
+    const gaps = restSpacing({ workerMs: 1600, hold: "shown" });
+    expect(gaps.length).toBeGreaterThan(3);
+    for (const g of gaps) expect(g).toBe(5_250);
+    expect(runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1600, hold: "shown" }).gaps).toEqual([]);
+  });
+
+  it("SHOWN_HOLD at 1.25x, W = R = 1500: min(6000, 1600 + 5000 - 1500 - 250) = 4850 ms, on the next tick", () => {
+    const gaps = restSpacing({ workerMs: 1500, hold: "shown", playbackRate: 1.25 });
+    expect(gaps.length).toBeGreaterThan(3);
+    for (const g of gaps) expect(g).toBe(5_000);
+    expect(runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1500, hold: "shown", playbackRate: 1.25 }).gaps).toEqual([]);
+  });
+
+  it("SHOWN_HOLD with a fast computer: the slow cadence (1000 ms) is the floor, the paced wait the cap", () => {
+    for (const g of restSpacing({ workerMs: 200, hold: "shown" })) expect(g).toBe(1_000);
+    for (const g of restSpacing({ workerMs: 600, hold: "shown" })) expect(g).toBe(2_500); // paced 2400, under 2000 + 5000 - 600 - 250
+  });
+
+  it("no hold keeps the paced reading wait: W = 1600 waits 6400 ms, on the next tick", () => {
+    const gaps = restSpacing({ workerMs: 1600, hold: "none" });
+    expect(gaps.length).toBeGreaterThan(2);
+    for (const g of gaps) expect(g).toBe(6_500);
+  });
+
+  it("the reading hold: no look while the pointer rests on the kept card", () => {
+    expect(restSpacing({ workerMs: 1600, hold: "reading" })).toEqual([]);
+    expect(runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1600, hold: "reading", measuredPacing: true }).looks.filter((l) => l.at > 13_000)).toEqual([]);
+  });
+
+  // The evidence changes under a resting pointer, with no cut reported (an extension's content
+  // script reports none): the card at the pointer goes, or another takes its place.
+  const changed = (hold: "none" | "shown" | "reading", cards: CardSpec[]) =>
+    runScenario(custom({ durationMs: 40_000, events: [...jiggleOnA(400, 2000), { at: 20_000, kind: "layout", cards, cut: false }] }), { workerMs: 1600, hold, measuredPacing: true });
+  const GONE: CardSpec[] = [{ id: "C", x: 350, y: 100, w: 200, h: 300 }];
+  const REPLACED: CardSpec[] = [{ id: "D", x: 100, y: 100, w: 200, h: 300 }];
+
+  it("SHOWN_HOLD: a card that goes stops showing within the hold: 5000 ms after the last answer that saw it expired (its picture + 2000 ms), plus a tick", () => {
+    const run = changed("shown", GONE);
+    const lastPicture = Math.max(...run.looks.map((l) => l.at).filter((t) => t < 20_000));
+    const off = run.shown.find((c) => c.at >= 20_000 && c.cardId === null);
+    expect(off).toBeDefined();
+    expect(off!.at).toBeLessThanOrEqual(lastPicture + MAX_AGE_MS + 5_000 + 250);
+    expect(run.shown.at(-1)!.cardId).toBeNull();
+  });
+
+  it("SHOWN_HOLD: a card replaced in place is named at the next look's answer", () => {
+    const run = changed("shown", REPLACED);
+    const next = run.looks.map((l) => l.at).find((t) => t >= 20_000)!;
+    expect(run.shown.find((c) => c.at >= 20_000 && c.cardId === "D")?.at).toBe(next + 1600);
+    expect(next - 20_000).toBeLessThanOrEqual(5_250);
+  });
+
+  it("no hold: a card that goes stops showing when its answer is too old, and a replacement is named at the next answer", () => {
+    const gone = changed("none", GONE);
+    expect(gone.shown.at(-1)!.cardId).toBeNull();
+    const replaced = changed("none", REPLACED);
+    expect(replaced.shown.some((c) => c.at >= 20_000 && c.cardId === "D")).toBe(true);
+  });
+
+  it("the reading hold: the kept card stays while the pointer rests (it is the viewer's to move), and leaving and coming back names the new card", () => {
+    const run = changed("reading", REPLACED);
+    expect(run.shown.filter((c) => c.at >= 20_000)).toEqual([]);
+    const moved = runScenario(
+      custom({ durationMs: 40_000, events: [...jiggleOnA(400, 2000), { at: 20_000, kind: "layout", cards: REPLACED, cut: false }, mv(25_000, 900, 450), mv(25_400, 200, 250)] }),
+      { workerMs: 1600, hold: "reading", measuredPacing: true },
+    );
+    expect(moved.shown.some((c) => c.at >= 25_000 && c.cardId === "D")).toBe(true);
   });
 });

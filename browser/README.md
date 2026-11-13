@@ -1007,7 +1007,13 @@ that watches the video and captures pictures (`dist/page-capture.js`), and an ex
 that runs the session and the worker (`dist/compute-session.js`, `startComputeFrame`). In the
 content script, `createCaptureControl` holds the capture gate, the handshake with the frame and
 the transfer of pictures. [docs/extension-session.md](../docs/extension-session.md) has the
-messages between them, the controller's rule and a sketch of each side.
+messages between them, the controller's rule and a sketch of each side. One case of that rule: when
+the compute frame becomes ready (its model loaded) while a mouse still rests over the picture past
+its 10 s grace period, the content script gives one picture, within 60 s (`MAX_REST_MS`) of the
+last trusted move, for the capture the frame asks for at once (an unspent grant lapses after
+500 ms, `SLOW_START_GRANT_MS`, or at a seek). If that look finds a card, the card keeps the gate
+open under the usual rules; if not, nothing more is taken until the pointer moves. A tap gets no
+such picture.
 
 Two options keep a page light. `startComputeFrame({ idleUnloadMs })` (off when absent) ends the
 worker after that many milliseconds with no pointer over the picture, no `intent`, no card
@@ -1015,8 +1021,9 @@ shown and no analysis in flight, and loads the same release again on the next po
 status is `idle` meanwhile. `createCaptureControl({ intent: "page" })` sends that `intent`, at
 most once a second, on a trusted pointer move anywhere in the page while the video plays. The
 helper `loadWhen(video, "play", make)` (same module as `createCaptureControl`) calls `make` once
-when the video plays, so a product can make the compute frame at play instead of at the first
-pointer move; `stop()` removes its listener.
+when the video plays (at once if it is playing, else at its next trusted `playing` event; one a page
+script dispatches is ignored), so a product can make the compute frame at play instead of at the
+first pointer move; `stop()` removes its listener.
 [When to make the frame](../docs/extension-session.md#when-to-make-the-frame) says why that is
 the recommended time, and what it does and does not change about capture.
 
@@ -1222,12 +1229,36 @@ instead ("A pointer resting where the last look found no card", below). With
 - An answer names a card for `hover.maxAgeMs` (2 s) of video only, and these waits can be longer:
   with no hold, the card shown on a playing video is gone between answers. Use it with
   `SHOWN_HOLD`, whose 5 s covers the usual gap.
+- With `SHOWN_HOLD` (a hold that ends, not the reading hold), once a round trip is known the wait
+  while the pointer rests on a showing tooltip is at most L + 5000 − R − 250 ms, where L is the
+  answer's lifetime (`hover.maxAgeMs` divided by the playback rate) and R the median round trip
+  (capture asked for to reply) of the last 5 analyses that were not reused. So the next answer lands
+  before the card's age plus the hold run out, and a card that stays where it is does not go between
+  two looks. The wait is not below the slow cadence and not above the paced wait. With W = R =
+  1600 ms that is min(6400, 2000 + 5000 − 1600 − 250) = 5150 ms; at 1.25 times playback, with
+  W = R = 1500 ms, min(6000, 1600 + 5000 − 1500 − 250) = 4850 ms. With no hold the wait is as above.
 - Until 3 analyses have been measured, the fixed rate applies.
 - The repeats of a still picture (every 250 ms, a few times) are not paced: they stay as before.
-- The look asked at once for an unverified face on a playing video ("A playing video", below)
-  waits at least the median measured time divided by the share after the last look (from the
-  first measured analysis; at most 4000 ms), but not the fixed rate, so a fast computer still
-  asks on the pointer message.
+- **The stale-picture look** (a pointer move over a picture whose newest look is stale, "the
+  staleness rule") starts when that look's picture is more than max(400, B × rate) ms of video time away,
+  with B = max(F, min(P, L − R − 250)): F the fast rate (500 ms on WebGPU, 1000 ms on
+  WebAssembly), P the paced wait of an active pointer, L the lifetime and R the round trip above.
+  The look starts as late as keeps its answer on screen for its whole lifetime, and no later than
+  the paced wait. B is F until a round trip is known and 3 analyses are measured, and with pacing
+  off. For example, on WebGPU with W = 800 ms (P = 3200 ms) and R = 850 ms, B is 900 ms. B is in
+  wall time and is compared with video age as B times the playback rate (at 0.75 times, 900 ms of
+  wall time is 675 ms of video). In `"always-on"` mode the threshold stays the cadence in effect.
+- **Looks a viewer waits on are not paced:** the look when a load ends under an active pointer (at
+  once), the prompt retry of a failed capture and the look after a cut add no gap of their own, and
+  the look asked at once for an unverified face on a playing video ("A playing video", below) comes
+  F after the last look started, not the paced wait. Each keeps one look in flight and the back-off.
+  The empty-spot rest, the reading looks, `"always-on"` looks and the retries that are not prompt
+  stay paced.
+- The playback rate comes from the host when it can read it (`createSession` reads its video's;
+  `SessionCoreDeps.playbackRate`), or from the `rate` the content script sends with `pointer` and
+  `presented` (`createCaptureControl` sends its video's). Otherwise it is measured from the video
+  times the host reports, over continuous play only: 2 s or more of wall time, each report
+  advancing the video and within 500 ms of the one before, no seek between. It is 1 until known.
 - The session learns within its own run and stores nothing.
 - A reused repeat (below) is not recorded: it took milliseconds and says nothing of how fast the
   worker analyzes.
@@ -1837,9 +1868,11 @@ another mode, because the pointer is what says which faces to verify.
   group) the newest analysis left unverified gets a look at once, with the pointer there, instead
   of at the next cadence look: when the picture's time has moved since the newest analyzed
   frame, nothing is in flight, no retry is waiting out its back-off, no capture was refused, and
-  the last look of any kind started at least `HOVER_TRIGGER_MIN_GAP_MS` ago. It is checked on each `pointer` message,
-  on a look's reply and on each tick, so a pointer that lands during a look in flight and rests
-  gets its look when that look returns, or at the next tick past the gap. While the stage is still
+  the last look of any kind started at least the fast rate F ago (500 ms on WebGPU, 1000 ms on
+  WebAssembly), from start to start, with or without measured pacing. It is checked on each
+  `pointer` message, on a look's reply and on each tick, so a pointer that lands during a look in
+  flight and rests gets its look when that look returns, or at the first message or tick F after it
+  started. While the stage is still
   loading, and with no stage, nothing changes (no face is then left unverified by the worker).
 - **A pointer resting where the last look found no card** (any pointer-mode session, with this
   option or not) is looked at once every 2 s (`EMPTY_SPOT_INTERVAL_MS`) instead of at the fast rate, because each look of an empty spot costs a full analysis and has nothing to show. In the 10 s grace period that is about 5 looks, against about 20 on WebGPU with fast analyses (the fast rate is 500 ms) and 10 on WebAssembly (1000 ms). A card that arrives under the resting pointer shows up to about 1.5 s later than before on WebGPU (1 s later on WebAssembly), and at most about 2 s plus one analysis after it arrives. A move over the picture, a card found at the pointer, a seek, a new source or a cut returns to the fast rate at once; the pointer leaving the picture does not, and a longer measured-pacing gap still wins. Nothing changes outside pointer mode or while a card shows.

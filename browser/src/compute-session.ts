@@ -13,6 +13,8 @@ export {
   computeProtocol,
   type FractionBox,
   MAX_FRAME_SIDE,
+  MAX_PLAYBACK_RATE,
+  MIN_PLAYBACK_RATE,
   MAX_OTHER_BOXES,
   MAX_REASON_LENGTH,
   MAX_TEXT_LENGTH,

@@ -44,7 +44,9 @@
 // The staleness rule. On top of the cadence, a pointer moving over the picture asks for an
 // analysis at once when the newest analyzed frame is stale: more than `staleFrameMs` of video
 // time away from the picture on screen, or from before a seek or a new source. This happens at
-// most once per `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight.
+// most once per `HOVER_TRIGGER_MIN_GAP_MS` and never while an analysis is in flight. The threshold
+// is the session's budget (`setStaleBudgetMs`: the latest start that keeps the answer on screen for
+// its lifetime, session-core.ts), or the cadence in effect when no budget is set.
 //
 // The unverified face. With the session option `geometricScope: "focus"` a still picture is not
 // verified everywhere, and a card the pointer reaches after the picture's analyses is unnamed
@@ -53,7 +55,8 @@
 // video the same face is unnamed until a look verifies it there: when the session's geometric
 // stage is ready, an active pointer on it makes a look due at once (`relookDue` with the
 // picture's time) instead of at the next cadence look, once the last look of any kind started at least
-// `HOVER_TRIGGER_MIN_GAP_MS` ago, never while one is in flight or a retry waits out its back-off.
+// `HOVER_TRIGGER_MIN_GAP_MS` ago (or the fixed spacing `setRelookSpacingMs`, the fast cadence in a
+// session), never while one is in flight or a retry waits out its back-off.
 //
 // Replies. Every frame request carries an envelope (messages.ts) and `replyRejection` decides
 // whether its reply may still be shown. A look that comes back with the picture not analyzed
@@ -69,6 +72,10 @@
 // a pointer moving over it again makes it due once more, at the cadence. When the picture under
 // a showing tooltip changes without a seek (a cut), `requestLook` asks for a look at once,
 // whatever the cadence.
+//
+// The back-off holds on every path: while a retry waits out its back-off, no look of any kind is
+// due (`due`, `hoverTriggerDue`, `relookDue`, `loadEndDue`), whatever asks: the cadence, a pointer
+// move over a stale picture, a cut, the end of a load. A seek or a new source drops the retry.
 //
 // This file holds no timers and touches no element: the policy is a pure function of the
 // events and times it is given, so it can be tested with a made-up clock.
@@ -204,8 +211,10 @@ export class FrameScheduler {
   /** Layout mode: the host also wants pointer-driven analysis. */
   private pointerAnalysis = false;
   /** The least spacing of a playing relook after the last look, besides `HOVER_TRIGGER_MIN_GAP_MS`
-   *  (measured pacing's share; 0 without it). */
+   *  (the fast cadence in a session; 0 when not set). */
   private relookSpacingMs = 0;
+  /** The stale-frame budget (`setStaleBudgetMs`); null: the cadence in effect. */
+  private staleBudgetMs: number | null = null;
 
   /**
    * @param intervalMs The cadence of the mode: the fast cadence in pointer mode, the slow one
@@ -250,12 +259,19 @@ export class FrameScheduler {
     this.readingIntervalMs = ms;
   }
 
-  /** Measured pacing: the least spacing, after the last look of any kind, of a look on a playing
-   *  picture that `relookDue` allows (`MeasuredPacer.spacingMs`), so that those looks keep
-   *  analysis within the pacer's share. `HOVER_TRIGGER_MIN_GAP_MS` applies when it is shorter.
-   *  0 (the default): that gap alone. */
+  /** The least spacing, from start to start, of a look on a playing picture that `relookDue`
+   *  allows after the last look of any kind. A session sets the fast cadence of its backend: the
+   *  look is one a viewer waits on, so it is not paced. `HOVER_TRIGGER_MIN_GAP_MS` applies when it
+   *  is shorter. 0 (the default): that gap alone. */
   setRelookSpacingMs(ms: number): void {
     this.relookSpacingMs = ms;
+  }
+
+  /** The stale-frame threshold before its `STALE_FRAME_MS` floor, in ms (`staleFrameMs`): a
+   *  session sets its budget B (session-core.ts `staleBudgetMs`). Null (the default): the cadence
+   *  in effect, as a scheduler without a session has it. */
+  setStaleBudgetMs(ms: number | null): void {
+    this.staleBudgetMs = ms;
   }
 
   /** A reading hold shows a card (true) or nothing (false, the default). While it does, a
@@ -381,6 +397,18 @@ export class FrameScheduler {
     return this.retryAt !== null && now >= this.retryAt;
   }
 
+  /** Is a retry waiting out its back-off? Then no look of any kind starts (the one guard every
+   *  path that starts a look goes through). */
+  retryWaiting(now: number): boolean {
+    return this.retryAt !== null && now < this.retryAt;
+  }
+
+  /** Is a prompt retry (a failed capture) due now, whatever the state? For the one picture of a
+   *  slow start (session-core.ts), which a failed capture's retry is part of. */
+  promptRetryDue(now: number): boolean {
+    return this.retryPrompt && this.retryReady(now);
+  }
+
   /** Is a look asked for by `requestLook` still waiting to start? */
   get lookPending(): boolean {
     return this.lookRequested;
@@ -422,6 +450,12 @@ export class FrameScheduler {
     return now - this.lastPointerAt < POINTER_GRACE_MS;
   }
 
+  /** Time since the last pointer activity (a move, press or tap, or the pointer leaving), in ms;
+   *  Infinity before any. */
+  msSincePointerActivity(now: number): number {
+    return now - this.lastPointerAt;
+  }
+
   analysisState(now: number): AnalysisState {
     if (this.mode === "always-on") return "always-on";
     if (this.mode === "layout") {
@@ -451,9 +485,10 @@ export class FrameScheduler {
     return state === "fast" && this.emptySpot ? Math.max(this.intervalMs, EMPTY_SPOT_INTERVAL_MS) : this.intervalMs;
   }
 
-  /** Should the current picture be analyzed now, by the cadence or as a repeat of a still? */
+  /** Should the current picture be analyzed now, by the cadence or as a repeat of a still? Never
+   *  while a retry waits out its back-off, a cut's look included. */
   due(now: number): boolean {
-    if (!this.analysisActive(now)) return false;
+    if (!this.analysisActive(now) || this.retryWaiting(now)) return false;
     if (this.lookRequested) return true;
     if (this.retryPrompt && this.retryReady(now)) return true;
     const since = now - this.lastStartedAt;
@@ -463,11 +498,17 @@ export class FrameScheduler {
     return this.repeatsLeft > 0 && since >= REPEAT_INTERVAL_MS;
   }
 
-  /** The stale-frame threshold in effect, in ms of video time: `STALE_FRAME_MS`, or the cadence
-   *  in effect when that is longer. Below the cadence, a pointer moving over a playing video
-   *  would ask for analyses faster than the cadence runs them. */
+  /** A load ended (the opening load, a fallback, a restart, an idle resume): is a look due now?
+   *  Yes when analysis may run and no retry waits out its back-off. The viewer is waiting on it,
+   *  so the cadence (paced or not) is not consulted. */
+  loadEndDue(now: number): boolean {
+    return this.analysisActive(now) && !this.retryWaiting(now);
+  }
+
+  /** The stale-frame threshold in effect, in ms of video time: `STALE_FRAME_MS`, or the budget
+   *  (`setStaleBudgetMs`) when that is longer; without a budget, the cadence in effect. */
   staleFrameMs(now: number): number {
-    return Math.max(STALE_FRAME_MS, this.intervalInEffectMs(now));
+    return Math.max(STALE_FRAME_MS, this.staleBudgetMs ?? this.intervalInEffectMs(now));
   }
 
   /** Is the newest analyzed frame stale against the picture on screen, or is there none yet? */
@@ -478,13 +519,13 @@ export class FrameScheduler {
 
   /**
    * The pointer moved over the picture: should the current picture be analyzed at once? Yes
-   * when analysis may run, nothing is in flight, the last analysis started this way is at least
-   * `HOVER_TRIGGER_MIN_GAP_MS` ago, and the newest analyzed frame is stale. The cadence is not
-   * consulted.
+   * when analysis may run, nothing is in flight, no retry waits out its back-off, the last
+   * analysis started this way is at least `HOVER_TRIGGER_MIN_GAP_MS` ago, and the newest analyzed
+   * frame is stale. The cadence is not consulted.
    */
   hoverTriggerDue(now: number, videoTimeSec: number, inFlight: boolean): boolean {
     const state = this.analysisState(now);
-    if (inFlight || state === "idle" || state === "probe") return false;
+    if (inFlight || state === "idle" || state === "probe" || this.retryWaiting(now)) return false;
     if (now - this.lastHoverTriggerAt < HOVER_TRIGGER_MIN_GAP_MS) return false;
     return this.frameStale(videoTimeSec, now);
   }
@@ -503,7 +544,7 @@ export class FrameScheduler {
    * presented frame waits, its time has moved since the newest analyzed frame, and no retry is
    * waiting out its back-off. The cadence is not consulted, and the stale-frame threshold is not
    * needed; the last look of any kind must have started at least `HOVER_TRIGGER_MIN_GAP_MS` ago, or
-   * the measured-pacing spacing (`setRelookSpacingMs`) if that is longer.
+   * the fixed spacing (`setRelookSpacingMs`) if that is longer.
    * Without it, a playing picture waits for the cadence, as a still one with repeats left does.
    */
   relookDue(now: number, inFlight: boolean, videoTimeSec?: number): boolean {

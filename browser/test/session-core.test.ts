@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AnalysisWidth } from "../src/capture.js";
+import { MAX_REST_MS } from "../src/capture-gate.js";
 import { ANALYSIS_WATCHDOG_MS, DRIVER_TICK_MS, FIRST_ANALYSIS_WATCHDOG_MS, LOOK_RETRY_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
 import type { FrameResult, GeometricStatus, ReleaseStatus, WorkerReply, WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
@@ -2753,12 +2754,9 @@ describe("SessionCore: a look on pointer entry (entryLook)", () => {
       expect(p.run(3_000, "refuse")).toBe(0);
     });
 
-    it.each([
-      ["a mouse resting past the grace period", false],
-      ["a tap whose window has closed", true],
-    ])("a load with %s asks nothing, and makes up no pointer activity", (_, touch) => {
+    it("a load with a tap whose window has closed asks nothing, and makes up no pointer activity", () => {
       const p = playing();
-      p.enter(touch);
+      p.enter(true);
       clock += POINTER_GRACE_MS + 1;
       p.load();
       expect(p.out.captures).toHaveLength(0);
@@ -2766,10 +2764,88 @@ describe("SessionCore: a look on pointer entry (entryLook)", () => {
       expect(p.run(2_000, "answer")).toBe(0);
     });
 
+    it("a slow start: a load under a mouse resting past the grace period asks one picture in its own call, and makes up no pointer activity; a look that finds nothing asks no more", () => {
+      const p = playing();
+      p.enter();
+      clock += POINTER_GRACE_MS + 15_000;
+      scene.card = null;
+      p.load();
+      expect(p.askedSince(clock)).toEqual([0]);
+      expect(p.core.scheduler.pointerActive(clock)).toBe(false);
+      p.respond("answer");
+      expect(p.out.shown.at(-1) ?? null).toBeNull();
+      expect(p.run(30_000, "answer")).toBe(0);
+    });
+
+    it("a slow start that finds a card: the card shows and the reading looks go on under the usual rules", () => {
+      const p = playing({ ...ON, hold: SHOWN_HOLD });
+      p.enter();
+      clock += 25_000;
+      p.load();
+      expect(p.askedSince(clock)).toEqual([0]);
+      p.respond("answer");
+      expect(p.out.shown.at(-1)?.cardId).toBe("T-001");
+      expect(p.core.scheduler.analysisState(clock)).toBe("reading");
+      expect(p.run(5_000, "answer")).toBeGreaterThan(0);
+    });
+
+    it("a slow start's failed capture is retried promptly as part of its one picture; a picture taken ends it", () => {
+      const p = playing();
+      p.enter();
+      clock += 20_000;
+      scene.card = null;
+      p.load();
+      const at = clock;
+      p.respond("fail"); // the retry is the scheduler's back-off: 250 ms
+      p.run(250, "fail"); // asked at 250 ms, and fails again
+      p.run(500, "answer"); // asked 500 ms later, a picture taken, nothing found
+      expect(p.askedSince(at)).toEqual([0, 250, 750]);
+      expect(p.run(10_000, "answer")).toBe(0);
+    });
+
+    it("a slow start's refused capture is not retried, and a capture past MAX_REST_MS of the last move is never asked", () => {
+      const p = playing();
+      p.enter();
+      clock += 20_000;
+      p.load();
+      p.respond("refuse");
+      expect(p.run(5_000, "refuse")).toBe(0);
+      const late = playing();
+      late.enter();
+      clock += MAX_REST_MS;
+      late.load();
+      expect(late.out.captures).toHaveLength(0);
+      expect(late.run(5_000, "answer")).toBe(0);
+    });
+
+    it("a slow start's failed capture is not retried past MAX_REST_MS of the last move", () => {
+      const p = playing();
+      p.enter();
+      clock += MAX_REST_MS - 100;
+      p.load();
+      p.respond("fail");
+      expect(p.run(5_000, "fail")).toBe(0);
+    });
+
+    it("a slow start asks nothing for a pointer that left, nor with the entry look off", () => {
+      const p = playing();
+      p.enter();
+      clock += 1_000;
+      p.core.pointerLeft();
+      clock += 20_000;
+      p.load();
+      expect(p.out.captures).toHaveLength(0);
+      const off = playing({});
+      off.enter();
+      clock += 20_000;
+      off.load();
+      expect(off.out.captures).toHaveLength(0);
+    });
+
     it.each([
       ["a restart", { restart: true } as const],
       ["an idle resume", { idle: true } as const],
-    ])("after %s, a load under a mouse resting past the grace period, with a card shown just before, asks nothing in its own call", (_, how) => {
+    ])("after %s, a load under a mouse resting past the grace period, with a card shown just before, asks one picture in its own call (a slow start)", (_, how) => {
       const p = playing();
       p.load();
       p.enter();
@@ -2779,12 +2855,82 @@ describe("SessionCore: a look on pointer entry (entryLook)", () => {
       expect(p.core.scheduler.analysisState(clock)).toBe("reading");
       p.core.workerStopped(how);
       clock += 3_000;
-      // A tick now would look: the pointer is over the picture and the scheduler still reading.
       expect(p.core.scheduler.analysisState(clock)).toBe("reading");
       const before = p.out.captures.length;
       p.load();
-      expect(p.out.captures.length).toBe(before);
+      expect(p.out.captures.length).toBe(before + 1);
+      expect(p.out.captures.at(-1)!.at).toBe(clock);
       expect(p.core.scheduler.pointerActive(clock)).toBe(false);
+    });
+
+    it("with measured pacing, a load that ends 1 s after the last look under an active pointer asks at once, where the paced wait is longer", () => {
+      const p = playing({ ...ON, measuredPacing: true });
+      p.load();
+      p.enter();
+      // Three analyses of 800 ms: the paced wait is 3200 ms.
+      for (let i = 0; i < 3; i++) {
+        p.respond("answer", { workerMs: 800 });
+        clock += 600;
+        p.core.presented(p.t());
+        p.enter(false, 0.21 + i * 0.001);
+      }
+      expect(p.core.scheduler.intervalInEffectMs(clock)).toBe(3_200);
+      p.respond("answer", { workerMs: 800 });
+      p.core.workerStopped({ restart: true });
+      clock += 1_000;
+      p.enter();
+      const before = p.out.captures.length;
+      p.load();
+      expect(p.out.captures.length).toBe(before + 1);
+      expect(p.out.captures.at(-1)!.at).toBe(clock);
+    });
+
+    it("with measured pacing, a load-end look held back by a waiting retry asks once the retry is due, not at the paced wait", () => {
+      const p = playing({ ...ON, measuredPacing: true });
+      p.load();
+      p.enter();
+      for (let i = 0; i < 3; i++) {
+        p.respond("answer", { workerMs: 800 });
+        clock += 600;
+        p.core.presented(p.t());
+        p.enter(false, 0.21 + i * 0.001);
+      }
+      expect(p.core.scheduler.intervalInEffectMs(clock)).toBe(3_200);
+      // The next cadence look is left in flight, then answered busy: the retry is due 250 ms on.
+      const asked = p.out.captures.length;
+      p.enter(false, 0.25);
+      p.run(3_500, "none");
+      expect(p.out.captures.length).toBeGreaterThan(asked);
+      p.respond("busy");
+      const retryAt = clock + LOOK_RETRY_MS[0]!;
+      p.core.workerStopped({ restart: true });
+      clock += 100;
+      p.enter();
+      const before = p.out.captures.length;
+      const loadAt = clock;
+      p.load();
+      expect(p.out.captures.length).toBe(before);
+      p.run(500, "answer");
+      // The first tick at or past the retry (due 150 ms after the load), not the paced 3200 ms.
+      expect(p.out.captures.length).toBe(before + 1);
+      expect(p.out.captures[before]!.at).toBe(loadAt + DRIVER_TICK_MS);
+      expect(p.out.captures[before]!.at).toBeGreaterThanOrEqual(retryAt);
+    });
+
+    it("a load that ends while a retry waits out its back-off waits for it", () => {
+      const p = playing();
+      p.load();
+      p.enter();
+      p.respond("busy"); // the retry is due 250 ms on
+      const retryAt = clock + LOOK_RETRY_MS[0]!;
+      p.core.workerStopped({ restart: true });
+      clock += 100;
+      p.enter();
+      const before = p.out.captures.length;
+      p.load();
+      expect(p.out.captures.length).toBe(before);
+      expect(p.run(1_000, "answer")).toBeGreaterThan(0);
+      expect(p.out.captures[before]!.at).toBeGreaterThanOrEqual(retryAt);
     });
 
     it("a load that fails asks nothing", () => {

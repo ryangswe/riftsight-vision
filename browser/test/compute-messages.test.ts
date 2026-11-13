@@ -35,6 +35,17 @@ describe("compute message checks", () => {
     }
   });
 
+  it("takes an optional playback rate on pointer and presented: finite, clamped to 0.0625..16, dropped otherwise", () => {
+    expect(parseComputeIn(tag({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 1, touch: false, rate: 1.25 }))).toEqual({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 1, touch: false, rate: 1.25 });
+    expect(parseComputeIn(tag({ kind: "presented", mediaTime: 1, rate: 100 }))).toEqual({ kind: "presented", mediaTime: 1, rate: 16 });
+    expect(parseComputeIn(tag({ kind: "presented", mediaTime: 1, rate: 0 }))).toEqual({ kind: "presented", mediaTime: 1, rate: 0.0625 });
+    expect(parseComputeIn(tag({ kind: "presented", mediaTime: 1, rate: -3 }))).toEqual({ kind: "presented", mediaTime: 1, rate: 0.0625 });
+    for (const rate of [Number.NaN, Number.POSITIVE_INFINITY, "2", null]) {
+      expect(parseComputeIn(tag({ kind: "presented", mediaTime: 1, rate }))).toEqual({ kind: "presented", mediaTime: 1 });
+    }
+    expect(parseComputeIn(tag({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 1, touch: false }))).toEqual({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 1, touch: false });
+  });
+
   it("refuses untagged, malformed or out-of-range messages", () => {
     expect(parseComputeIn({ kind: "leave" })).toBeNull();
     expect(parseComputeIn(tag({ kind: "pointer", x: 1.2, y: 0, mediaTime: 0, touch: false }))).toBeNull();
