@@ -73,7 +73,7 @@ For a product's first release through the workflow, go in this order:
 
 `store-upload.mjs check` takes the tag as an argument, so a pull request can run it with the tag
 the version would get. The template does not include such a job; add one to a separate workflow
-file (it must not hold store credentials) with the same build, lint and check steps as the
+file, `.github/workflows/store-check.yml` (it must not hold store credentials), with the same build, lint and check steps as the
 template's build job, and replace the tag lookup:
 
 ```yaml
