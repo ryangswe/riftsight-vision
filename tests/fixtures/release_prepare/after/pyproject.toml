@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 [project]
 name = "sample"
 version = "0.14.0rc2"

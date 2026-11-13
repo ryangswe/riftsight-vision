@@ -78,13 +78,21 @@ def change_changelog(text: str, version: str, date: str) -> str:
     unreleased = next((m for m in sections if m["name"] == "Unreleased"), None)
     if unreleased is None:
         raise Refused("CHANGELOG.md has no Unreleased section.")
-    after = sections[sections.index(unreleased) + 1]
+    position = sections.index(unreleased) + 1
+    if position == len(sections):
+        raise Refused("CHANGELOG.md has no released version after the Unreleased section.")
+    after = sections[position]
     body = text[unreleased.end(): after.start()].strip("\n")
-    if not body.strip():
-        raise Refused("The Unreleased section of CHANGELOG.md is empty; there is nothing to release.")
     if any(m["name"] == version for m in sections):
         raise Refused(f"CHANGELOG.md already has a section for {version}.")
     names = [m["name"] for m in sections if m["name"] != "Unreleased"]
+    if not body.strip():
+        # A final that changes nothing after its candidates says so, as the changelog always has.
+        candidates = [name for name in names if "rc" in name and name.split("rc")[0] == version]
+        if "rc" in version or not candidates:
+            raise Refused("The Unreleased section of CHANGELOG.md is empty; there is nothing to release.")
+        last = max(candidates, key=sort_key)
+        body = f"- The version only: apart from the version and this section, nothing differs from {last}."
     link = UNRELEASED_LINK.search(text)
     if link is None:
         raise Refused("CHANGELOG.md has no [Unreleased] compare link.")

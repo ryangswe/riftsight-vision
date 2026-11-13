@@ -50,7 +50,9 @@ To prepare the version commit of step 1, run `python tests/release_prepare.py --
 entries under the new heading and date, rewrites the compare links (a final and a first candidate
 compare with the previous final, a later candidate with the candidate before it) and sets the five
 places that name the version. It refuses a version that is not greater than the current one, an
-empty Unreleased section and a tree with uncommitted changes. The introduction of the release and
+empty Unreleased section and a tree with uncommitted changes. The one exception is a final whose
+candidates are already in the changelog: with nothing under Unreleased, its section says it is the
+version only, unchanged from the last candidate. The introduction of the release and
 its "Changes that may need action" lines stay yours to write. After the upload, the Publish
 workflow installs the new version from the index in a fresh environment and prints it.
 

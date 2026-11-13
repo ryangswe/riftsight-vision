@@ -14,8 +14,9 @@ break the public surface; this file names each break and how to migrate.
 - `tests/release_prepare.py --version X` prepares the version commit of a release: it moves the
   Unreleased entries under the new version and date, rewrites the compare links and sets the five
   places that name the version, and refuses a version that is not greater, an empty Unreleased
-  section and a dirty tree. `--check` prints the planned changes and writes nothing. The Publish
-  workflow now also installs the version it just uploaded from the index in a fresh environment.
+  section (except for a final whose candidates are in the changelog) and a dirty tree. `--check`
+  prints the planned changes and writes nothing. The Publish workflow now also installs the
+  version it just uploaded from the index in a fresh environment.
 
 ## [0.14.0rc2] - 2026-11-13
 

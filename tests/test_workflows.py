@@ -12,8 +12,9 @@ files of this repository:
 * ``pages.yml``: the browser tests come before the build, the toy game's step and the build step
   write the hosted demo with its game picker, and the deploy job runs only when the
   repository's Pages deploy from GitHub Actions.
-* ``publish.yml``: it runs only by hand, never on a published release, and uploads to the real
-  package index only when asked for that target on a tag;
+* ``publish.yml``: it runs only by hand, never on a published release, uploads to the real
+  package index only when asked for that target on a tag, and then installs that version from
+  the index with read-only power;
 * ``quickstart.yml``: it runs ``tests/beginner_path.py``, which reads the beginner path out of
   the documents, on Linux and in Ubuntu under WSL 2, with an action that is not GitHub's own
   pinned to a full commit.
@@ -581,6 +582,8 @@ def test_publish_installs_the_uploaded_version_from_the_index_with_read_only_pow
     assert "    permissions:\n      contents: read\n" in job
     for forbidden in ("id-token", "environment:", "secrets.", "contents: write"):
         assert forbidden not in job
-    assert 'pip install --no-cache-dir "cardvision==${version}"' in job and "cardvision.__version__" in job
+    assert 'requirement="cardvision==${version}"' in job and 'pip install --no-cache-dir "$requirement"' in job
+    assert "cardvision.__version__" in job and '[ "$installed" = "$version" ]' in job
     assert "for attempt in 1 2 3 4 5" in job and "sleep 60" in job
+    assert "The upload of ${version} succeeded; only this check failed." in job and "GITHUB_STEP_SUMMARY" in job
     assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)

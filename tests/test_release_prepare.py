@@ -136,3 +136,35 @@ def test_a_first_candidate_writes_its_link_against_the_previous_final():
     changed = release_prepare.change_changelog(text, "0.14.0rc1", "2026-11-13")
     assert "[0.14.0rc1]: https://example.test/sample/compare/v0.13.0...v0.14.0rc1\n" in changed
     assert "[Unreleased]: https://example.test/sample/compare/v0.14.0rc1...HEAD\n" in changed
+
+
+def empty_unreleased(text: str) -> str:
+    start, end = text.index("## [Unreleased]\n") + len("## [Unreleased]\n"), text.index("## [0.14.0rc1]")
+    return text[:start] + "\n" + text[end:]
+
+
+def test_an_unchanged_final_after_its_candidates_says_it_is_the_version_only():
+    text = empty_unreleased((FIXTURES / "before" / "CHANGELOG.md").read_text(encoding="utf-8"))
+    changed = release_prepare.change_changelog(text, "0.14.0", "2026-11-20")
+    assert ("\n## [0.14.0] - 2026-11-20\n\n- The version only: apart from the version and this section, "
+            "nothing differs from 0.14.0rc1.\n\n## [0.14.0rc1]") in changed
+    with pytest.raises(Refused, match="empty"):
+        release_prepare.change_changelog(text, "0.15.0", "2026-11-20")
+
+
+@pytest.mark.parametrize("damage, reason", [
+    (lambda text: text.replace("## [0.14.0rc1] - 2026-11-13", "## [0.14.0rc2] - 2026-11-13"), "already has a section"),
+    (lambda text: "\n".join(line for line in text.splitlines() if not line.startswith("[Unreleased]:")) + "\n",
+     "no \\[Unreleased\\] compare link"),
+    (lambda text: text[:text.index("## [Unreleased]")] + "## [Unreleased]\n\n- an entry\n", "no released version"),
+    (lambda text: text.replace("## [Unreleased]", "## Unreleased"), "no Unreleased section"),
+])
+def test_a_damaged_changelog_is_refused_not_crashed_on(damage, reason):
+    text = damage((FIXTURES / "before" / "CHANGELOG.md").read_text(encoding="utf-8"))
+    with pytest.raises(Refused, match=reason):
+        release_prepare.change_changelog(text, "0.14.0rc2", "2026-11-13")
+
+
+def test_a_date_that_is_not_yyyy_mm_dd_is_refused(tree):
+    with pytest.raises(Refused, match="not a date"):
+        prepare(tree, "0.14.0rc2", "13/11/2026", check=True)
