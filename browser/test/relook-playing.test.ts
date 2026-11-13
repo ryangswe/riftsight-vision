@@ -537,7 +537,9 @@ describe("a retry waiting out its back-off: a move or tap onto a different card 
     expect(s.point(X.C)).toBe(true); // 0.25 of the picture away: another card
   });
 
-  it("on a playing picture: jiggling within one card waits for the retry, a move onto another card starts a look once the re-look spacing has passed", () => {
+  /** Playing, the pointer on A; three captures fail in a row (the third retry waits 1000 ms).
+   *  `inFlight` leaves the third look out, its capture not yet failed; t3 is its start. */
+  const third = (inFlight: boolean) => {
     const s = session(READY_FOCUS);
     s.run(1_000, [[10, X.A]]);
     s.untilAsk();
@@ -545,15 +547,51 @@ describe("a retry waiting out its back-off: a move or tap onto a different card 
     s.untilAsk();
     s.failCapture(); // rung 2: 500 ms
     s.untilAsk();
-    s.failCapture(); // rung 3: 1000 ms
     const t3 = s.elapsed();
+    if (!inFlight) s.failCapture(); // rung 3: 1000 ms
+    return { s, t3 };
+  };
+
+  it("on a playing picture: a move onto another card within the re-look spacing, then at rest, is asked at that spacing from the last start, not at the retry", () => {
+    const { s, t3 } = third(false);
     expect(s.core.scheduler.retryWaiting(s.clock())).toBe(true);
+    s.run(100);
+    expect(s.point(X.B)).toBe(false); // held: under the spacing (500 ms on WebGPU) from the last start
+    s.run(1_200);
+    expect(s.asked().filter((t) => t > t3)[0]! - t3).toBe(500); // land-and-rest latency: F, where the retry is 1000 ms
+  });
+
+  it("on a playing picture: a move onto another card while a look is in flight, then at rest, is asked after that look comes back, within the spacing", () => {
+    const { s, t3 } = third(true);
+    s.run(40);
+    expect(s.point(X.B)).toBe(false); // a look is in flight
+    s.failCapture(); // it fails at t3 + 40: the retry is due 1000 ms later
+    expect(s.core.scheduler.retryWaiting(s.clock())).toBe(true);
+    s.run(1_300);
+    expect(s.asked().filter((t) => t > t3)[0]! - t3).toBe(500); // F after the last start
+  });
+
+  it("on a playing picture: resting on the same card, or jiggling within it, waits for the retry", () => {
+    const { s, t3 } = third(false);
+    const n = s.captures.length;
+    s.run(900, sweep(100, 900, 100, [X.A, X.A + 0.01]).map(([at, x]) => [at + t3, x] as const));
+    expect(s.captures.length).toBe(n); // nothing before the retry at t3 + 1000
     s.run(300);
-    expect(s.point(X.B)).toBe(false); // under the spacing of 500 ms (F) from the last start
-    s.run(300); // 600 ms in
-    expect(s.elapsed() - t3).toBe(600);
+    expect(s.captures.length).toBe(n + 1);
+    expect(s.asked().at(-1)! - t3).toBe(1_000);
+  });
+
+  it("an answer older than the hover max age shows no cards: the distance decides", () => {
+    const { s } = third(false);
+    for (let i = 0; i < 3; i++) {
+      s.untilAsk();
+      s.failCapture();
+    }
+    expect(s.core.analysis()).toBeNull(); // the answer of 1 s is older than 2000 ms of video time: nothing is shown from it
+    s.run(600);
     expect(s.core.scheduler.retryWaiting(s.clock())).toBe(true);
-    expect(s.point(X.A + 0.01)).toBe(false); // within card A
-    expect(s.point(X.B)).toBe(true); // onto B
+    // 0.07 of the picture from where the last look started, but still on card A: with the answer
+    // taken as absent, the distance says another card.
+    expect(s.point(X.A + 0.07)).toBe(true);
   });
 });

@@ -401,9 +401,8 @@ export class FrameScheduler {
   }
 
   /** Is a retry waiting out its back-off? Then the cadence, repeats of a picture, reading looks,
-   *  a cut, a load that ends and a re-look all wait, because the pointer did not move onto a
-   *  different card. The one exception is the look such a move or tap starts
-   *  (`hoverTriggerDue`). */
+   *  a cut, a load that ends and a re-look all wait for it. Only a pointer move or tap onto a
+   *  different card skips it (`hoverTriggerDue`). */
   retryWaiting(now: number): boolean {
     return this.retryAt !== null && now < this.retryAt;
   }
@@ -533,7 +532,10 @@ export class FrameScheduler {
    * the session's word that the move or tap put the pointer on a different card from the one it
    * was on when the last look started. That look starts whether or not the picture is stale (a
    * paused one never is), at the gap above and, on a playing picture, the spacing of a re-look
-   * (`setRelookSpacingMs`) from the last start of any look. A move within one card waits for the retry,
+   * (`setRelookSpacingMs`, the fast cadence: 500 ms on WebGPU, 1000 ms on WebAssembly) from the
+   * last start of any look. That is never later than the same move gets with no retry waiting.
+   * A move that these limits hold back is asked again by the session at each tick until it
+   * starts (`SessionCore.tick`). A move within one card waits for the retry,
    * stale or not. The move does not shorten or reset the back-off: a look it starts that comes
    * back unanswered moves the back-off to its next step. Only an analyzed answer, a seek, a new
    * source, or a picture received after a failed capture (`pictureReceived`) starts it over.

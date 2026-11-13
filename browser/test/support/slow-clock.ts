@@ -40,9 +40,8 @@
 // Every rule runs on the code's own entry looks (first load, re-entry, idle reload), reading wait
 // (with the shown hold's deadline), empty-spot rest and retries, and keeps every other limit: one
 // look in flight, at least 250 ms between looks a pointer asks for, the back-off of an unanswered
-// look on every path but a pointer move's own looks (over a stale picture, onto another
-// unverified group), and the paced cadence of the keep-fresh looks (the empty-spot rest,
-// reading looks, always-on mode).
+// look on every path but a pointer move or tap onto a different card, and the paced cadence of
+// the keep-fresh looks (the empty-spot rest, reading looks, always-on mode).
 //
 // The host gives the core the video's playback rate (`SessionCoreDeps.playbackRate`), as
 // `createSession` does; an extension's compute frame measures it from the times it is sent.

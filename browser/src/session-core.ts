@@ -281,9 +281,6 @@ function pointerGroupNeedsLook(analysis: FrameAnalysis, px: number, py: number, 
  *  spans it). */
 export const NEW_CARD_DISTANCE = 0.04;
 
-/** Two boxes of one card, from two analyses, overlap at least this much. */
-const SAME_CARD_IOU = 0.5;
-
 /** The smallest face box in the analysis that holds the point (in the frame's pixels), or null. */
 function cardBoxAt(analysis: FrameAnalysis, px: number, py: number): AABB | null {
   let best: AABB | null = null;
@@ -454,28 +451,43 @@ export class SessionCore {
 
   /** The newest analyzed answer for this source (it stays through a look that comes back
    *  unanswered, unlike `result`), and where the pointer was and the card under it when the last
-   *  look started: what a move is compared with (`ontoNewCard`). */
-  private answered: FrameAnalysis | null = null;
+   *  look started: what a move is compared with (`ontoNewCard`). While a retry waits, no analyzed
+   *  answer arrives (one would end the wait), so both boxes come from this one analysis. */
+  private answered: { analysis: FrameAnalysis; videoTimeSec: number } | null = null;
   private lookStart: { at: { x: number; y: number } | null; box: AABB | null } | null = null;
 
+  private answeredFresh(): boolean {
+    return this.answered !== null && withinMaxAge(this.answered.videoTimeSec, this.videoTime(), this.maxAgeMs);
+  }
+
   private cardUnderPointer(): AABB | null {
-    const a = this.answered;
+    // An answer older than the hover max age (`maxAgeMs`) no longer shows where the cards are.
+    const a = this.answered && withinMaxAge(this.answered.videoTimeSec, this.videoTime(), this.maxAgeMs) ? this.answered.analysis : null;
     if (!a || !this.pointerAt || !(a.frame.width > 0 && a.frame.height > 0)) return null;
     return cardBoxAt(a, this.pointerAt.x * a.frame.width, this.pointerAt.y * a.frame.height);
   }
 
   /** Did a pointer move or tap put the pointer on a different card from the one it was on when the
    *  last look started? The card is the face box under it in the newest analyzed answer: a box that
-   *  differs (or any box where there was none) is another card; an empty spot is not. Without an
-   *  answer for this source, the pointer is further than `NEW_CARD_DISTANCE` from where it was. */
+   *  differs (or any box where there was none) is another card; an empty spot is not. Without a
+   *  fresh answer for this source, the pointer is further than `NEW_CARD_DISTANCE` from where it was. */
   private ontoNewCard(): boolean {
     const start = this.lookStart;
     if (!this.pointerAt || !start) return !!this.pointerAt;
-    if (this.answered) {
-      const box = this.cardUnderPointer();
-      return box !== null && (start.box === null || iou(box, start.box) < SAME_CARD_IOU);
+    const box = this.cardUnderPointer();
+    if (box !== null || this.answeredFresh()) {
+      return box !== null && (start.box === null || box.x !== start.box.x || box.y !== start.box.y || box.width !== start.box.width || box.height !== start.box.height);
     }
     return start.at === null || Math.max(Math.abs(this.pointerAt.x - start.at.x), Math.abs(this.pointerAt.y - start.at.y)) > NEW_CARD_DISTANCE;
+  }
+
+  /** A move or tap onto a different card that the gap, the re-look spacing or a look in flight held
+   *  back is asked for again here, at the tick, while the retry still waits: a pointer that landed
+   *  and rests gets its look as soon as those limits allow, not when the retry is due. It stays due
+   *  until a look starts, because `ontoNewCard` compares with where the last look started. */
+  private heldMoveDue(now: number): boolean {
+    if (this.st.state !== "ready" || !this.pointerAt || !this.entryEligible(now) || !this.scheduler.retryWaiting(now)) return false;
+    return this.scheduler.hoverTriggerDue(now, this.videoTime(), this.inFlight !== null, this.ontoNewCard());
   }
 
   /** The pointer left the picture. */
@@ -862,7 +874,7 @@ export class SessionCore {
       this.scheduler.lookAnswered();
       if (!reused) this.st.frames += 1;
       this.result = { analysis: reply.analysis, videoTimeSec: reply.videoTimeSec };
-      this.answered = reply.analysis;
+      this.answered = { analysis: reply.analysis, videoTimeSec: reply.videoTimeSec };
       this.deps.onAnalysis?.(reply.analysis);
     } else {
       this.result = null;
@@ -903,6 +915,7 @@ export class SessionCore {
     if (this.loadEndPending && this.st.state === "ready" && !this.inFlight && this.scheduler.loadEndDue(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
     else if (this.st.state === "ready" && !this.inFlight && this.scheduler.due(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
     else if (this.slowStartRetryDue(now)) this.requestCapture();
+    else if (this.heldMoveDue(now)) this.requestCapture("hover");
     else this.relookForUnverified();
     this.publish();
   }
