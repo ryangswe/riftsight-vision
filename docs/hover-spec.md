@@ -91,16 +91,12 @@ The compute frame and the tooltip frame are made together when the main video pl
 is already playing, else at its next `playing` event. A paused or ended video makes nothing. A
 `playing` event that the page makes (not trusted) is ignored. The pages are in S-G2 and S-G3.
 
-Status: changes in 0.14.0.
-
 Example: a watch page opens with its video playing: both frames are made at once. A watch page
 opens paused: they are made at the `playing` event when the viewer presses play. A page script
 dispatches `playing` on a video that is already playing: nothing is made.
 
-Today: `loadWhen` takes any `playing` event, trusted or not.
-
 Test: `idle-unload.test.ts:719`, `idle-unload.test.ts:729`, `idle-unload.test.ts:742`,
-`capture-control.test.ts:836`
+`idle-unload.test.ts:756`, `capture-control.test.ts:989`
 
 ### S-A2 — Elsewhere, the opening trusted pointer over the picture makes the frames
 
@@ -121,7 +117,7 @@ ready run without it.
 Example: a video plays for 5 minutes with no pointer: the stage's index is never downloaded. The
 viewer points at the picture: the stage starts loading.
 
-Test: `compute-frame.test.ts:924`, `compute-frame.test.ts:973`
+Test: `compute-frame.test.ts:947`, `compute-frame.test.ts:996`
 
 ### S-A4 — After 10 idle minutes, the worker ends and both frames are removed
 
@@ -198,7 +194,7 @@ that worker stops too, recognition is off for the page.
 Example: the worker crashes while a card shows: the card goes, a new worker loads, and
 hovers work again. A second crash leaves the status `failed`.
 
-Test: `compute-frame.test.ts:324`, `session-core.test.ts:2238`
+Test: `compute-frame.test.ts:336`, `session-core.test.ts:2239`
 
 ### S-A10 — A frame the page deletes is made again at the next trusted play or pointer move
 
@@ -229,7 +225,7 @@ events give none.
 Example: a page dispatches a synthetic `pointermove` over the video every 100 ms: every capture is
 refused with `NOT_POINTING`.
 
-Test: `capture-control.test.ts:299`
+Test: `capture-control.test.ts:438`
 
 ### S-B2 — A hover gives pictures for 10 s, then while a card shows and 5 s after
 
@@ -237,13 +233,12 @@ A mouse or pen gives pictures within 10 s (`POINTER_GRACE_MS`) of its last trust
 picture, then while a card shows and for 5 s (`READING_LINGER_MS`) after one last showed. In
 every case the last trusted point must still be over the picture.
 
-From 0.14.0, a frame that becomes ready after the 10 s gives one more picture (S-B13, which is
-changing in 0.14.0).
+A frame that becomes ready after the 10 s gives one more picture (S-B13).
 
 Example: the pointer stops over the video at 0 s with no card: pictures are given until 10 s. It
 stops on a shown card that goes at 14 s: pictures are given until 19 s.
 
-Test: `capture-gate.test.ts:15`, `capture-gate.test.ts:26`, `capture-control.test.ts:318`
+Test: `capture-gate.test.ts:15`, `capture-gate.test.ts:26`, `capture-control.test.ts:471`
 
 ### S-B3 — Nothing is captured more than 60 s after the last trusted pointer event
 
@@ -252,7 +247,7 @@ A new trusted move starts it again.
 
 Example: a card stays shown under a resting pointer for 2 minutes: no picture is given after 60 s.
 
-Test: `capture-gate.test.ts:41`, `capture-control.test.ts:371`
+Test: `capture-gate.test.ts:41`, `capture-control.test.ts:524`
 
 ### S-B13 — A frame that becomes ready late gets one picture for a pointer that still rests
 
@@ -262,18 +257,22 @@ taken at that moment, and never later than 60 s (`MAX_REST_MS`) after the last t
 move. If that look finds a card, the card keeps showing under the rules of S-B2 and S-B3. If it
 finds nothing, no further picture is taken until the pointer moves. A capture that fails and is
 retried promptly (S-C10) is part of the one picture, not a second one. A tap gets no such picture:
-S-B4 is unchanged for a cold start.
-
-Status: changes in 0.14.0.
+S-B4 is unchanged for a cold start. The slow start applies to a pointer the frame learned of before
+its grace period ended: a pointer that rested past it before the frame's handshake gets none, so a
+page cannot remake the frame to get a picture each time. The content script keeps the grant for the
+capture the frame asks for at once: an unspent grant lapses after 500 ms, or at a seek.
 
 Example: the viewer rests the pointer on a card at 0 s and the model finishes loading at 25 s: one
 picture is taken at 25 s. A card is found: it shows and is kept by the rules of S-B2. Had the model
 finished at 70 s, or had the pointer left the picture, no picture would be taken.
 
-Today: the 10 s have passed, so no picture is asked for or given, and the card shows after
-the viewer moves the pointer again, and not before.
-
-Test: pending (real-browser test)
+Test: `session-core.test.ts:2767`, `session-core.test.ts:2780`, `session-core.test.ts:2792`,
+`session-core.test.ts:2806`, `session-core.test.ts:2821`, `session-core.test.ts:2830`,
+`session-core.test.ts:2845`, `session-core.test.ts:2757`, `capture-control.test.ts:303`,
+`capture-control.test.ts:315`, `capture-control.test.ts:321`, `capture-control.test.ts:333`,
+`capture-control.test.ts:349`, `capture-control.test.ts:363`, `capture-control.test.ts:374`,
+`capture-control.test.ts:383`, `capture-control.test.ts:391`, `capture-control.test.ts:399`,
+`capture-control.test.ts:416`, `compute-frame.test.ts:788`; end to end: pending (real-browser test)
 
 ### S-B4 — A tap gives pictures for 10 s and no longer
 
@@ -282,7 +281,7 @@ inherits nothing. A canceled touch ends it.
 
 Example: a tap at 0 s on a card that stays shown: the last picture is given before 10 s.
 
-Test: `capture-control.test.ts:513`, `capture-control.test.ts:524`, `capture-control.test.ts:552`
+Test: `capture-control.test.ts:666`, `capture-control.test.ts:677`, `capture-control.test.ts:705`
 
 ### S-B5 — Before every capture, the last trusted point is checked against the picture now
 
@@ -291,7 +290,7 @@ A video that moved away under a resting pointer clears the gate and refuses the 
 
 Example: the page scrolls the player 400 px up under a resting mouse: the next capture is refused.
 
-Test: `capture-control.test.ts:331`
+Test: `capture-control.test.ts:484`
 
 ### S-B6 — Leaving, hiding the page or changing the video clears all authority
 
@@ -302,7 +301,7 @@ or another video (or none) clear the gate, the record of a card showing included
 Example: the viewer switches tabs while a card shows: the gate is cleared, and returning to the tab
 gives no picture until the pointer moves over the video.
 
-Test: `capture-control.test.ts:445`
+Test: `capture-control.test.ts:598`
 
 ### S-B7 — No picture is asked for before a pointer is over the video
 
@@ -312,7 +311,7 @@ was never hovered gives none.
 Example: a video plays for 10 minutes and the viewer never points at it: no `capture` request is
 made.
 
-Test: `capture-control.test.ts:291`, `session-core.test.ts:1786`
+Test: `capture-control.test.ts:430`, `session-core.test.ts:1787`
 
 ### S-B8 — A frame made at play holds no capture authority
 
@@ -322,7 +321,7 @@ pointer behind it is refused with `NOT_POINTING`.
 Example: the frames are made at play at 0 s and the viewer points at nothing until the idle unload:
 no picture is asked for or taken in those 10 minutes.
 
-Test: `capture-control.test.ts:249`, `capture-control.test.ts:276`, `idle-unload.test.ts:678`
+Test: `capture-control.test.ts:250`, `capture-control.test.ts:277`, `idle-unload.test.ts:678`
 
 ### S-B9 — Messages count when trusted and from the right window and origin
 
@@ -333,7 +332,7 @@ compute frame acts on messages from its parent window with an allowed origin.
 Example: a page script builds a `MessageEvent` with the compute frame as its source and the
 extension's origin, carrying a `shown` card: it is ignored and its data is not read.
 
-Test: `capture-control.test.ts:208`, `capture-control.test.ts:227`, `compute-frame.test.ts:187`
+Test: `capture-control.test.ts:209`, `capture-control.test.ts:228`, `compute-frame.test.ts:187`
 
 ### S-B10 — A late reply after a reset revives nothing
 
@@ -343,7 +342,7 @@ pointer holds authority, and not otherwise, so a late card does not extend captu
 Example: the pointer leaves at 0 s and a `shown` card posted before the leave arrives at 0.05 s:
 no picture is given for the linger.
 
-Test: `capture-control.test.ts:416`, `capture-control.test.ts:470`
+Test: `capture-control.test.ts:569`, `capture-control.test.ts:623`
 
 ### S-B11 — Off means off
 
@@ -353,7 +352,7 @@ and a reply that arrives after off shows nothing.
 Example: the viewer switches hovers off while a look is in flight: the frames go at once, no card
 is drawn when the analysis would have answered, and moving over the video loads nothing.
 
-Test: `capture-control.test.ts:793`, `session-core.test.ts:1883`; in a product: pending (real-browser test)
+Test: `capture-control.test.ts:946`, `session-core.test.ts:1884`; in a product: pending (real-browser test)
 
 ### S-B12 — A product's privacy page states the gate's timings as the code has them
 
@@ -399,7 +398,7 @@ is analyzed and no picture is asked for until it moves.
 Example: the pointer rests on a kept card from 0 s: no look starts after 10 s, for as long as it
 rests.
 
-Test: `scheduler.test.ts:163`, `session-core.test.ts:1369`
+Test: `scheduler.test.ts:163`, `session-core.test.ts:1370`
 
 ### S-C4 — Nothing is asked for while the pointer is off the picture
 
@@ -408,38 +407,35 @@ flight at the leave stays in flight, and the back-off keeps counting.
 
 Example: the pointer leaves at 0 s and comes back at 3 s: no `capture` request is made between.
 
-Test: `compute-frame.test.ts:776`, `session-core.test.ts:2555`
+Test: `compute-frame.test.ts:799`, `session-core.test.ts:2556`
 
 ### S-C5 — A pointer message over a stale picture asks for a look on that message
 
 A `pointer` message asks for a look at once when the session is ready, nothing is in flight, no
 retry is waiting (S-C11), the last pointer-started look began at least 250 ms ago, and the newest
-look's picture is stale: more than `max(400, B)` ms of video time away, where B is the budget of
-S-P5.
-
-Status: changes in 0.14.0.
+look's picture is stale: more than `max(400, B × rate)` ms of video time away, where B is the
+budget of S-P5 and rate the playback rate.
 
 Example: WebGPU, unpaced, a round trip of 100 ms: B is 500 ms. The pointer leaves at video 10.0 s and
 returns at 13.0 s: 3000 ms is more than 500 ms, so the return asks on that message.
 
-Today: the threshold is `max(400, interval in effect)`. Paced at W = 800 ms the interval is
-3200 ms; a return at video age 2500 ms asks nothing, and the card (older than 2000 ms) shows
-nothing until the next cadence look.
-
-Test: `scheduler.test.ts:258`, `scheduler.test.ts:268`, `session-core.test.ts:2543`; today's
-threshold on a slow computer: `slow-clock.test.ts:238`; the target: `slow-clock.test.ts:244`
+Test: `scheduler.test.ts:258`, `scheduler.test.ts:268`, `session-core.test.ts:2544`,
+`slow-clock.test.ts:268`, `budgeted-pacing.test.ts:110`, `budgeted-pacing.test.ts:116`,
+`budgeted-pacing.test.ts:122`
 
 ### S-C6 — When a load ends with the pointer active, the look is asked at once
 
 When a load ends (the opening load, a fallback, a restart or an idle resume) with an active pointer
-over the picture, the frame decides at once, as the next tick would. A pointer that left or rested
-past 10 s asks nothing.
+over the picture, the look is asked at once: not at the next tick, and not held back by the cadence
+or the paced wait (S-P2). Only a retry waiting out its back-off holds it, and then it is asked as
+soon as the retry is due (S-C11). A pointer that left asks nothing; one that rested past 10 s gets
+the slow start of S-B13 at most.
 
 Example: the viewer points at a video whose model is still loading; the load ends at 4.2 s: the
 capture is asked at 4.2 s, not at the next 250 ms tick.
 
-Test: `session-core.test.ts:2694`, `session-core.test.ts:2706`, `session-core.test.ts:2746`,
-`compute-frame.test.ts:765`
+Test: `session-core.test.ts:2695`, `session-core.test.ts:2707`, `session-core.test.ts:2747`,
+`session-core.test.ts:2866`, `session-core.test.ts:2888`, `compute-frame.test.ts:777`
 
 ### S-C7 — A pointer on an unverified card of a playing video asks for a look at once
 
@@ -449,17 +445,12 @@ flight, no retry waits, no capture was refused, and the last look of any kind be
 ago (500 ms on WebGPU, 1000 ms on WebAssembly). The spacing is fixed: it is not the budget of S-P5
 and not the paced interval.
 
-Status: changes in 0.14.0.
-
 Example: WebGPU, a look began 300 ms ago and answered: the pointer moves onto an unverified card and
 the look is asked at 500 ms after the last start, on the next pointer message or tick.
 
-Today: the spacing is `max(250, median worker time of the last 5 looks divided by the share,
-up to 4000)`. Paced at W = 900 ms it is 3600 ms from the last look.
-
-Test: `relook-playing.test.ts:160`, `relook-playing.test.ts:198`, `relook-playing.test.ts:248`;
-today's spacing: `slow-clock.test.ts:216`; the target:
-`slow-clock.test.ts:221`
+Test: `relook-playing.test.ts:172`, `relook-playing.test.ts:193`, `relook-playing.test.ts:218`,
+`relook-playing.test.ts:241`, `relook-playing.test.ts:268`, `relook-playing.test.ts:286`,
+`relook-playing.test.ts:299`, `relook-playing.test.ts:323`, `slow-clock.test.ts:249`
 
 ### S-C8 — A pointer on an unverified card of a still picture asks for a look again
 
@@ -482,7 +473,7 @@ message that no page helper sends, so this clause does not apply there.
 Example: a broadcast cuts from the table to a player's face while a card shows: the next look
 starts at the next tick, not after the cadence.
 
-Test: `session-core.test.ts:1908`, `session.test.ts:616`
+Test: `session-core.test.ts:1909`, `session.test.ts:616`
 
 ### S-C10 — A look that comes back unanswered is retried after 250, 500, 1000, then 2000 ms
 
@@ -496,7 +487,7 @@ and as a retry that is not prompt it also waits for the cadence, so it starts 50
 started. Three busy answers in a row make the next three due 250, 500 and 1000 ms after each.
 
 Test: `scheduler.test.ts:472`, `scheduler.test.ts:558`, `scheduler.test.ts:565`,
-`session-core.test.ts:1947`
+`session-core.test.ts:1948`
 
 ### S-C11 — No look of any kind starts before a waiting retry is due
 
@@ -505,19 +496,14 @@ the cadence on a playing video, a pointer move over a stale picture (S-C5), the 
 looks (S-C7, S-C8), a cut (S-C9) and a load that ends (S-C6). A pointer move never shortens it. A
 seek or a new source drops the retry with the picture it belonged to.
 
-Status: changes in 0.14.0.
-
 Example: a retry is due at 750 ms; at 600 ms the pointer moves over a stale picture, and at 650 ms
 the cadence comes due on a playing video: no look starts before 750 ms.
 
-Today: the paths that wait for the retry are the cadence of a still picture, the refusal path and the
-playing relook. The cadence on a playing video (`due`), the stale-picture path (`hoverTriggerDue`)
-and a cut can start a look before the retry's time.
-
-Test: `scheduler.test.ts:539`, `scheduler.test.ts:757`, `scheduler.test.ts:832`; today's start
-before the retry (the stale-picture path, then the cadence at 50 frames per second):
-`slow-clock.test.ts:254`, `slow-clock.test.ts:267`; the target: `slow-clock.test.ts:260`,
-`slow-clock.test.ts:274`; the cut path: pending (slow-clock test)
+Test: `scheduler.test.ts:539`, `scheduler.test.ts:757`, `scheduler.test.ts:832`,
+`slow-clock.test.ts:282`, `slow-clock.test.ts:289`, `slow-clock.test.ts:293`,
+`budgeted-pacing.test.ts:271`, `budgeted-pacing.test.ts:278`, `budgeted-pacing.test.ts:285`,
+`budgeted-pacing.test.ts:292`, `budgeted-pacing.test.ts:298`, `budgeted-pacing.test.ts:305`,
+`budgeted-pacing.test.ts:315`, `budgeted-pacing.test.ts:322`, `session-core.test.ts:2920`
 
 ### S-C12 — A refused capture is not retried; the next pointer move asks again
 
@@ -528,7 +514,7 @@ answered, or a seek or a new source; the next pointer move asks again, at the ca
 Example: a capture is refused while the pointer is outside; the pointer comes back and rests
 without moving: nothing is asked. It moves: one look is asked.
 
-Test: `scheduler.test.ts:798`, `scheduler.test.ts:806`, `relook-playing.test.ts:383`
+Test: `scheduler.test.ts:798`, `scheduler.test.ts:806`, `relook-playing.test.ts:403`
 
 ### S-C13 — A look with no reply is given up on after 5 s, or 15 s before the opening analysis
 
@@ -538,7 +524,7 @@ has not analyzed a picture since its release loaded.
 Example: a slow computer's opening analysis takes 12 s: it is waited for and its card shown. A later
 analysis takes 6 s: it is given up on at 5 s and retried.
 
-Test: `session-core.test.ts:1988`, `session-core.test.ts:2002`
+Test: `session-core.test.ts:1989`, `session-core.test.ts:2003`
 
 ### S-C14 — A pointer resting on an empty spot is looked at every 2 s
 
@@ -550,7 +536,7 @@ Example: WebGPU, the pointer rests on an empty spot for its 10 s: 5 looks, where
 would make 20.
 
 Test: `scheduler.test.ts:892`, `scheduler.test.ts:919`, `scheduler.test.ts:961`,
-`session-core.test.ts:2429`
+`session-core.test.ts:2430`
 
 ### S-C15 — A still picture is analyzed three times, then not again until it changes
 
@@ -580,7 +566,7 @@ capture.
 Example: a pointer sweeps across five unverified cards while a look is in flight: no second look
 starts until it answers or is given up on.
 
-Test: `session-core.test.ts:328`, `capture-control.test.ts:739`, `relook-playing.test.ts:304`
+Test: `session-core.test.ts:329`, `capture-control.test.ts:892`, `relook-playing.test.ts:323`
 
 ### S-C18 — Pointer-started looks are at least 250 ms apart
 
@@ -590,7 +576,7 @@ S-C7 counts from the last look of any kind and can require a longer spacing.
 
 Example: a pointer crosses a stale picture with moves at 0, 100 and 200 ms: one look, at 0 ms.
 
-Test: `scheduler.test.ts:274`, `relook-playing.test.ts:189`
+Test: `scheduler.test.ts:274`, `relook-playing.test.ts:209`
 
 ## P. Pacing
 
@@ -610,8 +596,7 @@ floor Q and the ceiling C depend on the state:
 
 P is Q until 3 looks have been measured, and when pacing is off. Keep-fresh looks are the cadence
 looks, the reading looks, the empty-spot rest (S-C14), always-on looks, the retries that are not
-prompt and the stale-picture look. From 0.14.0 the start of the stale-picture look is also bounded
-by S-P5.
+prompt and the stale-picture look. The start of the stale-picture look is also bounded by S-P5.
 
 Example: WebAssembly, pointer active, W = 900 ms: the wait is 3600 ms. WebGPU, pointer active,
 W = 50 ms: 200 ms is under F, so the wait stays 500 ms. WebGPU, pointer resting, W = 200 ms: 800 ms
@@ -622,8 +607,8 @@ Test: `measured-pacing.test.ts:29`, `measured-pacing.test.ts:43`, `measured-paci
 
 ### S-P5 — A stale picture is looked at early enough that the answer stays within its lifetime
 
-The stale-picture look (S-C5) starts when the newest look's picture is more than `max(400, B)` ms of
-video time from the picture on screen, where
+The stale-picture look (S-C5) starts when the newest look's picture is more than `max(400, B × rate)`
+ms of video time from the picture on screen, where
 
 B = max(F, min(P, L − R − M))
 
@@ -639,22 +624,27 @@ that is active and resting stays at P.
 - **Warm-up.** Until a round trip is known, and until 3 looks have been measured, B is F.
 - **Saturation.** B is never above P. When L − R − M reaches P, B is P (at most 4000 ms).
 - **Pacing off.** P is F, so B is F.
-- **Units.** B is in wall milliseconds and is compared with video age, as the cadence is: at a
-  playback rate other than 1 the two differ, and the rule keeps this limit.
+- **Units.** B is in wall milliseconds; video age is compared with B × rate, the video time that
+  passes in B at the playback rate. The rate is the video's `playbackRate`, which the content script
+  sends with `pointer` and `presented` (or which an in-page session reads); without it, the frame
+  measures it over continuous play (a pause, a stall or a seek starts the measure over), and it is 1
+  until known. At 0.75 times, B = 1600 ms is 1200 ms of video.
 
 The focus re-look is not spaced by B: it keeps its fixed spacing F (S-C7).
-
-Status: changes in 0.14.0.
 
 Example: WebGPU (F = 500 ms), W = 800 ms so P = 3200 ms, R = 850 ms, rate 1: L − R − M = 900 ms, so
 B = 900 ms and the look starts when the picture is more than 900 ms of video away. With W = 200 ms
 and R = 250 ms: P = 800 ms and L − R − M = 1500 ms, so B = 800 ms. WebAssembly (F = 1000 ms),
 W = 800 ms, R = 900 ms: L − R − M = 850 ms is under F, so B = 1000 ms.
 
-Today: the threshold is `max(400, interval in effect)`, which is P without the lifetime bound.
-
-Test: today's threshold on a slow computer: `slow-clock.test.ts:238`; the target:
-`slow-clock.test.ts:244`
+Test: `slow-clock.test.ts:268`, `slow-clock.test.ts:306`, `slow-clock.test.ts:324`,
+`budgeted-pacing.test.ts:110`, `budgeted-pacing.test.ts:116`, `budgeted-pacing.test.ts:122`,
+`budgeted-pacing.test.ts:128`, `budgeted-pacing.test.ts:139`, `budgeted-pacing.test.ts:145`,
+`budgeted-pacing.test.ts:154`, `budgeted-pacing.test.ts:160`, `budgeted-pacing.test.ts:169`,
+`budgeted-pacing.test.ts:176`, `budgeted-pacing.test.ts:188`, `budgeted-pacing.test.ts:207`,
+`budgeted-pacing.test.ts:217`, `budgeted-pacing.test.ts:227`, `budgeted-pacing.test.ts:237`,
+`budgeted-pacing.test.ts:244`, `budgeted-pacing.test.ts:250`, `compute-messages.test.ts:38`,
+`capture-control.test.ts:447`, `compute-frame.test.ts:308`
 
 ### S-P2 — Looks a viewer waits for are not slowed by pacing
 
@@ -666,16 +656,11 @@ others add no gap of their own. Each keeps one look in flight and the back-off (
 rest, the reading looks, always-on looks and the retries that are not prompt are not changed by this
 clause.
 
-Status: changes in 0.14.0.
-
 Example: W = 800 ms, pacing on, a model load ends 1 s after the last look while the pointer is
 active: the look is asked at once, where the paced wait is 3200 ms.
 
-Today: the focus re-look of a playing picture is spaced by the paced interval (S-C7), and the look
-when a load ends goes through the cadence (`due`), which the paced wait holds back when the last
-look was recent.
-
-Test: pending (slow-clock test)
+Test: `budgeted-pacing.test.ts:343`, `budgeted-pacing.test.ts:355`, `session-core.test.ts:2866`,
+`session-core.test.ts:2888`, `relook-playing.test.ts:268`
 
 ### S-P3 — Under the shown hold, a reading look comes before the card's hold runs out
 
@@ -684,18 +669,16 @@ is A divided by the playback rate, in place of the 6750 ms ceiling, so the next 
 card that stays where it is does not go between two looks. The wait is not below the slow cadence,
 and not above the paced wait of S-P1.
 
-Status: changes in 0.14.0.
-
 Example: W = 1600 ms, R = 1600 ms, pacing on, the pointer resting on a card past its 10 s: the wait is
 min(6400, 2000 + 5000 − 1600 − 250) = 5150 ms, and the next answer lands 6750 ms after the last
 look's picture, inside the 7000 ms of the card's age plus the hold. At 1.25 times playback, L is
 1600 ms: with W = R = 1500 ms the wait is min(6000, 1600 + 5000 − 1500 − 250) = 4850 ms, and the
 answer lands 6350 ms after the last look's picture, inside the card's life of 6600 ms.
 
-Today: the reading ceiling is 6750 ms (2000 + 5000 − 250). At W = 1600 ms the wait is 6400 ms and
-the next answer lands 8000 ms after the last look's picture, so the card is gone for about 1 s.
-
-Test: today's gap: `slow-clock.test.ts:194`; the target: `slow-clock.test.ts:202`
+Test: `slow-clock.test.ts:220`, `slow-clock.test.ts:227`, `slow-clock.test.ts:341`,
+`slow-clock.test.ts:348`, `slow-clock.test.ts:355`, `slow-clock.test.ts:360`,
+`slow-clock.test.ts:366`, `slow-clock.test.ts:378`, `slow-clock.test.ts:387`,
+`slow-clock.test.ts:394`, `slow-clock.test.ts:401`
 
 ### S-P4 — The pacer learns from analyses that were not reused
 
@@ -720,7 +703,7 @@ and not accepted shows nothing and still takes the pointer.
 Example: two cards overlap and the one on top fails the margin: the pointer over it shows nothing,
 not the card beneath.
 
-Test: `hover.test.ts:116`, `session-core.test.ts:1813`
+Test: `hover.test.ts:116`, `session-core.test.ts:1814`
 
 ### S-W2 — A result more than 2000 ms of video from the picture on screen is not shown
 
@@ -730,7 +713,7 @@ nothing, unless a hold keeps the card.
 Example: with no hold, a look of the picture at video 20.0 s: at 22.1 s its card is no longer
 shown.
 
-Test: `session.test.ts:453`, `session-core.test.ts:304`
+Test: `session.test.ts:453`, `session-core.test.ts:305`
 
 ### S-W3 — Nothing from before a seek or a new source is shown
 
@@ -740,7 +723,7 @@ any hold.
 Example: a card shows; the viewer seeks 30 s ahead; the reply of the look in flight comes 200 ms
 later: nothing is shown until a look of the new picture answers.
 
-Test: `session-core.test.ts:284`, `session-core.test.ts:297`, `scheduler.test.ts:996`
+Test: `session-core.test.ts:285`, `session-core.test.ts:298`, `scheduler.test.ts:996`
 
 ### S-W4 — With keep-card on, a card stays while the pointer stays where it was seen
 
@@ -751,8 +734,8 @@ picture, a seek, a new source or a stopped worker end it.
 Example: the pointer rests on a card; a player picks it up 3 s later: the tooltip stays until the
 pointer leaves that spot.
 
-Test: `session-core.test.ts:696`, `session-core.test.ts:834`, `session-core.test.ts:849`,
-`session-core.test.ts:856`, `session-core.test.ts:1362`
+Test: `session-core.test.ts:697`, `session-core.test.ts:835`, `session-core.test.ts:850`,
+`session-core.test.ts:857`, `session-core.test.ts:1363`
 
 ### S-W5 — Under the reading hold, moving onto an overlapping card shows it
 
@@ -763,7 +746,7 @@ pointer, or one uncovered under a trembling pointer does not.
 Example: a fan of three cards: the pointer moves from the left card to the middle card: the middle card shows. A
 new card is laid on the left card while the pointer rests: the left card stays.
 
-Test: `session-core.test.ts:886`, `session-core.test.ts:974`, `session-core.test.ts:1169`
+Test: `session-core.test.ts:887`, `session-core.test.ts:975`, `session-core.test.ts:1170`
 
 ### S-W6 — With keep-card off, a card is kept through short gaps
 
@@ -775,8 +758,8 @@ miss.
 Example: on a live stream one analysis misses the card and the next sees it: the tooltip does not
 flicker. Two misses in a row: it goes.
 
-Test: `session-core.test.ts:508`, `session-core.test.ts:519`, `session-core.test.ts:570`,
-`session-core.test.ts:596`, `session-core.test.ts:627`
+Test: `session-core.test.ts:509`, `session-core.test.ts:520`, `session-core.test.ts:571`,
+`session-core.test.ts:597`, `session-core.test.ts:628`
 
 ### S-W7 — A kept card seen gone is marked held until it is seen again
 
@@ -788,8 +771,8 @@ recent, so a long rest alone never marks it.
 Example: a player picks up the kept card; the next two looks show the spot empty: `held` is set.
 One look that misses a card still there does not set it.
 
-Test: `session-core.test.ts:723`, `session-core.test.ts:769`, `session-core.test.ts:1014`,
-`session-core.test.ts:1075`
+Test: `session-core.test.ts:724`, `session-core.test.ts:770`, `session-core.test.ts:1015`,
+`session-core.test.ts:1076`
 
 ### S-W8 — A shown card is reported again when it changes, not for a look's wobble
 
@@ -800,7 +783,7 @@ degrees, since the last report. Small moves add up.
 Example: a 100 px wide card's box moves 3 px between looks: no new report. It moves 6 px, or 3 px
 twice in the same direction: a new report.
 
-Test: `shown-outline.test.ts:185`, `session-core.test.ts:744`, `session-core.test.ts:802`
+Test: `shown-outline.test.ts:185`, `session-core.test.ts:745`, `session-core.test.ts:803`
 
 ### S-W9 — In focus scope, nothing is shown where an unverified card overlaps the pointer
 
@@ -930,7 +913,7 @@ to the frame.
 Example: a 1280 px player and a 300 px preview both play: the player is watched. A theater-mode
 switch makes no other video larger: nothing changes.
 
-Test: `capture-control.test.ts:490` (the switch); the pick: pending (real-browser test)
+Test: `capture-control.test.ts:643` (the switch); the pick: pending (real-browser test)
 
 ### S-G5 — After in-page navigation off an active page, a shrunk player is not captured
 
@@ -1007,7 +990,7 @@ nothing is captured and the product hears a version problem.
 Example: the content script is at version 2 and a stale compute frame answers with version 1: no
 capture, and a version problem is reported.
 
-Test: `capture-control.test.ts:662`
+Test: `capture-control.test.ts:815`
 
 ### S-X3 — Pictures go to the extension's compute frame and nowhere else
 
@@ -1017,7 +1000,7 @@ a message the compute frame does not take is closed.
 Example: a page posts a message with an `ImageBitmap` to the compute frame from another origin: the
 bitmap is closed.
 
-Test: `compute-frame.test.ts:214`, `capture-control.test.ts:784`
+Test: `compute-frame.test.ts:214`, `capture-control.test.ts:937`
 
 ### S-X4 — A product vendors the runtime from one toolkit commit
 

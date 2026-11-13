@@ -16,7 +16,7 @@
       "id": "S-A1",
       "group": "A",
       "title": "On a load-at-play page, the frames are made when the main video plays",
-      "status": "changes in 0.14.0",
+      "status": "current",
       "tests": [
         {
           "file": "idle-unload.test.ts",
@@ -34,8 +34,13 @@
           "target": false
         },
         {
+          "file": "idle-unload.test.ts",
+          "line": 756,
+          "target": false
+        },
+        {
           "file": "capture-control.test.ts",
-          "line": 836,
+          "line": 989,
           "target": false
         }
       ],
@@ -59,12 +64,12 @@
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 924,
+          "line": 947,
           "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 973,
+          "line": 996,
           "target": false
         }
       ],
@@ -175,12 +180,12 @@
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 324,
+          "line": 336,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2238,
+          "line": 2239,
           "target": false
         }
       ],
@@ -204,7 +209,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 299,
+          "line": 438,
           "target": false
         }
       ],
@@ -228,7 +233,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 318,
+          "line": 471,
           "target": false
         }
       ],
@@ -247,7 +252,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 371,
+          "line": 524,
           "target": false
         }
       ],
@@ -257,8 +262,109 @@
       "id": "S-B13",
       "group": "B",
       "title": "A frame that becomes ready late gets one picture for a pointer that still rests",
-      "status": "changes in 0.14.0",
-      "tests": [],
+      "status": "current",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 2767,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2780,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2792,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2806,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2821,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2830,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2845,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2757,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 303,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 315,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 321,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 333,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 349,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 363,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 374,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 383,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 391,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 399,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 416,
+          "target": false
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 788,
+          "target": false
+        }
+      ],
       "pending": [
         "real-browser test"
       ]
@@ -271,17 +377,17 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 513,
+          "line": 666,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 524,
+          "line": 677,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 552,
+          "line": 705,
           "target": false
         }
       ],
@@ -295,7 +401,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 331,
+          "line": 484,
           "target": false
         }
       ],
@@ -309,7 +415,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 445,
+          "line": 598,
           "target": false
         }
       ],
@@ -323,12 +429,12 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 291,
+          "line": 430,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1786,
+          "line": 1787,
           "target": false
         }
       ],
@@ -342,12 +448,12 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 249,
+          "line": 250,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 276,
+          "line": 277,
           "target": false
         },
         {
@@ -366,12 +472,12 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 208,
+          "line": 209,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 227,
+          "line": 228,
           "target": false
         },
         {
@@ -390,12 +496,12 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 416,
+          "line": 569,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 470,
+          "line": 623,
           "target": false
         }
       ],
@@ -409,12 +515,12 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 793,
+          "line": 946,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1883,
+          "line": 1884,
           "target": false
         }
       ],
@@ -483,7 +589,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1369,
+          "line": 1370,
           "target": false
         }
       ],
@@ -497,12 +603,12 @@
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 776,
+          "line": 799,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2555,
+          "line": 2556,
           "target": false
         }
       ],
@@ -512,7 +618,7 @@
       "id": "S-C5",
       "group": "C",
       "title": "A pointer message over a stale picture asks for a look on that message",
-      "status": "changes in 0.14.0",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
@@ -526,18 +632,28 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 2543,
+          "line": 2544,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 238,
+          "line": 268,
           "target": false
         },
         {
-          "file": "slow-clock.test.ts",
-          "line": 244,
-          "target": true
+          "file": "budgeted-pacing.test.ts",
+          "line": 110,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 116,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 122,
+          "target": false
         }
       ],
       "pending": []
@@ -550,22 +666,32 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 2694,
+          "line": 2695,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2706,
+          "line": 2707,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2746,
+          "line": 2747,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2866,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2888,
           "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 765,
+          "line": 777,
           "target": false
         }
       ],
@@ -575,32 +701,52 @@
       "id": "S-C7",
       "group": "C",
       "title": "A pointer on an unverified card of a playing video asks for a look at once",
-      "status": "changes in 0.14.0",
+      "status": "current",
       "tests": [
         {
           "file": "relook-playing.test.ts",
-          "line": 160,
+          "line": 172,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 198,
+          "line": 193,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 248,
+          "line": 218,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 241,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 268,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 286,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 299,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 323,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 216,
+          "line": 249,
           "target": false
-        },
-        {
-          "file": "slow-clock.test.ts",
-          "line": 221,
-          "target": true
         }
       ],
       "pending": []
@@ -627,7 +773,7 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 1908,
+          "line": 1909,
           "target": false
         },
         {
@@ -661,7 +807,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1947,
+          "line": 1948,
           "target": false
         }
       ],
@@ -671,7 +817,7 @@
       "id": "S-C11",
       "group": "C",
       "title": "No look of any kind starts before a waiting retry is due",
-      "status": "changes in 0.14.0",
+      "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
@@ -690,28 +836,66 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 254,
+          "line": 282,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 267,
+          "line": 289,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 260,
-          "target": true
+          "line": 293,
+          "target": false
         },
         {
-          "file": "slow-clock.test.ts",
-          "line": 274,
-          "target": true
+          "file": "budgeted-pacing.test.ts",
+          "line": 271,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 278,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 285,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 292,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 298,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 305,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 315,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 322,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2920,
+          "target": false
         }
       ],
-      "pending": [
-        "slow-clock test"
-      ]
+      "pending": []
     },
     {
       "id": "S-C12",
@@ -731,7 +915,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 383,
+          "line": 403,
           "target": false
         }
       ],
@@ -745,12 +929,12 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 1988,
+          "line": 1989,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 2002,
+          "line": 2003,
           "target": false
         }
       ],
@@ -779,7 +963,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 2429,
+          "line": 2430,
           "target": false
         }
       ],
@@ -826,17 +1010,17 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 328,
+          "line": 329,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 739,
+          "line": 892,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 304,
+          "line": 323,
           "target": false
         }
       ],
@@ -855,7 +1039,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 189,
+          "line": 209,
           "target": false
         }
       ],
@@ -894,17 +1078,122 @@
       "id": "S-P5",
       "group": "P",
       "title": "A stale picture is looked at early enough that the answer stays within its lifetime",
-      "status": "changes in 0.14.0",
+      "status": "current",
       "tests": [
         {
           "file": "slow-clock.test.ts",
-          "line": 238,
+          "line": 268,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
+          "line": 306,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 324,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 110,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 116,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 122,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 128,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 139,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 145,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 154,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 160,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 169,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 176,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 188,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 207,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 217,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 227,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 237,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
           "line": 244,
-          "target": true
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 250,
+          "target": false
+        },
+        {
+          "file": "compute-messages.test.ts",
+          "line": 38,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 447,
+          "target": false
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 308,
+          "target": false
         }
       ],
       "pending": []
@@ -913,27 +1202,96 @@
       "id": "S-P2",
       "group": "P",
       "title": "Looks a viewer waits for are not slowed by pacing",
-      "status": "changes in 0.14.0",
-      "tests": [],
-      "pending": [
-        "slow-clock test"
-      ]
+      "status": "current",
+      "tests": [
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 343,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 355,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2866,
+          "target": false
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2888,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 268,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-P3",
       "group": "P",
       "title": "Under the shown hold, a reading look comes before the card's hold runs out",
-      "status": "changes in 0.14.0",
+      "status": "current",
       "tests": [
         {
           "file": "slow-clock.test.ts",
-          "line": 194,
+          "line": 220,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 202,
-          "target": true
+          "line": 227,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 341,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 348,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 355,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 360,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 366,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 378,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 387,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 394,
+          "target": false
+        },
+        {
+          "file": "slow-clock.test.ts",
+          "line": 401,
+          "target": false
         }
       ],
       "pending": []
@@ -970,7 +1328,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 1813,
+          "line": 1814,
           "target": false
         }
       ],
@@ -989,7 +1347,7 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 304,
+          "line": 305,
           "target": false
         }
       ],
@@ -1003,12 +1361,12 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 284,
+          "line": 285,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 297,
+          "line": 298,
           "target": false
         },
         {
@@ -1027,27 +1385,27 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 696,
+          "line": 697,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 834,
+          "line": 835,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 849,
+          "line": 850,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 856,
+          "line": 857,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1362,
+          "line": 1363,
           "target": false
         }
       ],
@@ -1061,17 +1419,17 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 886,
+          "line": 887,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 974,
+          "line": 975,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1169,
+          "line": 1170,
           "target": false
         }
       ],
@@ -1085,27 +1443,27 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 508,
+          "line": 509,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 519,
+          "line": 520,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 570,
+          "line": 571,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 596,
+          "line": 597,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 627,
+          "line": 628,
           "target": false
         }
       ],
@@ -1119,22 +1477,22 @@
       "tests": [
         {
           "file": "session-core.test.ts",
-          "line": 723,
+          "line": 724,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 769,
+          "line": 770,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1014,
+          "line": 1015,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 1075,
+          "line": 1076,
           "target": false
         }
       ],
@@ -1153,12 +1511,12 @@
         },
         {
           "file": "session-core.test.ts",
-          "line": 744,
+          "line": 745,
           "target": false
         },
         {
           "file": "session-core.test.ts",
-          "line": 802,
+          "line": 803,
           "target": false
         }
       ],
@@ -1276,7 +1634,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 490,
+          "line": 643,
           "target": false
         }
       ],
@@ -1348,7 +1706,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 662,
+          "line": 815,
           "target": false
         }
       ],
@@ -1367,7 +1725,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 784,
+          "line": 937,
           "target": false
         }
       ],
