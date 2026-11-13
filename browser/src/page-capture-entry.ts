@@ -23,7 +23,7 @@ export {
   UNREADABLE,
 } from "./page-capture.js";
 export { type VideoSink, type VideoWatch, watchVideo } from "./video-events.js";
-export { captureAllowed, type GateLimits, type GateState, MAX_REST_MS, POINTER_GRACE_MS, READING_LINGER_MS } from "./capture-gate.js";
+export { captureAllowed, type GateLimits, type GateState, MAX_REST_MS, POINTER_GRACE_MS, READING_LINGER_MS, slowStartAllowed } from "./capture-gate.js";
 export {
   type ComputeIn,
   type ComputeOut,
@@ -52,4 +52,6 @@ export {
   NOT_POINTING,
   PICTURE_CHANGED,
   postWithTransfer,
+  SLOW_START_GRANT_MS,
+  SLOW_START_RETRY_MS,
 } from "./capture-control.js";

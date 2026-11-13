@@ -29,11 +29,12 @@
 //             worker time, up to 4000).)
 //   strict:   stale threshold = max(400, F); re-look spacing = F.
 //   budgeted: B = max(F, min(P, L - R - M)) with L = A / playback rate, the answer's lifetime in
-//             wall ms; stale threshold = max(400, B); re-look spacing = F (as strict).
+//             wall ms; stale threshold = max(400, B x playback rate), in video ms; re-look
+//             spacing = F (as strict).
 //             Warm-up (no round trip yet): B = F. A negative L - R - M gives B = F. A floor F
 //             above the ceiling P gives B = F (the floor wins, as in `pacedIntervalMs`). With
-//             pacing off, P = F, so B = F. Limitation: the threshold is compared with video age
-//             (as the code compares the cadence today), while B is in wall ms.
+//             pacing off, P = F, so B = F. B is in wall ms, so it is compared with video age as
+//             B x rate (strict keeps comparing F with video age as it is).
 //   budgeted+relook: as budgeted, and the re-look spacing is also B.
 //
 // Every rule runs on the code's own entry looks (first load, re-entry, idle reload), reading wait
@@ -73,6 +74,9 @@ export interface SlowClockConfig {
   measuredPacing: boolean;
   /** The geometric stage is on, with focus scope: a look verifies only the pointer's group. */
   focus: boolean;
+  /** The host gives the core the playback rate (`SessionCoreDeps.playbackRate`), as `createSession`
+   *  does; false: the core measures it from the reported video times. Default true. */
+  hostRate?: boolean;
 }
 
 export const DEFAULT_CONFIG: Readonly<SlowClockConfig> = Object.freeze({
@@ -348,7 +352,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
       },
       // The host reads its video's rate, as `createSession` does (an extension's compute frame
       // measures it from the times it is sent instead).
-      playbackRate: () => cfg.playbackRate,
+      ...(cfg.hostRate === false ? {} : { playbackRate: () => cfg.playbackRate }),
       hoverAt: hit as never,
     },
     options,
@@ -356,6 +360,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
 
   installRule(core, cfg.rule, {
     lifetimeMs: MAX_AGE_MS / cfg.playbackRate,
+    playbackRate: cfg.playbackRate,
     fastCadence,
     pacedMs: () => (cfg.measuredPacing && workerSamples.length >= MEASURED_PACING_MIN_SAMPLES ? Math.max(fastCadence, Math.min(MEASURED_PACING_ACTIVE_CEILING_MS, median(workerSamples) / MEASURED_PACING_SHARE)) : fastCadence),
     roundTripMs: () => (roundTrips.length === 0 ? null : median(roundTrips)),
@@ -519,6 +524,8 @@ export interface RuleInputs {
   fastCadence: number;
   /** The answer's lifetime in wall ms: the max age over the playback rate. */
   lifetimeMs: number;
+  /** Video seconds per wall second (default 1). */
+  playbackRate?: number;
   /** P: the paced interval for a pointer-waiting look. */
   pacedMs(): number;
   /** R: the median recent round trip, or null before one is known. */
@@ -548,7 +555,10 @@ export function ruleSpacingsMs(rule: Rule, inputs: RuleInputs): { staleMs: numbe
 function installRule(core: SessionCore, rule: Rule, inputs: RuleInputs): void {
   if (rule === "current") return;
   const sched = core.scheduler;
-  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, ruleSpacingsMs(rule, inputs)!.staleMs);
+  // The budgeted rules' B is wall time and is compared with video age as B x rate; strict keeps F
+  // compared with video age as it is.
+  const toVideo = rule === "strict" ? 1 : (inputs.playbackRate ?? 1);
+  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, ruleSpacingsMs(rule, inputs)!.staleMs * toVideo);
   const relook = sched.relookDue.bind(sched);
   sched.relookDue = (now: number, inFlight: boolean, videoTimeSec?: number): boolean => {
     sched.setRelookSpacingMs(ruleSpacingsMs(rule, inputs)!.relookMs);
@@ -720,8 +730,8 @@ The rules: current (the code as it is, which runs the budgeted rule: its rows eq
 look the viewer waits on starts at the backend's fixed fast cadence); budgeted (the stale-picture threshold
 only is max(F, min(paced interval, answer lifetime - round trip - 250)), the focus re-look at F);
 budgeted+relook (the re-look spacing also gets that budget). The budget uses the
-answer's wall lifetime, 2000 ms over the playback rate (1000 ms at 2x), but is compared with video age as
-the code compares its cadence, which is a limitation that applies to strict too: its threshold
+answer's wall lifetime, 2000 ms over the playback rate (1000 ms at 2x), and is compared with video age as
+B x rate. Strict compares its threshold with video age as it is, which is a limitation: its threshold
 (500 ms on WebGPU, 1000 ms on WebAssembly) refreshes every 250 ms (WebGPU) or 500 ms (WebAssembly) of
 wall time at 2x, and every 1000 ms (WebGPU) or 2000 ms (WebAssembly) at 0.5x. Entry looks, the reading wait
 (with the shown hold's deadline), the empty-spot rest and retries are the same under every rule.

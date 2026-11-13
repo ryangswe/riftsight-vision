@@ -302,6 +302,36 @@ describe("what budgeted pacing fixed, under the rule current", () => {
   });
 });
 
+describe("the budget below and above 1x: video age is compared with B x rate (S-P5)", () => {
+  it("0.75x, a pointer moving on one card, no hold: no gap at W = 800 or 1200 (before the B x rate comparison: 1340 ms and 900 ms)", () => {
+    for (const workerMs of [800, 1200]) {
+      const run = runScenario(scenarioNamed("pointer-moving"), { workerMs, hold: "none", playbackRate: 0.75 });
+      expect(run.gaps, `W=${workerMs}`).toEqual([]);
+      expect(run.metrics.ageMaxMs!, `W=${workerMs}`).toBeLessThanOrEqual(MAX_AGE_MS + 20);
+    }
+  });
+});
+
+describe("the measured playback rate (no host rate): pauses do not skew it", () => {
+  const pauses = (): Scenario => {
+    const events: ScenarioEvent[] = [];
+    for (let t = 0, i = 0; t <= 12_000; t += 100, i++) events.push(mv(t, 200 + (i % 2) * 4, 250));
+    events.push({ at: 3_000, kind: "pause" }, { at: 4_000, kind: "resume" }, { at: 7_000, kind: "pause" }, { at: 8_000, kind: "resume" });
+    events.sort((x, y) => x.at - y.at);
+    return custom({ durationMs: 12_000, events });
+  };
+
+  it("a pointer moving on one card through two 1 s pauses: the measured rate gives the runs the host rate gives", () => {
+    for (const workerMs of [500, 800, 1200]) {
+      for (const hold of ["none", "shown"] as const) {
+        const host = runScenario(pauses(), { workerMs, hold, focus: true });
+        const measured = runScenario(pauses(), { workerMs, hold, focus: true, hostRate: false });
+        expect([measured.looks, measured.metrics], `W=${workerMs} ${hold}`).toEqual([host.looks, host.metrics]);
+      }
+    }
+  });
+});
+
 describe("the shown hold's reading deadline (S-P3), and the other holds", () => {
   const restSpacing = (cfg: Partial<SlowClockConfig>): number[] => {
     const starts = runScenario(scenarioNamed("rest-past-grace"), { measuredPacing: true, ...cfg }).looks.map((l) => l.at).filter((t) => t > 13_000);

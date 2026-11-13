@@ -311,8 +311,11 @@ interface LastLook {
 const SAME_TIME_SEC = 0.001;
 
 /** The playback rate is measured over reports of the video's time at least this far apart, in ms
- *  of wall time (`SessionCore.noteMediaTime`). */
+ *  of wall time (`SessionCore.noteMediaTime`), over continuous play only. */
 const RATE_WINDOW_MS = 2_000;
+/** Two reports further apart than this, in ms of wall time, are not continuous play (a content
+ *  script's `timeupdate` comes about every 250 ms while the video plays): the measure starts over. */
+const RATE_GAP_MS = 500;
 /** A measured rate is rounded to a multiple of this. */
 const RATE_STEP = 0.05;
 /** The rates a measure is kept within; a measure below the least is a paused or stalled video and
@@ -369,11 +372,15 @@ export class SessionCore {
   /** The playback rate, measured from the video times the host reports (`noteMediaTime`); 1 until
    *  measured. */
   private playbackRate = 1;
-  /** Where the rate is measured from: a report of the video's time, in this generation. */
-  private rateAnchor: { at: number; mediaTime: number; generation: number } | null = null;
+  /** Where the rate is measured from: a report of the video's time, in this generation, and the
+   *  latest report since it (the play from the anchor has been continuous up to it). */
+  private rateAnchor: { at: number; mediaTime: number; generation: number; lastAt: number; lastMediaTime: number } | null = null;
   /** A slow start's one picture is out (`lookOnLoad`): the prompt retry of its failed capture is
    *  part of it. Cleared once a picture arrives for it, or anything else happens. */
   private slowStart = false;
+  /** A load ended under an eligible pointer while a retry waited out its back-off: the load's look
+   *  is asked once the retry is due (`loadEndDue`), not at the paced cadence. */
+  private loadEndPending = false;
 
   constructor(
     private readonly deps: SessionCoreDeps,
@@ -405,14 +412,15 @@ export class SessionCore {
 
   // ------------------------------------------------------------------ the page
   /** The pointer moved over the picture (or touched it) at (x, y) in fractions of the picture,
-   *  with the video at `mediaTime` seconds. Report real movement only. */
-  pointer(x: number, y: number, mediaTime: number, touch = false): void {
+   *  with the video at `mediaTime` seconds, playing at `rate` when the host knows it. Report real
+   *  movement only. */
+  pointer(x: number, y: number, mediaTime: number, touch = false, rate?: number): void {
     if (this.st.state === "stopped") return;
     const now = this.deps.now();
     this.pointerAt = { x, y };
     this.pointerOver = touch ? "touch" : "mouse";
     this.mediaTime = mediaTime;
-    this.noteMediaTime(mediaTime, now);
+    this.noteMediaTime(mediaTime, now, rate);
     // A move or a tap: the usual rules apply again, and a slow start's picture is not owed.
     this.slowStart = false;
     if (touch) this.scheduler.tapped(now);
@@ -428,15 +436,17 @@ export class SessionCore {
     this.pointerAt = null;
     this.pointerOver = null;
     this.slowStart = false;
+    this.loadEndPending = false;
     this.scheduler.pointerLeft(this.deps.now());
     this.publish();
   }
 
-  /** The video presented a frame (playback, a seek ended, a re-arm on canplay/playing). */
-  presented(mediaTime: number): void {
+  /** The video presented a frame (playback, a seek ended, a re-arm on canplay/playing), playing at
+   *  `rate` when the host knows it. */
+  presented(mediaTime: number, rate?: number): void {
     if (this.st.state === "stopped") return;
     this.mediaTime = mediaTime;
-    this.noteMediaTime(mediaTime, this.deps.now());
+    this.noteMediaTime(mediaTime, this.deps.now(), rate);
     this.scheduler.framePresented();
     this.publish();
   }
@@ -447,6 +457,7 @@ export class SessionCore {
     this.generation += 1;
     if (newSource) this.sourceCount += 1;
     this.slowStart = false;
+    this.loadEndPending = false;
     this.scheduler.discontinuity();
     // A reading hold that showed a card: the viewer is still at that spot, so the usual reading
     // linger runs from now and the new picture is looked at, whatever the rest so far.
@@ -639,6 +650,7 @@ export class SessionCore {
     const now = this.deps.now();
     if (this.entryEligible(now)) {
       if (this.scheduler.loadEndDue(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
+      else this.loadEndPending = this.scheduler.retryWaiting(now);
       return;
     }
     if (this.slowStartEligible(now) && !this.scheduler.retryWaiting(now)) {
@@ -674,7 +686,8 @@ export class SessionCore {
    * Arm the scheduler with the cadence for the backend: today's fixed rates, or the measured ones
    * with `measuredPacing`, and the limits the measured round trip and playback rate set:
    *
-   *   - the stale-picture threshold (pointer mode): the budget `staleBudgetMs`;
+   *   - the stale-picture threshold (pointer mode): the budget `staleBudgetMs` in video time (B
+   *     times the playback rate);
    *   - the focus re-look of a playing picture: the fast cadence F, start to start, not paced (a
    *     viewer waits on it);
    *   - with a hold that ends (`SHOWN_HOLD`, not a reading hold), the reading wait comes before the
@@ -694,7 +707,8 @@ export class SessionCore {
     this.scheduler.setReadingIntervalMs(reading);
     if (this.mode === "pointer") {
       this.scheduler.setRelookSpacingMs(activeAnalyzeIntervalMs(ep));
-      this.scheduler.setStaleBudgetMs(this.staleBudgetMs());
+      // B is wall time; staleness is video age: B of wall time is B x rate of video.
+      this.scheduler.setStaleBudgetMs(this.staleBudgetMs() * this.playbackRate);
     }
   }
 
@@ -709,8 +723,8 @@ export class SessionCore {
    * fast cadence, P the paced wait of an active pointer (F with pacing off, and until enough
    * analyses are measured), L the lifetime, R the median round trip and M one driver tick. The
    * look starts as late as keeps its answer on screen for the whole of its lifetime, and no later
-   * than the paced wait. F until a round trip is known. It is compared with video age, as the
-   * cadence is.
+   * than the paced wait. F until a round trip is known. It is in wall time: the scheduler compares
+   * video age with B times the playback rate.
    */
   private staleBudgetMs(): number {
     const ep = this.st.backend;
@@ -721,29 +735,39 @@ export class SessionCore {
   }
 
   /**
-   * A report of the video's time (a pointer message or a presented frame) at `now`: the rate a
-   * host gives (`SessionCoreDeps.playbackRate`) is read; otherwise the playback rate is measured
-   * from two reports at least `RATE_WINDOW_MS` apart in one generation (no seek,
-   * source or cut between), rounded to `RATE_STEP` within `MIN_RATE` and `MAX_RATE`. A paused or
-   * stalled stretch keeps the rate as it was. A changed rate re-arms the scheduler.
+   * A report of the video's time (a pointer message or a presented frame) at `now`, with the rate
+   * the report carries, if any. The rate is, in order: the one the host reads
+   * (`SessionCoreDeps.playbackRate`); the one the report carries (the content script reads its
+   * video's, `ComputeIn` `rate`); else measured from reports of continuous play: two reports at
+   * least `RATE_WINDOW_MS` apart in one generation (no seek, source or cut between), each report
+   * between them advancing the video and coming within `RATE_GAP_MS` of the one before. A report
+   * that shows no advance (paused, stalled), comes later than that (a page in the background), or a
+   * new generation starts the measure over, and keeps the rate as it was. A measure is rounded to
+   * `RATE_STEP` and one under `MIN_RATE` is dropped. A changed rate re-arms the scheduler.
    */
-  private noteMediaTime(mediaTime: number, now: number): void {
-    if (this.deps.playbackRate) {
-      const given = this.deps.playbackRate();
+  private noteMediaTime(mediaTime: number, now: number, reported?: number): void {
+    const given = this.deps.playbackRate ? this.deps.playbackRate() : reported;
+    if (given !== undefined) {
       if (Number.isFinite(given) && given > 0) this.setPlaybackRate(Math.min(MAX_RATE, Math.max(MIN_RATE, given)));
+      this.rateAnchor = null;
       return;
     }
     const anchor = this.rateAnchor;
-    if (!anchor || anchor.generation !== this.generation || mediaTime < anchor.mediaTime) {
-      this.rateAnchor = { at: now, mediaTime, generation: this.generation };
+    const restart = (): void => {
+      this.rateAnchor = { at: now, mediaTime, generation: this.generation, lastAt: now, lastMediaTime: mediaTime };
+    };
+    if (!anchor || anchor.generation !== this.generation || !(mediaTime > anchor.lastMediaTime) || now - anchor.lastAt > RATE_GAP_MS) {
+      restart();
       return;
     }
+    anchor.lastAt = now;
+    anchor.lastMediaTime = mediaTime;
     const wall = now - anchor.at;
     if (wall < RATE_WINDOW_MS) return;
-    this.rateAnchor = { at: now, mediaTime, generation: this.generation };
     const measured = ((mediaTime - anchor.mediaTime) * 1000) / wall;
+    restart();
     if (!(measured >= MIN_RATE)) return;
-    this.setPlaybackRate(Math.min(MAX_RATE, Math.max(MIN_RATE, Math.round(measured / RATE_STEP) * RATE_STEP)));
+    this.setPlaybackRate(Math.min(MAX_RATE, Math.round(measured / RATE_STEP) * RATE_STEP));
   }
 
   private setPlaybackRate(rate: number): void {
@@ -824,7 +848,9 @@ export class SessionCore {
       this.slowStart = false;
     }
     this.reportShown(now);
-    if (this.st.state === "ready" && !this.inFlight && this.scheduler.due(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
+    if (this.loadEndPending && !this.entryEligible(now)) this.loadEndPending = false;
+    if (this.loadEndPending && this.st.state === "ready" && !this.inFlight && this.scheduler.loadEndDue(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
+    else if (this.st.state === "ready" && !this.inFlight && this.scheduler.due(now)) this.requestCapture(this.scheduler.lookPending ? "cut" : undefined);
     else if (this.slowStartRetryDue(now)) this.requestCapture();
     else this.relookForUnverified();
     this.publish();
@@ -861,6 +887,7 @@ export class SessionCore {
     this.result = null;
     this.held = null;
     this.slowStart = false;
+    this.loadEndPending = false;
     this.st.loading = null;
     this.publishShown();
     if ("idle" in next) {
@@ -946,6 +973,7 @@ export class SessionCore {
     if (this.entryLook && this.pointerOver === null) return;
     const now = this.deps.now();
     const requestId = this.nextRequestId++;
+    this.loadEndPending = false;
     this.inFlight = { requestId, sentAt: now, generation: this.generation, videoKey: this.videoKey, analyzing: false, pointer: this.pointerAt ? { ...this.pointerAt } : null, repeat: false, full: true };
     this.scheduler.started(now, { videoTimeSec: this.videoTime(), ...(trigger ? { trigger } : {}) });
     this.inFlight.repeat = this.scheduler.lastTrigger === "repeat";

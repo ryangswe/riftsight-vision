@@ -23,6 +23,14 @@ interface Bench {
    *  picture, its picture arrives, and the worker answers `workerMs` after the ask (the round trip). */
   look(workerMs: number, roundTripMs?: number): void;
   captures: number[];
+  /** `ms` of play at `rate`, the video's time reported every 250 ms. */
+  play(ms: number, rate?: number): void;
+  /** `ms` of a paused or stalled video that is still reported every 250 ms, with no advance. */
+  still(ms: number): void;
+  /** `ms` with no report at all, the video standing (a stall with no `timeupdate`). */
+  silent(ms: number): void;
+  /** A seek `bySec` ahead: a discontinuity, then the new time reported. */
+  seek(bySec: number): void;
 }
 
 function bench(options: SessionCoreOptions, ep: "webgpu" | "wasm" = "webgpu", deps: Partial<Pick<SessionCoreDeps, "playbackRate">> & { rate?: number } = {}): Bench {
@@ -69,7 +77,30 @@ function bench(options: SessionCoreOptions, ep: "webgpu" | "wasm" = "webgpu", de
     const reply: FrameResult = { kind: "frame-result", envelope: r.envelope, videoTimeSec: r.videoTimeSec, width: 1000, height: 500, workerMs, analysis };
     core.fromWorker(reply);
   };
-  return { core, clock: () => now, look, captures };
+  const report = (ms: number, perMs: number): void => {
+    for (let left = ms; left > 0; left -= Math.min(250, left)) {
+      const step = Math.min(250, left);
+      now += step;
+      media += step * perMs;
+      core.presented(media);
+    }
+  };
+  return {
+    core,
+    clock: () => now,
+    look,
+    captures,
+    play: (ms, r = rate) => report(ms, r / 1000),
+    still: (ms) => report(ms, 0),
+    silent: (ms) => {
+      now += ms;
+    },
+    seek: (bySec) => {
+      core.discontinuity(false);
+      media += bySec;
+      core.presented(media);
+    },
+  };
 }
 
 /** B as the scheduler holds it: the stale-frame threshold before its 400 ms floor. */
@@ -126,13 +157,20 @@ describe("the stale-picture budget B = max(F, min(P, L - R - M)) (S-C5, S-P5)", 
     expect(s.staleFrameMs(0)).toBe(STALE_FRAME_MS);
   });
 
-  it("a host's playback rate shortens the lifetime: at 2x, W = 200 ms and R = 250 ms give B = F", () => {
+  it("a host's playback rate shortens the lifetime, and the threshold in video time is B x rate", () => {
     const one = bench({ measuredPacing: true }, "webgpu", { playbackRate: () => 1.25, rate: 1.25 });
     for (let i = 0; i < 3; i++) one.look(200, 250);
-    expect(budget(one)).toBe(800); // L 1600: L - R - M = 1100, capped by P 800
+    expect(budget(one)).toBe(800 * 1.25); // L 1600: L - R - M = 1100, capped by P 800
     const two = bench({ measuredPacing: true }, "webgpu", { playbackRate: () => 2, rate: 2 });
     for (let i = 0; i < 3; i++) two.look(400, 600);
-    expect(budget(two)).toBe(500); // L 1000: L - R - M = 150, under F
+    expect(budget(two)).toBe(500 * 2); // L 1000: L - R - M = 150, under F
+  });
+
+  it("at 0.75x, B (wall) is 1000 ms and the threshold is 750 ms of video: the look is not late", () => {
+    const slow = bench({ measuredPacing: true }, "webgpu", { playbackRate: () => 0.75, rate: 0.75 });
+    for (let i = 0; i < 3; i++) slow.look(400, 400);
+    // L 2667: L - R - M = 2017, capped by P 1600; in video time 1600 x 0.75 = 1200.
+    expect(budget(slow)).toBe(1_200);
   });
 
   it("without a host rate, the rate is measured from the reported video times: 2x makes the same B", () => {
@@ -141,7 +179,7 @@ describe("the stale-picture budget B = max(F, min(P, L - R - M)) (S-C5, S-P5)", 
     const given = bench({ measuredPacing: true }, "webgpu", { playbackRate: () => 2, rate: 2 });
     for (let i = 0; i < 3; i++) given.look(1_000, 400);
     expect(budget(measured)).toBe(budget(given));
-    expect(budget(measured)).toBe(500); // L 1000 - 400 - 250 = 350, under F
+    expect(budget(measured)).toBe(500 * 2); // L 1000 - 400 - 250 = 350, under F; in video time x 2
     const normal = bench({ measuredPacing: true }, "webgpu", { rate: 1 });
     for (let i = 0; i < 3; i++) normal.look(1_000, 400);
     expect(budget(normal)).toBe(1_350);
@@ -153,6 +191,68 @@ describe("the stale-picture budget B = max(F, min(P, L - R - M)) (S-C5, S-P5)", 
     core.fromWorker({ kind: "release-status", ok: true, error: null, release: release("webgpu"), cards: [] });
     now = 10;
     expect(core.scheduler.staleFrameMs(now)).toBe(core.scheduler.intervalInEffectMs(now));
+  });
+});
+
+describe("the measured playback rate (no rate from the host or the messages) counts continuous play only", () => {
+  /** Warm at 1x: W = 1000 ms, R = 400 ms, so B = min(4000, 2000 - 400 - 250) = 1350 ms. */
+  const warm = (): Bench => {
+    const b = bench({ measuredPacing: true });
+    for (let i = 0; i < 3; i++) b.look(1_000, 400);
+    b.play(3_000);
+    expect(budget(b)).toBe(1_350);
+    return b;
+  };
+
+  it.each([1_000, 20_000])("a pause of %i ms, reported without advance, leaves the rate at 1x", (ms) => {
+    const b = warm();
+    b.play(500);
+    b.still(ms);
+    for (let i = 0; i < 8; i++) {
+      b.play(500);
+      expect(budget(b), `${i}`).toBe(1_350);
+    }
+  });
+
+  it("a stall with no reports for 1 s leaves the rate at 1x", () => {
+    const b = warm();
+    b.play(500);
+    b.silent(1_000);
+    for (let i = 0; i < 8; i++) {
+      b.play(500);
+      expect(budget(b), `${i}`).toBe(1_350);
+    }
+  });
+
+  it("a seek ahead within a measure leaves the rate at 1x (a new generation starts the measure over)", () => {
+    const b = warm();
+    b.play(1_000);
+    b.seek(30);
+    for (let i = 0; i < 8; i++) {
+      b.play(500);
+      expect(budget(b), `${i}`).toBe(1_350);
+    }
+  });
+
+  it("a crawl far under the least rate is dropped, not taken as a rate", () => {
+    const b = warm();
+    b.still(500);
+    b.play(3_000, 0.0004);
+    expect(budget(b)).toBe(1_350);
+  });
+
+  it("a real change of rate over continuous play is taken", () => {
+    const b = warm();
+    b.play(4_500, 2);
+    expect(budget(b)).toBe(1_000); // L 1000 - 400 - 250 < F: B = 500 ms of wall, 1000 ms of video
+  });
+
+  it("a rate the pointer or presented report carries is taken at once", () => {
+    const b = warm();
+    b.core.presented(1_000, 2);
+    expect(budget(b)).toBe(1_000);
+    b.core.pointer(0.5, 0.5, 1_000.1, false, 1);
+    expect(budget(b)).toBe(1_350);
   });
 });
 

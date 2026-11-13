@@ -2885,6 +2885,38 @@ describe("SessionCore: a look on pointer entry (entryLook)", () => {
       expect(p.out.captures.at(-1)!.at).toBe(clock);
     });
 
+    it("with measured pacing, a load-end look held back by a waiting retry asks once the retry is due, not at the paced wait", () => {
+      const p = playing({ ...ON, measuredPacing: true });
+      p.load();
+      p.enter();
+      for (let i = 0; i < 3; i++) {
+        p.respond("answer", { workerMs: 800 });
+        clock += 600;
+        p.core.presented(p.t());
+        p.enter(false, 0.21 + i * 0.001);
+      }
+      expect(p.core.scheduler.intervalInEffectMs(clock)).toBe(3_200);
+      // The next cadence look is left in flight, then answered busy: the retry is due 250 ms on.
+      const asked = p.out.captures.length;
+      p.enter(false, 0.25);
+      p.run(3_500, "none");
+      expect(p.out.captures.length).toBeGreaterThan(asked);
+      p.respond("busy");
+      const retryAt = clock + LOOK_RETRY_MS[0]!;
+      p.core.workerStopped({ restart: true });
+      clock += 100;
+      p.enter();
+      const before = p.out.captures.length;
+      const loadAt = clock;
+      p.load();
+      expect(p.out.captures.length).toBe(before);
+      p.run(500, "answer");
+      // The first tick at or past the retry (due 150 ms after the load), not the paced 3200 ms.
+      expect(p.out.captures.length).toBe(before + 1);
+      expect(p.out.captures[before]!.at).toBe(loadAt + DRIVER_TICK_MS);
+      expect(p.out.captures[before]!.at).toBeGreaterThanOrEqual(retryAt);
+    });
+
     it("a load that ends while a retry waits out its back-off waits for it", () => {
       const p = playing();
       p.load();

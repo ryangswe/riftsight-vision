@@ -16,10 +16,11 @@
 //    it, and the finger lifting does not end it (the picture the tap asked for is taken after the
 //    finger is up); a canceled touch does.
 //  - Slow start (hover only): when the compute frame's status becomes `ready` (its model loaded)
-//    while a mouse rests over the picture, the next capture it asks for is given even past the
-//    grace period, within `MAX_REST_MS` of the last trusted event, the point still over the
-//    picture. One picture: the grant is spent by that capture, unless it failed for want of a
-//    picture and may be retried. A new trusted move, any reset and a new frame drop it.
+//    while a mouse rests over the picture past its grace period, the next capture it asks for is
+//    given, within `MAX_REST_MS` of the last trusted event, the point still over the picture, if it
+//    comes within `SLOW_START_GRANT_MS`. One picture: the grant is spent by that capture, unless it
+//    failed for want of a picture under the grant and may be retried (`SLOW_START_RETRY_MS`). A new
+//    trusted move, a seek or a new source, any reset and a new frame drop it.
 //
 // Everything that means the viewer is gone clears all of it, the record of a card showing
 // included: the pointer leaving the picture or the document, the page hidden, a canceled
@@ -36,7 +37,7 @@
 // a pointer counts (`eligible`: its own overlays and controls).
 
 import { pictureBox, fractionIn } from "./capture.js";
-import { captureAllowed, type GateLimits, type GateState, slowStartAllowed } from "./capture-gate.js";
+import { captureAllowed, type GateLimits, type GateState, POINTER_GRACE_MS, slowStartAllowed } from "./capture-gate.js";
 import { type ComputeIn, type ComputeOut, type ComputeProtocol, PROTOCOL_VERSION, type ShownCard } from "./compute-messages.js";
 import { type GrabDeps, type Grab, grabFrame } from "./page-capture.js";
 import { type VideoWatch, watchVideo } from "./video-events.js";
@@ -49,6 +50,13 @@ const INSTANCE = /^[0-9a-f]{16}$/;
  *  controller reports `no-answer`. */
 const HELLO_LOAD_MS = 60_000;
 const HELLO_LOAD_STEP_MS = 250;
+
+/** How long a slow start's grant waits for the capture it is for, in ms: the frame asks in the
+ *  same moment it says `ready`, so an unspent grant does not linger. */
+export const SLOW_START_GRANT_MS = 500;
+/** After the slow start's capture failed for want of a picture, how long the grant waits for the
+ *  frame's prompt retry, in ms: its longest back-off (2000 ms) and the grant's own 500 ms. */
+export const SLOW_START_RETRY_MS = 2_500;
 
 /** The reasons the controller refuses a capture with. */
 export const NOT_POINTING = "not pointing at the video";
@@ -253,6 +261,13 @@ function defaultEligible(clientX: number, clientY: number, video: HTMLVideoEleme
   return fractionIn(pictureBox(video.getBoundingClientRect(), { width: video.videoWidth, height: video.videoHeight }, fit), clientX, clientY);
 }
 
+/** The video's playback rate for a `pointer` or `presented` message, when it reads as a finite
+ *  number above 0 (the compute frame clamps it); nothing otherwise. */
+function rateOf(video: HTMLVideoElement): { rate: number } | Record<string, never> {
+  const rate = (video as { playbackRate?: unknown }).playbackRate;
+  return typeof rate === "number" && Number.isFinite(rate) && rate > 0 ? { rate } : {};
+}
+
 const helloDelay = (attempt: number): number => Math.min(2000, 250 * 2 ** attempt);
 
 /** The page side of the two-frame contract: see the top of this file. */
@@ -270,8 +285,9 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   let lastTooltipAt = -Infinity;
   /** The frame's last status since the handshake (null: none yet), to tell when it becomes ready. */
   let frameState: Extract<ComputeOut, { kind: "status" }>["state"] | null = null;
-  /** A slow start's grant: the next capture may be given past the grace period (see the top). */
-  let slowStart = false;
+  /** A slow start's grant: the next capture may be given past the grace period until this time
+   *  (see the top); -Infinity for none. */
+  let slowStartUntil = -Infinity;
   /** Counts full resets, so a capture begun before one is not sent after it. */
   let resets = 0;
   let handshake: Handshake | null = null;
@@ -322,7 +338,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   function reset(): void {
     const had = authority !== null;
     authority = null;
-    slowStart = false;
+    slowStartUntil = -Infinity;
     tooltipShowing = false;
     lastTooltipAt = -Infinity;
     resets++;
@@ -347,7 +363,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       return false;
     }
     const state = gateState();
-    return captureAllowed(state, now(), options.limits) || (slowStart && authority.kind === "hover" && slowStartAllowed(state, now(), options.limits));
+    return captureAllowed(state, now(), options.limits) || (now() < slowStartUntil && authority.kind === "hover" && slowStartAllowed(state, now(), options.limits));
   }
 
   /** Send the trusted point, with `known` when the caller just measured it (one layout read per
@@ -355,7 +371,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   function sendPointer(known?: { x: number; y: number }): void {
     if (!authority || !watch) return;
     const at = known ?? where(authority.clientX, authority.clientY);
-    if (at) send({ kind: "pointer", x: at.x, y: at.y, mediaTime: watch.mediaTime(), touch: authority.kind === "tap" });
+    if (at) send({ kind: "pointer", x: at.x, y: at.y, mediaTime: watch.mediaTime(), touch: authority.kind === "tap", ...rateOf(watch.video) });
   }
 
   /** The frame reported `idle`: drop it, once. Nothing is sent to it after this. */
@@ -394,7 +410,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       if (at) {
         authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now() };
         // A move: the grace period runs again, and a slow start is not owed.
-        slowStart = false;
+        slowStartUntil = -Infinity;
         sendPointer(at);
       } else if (authority?.kind === "hover") {
         reset();
@@ -453,8 +469,10 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     watch = null;
     if (video) {
       const next = watchVideo(video, {
-        presented: (mediaTime) => send({ kind: "presented", mediaTime }),
+        presented: (mediaTime) => send({ kind: "presented", mediaTime, ...rateOf(video) }),
         discontinuity: (newSource) => {
+          // A seek or a new source: the picture the slow start was for is gone.
+          slowStartUntil = -Infinity;
           // Another source in the same element: nothing the viewer pointed at carries over.
           if (newSource) reset();
           send({ kind: "discontinuity", newSource });
@@ -522,12 +540,12 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     // within its window is told again, with the picture's time; an expired one is not.
     const kept = authority;
     frameState = null;
-    slowStart = false;
+    slowStartUntil = -Infinity;
     tooltipShowing = false;
     lastTooltipAt = -Infinity;
     resets++;
     if (kept && !(where(kept.clientX, kept.clientY) && captureAllowed(gateState(), now(), options.limits))) authority = null;
-    if (watch) send({ kind: "presented", mediaTime: watch.mediaTime() });
+    if (watch) send({ kind: "presented", mediaTime: watch.mediaTime(), ...rateOf(watch.video) });
     sendPointer();
   }
 
@@ -538,15 +556,15 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     let allowed: boolean;
     // A slow start's grant is spent by this capture, whatever allowed it (one picture), unless it
     // fails for want of a picture and may be retried (below).
-    const granted = slowStart;
+    const granted = now() < slowStartUntil;
     try {
       allowed = captureAllowedNow();
     } catch (error) {
       // A product `eligible` that throws: refuse, with nothing left in flight.
-      slowStart = false;
+      slowStartUntil = -Infinity;
       return refuse(String(error));
     }
-    slowStart = false;
+    slowStartUntil = -Infinity;
     if (!allowed) return refuse(NOT_POINTING);
     const begun = { watch, source: watch?.source, handshake, resets };
     captureInFlight = true;
@@ -568,7 +586,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     }
     if (grab.kind === "failed") {
       // No picture was taken: the frame's prompt retry is part of the slow start's one picture.
-      if (granted && grab.retry) slowStart = true;
+      if (granted && grab.retry) slowStartUntil = now() + SLOW_START_RETRY_MS;
       return refuse(grab.reason, grab.retry);
     }
     postWithTransfer(connectedFrame(), protocol.tag({ kind: "frame", requestId, bitmap: grab.bitmap, mediaTime: grab.mediaTime }), frameOrigin, grab.bitmap);
@@ -592,8 +610,10 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
         // picture (a slow start), however long it has rested within `MAX_REST_MS`.
         const was = frameState;
         frameState = message.state;
-        if (message.state !== "ready") slowStart = false;
-        else if (was !== "ready") slowStart = authority?.kind === "hover" && slowStartAllowed(gateState(), now(), options.limits);
+        if (message.state !== "ready") slowStartUntil = -Infinity;
+        else if (was !== "ready" && authority?.kind === "hover" && now() - authority.at >= (options.limits?.graceMs ?? POINTER_GRACE_MS) && slowStartAllowed(gateState(), now(), options.limits)) {
+          slowStartUntil = now() + SLOW_START_GRANT_MS;
+        }
         options.onStatus?.(message);
         if (message.state === "idle") removeFrame();
         break;

@@ -53,15 +53,18 @@ export type ComputeIn =
    *  content script that started late, or came back). Any number of times; answered only once
    *  the frame can take messages. `version`: the content script's `PROTOCOL_VERSION`. */
   | { kind: "hello"; version: number }
-  /** The pointer over the picture, in fractions of the picture; `mediaTime` is the video's time. */
-  | { kind: "pointer"; x: number; y: number; mediaTime: number; touch: boolean }
+  /** The pointer over the picture, in fractions of the picture; `mediaTime` is the video's time,
+   *  `rate` its playback rate (optional; a finite number, clamped to `MIN_PLAYBACK_RATE` to
+   *  `MAX_PLAYBACK_RATE` on arrival). */
+  | { kind: "pointer"; x: number; y: number; mediaTime: number; touch: boolean; rate?: number }
   /** The pointer left the picture. */
   | { kind: "leave" }
   /** The viewer is probably about to want recognition: a frame that unloaded its worker when idle
    *  (status `idle`) loads it again. Otherwise it only counts as activity. */
   | { kind: "intent" }
-  /** The video presented a new frame (playback, a seek ended, the video became ready). */
-  | { kind: "presented"; mediaTime: number }
+  /** The video presented a new frame (playback, a seek ended, the video became ready); `rate` as
+   *  for `pointer`. */
+  | { kind: "presented"; mediaTime: number; rate?: number }
   /** A seek started, or the video was given another source (`newSource`). */
   | { kind: "discontinuity"; newSource: boolean }
   /** The picture was cut to another without a seek (reserved: no page helper sends it yet). */
@@ -82,6 +85,15 @@ export type ComputeOut =
   | { kind: "capture"; requestId: number; analysisWidth: { min: number; max: number } }
   /** What a tooltip shows for the pointer's position now; null for nothing. */
   | { kind: "shown"; card: ShownCard | null };
+
+/** The least and most playback rate a `rate` field is clamped to: the rates a browser plays at. */
+export const MIN_PLAYBACK_RATE = 0.0625;
+export const MAX_PLAYBACK_RATE = 16;
+
+/** A message's optional `rate`: a finite number, clamped; absent when missing or not a number. */
+function rateField(v: unknown): { rate: number } | Record<string, never> {
+  return typeof v === "number" && Number.isFinite(v) ? { rate: Math.min(MAX_PLAYBACK_RATE, Math.max(MIN_PLAYBACK_RATE, v)) } : {};
+}
 
 /** The largest picture the compute frame takes, per side: above the widest analysis frame (1920)
  *  and any sane height at that width. A larger one (only a page posting to the frame could send
@@ -157,6 +169,7 @@ const CONTRACT_FIELDS = new Set([
   "x",
   "y",
   "mediaTime",
+  "rate",
   "touch",
   "newSource",
   "requestId",
@@ -203,14 +216,14 @@ export function computeProtocol(tag = "cardvision"): ComputeProtocol {
         return isVersion(m.version) ? { kind: "hello", version: m.version } : null;
       case "pointer":
         return isFraction(m.x) && isFraction(m.y) && isNum(m.mediaTime) && typeof m.touch === "boolean"
-          ? { kind: "pointer", x: m.x, y: m.y, mediaTime: m.mediaTime, touch: m.touch }
+          ? { kind: "pointer", x: m.x, y: m.y, mediaTime: m.mediaTime, touch: m.touch, ...rateField(m.rate) }
           : null;
       case "leave":
         return { kind: "leave" };
       case "intent":
         return { kind: "intent" };
       case "presented":
-        return isNum(m.mediaTime) ? { kind: "presented", mediaTime: m.mediaTime } : null;
+        return isNum(m.mediaTime) ? { kind: "presented", mediaTime: m.mediaTime, ...rateField(m.rate) } : null;
       case "discontinuity":
         return typeof m.newSource === "boolean" ? { kind: "discontinuity", newSource: m.newSource } : null;
       case "cut":
