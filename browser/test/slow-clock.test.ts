@@ -10,6 +10,7 @@ import {
   ABC,
   budgetedSpacingMs,
   renderReport,
+  ruleSpacingsMs,
   RULES,
   runScenario,
   type Rule,
@@ -78,7 +79,8 @@ describe("the harness", () => {
   it("counts a visit as eligible only when its dwell lasts one capture plus analysis, and censors unnamed ones at their dwell", () => {
     const run = runScenario(scenarioNamed("sweep-fan"), { workerMs: 1700, focus: true });
     expect(run.metrics.residences).toBe(5);
-    expect(run.metrics.eligible).toBeLessThan(5); // about 1 s on each card: shorter than 1700 ms
+    expect(run.residences.map((r) => r.dwellMs)).toEqual([600, 1100, 1000, 1100, 1400]);
+    expect(run.metrics.eligible).toBe(0); // every dwell is shorter than 1700 ms
     const slow = runScenario(scenarioNamed("viewer-session"), { workerMs: 1200, focus: true });
     expect(slow.metrics.eligible).toBe(3);
   });
@@ -86,6 +88,36 @@ describe("the harness", () => {
   it("at 2x playback an analysis longer than the answer's lifetime in wall time names nothing", () => {
     const run = runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1200, playbackRate: 2 });
     expect(run.metrics.unnamed).toBe(run.metrics.residences);
+    // A visit never named is counted at its dwell, not dropped: one visit of 45 s.
+    expect(run.metrics.eligible).toBe(1);
+    expect(run.metrics.latencyAvgMs).toBe(45_000);
+    expect(run.metrics.latencyMaxMs).toBe(45_000);
+  });
+
+  it("the displayed age is time-weighted and counts the time the name is on screen", () => {
+    const run = runScenario(scenarioNamed("pointer-moving"), { workerMs: 500, rule: "strict", focus: true });
+    expect(run.metrics.ageAvgMs!).toBeGreaterThan(500);
+    expect(run.metrics.ageMaxMs!).toBeGreaterThan(run.metrics.ageAvgMs!);
+    expect(run.metrics.shownMs).toBeGreaterThan(10_000);
+  });
+
+  it("a gap beside a look slower than the answer's life is unavoidable", () => {
+    const run = runScenario(scenarioNamed("rest-past-grace"), { workerMs: [300, 300, 300, 2500], hold: "none" });
+    expect(run.gaps.length).toBeGreaterThan(0);
+    expect(run.gaps.every((g) => !g.avoidable)).toBe(true);
+  });
+});
+
+describe("the candidate rules' spacings", () => {
+  const inputs = { fastCadence: 500, lifetimeMs: 2000, pacedMs: () => 4000, roundTripMs: () => 1200 };
+  it("current has none; strict is F for both; budgeted budgets the stale threshold only; budgeted+relook budgets both", () => {
+    expect(ruleSpacingsMs("current", inputs)).toBeNull();
+    expect(ruleSpacingsMs("strict", inputs)).toEqual({ staleMs: 500, relookMs: 500 });
+    expect(ruleSpacingsMs("budgeted", inputs)).toEqual({ staleMs: 550, relookMs: 500 });
+    expect(ruleSpacingsMs("budgeted+relook", inputs)).toEqual({ staleMs: 550, relookMs: 550 });
+  });
+  it("the budget uses the wall lifetime: 1000 ms at 2x", () => {
+    expect(ruleSpacingsMs("budgeted", { ...inputs, lifetimeMs: 1000, roundTripMs: () => 100 })!.staleMs).toBe(650);
   });
 });
 
@@ -145,6 +177,9 @@ describe("known behaviors of today's code, under the rule current (expected fail
     expect(run.gaps.map((g) => g.lengthMs)).toEqual([1450, 1450, 1450, 1450]);
     expect(run.metrics.gapTotalMs).toBe(5800);
   });
+  it("blink: the run has gaps to compare", () => {
+    expect(rest1700().gaps.length).toBeGreaterThan(0);
+  });
   it.fails("blink: old 5800 ms of gap, intended 0 (SHOWN_HOLD keeps the name through a rest)", () => {
     expect(rest1700().metrics.gapTotalMs).toBe(0);
   });
@@ -157,7 +192,7 @@ describe("known behaviors of today's code, under the rule current (expected fail
     events.push(mv(5400, 700, 250));
     return runScenario(custom({ durationMs: 14_000, events }), { workerMs: 800, focus: true, rule });
   };
-  const latencyOnB = (rule: Rule): number | null => warmed(rule).residences.find((r) => r.card === "B")!.latencyMs;
+  const latencyOnB = (rule: Rule): number => warmed(rule).residences.find((r) => r.card === "B")?.latencyMs ?? Infinity;
 
   it("relook spacing today: B, reached during a look, is named after 3900 ms", () => {
     const run = warmed("current");
@@ -165,10 +200,10 @@ describe("known behaviors of today's code, under the rule current (expected fail
     expect(latencyOnB("current")).toBe(3900);
   });
   it.fails("relook spacing: old 3900 ms, intended at most 1600 ms (rest of the look + one re-look)", () => {
-    expect(latencyOnB("current")!).toBeLessThanOrEqual(1600);
+    expect(latencyOnB("current")).toBeLessThanOrEqual(1600);
   });
   it("relook spacing: under strict the same arrival is named within 1600 ms", () => {
-    expect(latencyOnB("strict")!).toBeLessThanOrEqual(1600);
+    expect(latencyOnB("strict")).toBeLessThanOrEqual(1600);
   });
 
   // Stale threshold: the newest answer is older than 2000 ms but younger than the paced
@@ -179,7 +214,7 @@ describe("known behaviors of today's code, under the rule current (expected fail
     events.push(mv(4750, 700, 250));
     return runScenario(custom({ durationMs: 14_000, events }), { workerMs: 1200, focus: false, rule });
   };
-  const staleLatency = (rule: Rule): number | null => staleMove(rule).residences.find((r) => r.card === "B")!.latencyMs;
+  const staleLatency = (rule: Rule): number => staleMove(rule).residences.find((r) => r.card === "B")?.latencyMs ?? Infinity;
 
   it("stale threshold today: a move at video age 2250 ms names B after 2950 ms", () => {
     const run = staleMove("current");
@@ -188,10 +223,10 @@ describe("known behaviors of today's code, under the rule current (expected fail
     expect(staleLatency("current")).toBe(2950);
   });
   it.fails("stale threshold: old 2950 ms, intended at most 1400 ms (a look starts at the move)", () => {
-    expect(staleLatency("current")!).toBeLessThanOrEqual(1400);
+    expect(staleLatency("current")).toBeLessThanOrEqual(1400);
   });
   it("stale threshold: under strict the same move is named in 1200 ms", () => {
-    expect(staleLatency("strict")!).toBe(1200);
+    expect(staleLatency("strict")).toBe(1200);
   });
 
   // The back-off bypass: a look fails at 500, its retry is due at 750, a trusted move at 600. The
@@ -200,8 +235,11 @@ describe("known behaviors of today's code, under the rule current (expected fail
   it("back-off bypass today: the move at 600 ms starts the second look", () => {
     expect(backoff("current").looks.slice(0, 2).map((l) => l.at)).toEqual([0, 600]);
   });
+  it("back-off bypass: the run has a second look", () => {
+    expect(backoff("current").looks.length).toBeGreaterThan(1);
+  });
   it.fails("back-off bypass: old 600 ms, intended not before 750 ms (a move never shortens a back-off)", () => {
-    expect(backoff("current").looks[1]!.at).toBeGreaterThanOrEqual(750);
+    expect(backoff("current").looks[1]?.at ?? -1).toBeGreaterThanOrEqual(750);
   });
 
   // The same bypass on the cadence path at a normal frame rate: `due()` starts a look on the
@@ -211,7 +249,10 @@ describe("known behaviors of today's code, under the rule current (expected fail
     const run = backoff50();
     expect(run.looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [500, "cadence"]]);
   });
+  it("back-off bypass at 50 fps: the run has a second look", () => {
+    expect(backoff50().looks.length).toBeGreaterThan(1);
+  });
   it.fails("back-off bypass at 50 fps: old 500 ms, intended no look of any kind before a due retry (750 ms)", () => {
-    expect(backoff50().looks[1]!.at).toBeGreaterThanOrEqual(750);
+    expect(backoff50().looks[1]?.at ?? -1).toBeGreaterThanOrEqual(750);
   });
 });

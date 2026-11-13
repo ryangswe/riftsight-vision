@@ -166,8 +166,12 @@ export interface Metrics {
   unnamed: number;
   latencyAvgMs: number | null;
   latencyMaxMs: number | null;
+  /** Time-weighted mean and max age (video ms) of the answer on screen while the pointer is on a card it names correctly. */
   ageAvgMs: number | null;
   ageMaxMs: number | null;
+  /** The time on screen that mean is over, and the integral of the age over it (for pooling runs). */
+  shownMs: number;
+  ageIntegralMs: number;
   gapTotalMs: number;
   gapMaxMs: number;
   gapAvoidableMs: number;
@@ -183,6 +187,8 @@ export interface RunResult {
   metrics: Metrics;
   gaps: Gap[];
   looks: Look[];
+  /** Every analysis the stand-in worker ran: when it started and how long it took. */
+  busy: Array<{ at: number; ms: number }>;
   /** Per residence: the card, its arrival, and the latency to the first correct name (null: never). */
   residences: Array<{ card: string; startMs: number; dwellMs: number; latencyMs: number | null }>;
 }
@@ -256,7 +262,12 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   const workerSamples: number[] = [];
   /** Wall time at which a reply was delivered and the time it spent in the loop (capture + worker). */
   const answers: Array<{ at: number; cycleMs: number }> = [];
-  let lastResultSec = mediaSec;
+  /** The video time of the result that names the card on screen now. */
+  let shownResultSec = mediaSec;
+  const busy: Array<{ at: number; ms: number }> = [];
+  let ageIntegral = 0;
+  let shownMs = 0;
+  let ageMax = 0;
 
   const hold = cfg.hold === "shown" ? SHOWN_HOLD : cfg.hold === "reading" ? READING_HOLD : undefined;
   const options: SessionCoreOptions = {
@@ -293,6 +304,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
     const reused = previous !== undefined && !failing;
     const workerMs = failing ? workerTimes[analysisCount++ % workerTimes.length]! : reused ? REUSE_MS : workerTimes[analysisCount++ % workerTimes.length]!;
     busyMs += Math.min(workerMs, scenario.durationMs - clock);
+    busy.push({ at: clock, ms: workerMs });
     const analysis = failing ? null : reused ? ({ ...previous, reused: true } as FrameAnalysis) : buildAnalysis(request);
     if (analysis && !reused) analyses.set(requestId, analysis);
     const sentAt = clock;
@@ -301,8 +313,9 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
       analysis, ...(failing ? { error: `${ANALYSIS_FAILED}: stand-in` } : {}),
     };
     schedule(clock + workerMs, () => {
-      if (analysis) lastResultSec = reply.videoTimeSec;
       core.fromWorker(reply);
+      const under = pointerPx ? topAt(layout, pointerPx.x, pointerPx.y) : null;
+      if (analysis && under && (displayed as Shown | null)?.cardId === under.id) shownResultSec = reply.videoTimeSec;
       if (analysis && !reused) {
         workerSamples.push(workerMs);
         roundTrips.push(core.status().lastRoundTripMs ?? workerMs);
@@ -382,10 +395,11 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   let res: Residence | null = null;
   const gaps: Gap[] = [];
   const residences: RunResult["residences"] = [];
-  const ages: number[] = [];
   // A hold keeps what is displayed beyond the answer's own life: the lifetime a gap is judged against.
   const holdMs = cfg.hold === "shown" ? SHOWN_HOLD.maxMs : cfg.hold === "reading" ? Infinity : 0;
-  const lifetimeMs = (MAX_AGE_MS + holdMs) / cfg.playbackRate;
+  // The hold's limit is wall time (`SHOWN_HOLD.maxMs`); the answer's own life is video time.
+  const answerLifeMs = MAX_AGE_MS / cfg.playbackRate;
+  const lifetimeMs = answerLifeMs + holdMs;
   const cycleNear = (t: number): number => {
     // The look time around a gap: the latest answer before it and the first after, whichever is longer.
     let before = 0;
@@ -401,7 +415,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   };
   const closeGap = (r: Residence, end: number): void => {
     if (r.gapStart === null) return;
-    gaps.push({ card: r.card, startMs: r.gapStart, endMs: end, lengthMs: end - r.gapStart, avoidable: 2 * cycleNear(r.gapStart) <= lifetimeMs });
+    gaps.push({ card: r.card, startMs: r.gapStart, endMs: end, lengthMs: end - r.gapStart, avoidable: 2 * cycleNear(r.gapStart) <= lifetimeMs && cycleNear(r.gapStart) <= answerLifeMs });
     r.gapStart = null;
   };
   const closeResidence = (end: number): void => {
@@ -441,7 +455,12 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
     if (now) {
       const shown = displayed as Shown | null;
       const correct = shown !== null && shown.cardId === now.card;
-      if (correct && !now.wasCorrect) ages.push((mediaSec - lastResultSec) * 1000);
+      if (correct) {
+        const age = (mediaSec - shownResultSec) * 1000;
+        ageIntegral += age * STEP_MS;
+        shownMs += STEP_MS;
+        ageMax = Math.max(ageMax, age);
+      }
       if (now.firstNamedAt === null) {
         if (correct) now.firstNamedAt = clock;
       } else if (!correct) {
@@ -466,8 +485,10 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
     unnamed: eligible.filter((r) => r.latencyMs === null).length,
     latencyAvgMs: named.length ? sum(named) / named.length : null,
     latencyMaxMs: named.length ? Math.max(...named) : null,
-    ageAvgMs: ages.length ? sum(ages) / ages.length : null,
-    ageMaxMs: ages.length ? Math.max(...ages) : null,
+    ageAvgMs: shownMs ? ageIntegral / shownMs : null,
+    ageMaxMs: shownMs ? ageMax : null,
+    shownMs,
+    ageIntegralMs: ageIntegral,
     gapTotalMs: gapTotal,
     gapMaxMs: gaps.length ? Math.max(...gaps.map((g) => g.lengthMs)) : 0,
     gapAvoidableMs: sum(gaps.filter((g) => g.avoidable).map((g) => g.lengthMs)),
@@ -476,12 +497,12 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
     looksPerMinute: (looks.length * 60_000) / scenario.durationMs,
     busyShare: busyMs / scenario.durationMs,
   };
-  return { scenario: scenario.name, config: cfg, metrics, gaps, looks, residences };
+  return { scenario: scenario.name, config: cfg, metrics, gaps, looks, busy, residences };
 }
 
 // ------------------------------------------------------------------ the candidate rules
 
-interface RuleInputs {
+export interface RuleInputs {
   fastCadence: number;
   /** The answer's lifetime in wall ms: the max age over the playback rate. */
   lifetimeMs: number;
@@ -501,18 +522,23 @@ export function budgetedSpacingMs(fastCadence: number, pacedMs: number, roundTri
   return Math.max(fastCadence, Math.min(pacedMs, maxAgeMs - roundTripMs - MARGIN_MS));
 }
 
+/** What a rule makes of the two spacings, in ms: the stale-picture threshold (before the 400 ms
+ *  floor) and the focus re-look spacing. "current" has none (null: the code's own). */
+export function ruleSpacingsMs(rule: Rule, inputs: RuleInputs): { staleMs: number; relookMs: number } | null {
+  if (rule === "current") return null;
+  const F = inputs.fastCadence;
+  const B = budgetedSpacingMs(F, inputs.pacedMs(), inputs.roundTripMs(), inputs.lifetimeMs);
+  return { staleMs: rule === "strict" ? F : B, relookMs: rule === "budgeted+relook" ? B : F };
+}
+
 /** Install a candidate rule on a core's scheduler (see the header). "current" changes nothing. */
 function installRule(core: SessionCore, rule: Rule, inputs: RuleInputs): void {
   if (rule === "current") return;
   const sched = core.scheduler;
-  const F = inputs.fastCadence;
-  const budget = (): number => budgetedSpacingMs(F, inputs.pacedMs(), inputs.roundTripMs(), inputs.lifetimeMs);
-  const stale = rule === "strict" ? (): number => F : budget;
-  const spacing = rule === "budgeted+relook" ? budget : (): number => F;
-  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, stale());
+  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, ruleSpacingsMs(rule, inputs)!.staleMs);
   const relook = sched.relookDue.bind(sched);
   sched.relookDue = (now: number, inFlight: boolean, videoTimeSec?: number): boolean => {
-    sched.setRelookSpacingMs(spacing());
+    sched.setRelookSpacingMs(ruleSpacingsMs(rule, inputs)!.relookMs);
     return relook(now, inFlight, videoTimeSec);
   };
 }
@@ -562,7 +588,7 @@ export const SCENARIOS: readonly Scenario[] = [
     events: [...jiggle(0, 6000, 400, EMPTY.px, EMPTY.py), mv(6_500, 200, 250)],
   },
   {
-    name: "sweep-fan", summary: "the pointer sweeps across a fan of five cards, about 1 s on each (dwell about 1 s)", durationMs: 14_000, layout: FAN, startReady: true,
+    name: "sweep-fan", summary: "the pointer sweeps across a fan of five cards, dwells 0.6, 1.1, 1.0, 1.1 and 1.4 s", durationMs: 14_000, layout: FAN, startReady: true,
     events: [...jiggle(0, 4000, 400, 40, 450), ...sweep(5_000, 10_200, 100, 160, 740, 250)],
   },
   {
@@ -607,17 +633,29 @@ export const VIEWER_SESSION: Scenario = {
   ],
 };
 
-/** The fan swept at 20 start offsets, 0, 50, ..., 950 ms: the sweep's phase against the ticks and the cadence. */
-export const SWEEP_OFFSETS_MS: readonly number[] = Array.from({ length: 20 }, (_, i) => i * 50);
-export function sweepScenario(offsetMs: number): Scenario {
+/** The fan swept at 20 phases: phase i starts i x 50 ms later (0, 50, ..., 950 ms: against the ticks
+ *  and the cadence) and i x 6 px to the right (0, 6, ..., 114 px, one card pitch: against the card
+ *  edges, so that the moves land in different places on each card). */
+export const SWEEP_PHASES: readonly number[] = Array.from({ length: 20 }, (_, i) => i);
+export const SWEEP_START_MS = 5_000;
+export const SWEEP_LENGTH_MS = 5_200;
+export function sweepScenario(phase: number): Scenario {
+  const at = phase * 50;
+  const dx = phase * 6;
   return {
-    name: `sweep-${offsetMs}`, summary: "wander 5 s, then sweep five cards, about 1 s on each", durationMs: 12_000 + offsetMs, layout: FAN, startReady: true,
-    events: [...jiggle(0, 4000, 400, 40, 450), ...sweep(5_000 + offsetMs, 10_200 + offsetMs, 100, 160, 740, 250)],
+    name: `sweep-${phase}`, summary: "wander 5 s, then sweep five cards", durationMs: 12_000 + at, layout: FAN, startReady: true,
+    events: [...jiggle(0, 4000, 400, 40, 450), ...sweep(SWEEP_START_MS + at, SWEEP_START_MS + SWEEP_LENGTH_MS + at, 100, 160 + dx, 740 + dx, 250)],
   };
 }
 
+/** One card, the pointer moving on it every 100 ms for 12 s. */
+export const MOVING_POINTER: Scenario = {
+  name: "pointer-moving", summary: "the pointer moves every 100 ms on card A for 12 s (dwell 12 s)", durationMs: 12_000, layout: ABC, startReady: true,
+  events: jiggle(0, 12_000, 100, 200, 250),
+};
+
 export function scenarioNamed(name: string): Scenario {
-  const found = name === VIEWER_SESSION.name ? VIEWER_SESSION : SCENARIOS.find((s) => s.name === name);
+  const found = name === VIEWER_SESSION.name ? VIEWER_SESSION : name === MOVING_POINTER.name ? MOVING_POINTER : SCENARIOS.find((s) => s.name === name);
   if (!found) throw new RangeError(`no scenario ${name}`);
   return found;
 }
@@ -630,8 +668,8 @@ const pad = (s: string, n: number, left = false): string => (left ? s.padEnd(n) 
 const COLUMNS: Array<[string, number, (r: RunResult) => string]> = [
   ["lat avg", 7, (r) => fmt(r.metrics.latencyAvgMs)],
   ["lat max", 7, (r) => fmt(r.metrics.latencyMaxMs)],
-  ["unnamed", 7, (r) => `${r.metrics.unnamed}/${r.metrics.residences}`],
-  ["age avg", 7, (r) => fmt(r.metrics.ageAvgMs)],
+  ["unnamed", 7, (r) => `${r.metrics.unnamed}/${r.metrics.eligible}`],
+  ["age mean", 8, (r) => fmt(r.metrics.ageAvgMs)],
   ["age max", 7, (r) => fmt(r.metrics.ageMaxMs)],
   ["gap tot", 7, (r) => fmt(r.metrics.gapTotalMs)],
   ["gap max", 7, (r) => fmt(r.metrics.gapMaxMs)],
@@ -657,8 +695,8 @@ export function renderTable(title: string, labelHeads: readonly string[], rows: 
 
 const LEGEND = `Columns (ms unless noted). lat: from the pointer arriving on a card to a displayed answer naming it
 (avg and max over the visits long enough to be named, i.e. a dwell of at least one capture plus
-analysis; a visit never named counts at its dwell; unnamed = such visits never named / such visits). age: the age of the
-answer when it first shows (video time). gap: time with the pointer on a card already named once and
+analysis; a visit never named counts at its dwell; unnamed = such visits never named / such visits). age: the age, in video ms, of the
+answer on screen, time-weighted over the time the pointer is on a card the screen names correctly (mean and max). gap: time with the pointer on a card already named once and
 nothing (or another card) displayed; avoid / unavoid split it by whether 2 x (capture + analysis)
 fits in the answer's lifetime (max age 2000 ms, divided by the playback rate); a hold lengthens what
 is displayed, so under SHOWN_HOLD the lifetime is the max age plus the hold's 5000 ms, and under the
@@ -668,9 +706,12 @@ The rules: current (today); strict (a look the viewer waits on starts at the bac
 budgeted (the stale-picture threshold only is max(F, min(paced interval, answer lifetime - round trip - 250)),
 the focus re-look at F); budgeted+relook (the re-look spacing also gets that budget). The budget uses the
 answer's wall lifetime, 2000 ms over the playback rate (1000 ms at 2x), but is compared with video age as
-the code compares its cadence, which is a limitation. Entry looks, the reading ceiling, the empty-spot rest
+the code compares its cadence, which is a limitation that applies to strict too: its 500 ms threshold
+refreshes every 250 ms of wall time at 2x and every 1000 ms at 0.5x. Entry looks, the reading ceiling, the empty-spot rest
 and retries are the same under every rule.
 This is a model of the scheduling policy on a virtual clock, not a browser measurement.`;
+
+const FOOTNOTE_2X = `Footnote. At 2x playback an answer lives 1000 ms of wall time, so rows with W of 1200 or more name nothing under any rule.`;
 
 const FOOTNOTE = `Footnote. A gap at W of 1400 or more under SHOWN_HOLD is a reading-wait problem: a reading deadline that includes
 the hold removes it, and none of these rules models that, so the rules cannot differ there. It is the
@@ -696,34 +737,59 @@ function matrix(title: string, workerMs: ReadonlyArray<number | readonly number[
   return renderTable(title, ["rule", "W", "backend", "rate"], rows);
 }
 
-/** The sweep table: the fan swept at 20 start offsets (deterministic), pooled over the offsets. */
+/** A table whose rows are plain cells; the first `left` columns are left-aligned. */
+function plainTable(title: string, head: string[], lines: string[][], left: number): string {
+  const widths = head.map((h, i) => Math.max(h.length, ...lines.map((l) => l[i]!.length)));
+  const row = (cells: string[]): string => cells.map((c, i) => (i < left ? c.padEnd(widths[i]!) : c.padStart(widths[i]!))).join("  ");
+  return [title, row(head), "-".repeat(row(head).length), ...lines.map(row)].join("\n");
+}
+
+/** The sweep table: the fan swept at 20 phases, pooled; looks and busy over the sweep window only. */
 function sweepTable(): string {
-  const head = ["rule", "W", "backend", "looks/min", "visits", "unnamed %", "lat mean"];
+  const head = ["rule", "W", "backend", "looks/min", "busy %", "visits", "unnamed", "lat mean", "age mean", "age max"];
   const lines: string[][] = [];
   for (const w of [500, 800]) {
     for (const backend of BACKENDS) {
       for (const rule of RULES) {
         let looks = 0;
-        let ms = 0;
+        let busy = 0;
         let eligible = 0;
         let unnamed = 0;
         let latSum = 0;
-        for (const off of SWEEP_OFFSETS_MS) {
-          const sc = sweepScenario(off);
+        let shown = 0;
+        let ageSum = 0;
+        let ageMax = 0;
+        for (const phase of SWEEP_PHASES) {
+          const sc = sweepScenario(phase);
+          const from = SWEEP_START_MS + phase * 50;
+          const to = from + SWEEP_LENGTH_MS;
           const run = runScenario(sc, { hold: "shown", measuredPacing: true, focus: true, workerMs: w, backend, rule });
-          looks += run.metrics.looks;
-          ms += sc.durationMs;
+          looks += run.looks.filter((l) => l.at >= from && l.at <= to).length;
+          for (const b of run.busy) busy += Math.max(0, Math.min(b.at + b.ms, to) - Math.max(b.at, from));
           eligible += run.metrics.eligible;
           unnamed += run.metrics.unnamed;
           latSum += (run.metrics.latencyAvgMs ?? 0) * run.metrics.eligible;
+          shown += run.metrics.shownMs;
+          ageSum += run.metrics.ageIntegralMs;
+          ageMax = Math.max(ageMax, run.metrics.ageMaxMs ?? 0);
         }
-        lines.push([rule, String(w), backend, fmt((looks * 60_000) / ms, 1), fmt(eligible / SWEEP_OFFSETS_MS.length, 1), eligible ? fmt((unnamed / eligible) * 100, 1) : "-", eligible ? fmt(latSum / eligible) : "-"]);
+        const window = SWEEP_LENGTH_MS * SWEEP_PHASES.length;
+        lines.push([rule, String(w), backend, fmt((looks * 60_000) / window, 1), fmt((busy / window) * 100, 1), fmt(eligible / SWEEP_PHASES.length, 1), `${unnamed}/${eligible}`, eligible ? fmt(latSum / eligible) : "-", shown ? fmt(ageSum / shown) : "-", shown ? fmt(ageMax) : "-"]);
       }
     }
   }
-  const widths = head.map((h, i) => Math.max(h.length, ...lines.map((l) => l[i]!.length)));
-  const row = (cells: string[]): string => cells.map((c, i) => (i < 3 ? c.padEnd(widths[i]!) : c.padStart(widths[i]!))).join("  ");
-  return ["Table 1c: a sweep across the fan, about 1 s on each of 5 cards, mean over 20 start offsets (0, 50, ..., 950 ms); visits = eligible visits per sweep; latency counts a card never named at its dwell", row(head), "-".repeat(row(head).length), ...lines.map(row)].join("\n");
+  return plainTable("Table 1c: a sweep across the fan, dwells 0.6, 1.1, 1.0, 1.1 and 1.4 s (geometric stage in focus scope, the only path with a re-look), pooled over 20 phases (start 0, 50, ..., 950 ms later and 0, 6, ..., 114 px to the right: against the ticks and the card edges); looks and busy over the sweep window only; visits = eligible visits per sweep; unnamed = eligible visits never named / eligible visits; latency counts a card never named at its dwell", head, lines, 3);
+}
+
+/** The moving-pointer table: one card, the pointer moving every 100 ms for 12 s. */
+function movingTable(): string {
+  const rows: TableRow[] = [];
+  for (const w of [500, 800]) {
+    for (const backend of BACKENDS) {
+      for (const rule of RULES) rows.push({ label: [rule, String(w), backend], run: runScenario(MOVING_POINTER, { hold: "shown", measuredPacing: true, focus: true, workerMs: w, backend, rule }) });
+    }
+  }
+  return renderTable("Table 1d: " + MOVING_POINTER.summary, ["rule", "W", "backend"], rows);
 }
 
 /** The text `npm run slow-clock` prints. Deterministic. */
@@ -737,7 +803,9 @@ export function renderReport(): string {
   parts.push(matrix("Table 1: rule x analysis time W (ms) x backend, 1x playback", TABLE_WORKER_MS, base));
   parts.push(FOOTNOTE);
   for (const rate of [0.5, 2]) parts.push(matrix(`Table 1b: as Table 1 at ${rate}x playback`, TABLE_WORKER_MS, { ...base, playbackRate: rate }));
+  parts.push(FOOTNOTE_2X);
   parts.push(sweepTable());
+  parts.push(movingTable());
   parts.push(matrix("Table 2a: boundary analysis times, 1x playback", BOUNDARY_WORKER_MS, base));
   parts.push(FOOTNOTE);
   for (const rate of [1, 0.5, 2]) {
