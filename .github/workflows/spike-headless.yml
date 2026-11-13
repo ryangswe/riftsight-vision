@@ -46,6 +46,7 @@ jobs:
           npx --yes @puppeteer/browsers@2 install chrome@stable --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
           echo "CHROME=$(tail -n1 "$RUNNER_TEMP/cft.txt" | cut -d' ' -f2-)" >> "$GITHUB_ENV"
           sudo apt-get install -y xvfb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           mkdir -p "$RUNNER_TEMP/out"
       - name: Write the toy release
         run: python tests/test_browser_fixtures.py --demo "$RUNNER_TEMP/toy"
@@ -146,6 +147,7 @@ jobs:
           npx --yes @puppeteer/browsers@2 install chrome@stable --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
           echo "CHROME=$(tail -n1 "$RUNNER_TEMP/cft.txt" | cut -d' ' -f2-)" >> "$GITHUB_ENV"
           sudo apt-get install -y xvfb ffmpeg
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Render a short synthetic clip (VP8, no H.264 in Chrome for Testing)
         run: |
           ffmpeg -loglevel error -f lavfi -i "testsrc2=size=1280x720:rate=15:duration=8" \
