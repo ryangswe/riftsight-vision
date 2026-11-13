@@ -9,7 +9,11 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
-The store release workflow template has a `precheck_only` option: with `upload`, the upload job signs in to both stores and reads their state, then uploads nothing. Docs: [docs/store-uploads.md](docs/store-uploads.md).
+### Added
+
+- The store release workflow template has a `precheck_only` option: with `upload`, the upload
+  job signs in to both stores and reads their state, then uploads nothing. Docs:
+  [docs/store-uploads.md](docs/store-uploads.md).
 
 ## [0.14.0rc2] - 2026-11-13
 
