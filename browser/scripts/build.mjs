@@ -28,13 +28,15 @@
 // Run it with `npm run build`.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
 
+import { buildInfoOf } from "./build-info.mjs";
 import { NOTICES_NAME, noticesFor } from "./notices.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -86,19 +88,30 @@ if (opencvMissing.length === 0) for (const name of opencvFiles) copyFileSync(joi
 // dist/types/ and dist/{cardvision,compute-session,page-capture,remote-release}.d.ts. They are part of
 // the vendored set (scripts/vendor.mjs), so a product's type check sees the same commit as its runtime.
 {
-  const config = join(root, "tsconfig.types.build.json");
+  // The config lives in a temporary folder, not the tracked tree, so a killed build leaves nothing
+  // behind; its paths are absolute.
+  const configDir = mkdtempSync(join(tmpdir(), "cardvision-types-"));
+  const config = join(configDir, "tsconfig.json");
   writeFileSync(
     config,
     JSON.stringify({
-      extends: "./tsconfig.json",
-      compilerOptions: { noEmit: false, declaration: true, emitDeclarationOnly: true, rootDir: "src", outDir: join(dist, "types"), types: ["@webgpu/types"] },
-      include: ["src"],
+      extends: join(root, "tsconfig.json"),
+      compilerOptions: {
+        noEmit: false,
+        declaration: true,
+        emitDeclarationOnly: true,
+        rootDir: join(root, "src"),
+        outDir: join(dist, "types"),
+        typeRoots: [join(root, "node_modules", "@types"), join(root, "node_modules")],
+        types: ["@webgpu/types"],
+      },
+      include: [join(root, "src")],
     }),
   );
   try {
     execFileSync(join(root, "node_modules", ".bin", "tsc"), ["-p", config], { cwd: root, stdio: "inherit" });
   } finally {
-    rmSync(config, { force: true });
+    rmSync(configDir, { recursive: true, force: true });
   }
   const shims = { cardvision: "index", "compute-session": "compute-session", "page-capture": "page-capture-entry", "remote-release": "remote/index" };
   for (const [name, target] of Object.entries(shims)) {
@@ -107,13 +120,7 @@ if (opencvMissing.length === 0) for (const name of opencvFiles) copyFileSync(joi
 }
 
 // Which commit this build is of, so a product's vendoring can refuse a stale or modified build.
-let buildInfo = { commit: null, dirty: true };
-try {
-  const git = (...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  buildInfo = { commit: git("rev-parse", "HEAD"), dirty: git("status", "--porcelain") !== "" };
-} catch {
-  // Not a git checkout: the build is not vendorable.
-}
+const buildInfo = buildInfoOf(root);
 writeFileSync(join(dist, "build-info.json"), `${JSON.stringify(buildInfo)}\n`);
 
 const size = (name) => `${(statSync(join(dist, name)).size / 1024).toFixed(0)} KB`;

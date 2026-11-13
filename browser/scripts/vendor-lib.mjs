@@ -48,6 +48,7 @@ export const DEFAULT_UNMANAGED = [];
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const readJson = (path) => JSON.parse(readFileSync(path, "utf-8"));
 const HEX40 = /^[0-9a-f]{40}$/;
+const RUNTIME_SUFFIX = /\.(js|mjs|wasm)$/;
 const SUFFIX_LIKE = /^\.(js|mjs|wasm|json|ts|d\.ts|txt|map)$/;
 
 const CHECKER_TAIL = `
@@ -79,6 +80,7 @@ export function unmanagedProblems(rules) {
   for (const rule of rules) {
     if (rule === "" || rule === "/" || isAbsolute(rule) || rule.includes("\\") || rule.split("/").includes("..") || rule.split("/").includes(".")) problems.push(`unmanaged rule "${rule}" is not a relative folder ("dir/") or file name`);
     else if (SUFFIX_LIKE.test(rule)) problems.push(`unmanaged rule "${rule}" looks like a file suffix; rules name a folder ("dir/") or one exact file`);
+    else if (RUNTIME_SUFFIX.test(rule)) problems.push(`unmanaged rule "${rule}" names a runtime file (.js, .mjs or .wasm); the check must see every one`);
     else if (rule === MANIFEST) problems.push(`unmanaged rule "${rule}" names the manifest`);
   }
   return problems;
@@ -146,6 +148,10 @@ export function planFiles({ root, dist, options }) {
   const types = walk(join(dist, "types"));
   if (types.length === 0) throw new Error(`${join(dist, "types")} has no declarations (build the toolkit first: npm run build in browser/)`);
   for (const name of types) need(`types/${name}`, join(dist, "types", name));
+  for (const name of TYPE_SHIMS) {
+    const target = /from "\.\/types\/([^"]+)\.js"/.exec(readFileSync(join(dist, name), "utf-8"))?.[1];
+    if (!target || !types.includes(`${target}.d.ts`)) throw new Error(`${name} points at types/${target ?? "(nothing)"}.js, but dist/types has no ${target ?? "?"}.d.ts (fix the shim target in scripts/build.mjs)`);
+  }
   const ortNames = ortFilesOf(dist);
   if (ortNames.length === 0) throw new Error("the built worker names no ONNX Runtime file");
   if (ortWasm) for (const name of ortNames) need(name, join(dist, name));
@@ -367,6 +373,9 @@ export function checkVendor(dir, toolkit) {
   problems.push(...unmanagedProblems(m.unmanaged ?? []));
   const listed = Object.keys(m.files);
   for (const n of listed) if (isUnmanaged(n, unmanaged)) problems.push(`${n} is listed in ${MANIFEST} and also covered by an unmanaged rule`);
+  for (const n of filesUnder(dir)) {
+    if (isUnmanaged(n, unmanaged) && !listed.includes(n) && RUNTIME_SUFFIX.test(n)) problems.push(`${n} is a runtime file (.js, .mjs or .wasm) hidden by an unmanaged rule; the check must see every one`);
+  }
   const present = filesUnder(dir).filter((n) => !isUnmanaged(n, unmanaged));
 
   for (const n of present) if (!listed.includes(n)) problems.push(`${n} is in the folder but not in ${MANIFEST}`);

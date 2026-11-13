@@ -3,7 +3,7 @@
 // checking it. Fixtures only: a made-up toolkit checkout with a made-up build, no network, no real build.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 // @ts-expect-error: a plain .mjs script without declarations
 import * as lib from "../scripts/vendor-lib.mjs";
+// @ts-expect-error: a plain .mjs script without declarations
+import { buildInfoOf } from "../scripts/build-info.mjs";
 
 const COMMIT_A = "a".repeat(40);
 const COMMIT_B = "b".repeat(40);
@@ -57,6 +59,8 @@ function fakeToolkit(tag: string, { opencv = true, spec = true } = {}): Kit {
     "page-capture.d.ts": `export * from "./types/page-capture-entry.js"; // ${tag}`,
     "remote-release.d.ts": `export * from "./types/remote/index.js"; // ${tag}`,
     "types/index.d.ts": `export {}; // ${tag}`,
+    "types/compute-session.d.ts": `export {}; // ${tag}`,
+    "types/page-capture-entry.d.ts": `export {}; // ${tag}`,
     "types/remote/index.d.ts": `export {}; // ${tag}`,
     ...(opencv ? { "opencv.mjs": "cvjs", "opencv_js.wasm": "cvwasm", "opencv.mjs.LEGAL.txt": "cv license" } : {}),
   };
@@ -102,7 +106,7 @@ describe("vendoring a runtime", () => {
       [
         "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.txt", "cardvision-vendor-check.mjs", "cardvision.d.ts", "cardvision.js", "compute-session.d.ts", "compute-session.js",
         "hover-spec.json", "opencv.mjs", "opencv.mjs.LEGAL.txt", "opencv_js.wasm", "ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm",
-        "page-capture.d.ts", "page-capture.js", "remote-release.d.ts", "remote-release.js", "types/index.d.ts", "types/remote/index.d.ts", "worker.js", "worker.js.LEGAL.txt",
+        "page-capture.d.ts", "page-capture.js", "remote-release.d.ts", "remote-release.js", "types/compute-session.d.ts", "types/index.d.ts", "types/page-capture-entry.d.ts", "types/remote/index.d.ts", "worker.js", "worker.js.LEGAL.txt",
       ].sort((a, b) => (a < b ? -1 : 1)),
     );
     expect(manifest.toolkit).toEqual({ version: "0.14.0", commit: COMMIT_A });
@@ -179,12 +183,12 @@ describe("what a run will not delete", () => {
     const into = join(temp(), "v");
     vendor(fakeToolkit("one"), into);
     put(join(into, ".git", "config"), "x");
-    put(join(into, "mine.js"), "x");
+    put(join(into, "mine.txt"), "x");
     const before = snapshot(into);
-    expect(() => vendor(fakeToolkit("two"), into, COMMIT_B)).toThrow(/2 file\(s\).*\.git\/config, mine\.js/);
+    expect(() => vendor(fakeToolkit("two"), into, COMMIT_B)).toThrow(/2 file\(s\).*\.git\/config, mine\.txt/);
     expect(snapshot(into)).toEqual(before);
-    expect(() => vendor(fakeToolkit("two"), into, COMMIT_B, { unmanaged: [".git/", "mine.js"] })).not.toThrow();
-    expect(readFileSync(join(into, "mine.js"), "utf-8")).toBe("x");
+    expect(() => vendor(fakeToolkit("two"), into, COMMIT_B, { unmanaged: [".git/", "mine.txt"] })).not.toThrow();
+    expect(readFileSync(join(into, "mine.txt"), "utf-8")).toBe("x");
   });
 
   it("--adopt replaces a hand-vendored runtime (VENDOR.json, old types) but still refuses hidden and unknown files", () => {
@@ -227,8 +231,23 @@ describe("what a run will not delete", () => {
     for (const rule of [".js", ".mjs", ".d.ts", ".wasm", ".json", "../x", "/abs", "", "a\\b"]) {
       expect(() => vendor(kit, join(temp(), "v"), COMMIT_A, { unmanaged: [rule] }), rule).toThrow(/unmanaged rule/);
     }
+    for (const rule of ["worker-newer.js", "a/b.mjs", "x.wasm"]) {
+      expect(() => vendor(kit, join(temp(), "v"), COMMIT_A, { unmanaged: [rule] }), rule).toThrow(/names a runtime file/);
+    }
     expect(() => vendor(kit, join(temp(), "v"), COMMIT_A, { unmanaged: ["types/"] })).toThrow(/cover files the tool vendors/);
-    expect(() => vendor(kit, join(temp(), "v"), COMMIT_A, { unmanaged: ["worker.js"] })).toThrow(/cover files the tool vendors/);
+    expect(() => vendor(kit, join(temp(), "v"), COMMIT_A, { unmanaged: ["worker.js"] })).toThrow(/names a runtime file/);
+    expect(() => vendor(kit, join(temp(), "v"), COMMIT_A, { unmanaged: ["THIRD-PARTY-NOTICES.txt"] })).toThrow(/cover files the tool vendors/);
+  });
+});
+
+describe("declaration shims", () => {
+  it("fail the vendor step when a shim points at a declaration the build lacks", () => {
+    const kit = fakeToolkit("one");
+    put(join(kit.dist, "page-capture.d.ts"), `export * from "./types/page-capture-wrong.js";`);
+    expect(() => vendor(kit, join(temp(), "v"))).toThrow(/page-capture\.d\.ts points at types\/page-capture-wrong\.js, but dist\/types has no page-capture-wrong\.d\.ts/);
+    const ok = fakeToolkit("one");
+    rmSync(join(ok.dist, "types", "compute-session.d.ts"));
+    expect(() => vendor(ok, join(temp(), "v"))).toThrow(/compute-session\.d\.ts points at/);
   });
 });
 
@@ -282,7 +301,26 @@ describe("an interrupted or failing swap", () => {
     expect(() => vendor(fakeToolkit("one"), join(parent, "v"))).toThrow(/previous copies are left.*by hand/);
   });
 
-  it("clears a stale previous copy when the folder is whole, and a failed removal afterwards is a warning", () => {
+  it("a previous copy that cannot be removed after the swap is a warning, and the run still succeeds", () => {
+    const parent = temp();
+    const into = join(parent, "v");
+    vendor(fakeToolkit("one"), into);
+    // A read-only folder inside the product's own files: the old copy cannot be emptied.
+    put(join(into, "notes", "sub", "a.txt"), "mine");
+    chmodSync(join(into, "notes", "sub"), 0o500);
+    const warnings: string[] = [];
+    try {
+      const manifest = vendor(fakeToolkit("two"), into, COMMIT_B, { unmanaged: ["notes/"], warn: (m: string) => warnings.push(m) });
+      expect(manifest.toolkit.commit).toBe(COMMIT_B);
+      expect(manifestOf(into).toolkit.commit).toBe(COMMIT_B);
+      expect(lib.checkVendor(into)).toEqual([]);
+      expect(warnings).toEqual([expect.stringMatching(/is updated, but the previous copy .*-old could not be removed/)]);
+    } finally {
+      for (const n of readdirSync(parent)) if (n.endsWith("-old")) chmodSync(join(parent, n, "notes", "sub"), 0o700);
+    }
+  });
+
+  it("clears stale staging folders left by an earlier run, with a warning for each", () => {
     const parent = temp();
     const into = join(parent, "v");
     vendor(fakeToolkit("one"), into);
@@ -433,6 +471,22 @@ describe("checking a vendored runtime", () => {
     expect(lib.checkVendor(into)).toContain("worker.js is listed in cardvision-vendor.json and also covered by an unmanaged rule");
   });
 
+  it("reports a runtime file hidden by an unmanaged folder or file rule", () => {
+    const { into } = vendored();
+    put(join(into, "notes", "x.js"), "hidden");
+    put(join(into, "worker-newer.mjs"), "hidden");
+    put(join(into, "notes", "ok.txt"), "fine");
+    const manifest = manifestOf(into);
+    manifest.unmanaged = ["notes/", "worker-newer.mjs"];
+    writeManifest(into, manifest);
+    const problems = lib.checkVendor(into) as string[];
+    expect(problems.filter((p) => p.includes("hidden by an unmanaged rule")).sort()).toEqual([
+      expect.stringMatching(/^notes\/x\.js is a runtime file/),
+      expect.stringMatching(/^worker-newer\.mjs is a runtime file/),
+    ]);
+    expect(problems.some((p) => p.includes("ok.txt"))).toBe(false);
+  });
+
   it("fails without a manifest, and with one that is not a manifest", () => {
     const { into } = vendored();
     writeManifest(into, {});
@@ -518,8 +572,23 @@ describe("choosing the build to compare with", () => {
     expect(pick(dist(JSON.stringify({ commit: COMMIT_A, dirty: true }))).reason).toMatch(/changes/);
   });
 
-  it("is what scripts/build.mjs writes: the commit and whether the tree had changes", () => {
-    expect(readFileSync(join(scriptsDir, "build.mjs"), "utf-8")).toMatch(/buildInfo = \{ commit: git\("rev-parse", "HEAD"\), dirty: git\("status", "--porcelain"\) !== "" \}/);
+  it("is what the build writer returns for a git checkout: the commit, then whether the tree has changes", () => {
+    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: ["t", "invalid"].join("@"), GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: ["t", "invalid"].join("@"), GIT_CONFIG_GLOBAL: "/dev/null" };
+    const git = (cwd: string, ...args: string[]): string => {
+      const done = spawnSync("git", ["-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf-8", env });
+      if (done.status !== 0) throw new Error(`git ${args.join(" ")}: ${done.stderr}`);
+      return done.stdout.trim();
+    };
+    const repo = temp();
+    git(repo, "init", "-q");
+    put(join(repo, "a.txt"), "a");
+    git(repo, "add", "a.txt");
+    git(repo, "commit", "-q", "-m", "one");
+    const head = git(repo, "rev-parse", "HEAD");
+    expect(buildInfoOf(repo)).toEqual({ commit: head, dirty: false });
+    put(join(repo, "a.txt"), "changed");
+    expect(buildInfoOf(repo)).toEqual({ commit: head, dirty: true });
+    expect(buildInfoOf(temp())).toEqual({ commit: null, dirty: true });
   });
 });
 
