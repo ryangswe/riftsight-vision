@@ -167,8 +167,8 @@ Example: the frames were removed for idleness; the viewer switches hovers off an
 while the video plays: in the tab in front both frames are made at once, before any pointer move.
 In a second tab that is behind, nothing is made until the viewer brings it to the front.
 
-Today: one product makes the frames in every tab at once, with no wait for the front tab; the other
-makes none until a trusted play or pointer event.
+Today: one product already does this; the other makes the frames in every tab at once, with no wait
+for the front tab.
 
 Test: pending (real-browser test)
 
@@ -291,7 +291,7 @@ A video that moved away under a resting pointer clears the gate and refuses the 
 
 Example: the page scrolls the player 400 px up under a resting mouse: the next capture is refused.
 
-Test: `capture-control.test.ts:331`, `capture-control.test.ts:347`
+Test: `capture-control.test.ts:331`
 
 ### S-B6 — Leaving, hiding the page or changing the video clears all authority
 
@@ -357,7 +357,7 @@ Test: `capture-control.test.ts:793`, `session-core.test.ts:1883`; in a product: 
 
 ### S-B12 — A product's privacy page states the gate's timings as the code has them
 
-A product's privacy page gives the windows of S-B2 to S-B4, the one-picture rule of S-B13 and the idle time of S-A4, and a test
+A product's privacy page gives the windows of S-B2 to S-B4, from 0.14.0 the one-picture rule of S-B13 and the idle time of S-A4, and a test
 fails when a constant and the page disagree.
 
 Example: `MAX_REST_MS` changes from 60000 to 45000 and the page still says 60 seconds: the test
@@ -458,7 +458,7 @@ Today: the spacing is `max(250, median worker time of the last 5 looks divided b
 up to 4000)`. Paced at W = 900 ms it is 3600 ms from the last look.
 
 Test: `relook-playing.test.ts:160`, `relook-playing.test.ts:198`, `relook-playing.test.ts:248`;
-today's spacing: `slow-clock.test.ts:216`, `slow-clock.test.ts:224`; the target:
+today's spacing: `slow-clock.test.ts:216`; the target:
 `slow-clock.test.ts:221`
 
 ### S-C8 — A pointer on an unverified card of a still picture asks for a look again

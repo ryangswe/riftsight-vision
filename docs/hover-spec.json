@@ -297,11 +297,6 @@
           "file": "capture-control.test.ts",
           "line": 331,
           "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 347,
-          "target": false
         }
       ],
       "pending": []
@@ -600,11 +595,6 @@
         {
           "file": "slow-clock.test.ts",
           "line": 216,
-          "target": false
-        },
-        {
-          "file": "slow-clock.test.ts",
-          "line": 224,
           "target": false
         },
         {
