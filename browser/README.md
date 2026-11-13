@@ -1044,6 +1044,55 @@ Chrome for Testing 152, the defaults read a ready frame at 105 MB over the page 
 ready-minus-no-frame figure beside the pass figure to show how much there was to free. Both entries are
 [experimental](../docs/stability.md#experimental).
 
+### Vendoring the runtime, and checking it
+
+A product ships one copy of the runtime, from one commit of this repository. Build the commit,
+then copy it in:
+
+```
+npm ci && npm run build
+npm run vendor -- --into ../my-extension/vendor/cardvision-browser
+```
+
+`npm run vendor` refuses a tree with changes, a `dist/` that `npm run build` did not make from the
+current commit (it reads `dist/build-info.json`), and a `--commit` that is not `HEAD`; it never
+rebuilds. It writes one flat folder, so the paths a worker uses (`ort-wasm-*`, `opencv.mjs` and
+`opencv_js.wasm`, all beside `worker.js`) hold: `cardvision.js`, `worker.js`, `compute-session.js`,
+`page-capture.js`, `remote-release.js` and their `*.LEGAL.txt` files; ONNX Runtime's WebAssembly
+files the worker loads; OpenCV.js and its license text, after checking them against
+`opencv.lock.json`; `LICENSE`, `NOTICE` and `THIRD-PARTY-NOTICES.txt`; and `hover-spec.json` from
+`docs/` when the commit has one. `--no-opencv` and `--no-ort-wasm` leave a group out, and
+`--node-tools` adds `node/*.mjs`. Files the product keeps in the folder itself (`types/`, `*.d.ts`
+by default; `--unmanaged RULE` changes it) are left alone.
+
+`cardvision-vendor.json` records the toolkit version, the commit, the OpenCV lock and each file's
+size and SHA-256:
+
+```json
+{
+  "schemaVersion": 1,
+  "toolkit": { "version": "0.14.0", "commit": "<40-character SHA>" },
+  "unmanaged": ["types/", ".d.ts"],
+  "opencv": { "tag": "5.0.0", "commit": "<OpenCV SHA>", "emsdk": "4.0.20", "files": { "opencv.mjs": { "bytes": 125547, "sha256": "<hex>" } }, "lockSha256": "<hex>" },
+  "files": { "worker.js": { "bytes": 123456, "sha256": "<hex>" } }
+}
+```
+
+The folder is staged beside its target and swapped in by rename, so a run that fails leaves the old
+folder and manifest as they were.
+
+```
+npm run vendor-check -- ../my-extension/vendor/cardvision-browser
+```
+
+exits 1 with one line per problem, and runs offline. It checks that every listed file has its
+hash and that none is missing or extra; that the OpenCV files match the lock recorded for that
+commit, and the toolkit's own lock when this checkout is at the manifest's commit; and that the
+license files are listed and not empty. When this checkout is at the manifest's commit and
+`dist/` was built from it, each file is also compared with that build, so two files updated from a
+newer commit, with the manifest edited to match, still fail. Without such a build the comparison is
+skipped and the command says so. To update, check out the newer commit, build, and run `npm run vendor` again.
+
 ### `loadRelease(url, options)` and `analyzeFrame(loaded, frame)`
 
 The lower level, without a worker or any scheduling. It runs in a page, in a worker, or under

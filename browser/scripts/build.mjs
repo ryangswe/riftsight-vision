@@ -17,6 +17,8 @@
 //   dist/opencv_js.wasm, texts, copied from vendor/opencv/ when scripts/build-opencv.mjs has
 //   dist/opencv.mjs.LEGAL.txt  written them; the worker imports them only when a geometric
 //                        stage is asked for. Without them the stage reports itself off.
+//   dist/build-info.json  the commit of this build and whether the tree had changes; scripts/vendor.mjs
+//                        refuses a build that is not of a clean HEAD
 //   dist/THIRD-PARTY-NOTICES.txt  the full license texts of the bundled third-party code
 //                        (scripts/notices.mjs); the *.LEGAL.txt files hold its short comments
 //   dist/demo/           the demo page, and beside it the scoring page (score.html) and their
@@ -24,6 +26,7 @@
 //
 // Run it with `npm run build`.
 
+import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -77,6 +80,16 @@ const opencvFiles = ["opencv.mjs", "opencv_js.wasm", "opencv.mjs.LEGAL.txt"];
 const vendor = join(root, "vendor", "opencv");
 const opencvMissing = opencvFiles.filter((name) => !existsSync(join(vendor, name)));
 if (opencvMissing.length === 0) for (const name of opencvFiles) copyFileSync(join(vendor, name), join(dist, name));
+
+// Which commit this build is of, so a product's vendoring can refuse a stale or modified build.
+let buildInfo = { commit: null, dirty: true };
+try {
+  const git = (...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  buildInfo = { commit: git("rev-parse", "HEAD"), dirty: git("status", "--porcelain") !== "" };
+} catch {
+  // Not a git checkout: the build is not vendorable.
+}
+writeFileSync(join(dist, "build-info.json"), `${JSON.stringify(buildInfo)}\n`);
 
 const size = (name) => `${(statSync(join(dist, name)).size / 1024).toFixed(0)} KB`;
 console.log(`dist/cardvision.js ${size("cardvision.js")}, dist/worker.js ${size("worker.js")}, dist/remote-release.js ${size("remote-release.js")}, dist/demo/demo.js ${size("demo/demo.js")}, dist/demo/score.js ${size("demo/score.js")}, ${wasm.length} ONNX Runtime files copied`);
