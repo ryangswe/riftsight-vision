@@ -157,7 +157,7 @@ jobs:
           CWS_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-          # "true" only for a dispatched run with `precheck_only` ticked; empty on a tag push.
+          # "true" only for a dispatched run with `precheck_only` ticked; "false" otherwise.
           PRECHECK_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.precheck_only }}
         run: |
           version="${TAG#"$TAG_PREFIX"}"

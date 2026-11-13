@@ -275,6 +275,9 @@ describe("the pieces", () => {
     expect(text).toMatch(/\n {10}PRECHECK_ONLY: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.precheck_only \}\}\n/);
     // A branch run is still refused.
     expect(text).toMatch(/if: github\.ref_type != 'tag'/);
+    const guard = text.slice(text.indexOf("- name: Only from a release tag"));
+    const guardBody = guard.slice(guard.indexOf("run: |") + 6, guard.indexOf("- uses:")).split("\n").map((l) => l.trim()).filter(Boolean);
+    expect(guardBody.pop()).toBe("exit 1");
     const upload = text.slice(text.indexOf("\n  upload:"));
     expect(text.slice(0, text.indexOf("\n  upload:"))).not.toMatch(/PRECHECK_ONLY|--precheck-only/);
 
