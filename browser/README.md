@@ -1033,7 +1033,8 @@ tries again, not a move elsewhere on the page. `startComputeFrame` returns a
 `frameRemoved` is true from `remove()` until the next accepted handshake. A product must not make
 the frame on its own load triggers while it is true: `loadWhen` fires once, so it is safe, but a
 reload on every `playing` event (a looping clip fires one) would quietly undo the unload, since the
-control accepts a frame the product connects itself.
+control accepts a frame the product connects itself. The viewer turning the product's hovers back
+on is the viewer's choice, not such a trigger, and may make the frame at once.
 
 `scripts/idle-unload-memory.mjs` measures what an unload gives back in a headless Chrome (the
 header says how to run it). Its pass rule is the macOS physical footprint right after the unload,

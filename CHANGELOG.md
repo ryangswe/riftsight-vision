@@ -9,6 +9,13 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Changed
+
+- Docs: the rule that a product's own load triggers must not make the compute frame while
+  `control.frameRemoved` is true now says that the viewer turning the product's hovers back on is
+  not one of those triggers. It is the viewer's own choice, so the product may make the frame at
+  once, on a playing video, as a hover would. No code changes.
+
 ## [0.13.0] - 2026-11-12
 
 The browser runtime waits less before a tooltip. The compute frame looks when
