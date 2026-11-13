@@ -9,6 +9,16 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.14.0rc2] - 2026-11-13
+
+A second release candidate. It changes one rule from 0.14.0rc1: a pointer move or tap onto a
+different card no longer waits for a retry's back-off. Every other look still waits. Change that
+may need action:
+
+- A host that relied on 0.14.0rc1's "no look of any kind while a retry waits" should expect a look
+  from a move or tap onto a different card during the back-off, at most one at a time, with the
+  250 ms gap and, on a playing picture, the re-look spacing.
+
 ### Changed
 
 - A pointer move or tap onto a different card now starts a look even while a retry waits out its
@@ -1711,7 +1721,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc2...HEAD
+[0.14.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc1...v0.14.0rc2
 [0.14.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0rc1
 [0.13.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.11.0...v0.12.0
