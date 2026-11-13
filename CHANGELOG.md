@@ -19,13 +19,41 @@ break the public surface; this file names each break and how to migrate.
   their tests, and `docs/hover-spec.json`, its generated index (`python tests/support_hover_spec.py`;
   a test fails when the two differ). Some clauses state behavior planned for 0.14.0, and some
   behavior planned for the product hosts' next release; each is marked.
+- Browser runtime: a slow start. When the compute frame's model finishes loading while a mouse
+  still rests over the picture past its grace period, within `MAX_REST_MS` of the last trusted
+  move, the frame asks for one look and the content script gives one picture for it (a failed
+  capture's prompt retry is part of that picture). A card it finds keeps showing under the usual
+  rules; if it finds none, nothing more is taken until the pointer moves. A tap gets no such
+  picture. The compute frame now posts its `ready` status before the capture a load asks for.
+  `SessionCoreDeps.playbackRate` (optional) lets a host that can read its video's playback rate
+  give it; `createSession` does.
 
 ### Changed
 
+- Browser runtime: budgeted pacing. The look a pointer move asks for over a stale picture now
+  starts when the newest look's picture is older than max(400, B) ms, where
+  B = max(F, min(P, L - R - M)): F the fast cadence, P the paced wait, L the answer's lifetime
+  (`hover.maxAgeMs` over the playback rate), R the median recent round trip and M one driver tick.
+  So the answer stays on screen for its lifetime, where the paced wait alone could leave the card
+  unnamed until the next cadence look. Looks a viewer waits on are no longer paced: the look when
+  a load ends asks at once, and the focus re-look of a playing picture is spaced by the fast
+  cadence from start to start instead of by the measured-pacing spacing. Keep-fresh looks (the
+  empty-spot rest, reading looks, `"always-on"` looks and retries that are not prompt) stay paced.
+  Under `SHOWN_HOLD`, the reading wait of a resting pointer is at most L + `maxMs` - R - M once a
+  round trip is known, so a card that stays where it is keeps showing between two looks. Without a
+  playback rate from the host, the session measures it from the video times it is sent.
+- Browser runtime: the back-off holds on every path. While the retry of an unanswered look waits
+  out its back-off, no look of any kind starts: the cadence on a playing video, a pointer move over
+  a stale picture, a cut and the end of a load used to be able to start one sooner.
 - Docs: the rule that a product's own load triggers must not make the compute frame while
   `control.frameRemoved` is true now says that the viewer turning the product's hovers back on is
   not one of those triggers. It is the viewer's own choice, so the product may make the frame at
   once, on a playing video, as a hover would. No code changes.
+
+### Fixed
+
+- `loadWhen` ignores a `playing` event a page script dispatches (not trusted); it makes the frame
+  at the browser's own `playing` event.
 
 ## [0.13.0] - 2026-11-12
 
