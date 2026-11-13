@@ -1047,58 +1047,83 @@ ready-minus-no-frame figure beside the pass figure to show how much there was to
 ### Vendoring the runtime, and checking it
 
 A product ships one copy of the runtime, from one commit of this repository. Build the commit,
-then copy it in:
+then copy it in, from the directory your product's scripts run in:
 
 ```
-npm ci && npm run build
-npm run vendor -- --into ../my-extension/vendor/cardvision-browser
+(cd path/to/toolkit/browser && npm ci && npm run build)
+npm --prefix path/to/toolkit/browser run vendor -- --into vendor/cardvision-browser
 ```
 
-`npm run vendor` refuses a tree with changes, a `dist/` that `npm run build` did not make from the
-current commit (it reads `dist/build-info.json`), and a `--commit` that is not `HEAD`; it never
-rebuilds. It writes one flat folder, so the paths a worker uses (`ort-wasm-*`, `opencv.mjs` and
-`opencv_js.wasm`, all beside `worker.js`) hold: `cardvision.js`, `worker.js`, `compute-session.js`,
-`page-capture.js`, `remote-release.js` and their `*.LEGAL.txt` files; ONNX Runtime's WebAssembly
-files the worker loads; OpenCV.js and its license text, after checking them against
-`opencv.lock.json`; `LICENSE`, `NOTICE` and `THIRD-PARTY-NOTICES.txt`; and `hover-spec.json` from
-`docs/` when the commit has one. `--no-opencv` and `--no-ort-wasm` leave a group out, and
-`--node-tools` adds `node/*.mjs`. Files the product keeps in the folder itself (`types/`, `*.d.ts`
-by default; `--unmanaged RULE` changes it) are left alone.
+`--into` is relative to the directory you ran npm in, not to `browser/`. `npm run vendor` refuses a
+tree with changes, a `dist/` that `npm run build` did not make from the current commit (it reads
+`dist/build-info.json`), and a `--commit` that is not `HEAD`; it never rebuilds. It also refuses to
+delete what it did not put there:
 
-`cardvision-vendor.json` records the toolkit version, the commit, the OpenCV lock and each file's
-size and SHA-256:
+- a folder that is not empty and has no `cardvision-vendor.json` (pass `--adopt` to replace a
+  hand-vendored runtime: it clears the old `VENDOR.json`, `types/`, `node/`, `*.d.ts` and
+  `*.LEGAL.txt`, runtime and OpenCV files, and still refuses any other file, hidden ones such as
+  `.git` included);
+- a vendored folder that holds files the old manifest does not list, unless `--unmanaged` names
+  them (hidden files count, and the message lists them);
+- a folder inside this checkout, or one that holds it, and a symbolic link.
+
+`--unmanaged` takes a folder (`--unmanaged notes/`) or one exact file name (`--unmanaged
+README.md`), repeated as needed. There are no suffix or wildcard rules, and a rule cannot cover a
+file the tool vendors. Nothing is unmanaged by default: the declarations are vendored too.
+
+The folder is flat, so the paths a worker uses (`ort-wasm-*`, `opencv.mjs` and `opencv_js.wasm`,
+all beside `worker.js`) hold. It holds `cardvision.js`, `worker.js`, `compute-session.js`,
+`page-capture.js`, `remote-release.js` and their `*.LEGAL.txt` files; their declarations, `types/`
+and the entry files `cardvision.d.ts`, `compute-session.d.ts`, `page-capture.d.ts` and
+`remote-release.d.ts` (`npm run build` writes them to `dist/`); ONNX Runtime's WebAssembly files the
+worker loads; OpenCV.js and its license text, after checking them against `opencv.lock.json`;
+`LICENSE`, `NOTICE` and `THIRD-PARTY-NOTICES.txt`; `hover-spec.json` from `docs/` when the commit
+has one; and `cardvision-vendor-check.mjs`. `--no-opencv` and `--no-ort-wasm` leave a group out, and
+`--node-tools` adds `node/*.mjs`.
+
+`cardvision-vendor.json` records the toolkit version, the commit, the options, the ONNX Runtime pin
+and each file's size and SHA-256. The pin is written even under `--no-ort-wasm`: a product that
+copies ONNX Runtime from its own dependency reads `ort.version` and `ort.files` from the manifest
+and builds with exactly those.
 
 ```json
 {
   "schemaVersion": 1,
   "toolkit": { "version": "0.14.0", "commit": "<40-character SHA>" },
-  "unmanaged": ["types/", ".d.ts"],
+  "options": { "opencv": true, "ortWasm": false, "nodeTools": false },
+  "unmanaged": [],
+  "ort": { "version": "1.29.0", "files": ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"] },
   "opencv": { "tag": "5.0.0", "commit": "<OpenCV SHA>", "emsdk": "4.0.20", "files": { "opencv.mjs": { "bytes": 125547, "sha256": "<hex>" } }, "lockSha256": "<hex>" },
   "files": { "worker.js": { "bytes": 123456, "sha256": "<hex>" } }
 }
 ```
 
-The folder is staged beside its target and swapped in by rename, so a run that fails leaves the old
-folder and manifest as they were.
+The folder is staged beside its target and swapped in by rename. A failed run restores the previous
+folder; a run that was killed part-way is detected on the next run, which restores the folder (or,
+if several earlier copies are left, stops and says what to move by hand). A previous copy that
+cannot be removed after a successful swap is a warning.
 
 ```
-npm run vendor-check -- ../my-extension/vendor/cardvision-browser
+npm --prefix path/to/toolkit/browser run vendor-check -- vendor/cardvision-browser
 ```
 
-exits 1 with one line per problem, and runs offline. It checks that every listed file has its
-hash and that none is missing or extra; that the OpenCV files match the lock recorded for that
-commit, and the toolkit's own lock when this checkout is at the manifest's commit; and that the
-license files are listed and not empty. When this checkout is at the manifest's commit and
-`dist/` was built from it, each file is also compared with that build, so two files updated from a
-newer commit, with the manifest edited to match, still fail. Without such a build the comparison is
-skipped and the command says so.
+exits 1 with one line per problem, and runs offline. Its last line says which checks ran. It checks
+that every listed file has its hash and that none is missing or extra; that the folder lists the
+files every vendored runtime has, the ONNX Runtime pin, and the licenses; and that the OpenCV files
+match the lock recorded for that commit. When this checkout's `HEAD` is the manifest's commit and
+`dist/` was built from that commit with no changes, it also compares with that build: the lock, the
+set of files the manifest's options call for, and each file. Two files updated from a newer commit,
+with the manifest edited to match, still fail. Otherwise the comparison is skipped and the output
+says why.
 
-`npm run vendor` also writes `cardvision-vendor-check.mjs` into the folder, listed in the manifest
-like any file. It is generated from the same module, uses only Node built-ins, and does everything
-`vendor-check` does except the comparison with a build, so a product's CI can run
+`cardvision-vendor-check.mjs` is generated from the same module, uses only Node built-ins, and does
+everything `vendor-check` does except the comparison with a build, so a product's CI can run
 `node vendor/cardvision-browser/cardvision-vendor-check.mjs vendor/cardvision-browser` with no
-toolkit checkout. The tests cover the OpenCV path with made-up files; the real path is checked when
-a product with the geometric stage first adopts the tool. To update, check out the newer commit, build, and run `npm run vendor` again.
+toolkit checkout. A product that already has a hand-made `VENDOR.json` runs `vendor` once with
+`--adopt`, replaces the reads of `VENDOR.json` with the manifest (`toolkit.commit`, `toolkit.version`,
+`ort`, `opencv`, `files`), and drops its own vendoring and hash-check scripts. The tests cover the
+OpenCV path with made-up files; the real path is checked when a product with the geometric stage
+adopts the tool.
 
 ### `loadRelease(url, options)` and `analyzeFrame(loaded, frame)`
 
