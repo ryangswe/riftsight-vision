@@ -1,0 +1,1216 @@
+{
+  "source": "docs/hover-spec.md",
+  "groups": {
+    "A": "When the model loads and unloads",
+    "B": "Capture authority and privacy",
+    "C": "When a look happens",
+    "P": "Pacing",
+    "W": "What is shown",
+    "F": "Outline",
+    "G": "Site rules",
+    "H": "Settings",
+    "X": "Invariants"
+  },
+  "clauses": [
+    {
+      "id": "S-A1",
+      "group": "A",
+      "title": "On a load-at-play page, the frames are made when the main video plays",
+      "status": "changes in 0.14.0",
+      "tests": [
+        {
+          "file": "idle-unload.test.ts",
+          "line": 719
+        },
+        {
+          "file": "idle-unload.test.ts",
+          "line": 729
+        },
+        {
+          "file": "idle-unload.test.ts",
+          "line": 742
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 836
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-A2",
+      "group": "A",
+      "title": "Elsewhere, the opening trusted pointer over the picture makes the frames",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-A3",
+      "group": "A",
+      "title": "The geometric stage loads at the earliest pointer, not at play",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "compute-frame.test.ts",
+          "line": 924
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 973
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-A4",
+      "group": "A",
+      "title": "After 10 idle minutes, the worker ends and both frames are removed",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "idle-unload.test.ts",
+          "line": 134
+        },
+        {
+          "file": "idle-unload.test.ts",
+          "line": 170
+        },
+        {
+          "file": "idle-frame-removal.test.ts",
+          "line": 101
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-A5",
+      "group": "A",
+      "title": "A pointer, a shown card or a look in flight keeps the model loaded",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "idle-unload.test.ts",
+          "line": 508
+        },
+        {
+          "file": "idle-unload.test.ts",
+          "line": 522
+        },
+        {
+          "file": "idle-unload.test.ts",
+          "line": 537
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-A6",
+      "group": "A",
+      "title": "After an idle unload, a trusted move or tap over the video makes the frames again",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "idle-frame-removal.test.ts",
+          "line": 128
+        },
+        {
+          "file": "idle-frame-removal.test.ts",
+          "line": 228
+        },
+        {
+          "file": "idle-frame-removal.test.ts",
+          "line": 240
+        },
+        {
+          "file": "idle-frame-removal.test.ts",
+          "line": 320
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-A7",
+      "group": "A",
+      "title": "Turning hovers back on while the video plays loads at once in the tab in front",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-A8",
+      "group": "A",
+      "title": "A background tab loads at play but takes no picture",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-A9",
+      "group": "A",
+      "title": "A worker that stops is restarted once; a second stop turns recognition off",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "compute-frame.test.ts",
+          "line": 324
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2238
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-A10",
+      "group": "A",
+      "title": "A frame the page deletes is made again at the next trusted play or pointer move",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-B1",
+      "group": "B",
+      "title": "Pictures are taken on trusted pointer events alone",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 299
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B2",
+      "group": "B",
+      "title": "A hover gives pictures for 10 s, then while a card shows and 5 s after",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-gate.test.ts",
+          "line": 15
+        },
+        {
+          "file": "capture-gate.test.ts",
+          "line": 26
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 318
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B3",
+      "group": "B",
+      "title": "Nothing is captured more than 60 s after the last trusted pointer event",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-gate.test.ts",
+          "line": 41
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 371
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B13",
+      "group": "B",
+      "title": "A frame that becomes ready late gets one picture for a pointer that still rests",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-B4",
+      "group": "B",
+      "title": "A tap gives pictures for 10 s and no longer",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 513
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 524
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 552
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B5",
+      "group": "B",
+      "title": "Before every capture, the last trusted point is checked against the picture now",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 331
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 397
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B6",
+      "group": "B",
+      "title": "Leaving, hiding the page or changing the video clears all authority",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 445
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B7",
+      "group": "B",
+      "title": "No picture is asked for before a pointer is over the video",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 291
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1786
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B8",
+      "group": "B",
+      "title": "A frame made at play holds no capture authority",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 249
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 276
+        },
+        {
+          "file": "idle-unload.test.ts",
+          "line": 678
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B9",
+      "group": "B",
+      "title": "Messages count when trusted and from the right window and origin",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 208
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 227
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 187
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B10",
+      "group": "B",
+      "title": "A late reply after a reset revives nothing",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 416
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 470
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-B11",
+      "group": "B",
+      "title": "Off means off",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 793
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1883
+        }
+      ],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-B12",
+      "group": "B",
+      "title": "A product's privacy page states the gate's timings as the code has them",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-C1",
+      "group": "C",
+      "title": "Looks follow the pointer: the fast cadence while it is active",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 101
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 107
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 116
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C2",
+      "group": "C",
+      "title": "A pointer resting on a shown card is looked at on the slow cadence",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 177
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 195
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C3",
+      "group": "C",
+      "title": "Under the reading hold, a resting pointer on a kept card gets no looks",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 163
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1369
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C4",
+      "group": "C",
+      "title": "Nothing is asked for while the pointer is off the picture",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "compute-frame.test.ts",
+          "line": 776
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2555
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C5",
+      "group": "C",
+      "title": "A pointer message over a stale picture asks for a look on that message",
+      "status": "changes in 0.14.0",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 258
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 268
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2543
+        }
+      ],
+      "pending": [
+        "slow-clock test"
+      ]
+    },
+    {
+      "id": "S-C6",
+      "group": "C",
+      "title": "When a load ends with the pointer active, the look is asked at once",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 2694
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2706
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2746
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 765
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C7",
+      "group": "C",
+      "title": "A pointer on an unverified card of a playing video asks for a look at once",
+      "status": "changes in 0.14.0",
+      "tests": [
+        {
+          "file": "relook-playing.test.ts",
+          "line": 160
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 198
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 248
+        }
+      ],
+      "pending": [
+        "slow-clock test"
+      ]
+    },
+    {
+      "id": "S-C8",
+      "group": "C",
+      "title": "A pointer on an unverified card of a still picture asks for a look again",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "geometric-focus.test.ts",
+          "line": 927
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C9",
+      "group": "C",
+      "title": "In an in-page session, a cut under a shown card asks for a look at once",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 1908
+        },
+        {
+          "file": "session.test.ts",
+          "line": 616
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C10",
+      "group": "C",
+      "title": "A look that comes back unanswered is retried after 250, 500, 1000, then 2000 ms",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 472
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 558
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 565
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1947
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C11",
+      "group": "C",
+      "title": "No look of any kind starts before a waiting retry is due",
+      "status": "changes in 0.14.0",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 539
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 757
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 832
+        }
+      ],
+      "pending": [
+        "slow-clock test"
+      ]
+    },
+    {
+      "id": "S-C12",
+      "group": "C",
+      "title": "A refused capture is not retried; the next pointer move asks again",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 798
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 806
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 383
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C13",
+      "group": "C",
+      "title": "A look with no reply is given up on after 5 s, or 15 s before the opening analysis",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 1988
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2002
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C14",
+      "group": "C",
+      "title": "A pointer resting on an empty spot is looked at every 2 s",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 892
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 919
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 961
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 2429
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C15",
+      "group": "C",
+      "title": "A still picture is analyzed three times, then not again until it changes",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 64
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 71
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C16",
+      "group": "C",
+      "title": "A repeat of an unchanged still picture reuses the look before it",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "geometric-focus.test.ts",
+          "line": 1316
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C17",
+      "group": "C",
+      "title": "One look in flight",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 328
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 739
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 304
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-C18",
+      "group": "C",
+      "title": "Pointer-started looks are at least 250 ms apart",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "scheduler.test.ts",
+          "line": 274
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 189
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-P1",
+      "group": "P",
+      "title": "Keep-fresh looks are paced from the measured analysis time",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "measured-pacing.test.ts",
+          "line": 29
+        },
+        {
+          "file": "measured-pacing.test.ts",
+          "line": 43
+        },
+        {
+          "file": "measured-pacing.test.ts",
+          "line": 64
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 961
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-P5",
+      "group": "P",
+      "title": "A stale picture is looked at early enough that the answer stays within its lifetime",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "slow-clock test"
+      ]
+    },
+    {
+      "id": "S-P2",
+      "group": "P",
+      "title": "Looks a viewer waits for are not slowed by pacing",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "slow-clock test"
+      ]
+    },
+    {
+      "id": "S-P3",
+      "group": "P",
+      "title": "Under the shown hold, a reading look comes before the card's hold runs out",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "slow-clock test"
+      ]
+    },
+    {
+      "id": "S-P4",
+      "group": "P",
+      "title": "The pacer learns from analyses that were not reused",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "geometric-focus.test.ts",
+          "line": 1424
+        },
+        {
+          "file": "measured-pacing.test.ts",
+          "line": 181
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W1",
+      "group": "W",
+      "title": "A card is shown when it is named; a box detected and not named shows nothing",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "hover.test.ts",
+          "line": 116
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1813
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W2",
+      "group": "W",
+      "title": "A result more than 2000 ms of video from the picture on screen is not shown",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session.test.ts",
+          "line": 453
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 304
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W3",
+      "group": "W",
+      "title": "Nothing from before a seek or a new source is shown",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 284
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 297
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 996
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W4",
+      "group": "W",
+      "title": "With keep-card on, a card stays while the pointer stays where it was seen",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 696
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 834
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 849
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 856
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1362
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W5",
+      "group": "W",
+      "title": "Under the reading hold, moving onto an overlapping card shows it",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 886
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 974
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1169
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W6",
+      "group": "W",
+      "title": "With keep-card off, a card is kept through short gaps",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 508
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 519
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 570
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 596
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 627
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W7",
+      "group": "W",
+      "title": "A kept card seen gone is marked held until it is seen again",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "session-core.test.ts",
+          "line": 723
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 769
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1014
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 1075
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W8",
+      "group": "W",
+      "title": "A shown card is reported again when it changes, not for a look's wobble",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "shown-outline.test.ts",
+          "line": 185
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 744
+        },
+        {
+          "file": "session-core.test.ts",
+          "line": 802
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-W9",
+      "group": "W",
+      "title": "In focus scope, nothing is shown where an unverified card overlaps the pointer",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "geometric-focus.test.ts",
+          "line": 1090
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 160
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-F1",
+      "group": "F",
+      "title": "The outline is the shown card's box on the picture, shown with the tooltip",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-F2",
+      "group": "F",
+      "title": "A turned card is hovered and outlined along its own edges",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "shown-outline.test.ts",
+          "line": 112
+        },
+        {
+          "file": "shown-outline.test.ts",
+          "line": 121
+        },
+        {
+          "file": "tilt.test.ts",
+          "line": 405
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-F3",
+      "group": "F",
+      "title": "A turned outline near the picture's edge",
+      "status": "open decision",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-F4",
+      "group": "F",
+      "title": "A held card keeps its tooltip and loses its outline",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "shown-outline.test.ts",
+          "line": 264
+        }
+      ],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-G1",
+      "group": "G",
+      "title": "Hovers run on watch, live and embed pages on YouTube, and on Twitch",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-G2",
+      "group": "G",
+      "title": "On YouTube, watch and live pages load at play; embeds wait for a hover",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-G3",
+      "group": "G",
+      "title": "On Twitch, channel, video and clip pages load at play; seven side pages wait for a hover",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-G4",
+      "group": "G",
+      "title": "The main video is the largest one on show",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 490
+        }
+      ],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-G5",
+      "group": "G",
+      "title": "After in-page navigation off an active page, a shrunk player is not captured",
+      "status": "changes in 0.14.0",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-H1",
+      "group": "H",
+      "title": "One switch turns hovers on and off, at once, in every tab",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-H2",
+      "group": "H",
+      "title": "Keep-card picks the hold: on by default",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-H3",
+      "group": "H",
+      "title": "A keep-card change remakes the compute frame: now in front, later behind",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "real-browser test"
+      ]
+    },
+    {
+      "id": "S-X1",
+      "group": "X",
+      "title": "Scheduling never changes what an analysis answers",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "geometric-focus.test.ts",
+          "line": 1316
+        }
+      ],
+      "pending": [
+        "slow-clock test"
+      ]
+    },
+    {
+      "id": "S-X2",
+      "group": "X",
+      "title": "The two halves come from one release of the contract",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "capture-control.test.ts",
+          "line": 662
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-X3",
+      "group": "X",
+      "title": "Pictures go to the extension's compute frame and nowhere else",
+      "status": "stable",
+      "tests": [
+        {
+          "file": "compute-frame.test.ts",
+          "line": 214
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 784
+        }
+      ],
+      "pending": []
+    },
+    {
+      "id": "S-X4",
+      "group": "X",
+      "title": "A product vendors the runtime from one toolkit commit",
+      "status": "stable",
+      "tests": [],
+      "pending": [
+        "vendoring check"
+      ]
+    }
+  ]
+}
