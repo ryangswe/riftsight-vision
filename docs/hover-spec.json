@@ -647,7 +647,7 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 268,
+          "line": 273,
           "target": false
         },
         {
@@ -715,47 +715,47 @@
       "tests": [
         {
           "file": "relook-playing.test.ts",
-          "line": 172,
+          "line": 180,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 193,
+          "line": 201,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 218,
+          "line": 226,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 241,
+          "line": 249,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 268,
+          "line": 276,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 286,
+          "line": 294,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 299,
+          "line": 307,
           "target": false
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 323,
+          "line": 331,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 249,
+          "line": 254,
           "target": false
         }
       ],
@@ -826,7 +826,7 @@
     {
       "id": "S-C11",
       "group": "C",
-      "title": "A waiting retry holds every look but the one a pointer move starts",
+      "title": "A waiting retry holds every look but the one a move or tap onto a different card starts",
       "status": "current",
       "tests": [
         {
@@ -851,7 +851,7 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 282,
+          "line": 287,
           "target": false
         },
         {
@@ -861,12 +861,12 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 294,
+          "line": 295,
           "target": false
         },
         {
-          "file": "budgeted-pacing.test.ts",
-          "line": 271,
+          "file": "slow-clock.test.ts",
+          "line": 311,
           "target": false
         },
         {
@@ -876,7 +876,7 @@
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 285,
+          "line": 286,
           "target": false
         },
         {
@@ -886,17 +886,27 @@
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 305,
+          "line": 301,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 326,
+          "line": 309,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 335,
+          "line": 316,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 325,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 341,
           "target": false
         },
         {
@@ -906,27 +916,87 @@
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 359,
+          "line": 373,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 365,
+          "line": 383,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 476,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 484,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 492,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 500,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 512,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 520,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 526,
+          "target": false
+        },
+        {
+          "file": "relook-playing.test.ts",
+          "line": 540,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 372,
+          "line": 271,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 382,
+          "line": 400,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 389,
+          "line": 407,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 413,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 420,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 430,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 437,
           "target": false
         },
         {
@@ -955,7 +1025,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 403,
+          "line": 411,
           "target": false
         }
       ],
@@ -1060,7 +1130,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 323,
+          "line": 331,
           "target": false
         }
       ],
@@ -1079,7 +1149,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 209,
+          "line": 217,
           "target": false
         }
       ],
@@ -1122,17 +1192,17 @@
       "tests": [
         {
           "file": "slow-clock.test.ts",
-          "line": 268,
+          "line": 273,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 307,
+          "line": 327,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 325,
+          "line": 345,
           "target": false
         },
         {
@@ -1246,12 +1316,12 @@
       "tests": [
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 410,
+          "line": 458,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 422,
+          "line": 470,
           "target": false
         },
         {
@@ -1266,7 +1336,7 @@
         },
         {
           "file": "relook-playing.test.ts",
-          "line": 268,
+          "line": 276,
           "target": false
         }
       ],
@@ -1280,57 +1350,57 @@
       "tests": [
         {
           "file": "slow-clock.test.ts",
-          "line": 220,
+          "line": 225,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 227,
+          "line": 232,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 342,
+          "line": 362,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 349,
+          "line": 369,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 356,
+          "line": 376,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 361,
+          "line": 381,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 367,
+          "line": 387,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 379,
+          "line": 399,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 388,
+          "line": 408,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 395,
+          "line": 415,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 402,
+          "line": 422,
           "target": false
         }
       ],

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Budgeted pacing (session-core.ts `applyCadence`): the stale-picture look starts within the
 // answer's lifetime (B = max(F, min(P, L - R - M))), the looks a viewer waits on are not paced,
-// the shown hold's reading wait comes before the card's hold runs out, and no look starts while a
-// retry waits out its back-off. A core on a made-up clock; nothing here reaches a network.
+// the shown hold's reading wait comes before the card's hold runs out, and a retry waiting out
+// its back-off holds every look except the ones a pointer move or tap starts. A core on a made-up clock; nothing here reaches a network.
 import { describe, expect, it } from "vitest";
 
 import { FrameScheduler, LOOK_RETRY_MS, STALE_FRAME_MS } from "../src/frame-scheduler.js";
@@ -256,7 +256,7 @@ describe("the measured playback rate (no rate from the host or the messages) cou
   });
 });
 
-describe("the back-off holds on every path (S-C11)", () => {
+describe("a waiting retry holds every look but a pointer move's own (S-C11)", () => {
   /** A scheduler with a retry due at 750 ms: a look started at 0 and came back busy at 500 ms. */
   const waiting = () => {
     const s = new FrameScheduler(500, 3, "pointer");
@@ -275,20 +275,67 @@ describe("the back-off holds on every path (S-C11)", () => {
     expect(s.due(1_000)).toBe(true);
   });
 
-  it("a pointer move over a stale picture starts a look at once, past the waiting retry (S-C11)", () => {
+  it("a move onto a different card starts a look at once, past the waiting retry, stale picture or not (S-C11)", () => {
     const s = waiting();
     s.pointerMoved(900);
-    expect(s.hoverTriggerDue(900, 10, false)).toBe(true);
-    expect(s.retryWaiting(900)).toBe(true); // the retry still waits for the looks nobody asks for
+    expect(s.hoverTriggerDue(900, 10, false, true)).toBe(true); // a stale picture
+    expect(s.hoverTriggerDue(900, 0, false, true)).toBe(true); // the same picture as the last look's: a paused one is never stale
+    expect(s.retryWaiting(900)).toBe(true); // the retry still waits for every other look
   });
 
-  it("a move during the back-off keeps the 250 ms gap and one look in flight (S-C11, S-C18)", () => {
+  it("a move within one card waits for the retry, stale picture or not (S-C11)", () => {
     const s = waiting();
     s.pointerMoved(900);
+    expect(s.hoverTriggerDue(900, 10, false)).toBe(false);
+    expect(s.hoverTriggerDue(900, 10, false, false)).toBe(false);
+    expect(s.hoverTriggerDue(1_000, 10, false)).toBe(true); // the retry is due: the staleness rule as ever
+  });
+
+  it("a tap onto a different card starts a look past the waiting retry as a move does (S-C11)", () => {
+    const s = waiting();
+    s.tapped(900);
+    expect(s.hoverTriggerDue(900, 10, false, true)).toBe(true);
+    expect(s.hoverTriggerDue(900, 10, false, false)).toBe(false);
+  });
+
+  it("a move onto a different card keeps the 250 ms gap and one look in flight while the retry waits (S-C11, S-C18)", () => {
+    const s = waiting(); // the retry is due at 1000
+    s.pointerMoved(900);
     s.started(900, { trigger: "hover", videoTimeSec: 10 });
-    expect(s.hoverTriggerDue(900, 20, true)).toBe(false); // one in flight
-    expect(s.hoverTriggerDue(1_000, 20, false)).toBe(false); // 100 ms after the last pointer-started look
-    expect(s.hoverTriggerDue(1_150, 20, false)).toBe(true);
+    expect(s.retryWaiting(950)).toBe(true);
+    expect(s.hoverTriggerDue(950, 20, false, true)).toBe(false); // 50 ms after the last pointer-started look
+  });
+
+  it("a move onto a different card asks nothing while a look is in flight, though the gap is long over and the retry waits (S-C11)", () => {
+    const s = waiting();
+    s.pointerMoved(900);
+    expect(s.hoverTriggerDue(900, 10, true, true)).toBe(false);
+    expect(s.hoverTriggerDue(900, 10, false, true)).toBe(true);
+  });
+
+  it("on a playing picture a move onto a different card keeps the re-look spacing from the last start (S-C11, S-C7)", () => {
+    const s = waiting();
+    s.setRelookSpacingMs(350);
+    s.started(600, { videoTimeSec: 1 }); // a look of any kind at 600; the retry is still waiting
+    expect(s.hoverTriggerDue(900, 2, false, true)).toBe(false); // 300 ms after it: under 350
+    expect(s.hoverTriggerDue(900, 1, false, true)).toBe(true); // a picture that did not move: the 250 ms gap only
+    expect(s.hoverTriggerDue(950, 2, false, true)).toBe(true);
+  });
+
+  it("a failed capture's prompt retry: a move-started look whose picture is received starts the back-off over; one whose capture fails steps it on (S-C11, S-C10)", () => {
+    const received = waiting();
+    received.pointerMoved(900);
+    received.started(900, { trigger: "hover", videoTimeSec: 10 });
+    received.lookUnanswered(900, { prompt: true });
+    received.pictureReceived();
+    expect(received.retryWaiting(900)).toBe(false); // a picture came: no retry waits
+    received.lookUnanswered(1_000);
+    expect([received.retryWaiting(1_249), received.retryWaiting(1_250)]).toEqual([true, false]); // 250 ms, the first step
+    const failed = waiting();
+    failed.pointerMoved(900);
+    failed.started(900, { trigger: "hover", videoTimeSec: 10 });
+    failed.lookUnanswered(900, { prompt: true });
+    expect([failed.retryWaiting(1_899), failed.retryWaiting(1_900)]).toEqual([true, false]); // 1000 ms, the third step
   });
 
   it("a move-started look that comes back unanswered advances the back-off: the third step (1000 ms), not the first (S-C11)", () => {
@@ -302,7 +349,7 @@ describe("the back-off holds on every path (S-C11)", () => {
     expect([s.retryWaiting(4_099), s.retryWaiting(4_100)]).toEqual([true, false]); // then 2000 ms
   });
 
-  it("a move does not reset the back-off; an analyzed answer does (S-C11)", () => {
+  it("an analyzed answer to a move-started look starts the back-off over: the next unanswered look waits 250 ms (S-C11, S-C10)", () => {
     const s = waiting();
     s.pointerMoved(900);
     s.started(900, { trigger: "hover", videoTimeSec: 10 });
@@ -323,10 +370,11 @@ describe("the back-off holds on every path (S-C11)", () => {
     return s;
   };
 
-  it("retry due at 750 ms: a move over a stale picture at 600 ms starts a look at 600 ms; the cadence at 650 ms still waits (S-C11)", () => {
+  it("retry due at 750 ms: a move onto a different card at 600 ms starts a look at 600 ms; the cadence at 650 ms still waits (S-C11)", () => {
     const s = due750();
     s.pointerMoved(600);
-    expect(s.hoverTriggerDue(600, 5, false)).toBe(true);
+    expect(s.hoverTriggerDue(600, 5, false, true)).toBe(true);
+    expect(s.hoverTriggerDue(600, 5, false)).toBe(false); // within one card: waits, stale or not
     const c = due750();
     c.framePresented();
     expect([c.due(650), c.due(749), c.due(750)]).toEqual([false, false, true]);

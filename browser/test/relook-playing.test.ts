@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { ACTIVE_ANALYZE_INTERVAL_MS, MEASURED_PACING_SHARE } from "../src/cadence.js";
 import { DRIVER_TICK_MS, FrameScheduler, HOVER_TRIGGER_MIN_GAP_MS, POINTER_GRACE_MS } from "../src/frame-scheduler.js";
-import type { WorkerRequest } from "../src/messages.js";
+import { type WorkerRequest } from "../src/messages.js";
 import type { FrameAnalysis } from "../src/pipeline.js";
 import { focusGroup } from "../src/recognition.js";
 import { SessionCore, type SessionCoreOptions } from "../src/session-core.js";
@@ -126,13 +126,21 @@ function session(setup: Setup) {
     return captures.length > n;
   };
   const asked = (): number[] => captures.map((c) => c.at);
+  /** The capture of the look in flight failed for want of a picture: the analysis before it
+   *  stays, and a prompt retry waits out its back-off. */
+  const failCapture = (): void => {
+    if (!open) return;
+    const { requestId } = open;
+    open = null;
+    core.captureFailed(requestId, "no picture", true);
+  };
   /** Run 10 ms at a time until a look is asked, and stop there (the look still in flight). */
   const untilAsk = (): void => {
     const n = captures.length;
     for (let i = 0; i < 1_000 && captures.length === n; i++) run(10);
     if (captures.length === n) throw new Error("no look was asked");
   };
-  return { core, run, point, answer, asked, untilAsk, captures, sent, fake, clock: () => now, elapsed: () => now - start, isOpen: () => open !== null };
+  return { core, run, point, answer, failCapture, asked, untilAsk, captures, sent, fake, clock: () => now, elapsed: () => now - start, isOpen: () => open !== null };
 }
 
 /** Moves every `every` ms from `from` to `to`, cycling through `xs`. */
@@ -446,3 +454,106 @@ const PLAYING_FOCUS_NO_STAGE: number[] = [10, 570, 1130, 1690, 2250, 2750, 3250,
 const PLAYING_FOCUS_LOADING: number[] = [10, 570, 1130, 1690, 2250, 2750, 3250, 3750];
 const PLAYING_ALWAYS_ON: number[] = [10, 1060, 2110, 3160];
 const PLAYING_FOCUS_READY_NAMED: number[] = [10, 530, 1050, 1570, 2090, 2610, 3130, 3750];
+
+describe("a retry waiting out its back-off: a move or tap onto a different card skips it, nothing else does (S-C11)", () => {
+  /** Paused, the pointer on A, the repeats used up; then a move onto B asks a look at t0 and its
+   *  capture fails; the retry look at t0 + 250 fails too, so the next retry is due at t0 + 750.
+   *  Returns the session and t0. */
+  const waiting = () => {
+    const s = session(READY_FOCUS);
+    s.run(4_000, [[10, X.A]], 100);
+    expect(s.isOpen()).toBe(false);
+    expect(s.point(X.B)).toBe(true); // a move onto unverified B asks (the picture is still)
+    const t0 = s.elapsed();
+    s.failCapture();
+    s.run(250);
+    expect(s.isOpen()).toBe(true); // the prompt retry, when its back-off ran out
+    s.failCapture();
+    expect(s.core.scheduler.retryWaiting(s.clock())).toBe(true);
+    return { s, t0 };
+  };
+
+  it("a move onto a different card starts a look at once, past the waiting retry", () => {
+    const { s, t0 } = waiting();
+    s.run(100);
+    expect(s.elapsed() - t0).toBe(350);
+    expect(s.point(X.C)).toBe(true);
+    expect(s.core.scheduler.lastTrigger).toBe("hover");
+  });
+
+  it("a move within the same card waits for the retry", () => {
+    const { s, t0 } = waiting();
+    s.run(100);
+    expect(s.elapsed() - t0).toBe(350);
+    expect(s.point(X.B + 0.01)).toBe(false);
+    expect(s.point(X.B)).toBe(false);
+  });
+
+  it("a tick and a resting pointer wait for the retry: nothing is asked before it is due", () => {
+    const { s, t0 } = waiting();
+    const n = s.captures.length;
+    s.run(490);
+    expect(s.elapsed() - t0).toBe(740);
+    expect(s.captures.length).toBe(n);
+  });
+
+  it("the 250 ms gap holds for a move onto a different card during the back-off", () => {
+    const { s, t0 } = waiting();
+    s.run(100);
+    expect(s.point(X.C)).toBe(true); // a pointer-started look at t0 + 350, its capture fails
+    s.failCapture();
+    s.run(50);
+    expect(s.point(X.B)).toBe(false); // 50 ms after it: under the gap
+    s.run(210);
+    expect(s.elapsed() - t0).toBe(610);
+    expect(s.point(X.B)).toBe(true); // 260 ms after it: the gap is over, the retry (due at t0 + 1350) is not
+  });
+
+  it("one look in flight holds: a move onto a different card while a look is out asks nothing", () => {
+    const s = session(READY_FOCUS);
+    s.run(4_000, [[10, X.A]], 100);
+    expect(s.point(X.B)).toBe(true);
+    expect(s.isOpen()).toBe(true);
+    expect(s.point(X.C)).toBe(false);
+  });
+
+  it("a move from a card to an empty spot waits for the retry", () => {
+    const { s } = waiting();
+    s.run(100);
+    expect(s.point(0.02)).toBe(false); // left of every card
+  });
+
+  it("no answer yet for the source: a move under the distance waits, one over it starts a look", () => {
+    const s = session(READY_FOCUS);
+    s.run(10, [], 0); // a paused picture: the 250 ms gap is the only spacing
+    expect(s.point(X.A)).toBe(true); // the first look; its capture fails: nothing was ever analyzed
+    s.failCapture();
+    s.untilAsk(); // the retry, at a tick
+    s.failCapture(); // rung 2: 500 ms
+    s.run(300);
+    expect(s.core.scheduler.retryWaiting(s.clock())).toBe(true);
+    expect(s.core.analysis()).toBeNull();
+    expect(s.point(X.A + 0.03)).toBe(false); // 0.03 of the picture: under the distance
+    expect(s.point(X.C)).toBe(true); // 0.25 of the picture away: another card
+  });
+
+  it("on a playing picture: jiggling within one card waits for the retry, a move onto another card starts a look once the re-look spacing has passed", () => {
+    const s = session(READY_FOCUS);
+    s.run(1_000, [[10, X.A]]);
+    s.untilAsk();
+    s.failCapture(); // rung 1: 250 ms
+    s.untilAsk();
+    s.failCapture(); // rung 2: 500 ms
+    s.untilAsk();
+    s.failCapture(); // rung 3: 1000 ms
+    const t3 = s.elapsed();
+    expect(s.core.scheduler.retryWaiting(s.clock())).toBe(true);
+    s.run(300);
+    expect(s.point(X.B)).toBe(false); // under the spacing of 500 ms (F) from the last start
+    s.run(300); // 600 ms in
+    expect(s.elapsed() - t3).toBe(600);
+    expect(s.core.scheduler.retryWaiting(s.clock())).toBe(true);
+    expect(s.point(X.A + 0.01)).toBe(false); // within card A
+    expect(s.point(X.B)).toBe(true); // onto B
+  });
+});
