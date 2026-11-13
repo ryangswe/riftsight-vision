@@ -468,8 +468,9 @@ message, no card shown and no look in flight. Time is counted from `ready`, by `
   load, and the look waits for it. Making the frame at play moves that cost ahead of a hover
   only while the frame has not yet gone idle.
 - A product's own triggers must respect `control.frameRemoved`. After `whenIdle.remove()` the
-  next frame is made by the trusted move or tap over the video, not by a load trigger of the
-  product's own; see "Dropping the frame when idle".
+  next frame is made by the trusted move or tap over the video, or by the viewer turning the
+  product's hovers back on, not by a load trigger of the product's own; see "Dropping the frame
+  when idle".
 
 ### Where a load's time goes
 
@@ -631,7 +632,10 @@ move or tap over the video tries again (a move elsewhere on the page does not); 
 the removed state, so the next `idle` removes it. For that reason a product must not make the
 frame on its own load triggers while `control.frameRemoved` (true from `remove()` until the next
 accepted handshake) is true: `loadWhen` fires once, so it is safe, but a reload on every `playing`
-event (a looping clip fires one) would quietly undo the unload. Without the option nothing changes: the frame stays and reloads in place.
+event (a looping clip fires one) would quietly undo the unload. The viewer turning the product's
+card hovers back on (a switch in its popup, say) is not one of those triggers: it is the viewer's
+own choice to use them, so the product may make the frame at once, on a playing video, as a
+hover would. Without the option nothing changes: the frame stays and reloads in place.
 
 **Making the frame at play.** `loadWhen(video, "play", make)` calls `make` once: at once if the
 video is already playing, else at its next `playing` event; never for a paused or ended video.
@@ -662,7 +666,8 @@ Recommended: make the compute frame when the video plays, not at the first point
   holds in pointer mode only.
 - A product's own triggers must respect `control.frameRemoved`. Once `whenIdle.remove()` has
   run, the next frame comes from the trusted move or tap over the video; a trigger of the
-  product's own (a `playing` event, a route change) must not make it.
+  product's own (a `playing` event, a route change) must not make it. The viewer turning the
+  product's hovers back on is the viewer's choice, not such a trigger, and may make it at once.
 - `loadWhen(video, "play")` waits for a `playing` event, not `play`, and runs `make()` at once
   for a video that is already playing when it is registered. It checks once when registered, then
   waits for `playing`. Register it when you pick the main video. If you register earlier, or use
