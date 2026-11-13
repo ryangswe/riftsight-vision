@@ -9,6 +9,81 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-12
+
+The browser runtime waits less before a tooltip. The compute frame looks when
+the pointer comes back to a picture instead of at the next cadence, and in focus scope a pointer on
+a card the newest look left unverified on a playing video is looked at at once. The geometric
+stage can load when the viewer first points at the picture instead of with the release. A new
+reading hold keeps a shown card while the pointer stays on it, and `npm run hover-speed` times the
+first tooltip on the two-frame path. Two changes may need action:
+
+- `WorkerRequest` has a new `load-stage` variant and `WorkerSession` a new `pointed()` method.
+  Code that switches over `WorkerRequest` exhaustively, or fakes a `WorkerSession`, needs to
+  handle them. A host that runs `createWorkerSession` directly with `geometricLoad: "pointer"`
+  calls `session.pointed()` on each pointer over the picture.
+- `startComputeFrame` now asks for no picture while the pointer is off it (`entryLook`, on by
+  default). Pass `entryLook: false` to keep the previous behavior. With `idleUnloadMs`, the idle
+  unload can come up to about the 10 s grace period sooner after the pointer leaves.
+
+No message between the two frames is added, and `PROTOCOL_VERSION` stays 2. No model or release
+document changes.
+
+### Added
+
+- Browser: `npm run hover-speed`, a report-only harness that times the first tooltip on the
+  two-frame path. It serves a page from 127.0.0.1 that plays a clip, with a stand-in content
+  script and, on a second local origin, the compute frame with the real worker on a release, and
+  moves the pointer through the browser's input. Its scenarios are a cold first hover (H1), a
+  first hover after the frame was made at play (H2), a slow paused point (H2P), a return to a
+  playing video after a gap (H5) and, when named with `--scenarios H6`, a later new card while
+  playing (H6). Every hover is a row with an outcome (`match`, `wrong`, `miss` or `timeout`), and
+  none leaves the denominator. It fails (exit code 1) only on its hard gates: a picture request
+  before a trusted pointer was over the picture, a picture delivered for a request made while
+  capture was not allowed, two requests outstanding, a request off loopback, or an incomplete
+  report; `--expect-entry-look` adds the look-on-entry gates. Elapsed times are reported, never
+  judged. See [browser/README.md](browser/README.md#measuring-hover-speed).
+- Browser: `scripts/idle-unload-memory.mjs` can load the geometric stage (`--geometric PATH`,
+  with `--gpu 1` for WebGPU) and pass `--geometric-load start|pointer`; each ready reading then
+  waits for the stage to settle. The report adds `readyReadsChecked`, `stage` and `stageLog`.
+- Browser: `startComputeFrame({ geometricLoad: "pointer" })` (type `GeometricLoad`; also an option
+  of `createWorkerSession`) loads the geometric stage when the viewer points at the picture
+  instead of with the release. The worker loads the release without the stage, and the first
+  `pointer` message has it load the stage, by a new worker request, `load-stage`, once the release
+  is ready (a `pointer` that arrived while it loaded counts); after an idle unload the stage waits
+  for a new `pointer` again, and one that resumes the frame counts. A frame made when a video
+  plays then neither downloads nor holds the stage's index until the viewer points at it, and the
+  looks until the stage is ready run without it. A look in flight when the stage is asked for is
+  answered without it. No message is added between the two frames and `PROTOCOL_VERSION` stays 2.
+  The default, `"start"`, sends the worker the same messages as before. A host that runs
+  `createWorkerSession` directly with `"pointer"` calls `session.pointed()` on each pointer over
+  the picture; otherwise the stage never loads. Two public types grow, which matters for code that
+  switches over them exhaustively or fakes them: `WorkerRequest` has a `load-stage` variant, and
+  `WorkerSession` has `pointed()`.
+- Docs: [When to make the frame](docs/extension-session.md#when-to-make-the-frame) recommends
+  making the compute frame when the video plays, so the load comes before the first hover. It
+  covers the idle clock, the cold hover after an unload, `control.frameRemoved`, the `playing`
+  event `loadWhen` waits for, and that a frame made at play holds no capture authority. Tests
+  cover that: no `capture` request in pointer mode before a pointer, and a `capture` request with
+  no pointer authority refused with `NOT_POINTING`.
+- Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
+  stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
+  can finish reading it after a player has moved the card. A card laid on its spot later, or one
+  that slides under a pointer at rest, does not replace it, and a cut does not end it; an
+  overlapping card that was already there, which the pointer moves onto, does. The pointer leaving
+  the area or the picture, a seek or a new source ends it. While it lasts, `shown` carries `held:
+  true` once two analyses in a row show the card gone (`misses`; one look that misses a card
+  still there does not blink its outline; on a still picture one look is enough), or once no
+  recent analysis is left and none is coming, until an analysis sees it again, so a host can
+  hide its outline and keep the tooltip. While the pointer rests past its grace period on a card
+  it shows, nothing is analyzed. It remembers the overlapping cards of the last 3 looks that saw
+  the kept card, at most 16. Off unless a host passes it; `SHOWN_HOLD` is unchanged.
+- Browser: `FrameAnalysis` faces carry `tiltedSkipped: true` when the tilted retry would have tried
+  them but its cap (`maxFacesPerFrame`) left them out on that frame, in any scope. A focus-scope
+  session with a ready stage looks again when the pointer moves onto one.
+- Browser: `FrameAnalysis.reused` (`true` on a reused analysis), the frame request's optional
+  `reuseOf` and `Pipeline.reuse`.
+
 ### Changed
 
 - Browser: in focus scope (`geometricScope: "focus"`) with the geometric stage ready, an active
@@ -88,61 +163,6 @@ break the public surface; this file names each break and how to migrate.
   the response has `blob()`, because in Chrome `Response.arrayBuffer()` in a worker leaves about 1.5
   times the file size resident after garbage collection (about 27 MB on a mid-size release) and
   `blob().arrayBuffer()` leaves nothing; the bytes and their size and SHA-256 checks are unchanged.
-
-### Added
-
-- Browser: `npm run hover-speed`, a report-only harness that times the first tooltip on the
-  two-frame path. It serves a page from 127.0.0.1 that plays a clip, with a stand-in content
-  script and, on a second local origin, the compute frame with the real worker on a release, and
-  moves the pointer through the browser's input. Its scenarios are a cold first hover (H1), a
-  first hover after the frame was made at play (H2), a slow paused point (H2P), a return to a
-  playing video after a gap (H5) and, when named with `--scenarios H6`, a later new card while
-  playing (H6). Every hover is a row with an outcome (`match`, `wrong`, `miss` or `timeout`), and
-  none leaves the denominator. It fails (exit code 1) only on its hard gates: a picture request
-  before a trusted pointer was over the picture, a picture delivered for a request made while
-  capture was not allowed, two requests outstanding, a request off loopback, or an incomplete
-  report; `--expect-entry-look` adds the look-on-entry gates. Elapsed times are reported, never
-  judged. See [browser/README.md](browser/README.md#measuring-hover-speed).
-- Browser: `scripts/idle-unload-memory.mjs` can load the geometric stage (`--geometric PATH`,
-  with `--gpu 1` for WebGPU) and pass `--geometric-load start|pointer`; each ready reading then
-  waits for the stage to settle. The report adds `readyReadsChecked`, `stage` and `stageLog`.
-- Browser: `startComputeFrame({ geometricLoad: "pointer" })` (type `GeometricLoad`; also an option
-  of `createWorkerSession`) loads the geometric stage when the viewer points at the picture
-  instead of with the release. The worker loads the release without the stage, and the first
-  `pointer` message has it load the stage, by a new worker request, `load-stage`, once the release
-  is ready (a `pointer` that arrived while it loaded counts); after an idle unload the stage waits
-  for a new `pointer` again, and one that resumes the frame counts. A frame made when a video
-  plays then neither downloads nor holds the stage's index until the viewer points at it, and the
-  looks until the stage is ready run without it. A look in flight when the stage is asked for is
-  answered without it. No message is added between the two frames and `PROTOCOL_VERSION` stays 2.
-  The default, `"start"`, sends the worker the same messages as before. A host that runs
-  `createWorkerSession` directly with `"pointer"` calls `session.pointed()` on each pointer over
-  the picture; otherwise the stage never loads. Two public types grow, which matters for code that
-  switches over them exhaustively or fakes them: `WorkerRequest` has a `load-stage` variant, and
-  `WorkerSession` has `pointed()`.
-- Docs: [When to make the frame](docs/extension-session.md#when-to-make-the-frame) recommends
-  making the compute frame when the video plays, so the load comes before the first hover. It
-  covers the idle clock, the cold hover after an unload, `control.frameRemoved`, the `playing`
-  event `loadWhen` waits for, and that a frame made at play holds no capture authority. Tests
-  cover that: no `capture` request in pointer mode before a pointer, and a `capture` request with
-  no pointer authority refused with `NOT_POINTING`.
-- Browser: a reading hold, `hold: READING_HOLD` (`ShownHold.untilPointerLeaves`). A shown card
-  stays while the pointer stays on the area where it was seen, with no time limit, so a viewer
-  can finish reading it after a player has moved the card. A card laid on its spot later, or one
-  that slides under a pointer at rest, does not replace it, and a cut does not end it; an
-  overlapping card that was already there, which the pointer moves onto, does. The pointer leaving
-  the area or the picture, a seek or a new source ends it. While it lasts, `shown` carries `held:
-  true` once two analyses in a row show the card gone (`misses`; one look that misses a card
-  still there does not blink its outline; on a still picture one look is enough), or once no
-  recent analysis is left and none is coming, until an analysis sees it again, so a host can
-  hide its outline and keep the tooltip. While the pointer rests past its grace period on a card
-  it shows, nothing is analyzed. It remembers the overlapping cards of the last 3 looks that saw
-  the kept card, at most 16. Off unless a host passes it; `SHOWN_HOLD` is unchanged.
-- Browser: `FrameAnalysis` faces carry `tiltedSkipped: true` when the tilted retry would have tried
-  them but its cap (`maxFacesPerFrame`) left them out on that frame, in any scope. A focus-scope
-  session with a ready stage looks again when the pointer moves onto one.
-- Browser: `FrameAnalysis.reused` (`true` on a reused analysis), the frame request's optional
-  `reuseOf` and `Pipeline.reuse`.
 
 ### Fixed
 
@@ -1598,7 +1618,9 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.9.1...v0.10.0
