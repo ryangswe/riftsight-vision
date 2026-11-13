@@ -37,7 +37,7 @@ describe("the harness", () => {
 
   it("first load: the name comes one analysis after the release loads (entry look)", () => {
     const run = runScenario(scenarioNamed("first-load"), { workerMs: 500 });
-    expect(run.residences).toEqual([{ card: "A", startMs: 0, latencyMs: 1500 + 500 }]);
+    expect(run.residences).toEqual([{ card: "A", startMs: 0, dwellMs: 20_000, latencyMs: 1500 + 500 }]);
     expect(run.looks[0]).toEqual({ at: 1500, trigger: expect.anything() });
   });
 
@@ -61,12 +61,26 @@ describe("the harness", () => {
   });
 
   it("classifies a gap by whether 2 x (capture + analysis) fits the answer's lifetime", () => {
-    const fits = runScenario(scenarioNamed("viewer-session"), { workerMs: 400, focus: true, rule: "strict" });
+    const fits = runScenario(scenarioNamed("seek"), { workerMs: 400 }); // the seek drops the name until the next look
     expect(fits.gaps.length).toBeGreaterThan(0);
     expect(fits.gaps.every((g) => g.avoidable)).toBe(true);
-    const tooSlow = runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1700 });
+    const tooSlow = runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1700, hold: "none" });
     expect(tooSlow.gaps.length).toBeGreaterThan(0);
     expect(tooSlow.gaps.every((g) => !g.avoidable)).toBe(true);
+  });
+
+  it("under SHOWN_HOLD a gap is judged against the hold's lifetime: the W = 1700 blink is avoidable", () => {
+    const run = runScenario(scenarioNamed("rest-past-grace"), { workerMs: 1700, hold: "shown" });
+    expect(run.gaps.length).toBeGreaterThan(0);
+    expect(run.gaps.every((g) => g.avoidable)).toBe(true);
+  });
+
+  it("counts a visit as eligible only when its dwell lasts one capture plus analysis, and censors unnamed ones at their dwell", () => {
+    const run = runScenario(scenarioNamed("sweep-fan"), { workerMs: 1700, focus: true });
+    expect(run.metrics.residences).toBe(5);
+    expect(run.metrics.eligible).toBeLessThan(5); // about 1 s on each card: shorter than 1700 ms
+    const slow = runScenario(scenarioNamed("viewer-session"), { workerMs: 1200, focus: true });
+    expect(slow.metrics.eligible).toBe(3);
   });
 
   it("at 2x playback an analysis longer than the answer's lifetime in wall time names nothing", () => {
@@ -188,5 +202,16 @@ describe("known behaviors of today's code, under the rule current (expected fail
   });
   it.fails("back-off bypass: old 600 ms, intended not before 750 ms (a move never shortens a back-off)", () => {
     expect(backoff("current").looks[1]!.at).toBeGreaterThanOrEqual(750);
+  });
+
+  // The same bypass on the cadence path at a normal frame rate: `due()` starts a look on the
+  // newly presented frame while the retry (due 250 ms after the failure) is still waiting.
+  const backoff50 = () => runScenario(scenarioNamed("retry-backoff-50fps"), { workerMs: 500, measuredPacing: false, rule: "current" });
+  it("back-off bypass at 50 fps today: the cadence starts the second look at 500 ms, 250 ms before the retry", () => {
+    const run = backoff50();
+    expect(run.looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [500, "cadence"]]);
+  });
+  it.fails("back-off bypass at 50 fps: old 500 ms, intended no look of any kind before a due retry (750 ms)", () => {
+    expect(backoff50().looks[1]!.at).toBeGreaterThanOrEqual(750);
   });
 });

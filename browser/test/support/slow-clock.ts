@@ -24,10 +24,16 @@
 //   current:  stale threshold = max(400, cadence in effect); re-look spacing = max(250, 4 x median
 //             worker time, up to 4000), as the code does today. Nothing is replaced.
 //   strict:   stale threshold = max(400, F); re-look spacing = F.
-//   budgeted: B = max(F, min(P, A - R - M)); stale threshold = max(400, B); re-look spacing = B.
-//             Warm-up (no round trip yet): B = F. A negative A - R - M gives B = F. A floor F
+//   budgeted: B = max(F, min(P, L - R - M)) with L = A / playback rate, the answer's lifetime in
+//             wall ms; stale threshold = max(400, B); re-look spacing = F (as strict).
+//             Warm-up (no round trip yet): B = F. A negative L - R - M gives B = F. A floor F
 //             above the ceiling P gives B = F (the floor wins, as in `pacedIntervalMs`). With
-//             pacing off, P = F, so B = F.
+//             pacing off, P = F, so B = F. Limitation: the threshold is compared with video age
+//             (as the code compares the cadence today), while B is in wall ms.
+//   budgeted+relook: as budgeted, and the re-look spacing is also B.
+//
+// Both candidates leave the entry looks (first load, re-entry, idle reload: `due()`), the reading
+// ceiling, the empty-spot rest and the retries as they are.
 //
 // Both candidates keep every other limit: one look in flight, at least 250 ms between looks a
 // pointer asks for, the back-off of an unanswered look, and the paced cadence of looks nobody is
@@ -40,11 +46,11 @@ import type { FrameAnalysis } from "../../src/pipeline.js";
 import { focusGroup } from "../../src/recognition.js";
 import { READING_HOLD, SessionCore, type SessionCoreOptions, type Shown, SHOWN_HOLD } from "../../src/session-core.js";
 
-export type Rule = "current" | "strict" | "budgeted";
+export type Rule = "current" | "strict" | "budgeted" | "budgeted+relook";
 export type HoldMode = "none" | "shown" | "reading";
 export type Backend = "webgpu" | "wasm";
 
-export const RULES: readonly Rule[] = ["current", "strict", "budgeted"];
+export const RULES: readonly Rule[] = ["current", "strict", "budgeted", "budgeted+relook"];
 
 /** One run's configuration. */
 export interface SlowClockConfig {
@@ -154,6 +160,9 @@ export interface Look {
 export interface Metrics {
   /** Residences of the pointer on a card, and how many were named at all. */
   residences: number;
+  /** Visits with a dwell of at least one capture + analysis (the only ones that can be named). */
+  eligible: number;
+  /** Eligible visits never named. */
   unnamed: number;
   latencyAvgMs: number | null;
   latencyMaxMs: number | null;
@@ -175,7 +184,7 @@ export interface RunResult {
   gaps: Gap[];
   looks: Look[];
   /** Per residence: the card, its arrival, and the latency to the first correct name (null: never). */
-  residences: Array<{ card: string; startMs: number; latencyMs: number | null }>;
+  residences: Array<{ card: string; startMs: number; dwellMs: number; latencyMs: number | null }>;
 }
 
 // ------------------------------------------------------------------ the run
@@ -320,6 +329,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   );
 
   installRule(core, cfg.rule, {
+    lifetimeMs: MAX_AGE_MS / cfg.playbackRate,
     fastCadence,
     pacedMs: () => (cfg.measuredPacing && workerSamples.length >= MEASURED_PACING_MIN_SAMPLES ? Math.max(fastCadence, Math.min(MEASURED_PACING_ACTIVE_CEILING_MS, median(workerSamples) / MEASURED_PACING_SHARE)) : fastCadence),
     roundTripMs: () => (roundTrips.length === 0 ? null : median(roundTrips)),
@@ -373,7 +383,9 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   const gaps: Gap[] = [];
   const residences: RunResult["residences"] = [];
   const ages: number[] = [];
-  const lifetimeMs = MAX_AGE_MS / cfg.playbackRate;
+  // A hold keeps what is displayed beyond the answer's own life: the lifetime a gap is judged against.
+  const holdMs = cfg.hold === "shown" ? SHOWN_HOLD.maxMs : cfg.hold === "reading" ? Infinity : 0;
+  const lifetimeMs = (MAX_AGE_MS + holdMs) / cfg.playbackRate;
   const cycleNear = (t: number): number => {
     // The look time around a gap: the latest answer before it and the first after, whichever is longer.
     let before = 0;
@@ -395,7 +407,7 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   const closeResidence = (end: number): void => {
     if (!res) return;
     closeGap(res, end);
-    residences.push({ card: res.card, startMs: res.startMs, latencyMs: res.firstNamedAt === null ? null : res.firstNamedAt - res.startMs });
+    residences.push({ card: res.card, startMs: res.startMs, dwellMs: end - res.startMs, latencyMs: res.firstNamedAt === null ? null : res.firstNamedAt - res.startMs });
     res = null;
   };
 
@@ -442,12 +454,16 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
   }
   closeResidence(scenario.durationMs);
 
-  const named = residences.filter((r) => r.latencyMs !== null).map((r) => r.latencyMs!);
+  // Only visits long enough to be named count; one never named is censored at its dwell.
+  const typicalCycleMs = median(workerTimes) + cfg.captureDelayMs;
+  const eligible = residences.filter((r) => r.dwellMs >= typicalCycleMs);
+  const named = eligible.map((r) => r.latencyMs ?? r.dwellMs);
   const sum = (v: readonly number[]): number => v.reduce((a, b) => a + b, 0);
   const gapTotal = sum(gaps.map((g) => g.lengthMs));
   const metrics: Metrics = {
     residences: residences.length,
-    unnamed: residences.length - named.length,
+    eligible: eligible.length,
+    unnamed: eligible.filter((r) => r.latencyMs === null).length,
     latencyAvgMs: named.length ? sum(named) / named.length : null,
     latencyMaxMs: named.length ? Math.max(...named) : null,
     ageAvgMs: ages.length ? sum(ages) / ages.length : null,
@@ -467,15 +483,18 @@ export function runScenario(scenario: Scenario, partial: Partial<SlowClockConfig
 
 interface RuleInputs {
   fastCadence: number;
+  /** The answer's lifetime in wall ms: the max age over the playback rate. */
+  lifetimeMs: number;
   /** P: the paced interval for a pointer-waiting look. */
   pacedMs(): number;
   /** R: the median recent round trip, or null before one is known. */
   roundTripMs(): number | null;
 }
 
-/** The "budgeted" rule's B: max(F, min(P, A - R - M)), and F while no round trip is known
+/** The "budgeted" rule's B: max(F, min(P, L - R - M)), and F while no round trip is known
  *  (`roundTripMs` null). F is the fixed fast cadence, P the paced interval, R the median round
- *  trip, A the max age and M the margin (one driver tick). A negative A - R - M gives F; so does
+ *  trip, L the answer's lifetime in wall ms (the max age over the playback rate) and M the margin
+ *  (one driver tick). A negative L - R - M gives F; so does
  *  an F above P, since the floor is applied last. */
 export function budgetedSpacingMs(fastCadence: number, pacedMs: number, roundTripMs: number | null, maxAgeMs: number = MAX_AGE_MS): number {
   if (roundTripMs === null) return fastCadence;
@@ -487,9 +506,10 @@ function installRule(core: SessionCore, rule: Rule, inputs: RuleInputs): void {
   if (rule === "current") return;
   const sched = core.scheduler;
   const F = inputs.fastCadence;
-  const budget = (): number => budgetedSpacingMs(F, inputs.pacedMs(), inputs.roundTripMs());
-  const spacing = rule === "strict" ? (): number => F : budget;
-  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, spacing());
+  const budget = (): number => budgetedSpacingMs(F, inputs.pacedMs(), inputs.roundTripMs(), inputs.lifetimeMs);
+  const stale = rule === "strict" ? (): number => F : budget;
+  const spacing = rule === "budgeted+relook" ? budget : (): number => F;
+  sched.staleFrameMs = (): number => Math.max(STALE_FRAME_MS, stale());
   const relook = sched.relookDue.bind(sched);
   sched.relookDue = (now: number, inFlight: boolean, videoTimeSec?: number): boolean => {
     sched.setRelookSpacingMs(spacing());
@@ -524,64 +544,77 @@ const warmA = (): ScenarioEvent[] => jiggle(0, 4000, 400, 200, 250);
 
 export const SCENARIOS: readonly Scenario[] = [
   {
-    name: "first-load", summary: "the pointer is on card A before the release has loaded (1500 ms)", durationMs: 20_000, layout: ABC, startReady: false,
+    name: "first-load", summary: "the pointer is on card A from 0 to 20 s, before the release has loaded (1500 ms); dwell 20 s", durationMs: 20_000, layout: ABC, startReady: false,
     events: [mv(0, 200, 250), { at: LOAD_MS, kind: "load" }],
   },
   ...[1_000, 3_000, 12_000].map(
     (gap): Scenario => ({
-      name: `reentry-${gap / 1000}s`, summary: `the pointer leaves a warm session and returns to card A after ${gap / 1000} s`, durationMs: 8_000 + gap + 8_000, layout: ABC, startReady: true,
+      name: `reentry-${gap / 1000}s`, summary: `the pointer rests on card A 8 s (dwell 8 s), leaves, and returns to card A after ${gap / 1000} s (dwell 8 s)`, durationMs: 8_000 + gap + 8_000, layout: ABC, startReady: true,
       events: [...warmA(), { at: 8_000, kind: "leave" }, mv(8_000 + gap, 200, 250)],
     }),
   ),
   {
-    name: "idle-reload", summary: "the worker is unloaded while the pointer is away; the pointer returns and the release loads again (1500 ms)", durationMs: 30_000, layout: ABC, startReady: true,
+    name: "idle-reload", summary: "the worker is unloaded while the pointer is away; the pointer returns and the release loads again (1500 ms); dwell 8 s then 10 s", durationMs: 30_000, layout: ABC, startReady: true,
     events: [...warmA(), { at: 8_000, kind: "leave" }, { at: 9_000, kind: "unload" }, mv(20_000, 200, 250), { at: 20_000 + LOAD_MS, kind: "load" }],
   },
   {
-    name: "move-onto-card", summary: "the pointer wanders over an empty spot, then moves onto card A", durationMs: 14_000, layout: ABC, startReady: true,
+    name: "move-onto-card", summary: "the pointer wanders over an empty spot 6.5 s, then moves onto card A (dwell 7.5 s)", durationMs: 14_000, layout: ABC, startReady: true,
     events: [...jiggle(0, 6000, 400, EMPTY.px, EMPTY.py), mv(6_500, 200, 250)],
   },
   {
-    name: "sweep-fan", summary: "the pointer sweeps across a fan of five cards in 3 s", durationMs: 12_000, layout: FAN, startReady: true,
-    events: [...jiggle(0, 4000, 400, 40, 450), ...sweep(5_000, 8_000, 100, 160, 740, 250)],
+    name: "sweep-fan", summary: "the pointer sweeps across a fan of five cards, about 1 s on each (dwell about 1 s)", durationMs: 14_000, layout: FAN, startReady: true,
+    events: [...jiggle(0, 4000, 400, 40, 450), ...sweep(5_000, 10_200, 100, 160, 740, 250)],
   },
   {
-    name: "rest-past-grace", summary: "the pointer arrives on card A and rests 43 s, past the 10 s grace", durationMs: 45_000, layout: ABC, startReady: true,
+    name: "rest-past-grace", summary: "the pointer arrives on card A and rests, past the 10 s grace (dwell 45 s)", durationMs: 45_000, layout: ABC, startReady: true,
     events: jiggle(0, 2000, 400, 200, 250),
   },
   {
-    name: "card-covered", summary: "card A covers card B; at 10 s A is moved away and B is under the pointer", durationMs: 25_000, layout: [{ id: "B", x: 100, y: 100, w: 200, h: 300 }, { id: "A", x: 110, y: 110, w: 180, h: 280 }], startReady: true,
+    name: "card-covered", summary: "card A covers card B; at 10 s A is moved away and B is under the pointer (dwell 10 s on A, 15 s on B)", durationMs: 25_000, layout: [{ id: "B", x: 100, y: 100, w: 200, h: 300 }, { id: "A", x: 110, y: 110, w: 180, h: 280 }], startReady: true,
     events: [...jiggle(0, 3000, 400, 200, 250), { at: 10_000, kind: "layout", cards: [{ id: "B", x: 100, y: 100, w: 200, h: 300 }] }],
   },
   {
-    name: "empty-spot", summary: "the pointer rests on an empty spot; a card appears there at 8 s", durationMs: 30_000, layout: ABC, startReady: true,
+    name: "empty-spot", summary: "the pointer rests on an empty spot; a card appears there at 8 s (dwell on it 22 s)", durationMs: 30_000, layout: ABC, startReady: true,
     events: [...jiggle(0, 3000, 400, EMPTY.px, EMPTY.py), { at: 8_000, kind: "layout", cards: [...ABC, { id: "E", x: 830, y: 350, w: 150, h: 140 }] }],
   },
   {
-    name: "retry-backoff", summary: "a look fails at W, its retry is due 250 ms later, and a trusted move arrives at 600 ms (the video presents a frame a second)", durationMs: 4_000, layout: ABC, startReady: true,
+    name: "retry-backoff", summary: "a look fails at W, its retry is due 250 ms later, and a trusted move arrives at 600 ms (the video presents a frame a second); dwell 4 s", durationMs: 4_000, layout: ABC, startReady: true,
     events: [mv(0, 200, 250), mv(600, 205, 250)], failLooks: [1], frameEveryMs: 1_000,
   },
   {
-    name: "pause-resume", summary: "the pointer rests on card A; the video pauses at 6 s and resumes at 12 s", durationMs: 20_000, layout: ABC, startReady: true,
+    name: "retry-backoff-50fps", summary: "as retry-backoff with the video presenting 50 frames a second; no move; dwell 4 s", durationMs: 4_000, layout: ABC, startReady: true,
+    events: [mv(0, 200, 250)], failLooks: [1],
+  },
+  {
+    name: "pause-resume", summary: "the pointer rests on card A; the video pauses at 6 s and resumes at 12 s (dwell 20 s)", durationMs: 20_000, layout: ABC, startReady: true,
     events: [...warmA(), { at: 6_000, kind: "pause" }, { at: 12_000, kind: "resume" }],
   },
   {
-    name: "seek", summary: "the pointer rests on card A; the video seeks 30 s ahead at 8 s", durationMs: 20_000, layout: ABC, startReady: true,
+    name: "seek", summary: "the pointer rests on card A; the video seeks 30 s ahead at 8 s (dwell 20 s)", durationMs: 20_000, layout: ABC, startReady: true,
     events: [...warmA(), { at: 8_000, kind: "seek", bySec: 30 }],
   },
 ];
 
 /** A viewer session of one minute on a fan of cards: the scenario of the report's tables. */
 export const VIEWER_SESSION: Scenario = {
-  name: "viewer-session", summary: "wander, point at a card and rest past the grace, sweep the fan, rest, an empty spot, another card", durationMs: 60_000, layout: FAN, startReady: true,
+  name: "viewer-session", summary: "wander over empty ground 2 s; card F2 for 17.5 s (dwell 17.5 s); card F4 for 10 s (dwell 10 s); an empty spot 15 s; card F3 for 15 s (dwell 15 s)", durationMs: 60_000, layout: FAN, startReady: true,
   events: [
     ...jiggle(0, 2000, 400, 40, 450),
     ...jiggle(2_500, 4_500, 400, 270, 250),
-    ...sweep(20_000, 23_000, 100, 160, 740, 250),
+    ...jiggle(20_000, 21_500, 400, 500, 250),
     mv(30_000, EMPTY.px, EMPTY.py),
     mv(45_000, 420, 250),
   ],
 };
+
+/** The fan swept at 20 start offsets, 0, 50, ..., 950 ms: the sweep's phase against the ticks and the cadence. */
+export const SWEEP_OFFSETS_MS: readonly number[] = Array.from({ length: 20 }, (_, i) => i * 50);
+export function sweepScenario(offsetMs: number): Scenario {
+  return {
+    name: `sweep-${offsetMs}`, summary: "wander 5 s, then sweep five cards, about 1 s on each", durationMs: 12_000 + offsetMs, layout: FAN, startReady: true,
+    events: [...jiggle(0, 4000, 400, 40, 450), ...sweep(5_000 + offsetMs, 10_200 + offsetMs, 100, 160, 740, 250)],
+  };
+}
 
 export function scenarioNamed(name: string): Scenario {
   const found = name === VIEWER_SESSION.name ? VIEWER_SESSION : SCENARIOS.find((s) => s.name === name);
@@ -623,15 +656,27 @@ export function renderTable(title: string, labelHeads: readonly string[], rows: 
 }
 
 const LEGEND = `Columns (ms unless noted). lat: from the pointer arriving on a card to a displayed answer naming it
-(avg and max over cards named; unnamed = cards never named / cards visited). age: the age of the
+(avg and max over the visits long enough to be named, i.e. a dwell of at least one capture plus
+analysis; a visit never named counts at its dwell; unnamed = such visits never named / such visits). age: the age of the
 answer when it first shows (video time). gap: time with the pointer on a card already named once and
 nothing (or another card) displayed; avoid / unavoid split it by whether 2 x (capture + analysis)
 fits in the answer's lifetime (max age 2000 ms, divided by the playback rate); a hold lengthens what
-is displayed, so a gap under a hold can be avoidable although this test calls it unavoidable. looks/min: looks
+is displayed, so under SHOWN_HOLD the lifetime is the max age plus the hold's 5000 ms, and under the
+reading hold it is unbounded. looks/min: looks
 started per minute. busy: share of the run the worker spends analyzing.
+The rules: current (today); strict (a look the viewer waits on starts at the backend's fixed fast cadence);
+budgeted (the stale-picture threshold only is max(F, min(paced interval, answer lifetime - round trip - 250)),
+the focus re-look at F); budgeted+relook (the re-look spacing also gets that budget). The budget uses the
+answer's wall lifetime, 2000 ms over the playback rate (1000 ms at 2x), but is compared with video age as
+the code compares its cadence, which is a limitation. Entry looks, the reading ceiling, the empty-spot rest
+and retries are the same under every rule.
 This is a model of the scheduling policy on a virtual clock, not a browser measurement.`;
 
-export const OWNER_WORKER_MS = [200, 500, 800, 1200, 1700] as const;
+const FOOTNOTE = `Footnote. A gap at W of 1400 or more under SHOWN_HOLD is a reading-wait problem: a reading deadline that includes
+the hold removes it, and none of these rules models that, so the rules cannot differ there. It is the
+reading deadline's to fix, not the choice between these rules.`;
+
+export const TABLE_WORKER_MS = [200, 500, 800, 1200, 1700] as const;
 export const BOUNDARY_WORKER_MS = [125, 400, 1000, 1400, 2000] as const;
 /** A worker time that changes from look to look. */
 export const VARYING_WORKER_MS: readonly number[] = [400, 1700, 300, 1200, 600, 2000, 500, 900];
@@ -651,6 +696,36 @@ function matrix(title: string, workerMs: ReadonlyArray<number | readonly number[
   return renderTable(title, ["rule", "W", "backend", "rate"], rows);
 }
 
+/** The sweep table: the fan swept at 20 start offsets (deterministic), pooled over the offsets. */
+function sweepTable(): string {
+  const head = ["rule", "W", "backend", "looks/min", "visits", "unnamed %", "lat mean"];
+  const lines: string[][] = [];
+  for (const w of [500, 800]) {
+    for (const backend of BACKENDS) {
+      for (const rule of RULES) {
+        let looks = 0;
+        let ms = 0;
+        let eligible = 0;
+        let unnamed = 0;
+        let latSum = 0;
+        for (const off of SWEEP_OFFSETS_MS) {
+          const sc = sweepScenario(off);
+          const run = runScenario(sc, { hold: "shown", measuredPacing: true, focus: true, workerMs: w, backend, rule });
+          looks += run.metrics.looks;
+          ms += sc.durationMs;
+          eligible += run.metrics.eligible;
+          unnamed += run.metrics.unnamed;
+          latSum += (run.metrics.latencyAvgMs ?? 0) * run.metrics.eligible;
+        }
+        lines.push([rule, String(w), backend, fmt((looks * 60_000) / ms, 1), fmt(eligible / SWEEP_OFFSETS_MS.length, 1), eligible ? fmt((unnamed / eligible) * 100, 1) : "-", eligible ? fmt(latSum / eligible) : "-"]);
+      }
+    }
+  }
+  const widths = head.map((h, i) => Math.max(h.length, ...lines.map((l) => l[i]!.length)));
+  const row = (cells: string[]): string => cells.map((c, i) => (i < 3 ? c.padEnd(widths[i]!) : c.padStart(widths[i]!))).join("  ");
+  return ["Table 1c: a sweep across the fan, about 1 s on each of 5 cards, mean over 20 start offsets (0, 50, ..., 950 ms); visits = eligible visits per sweep; latency counts a card never named at its dwell", row(head), "-".repeat(row(head).length), ...lines.map(row)].join("\n");
+}
+
 /** The text `npm run slow-clock` prints. Deterministic. */
 export function renderReport(): string {
   const base: Partial<SlowClockConfig> = { hold: "shown", measuredPacing: true, focus: true, captureDelayMs: 0, playbackRate: 1 };
@@ -659,21 +734,24 @@ export function renderReport(): string {
   parts.push(`Scenario: ${VIEWER_SESSION.name} (${VIEWER_SESSION.summary}), ${VIEWER_SESSION.durationMs / 1000} s.`);
   parts.push("Configuration: measured pacing on, SHOWN_HOLD, geometric stage ready with focus scope, no capture delay, 1x playback, unless a column says otherwise.");
   parts.push(LEGEND);
-  parts.push(matrix("Table 1: rule x analysis time W (ms) x backend, 1x playback", OWNER_WORKER_MS, base));
+  parts.push(matrix("Table 1: rule x analysis time W (ms) x backend, 1x playback", TABLE_WORKER_MS, base));
+  parts.push(FOOTNOTE);
+  for (const rate of [0.5, 2]) parts.push(matrix(`Table 1b: as Table 1 at ${rate}x playback`, TABLE_WORKER_MS, { ...base, playbackRate: rate }));
+  parts.push(sweepTable());
   parts.push(matrix("Table 2a: boundary analysis times, 1x playback", BOUNDARY_WORKER_MS, base));
+  parts.push(FOOTNOTE);
   for (const rate of [1, 0.5, 2]) {
     parts.push(matrix(`Table 2b: W varies from look to look (${VARYING_WORKER_MS.join(",")}) at ${rate}x playback`, [VARYING_WORKER_MS], { ...base, playbackRate: rate }, () => "varying"));
   }
-  for (const rate of [0.5, 2]) parts.push(matrix(`Table 2c: W = 1200 at ${rate}x playback`, [1200], { ...base, playbackRate: rate }));
-  parts.push(matrix("Table 2d: W = 1200 with a 400 ms delay in getting the picture", [1200], { ...base, captureDelayMs: 400 }));
+  parts.push(matrix("Table 2c: W = 1200 with a 400 ms delay in getting the picture", [1200], { ...base, captureDelayMs: 400 }));
 
   const variants: TableRow[] = [];
   for (const hold of ["none", "shown", "reading"] as const) {
     for (const focus of [false, true]) {
-      for (const rule of RULES) variants.push({ label: [rule, hold, focus ? "focus" : "all"], run: runScenario(VIEWER_SESSION, { ...base, workerMs: 1200, hold, focus, rule }) });
+      for (const rule of RULES) variants.push({ label: [rule, hold, focus ? "focus" : "stage off"], run: runScenario(VIEWER_SESSION, { ...base, workerMs: 1200, hold, focus, rule }) });
     }
   }
-  parts.push(renderTable("Table 3: W = 1200, WebGPU, 1x: hold mode and geometric scope", ["rule", "hold", "scope"], variants));
+  parts.push(renderTable("Table 3: W = 1200, WebGPU, 1x: hold mode and geometric stage", ["rule", "hold", "stage"], variants));
 
   const perScenario: TableRow[] = [];
   for (const s of [...SCENARIOS]) {
