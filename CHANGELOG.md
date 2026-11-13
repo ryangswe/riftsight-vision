@@ -9,6 +9,26 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.14.0rc1] - 2026-11-13
+
+A release candidate, because products rely on the timing it changes. The browser runtime paces
+looks to keep an answer within its lifetime instead of by the measured share alone, holds every
+look back while a retry waits, gives a reading card a deadline under `SHOWN_HOLD`, and takes one
+picture when a slow model finishes loading under a resting mouse. Also in this release: vendor
+tooling that copies the runtime from one commit with a checked manifest, the hover spec with its
+generated index, and a slow-clock model of the scheduling. Changes that may need action:
+
+- The compute frame now posts its `ready` status before the capture request a load asks for. A
+  host that expected the request first should not rely on the order.
+- On a slower computer, looks a viewer waits on are no longer paced, so a pointer sweeping across
+  cards keeps the worker busier than before; keep-fresh looks stay paced.
+- With pacing off, the focus re-look of a playing picture is spaced by the fast cadence (500 ms on
+  WebGPU, 1000 ms on WebAssembly) instead of 250 ms.
+- A product's privacy page that states the capture windows should add the one-picture slow start.
+
+`PROTOCOL_VERSION` stays 2; the new `rate` field is optional. No model, release document or
+recognizer decision changes.
+
 ### Added
 
 - `npm run vendor -- --into FOLDER` and `npm run vendor-check -- FOLDER` (in `browser/`): copy the built runtime, its TypeScript declarations, ONNX Runtime and OpenCV.js files, license texts and the hover spec from one commit into a product's folder, with one manifest of the commit, the ONNX Runtime pin and each file's SHA-256; and check the folder against it and, when this checkout is at that commit, against its build. The folder also gets a stand-alone `cardvision-vendor-check.mjs` (Node built-ins only) that repeats the checks except the build comparison. A run refuses to delete files it did not put in the folder and restores the previous folder if it fails. `npm run build` now writes `dist/types/`, the entry `.d.ts` files and `dist/build-info.json`. Nothing under `browser/src` changes.
@@ -17,8 +37,8 @@ break the public surface; this file names each break and how to migrate.
   parameters. Test tooling only; nothing under `browser/src` changes.
 - Docs: `docs/hover-spec.md`, a draft spec of how card hovers behave, as numbered clauses with
   their tests, and `docs/hover-spec.json`, its generated index (`python tests/support_hover_spec.py`;
-  a test fails when the two differ). Some clauses state behavior planned for 0.14.0, and some
-  behavior planned for the product hosts' next release; each is marked.
+  a test fails when the two differ). Clauses a product host changes in its next release are
+  marked so.
 - Browser runtime: a slow start. When the compute frame's model finishes loading while a mouse
   still rests over the picture past its grace period, within `MAX_REST_MS` of the last trusted
   move, the frame asks for one look and the content script gives one picture for it (a failed
@@ -1674,7 +1694,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc1...HEAD
+[0.14.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0rc1
 [0.13.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.10.1...v0.11.0
