@@ -9,6 +9,12 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- `npm run slow-clock` (in `browser/`): a deterministic model of the look scheduling on a virtual
+  clock, with a stand-in worker whose analysis time, picture delay and playback rate are
+  parameters. Test tooling only; nothing under `browser/src` changes.
+
 ### Changed
 
 - Docs: the rule that a product's own load triggers must not make the compute frame while
