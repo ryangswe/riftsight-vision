@@ -9,6 +9,16 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Changed
+
+- A pointer move over a stale picture now starts a look at once, even while a retry waits out its
+  back-off (250, 500, 1000, then every 2000 ms). Before, the move waited for the retry. Every look
+  nobody is waiting on still waits: the cadence on a playing video, the repeats of a picture,
+  reading looks, a cut, a load that ends and the re-look of an unverified face. The 250 ms gap
+  between pointer-started looks and one look in flight still hold, a move does not reset the
+  back-off, and a look it starts that comes back unanswered moves the back-off to its next step.
+  `PROTOCOL_VERSION` and the session options do not change.
+
 ## [0.14.0rc1] - 2026-11-13
 
 A release candidate, because products rely on the timing it changes. The browser runtime paces

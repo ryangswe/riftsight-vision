@@ -1254,6 +1254,12 @@ instead ("A pointer resting where the last look found no card", below). With
   F after the last look started, not the paced wait. Each keeps one look in flight and the back-off.
   The empty-spot rest, the reading looks, `"always-on"` looks and the retries that are not prompt
   stay paced.
+- **A retry waiting out its back-off** (250, 500, 1000, then every 2000 ms after an unanswered
+  look) holds back every look nobody is waiting on: the cadence, repeats, reading looks, a cut, a
+  load that ends and the re-look of an unverified face. The stale-picture look is the one
+  exception: a pointer move over a stale picture starts a look at once, within the 250 ms gap
+  between pointer-started looks and with one look in flight. A move does not reset the back-off;
+  if that look comes back unanswered, the next step applies.
 - The playback rate comes from the host when it can read it (`createSession` reads its video's;
   `SessionCoreDeps.playbackRate`), or from the `rate` the content script sends with `pointer` and
   `presented` (`createCaptureControl` sends its video's). Otherwise it is measured from the video

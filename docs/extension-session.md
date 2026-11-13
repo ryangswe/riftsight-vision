@@ -272,9 +272,11 @@ capture that failed with `retry: true`) makes the same picture due again after 2
 first analysis since its release loaded: that one warms the models up, and on a slow machine it
 can take several times as long. A failed capture is retried promptly: once its back-off runs out, the look is
 due whatever the cadence; the other retries also wait for the cadence. A pointer move never
-shortens a back-off still waiting, and no look of any kind starts while one waits: not the
-cadence on a playing video, not a pointer move over a stale picture, not a relook, not a cut, not
-the look when a load ends. A seek or a new source drops the retry with its picture. A refusal (`retry: false`: the gate, an unreadable video, a
+shortens or resets a back-off still waiting, and no look nobody is waiting on starts while one
+waits: not the cadence on a playing video, not a relook, not a cut, not the look when a load
+ends. The one exception is the look a pointer move starts over a stale picture: it starts at once,
+within the 250 ms gap and with one look in flight, and if it comes back unanswered the back-off
+moves to its next step. A seek or a new source drops the retry with its picture. A refusal (`retry: false`: the gate, an unreadable video, a
 picture too large, no 2D context) is retried by nothing and grows no back-off; the next pointer
 move over the picture asks again, at the cadence, as it does when a retry was used up with no
 answer. So a viewer who leaves a paused video and comes back gets a look. After failed captures,
@@ -308,7 +310,7 @@ with video age as B times the rate. The rate is the `rate` the content script se
 and `presented` (its video's `playbackRate`); a content script that sends none leaves the compute
 frame to measure it over continuous play (two reports at least 2 s apart, each advancing the video
 and within 500 ms of the one before, no seek between); it is 1 until known. A stale look is asked for on that `pointer` message itself, when the session
-is ready, nothing is in flight, no retry is waiting out its back-off and the last look started by
+is ready, nothing is in flight, the last look started by
 the pointer is at least 250 ms (`HOVER_TRIGGER_MIN_GAP_MS`) old. Without this, the frame went on asking at the cadence for the
 10 s after a leave, the content script refused each request, and each refused request counted as
 the newest look: a pointer that came back within those 10 s waited for the cadence.

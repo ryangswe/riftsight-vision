@@ -536,7 +536,7 @@ describe("a paused picture whose first look is slow", () => {
     expect([s.due(REPEAT_INTERVAL_MS), s.due(100 + LOOK_RETRY_MS[0]! - 1), s.due(100 + LOOK_RETRY_MS[0]!)]).toEqual([false, false, true]);
   });
 
-  it("a pointer move does not skip the back-off: the paused picture is not stale", () => {
+  it("a pointer move over the same, paused picture does not skip the back-off: it is not stale, so the move starts nothing (S-C11)", () => {
     const s = pointerScheduler("wasm");
     s.pointerMoved(0);
     s.framePresented();
@@ -582,7 +582,7 @@ describe("a prompt retry (a capture that failed for want of a picture)", () => {
     expect([s.due(10_000), s.idle]).toEqual([false, true]);
   });
 
-  it("a pointer move still cannot skip the back-off: nothing is marked stale", () => {
+  it("a pointer move over the same, paused picture still does not skip the back-off: nothing is marked stale (S-C11)", () => {
     const s = pointerScheduler("wasm");
     s.pointerMoved(0);
     s.framePresented();
@@ -754,7 +754,7 @@ describe("a retry used up without an answer (a refused capture)", () => {
     expect(s.due(30_000)).toBe(false);
   });
 
-  it("a pointer move never shortens a retry still waiting", () => {
+  it("a pointer move over an unchanged picture does not shorten a retry still waiting; the cadence waits for it (S-C11)", () => {
     const s = pointerScheduler("wasm");
     s.pointerMoved(0);
     s.framePresented();
@@ -829,7 +829,7 @@ describe("a refused look (lookRefused)", () => {
     }
   });
 
-  it("grows no back-off, and a move never shortens a back-off still waiting", () => {
+  it("grows no back-off, and a move over an unchanged picture does not shorten a back-off still waiting (S-C11)", () => {
     const s = allRefused();
     s.lookUnanswered(600);
     expect([s.due(849), s.due(1_499), s.due(1_500)]).toEqual([false, false, true]);

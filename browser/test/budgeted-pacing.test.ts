@@ -275,11 +275,78 @@ describe("the back-off holds on every path (S-C11)", () => {
     expect(s.due(1_000)).toBe(true);
   });
 
-  it("a pointer move over a stale picture never shortens it", () => {
+  it("a pointer move over a stale picture starts a look at once, past the waiting retry (S-C11)", () => {
     const s = waiting();
     s.pointerMoved(900);
-    expect(s.hoverTriggerDue(900, 10, false)).toBe(false);
-    expect(s.hoverTriggerDue(1_000, 10, false)).toBe(true);
+    expect(s.hoverTriggerDue(900, 10, false)).toBe(true);
+    expect(s.retryWaiting(900)).toBe(true); // the retry still waits for the looks nobody asks for
+  });
+
+  it("a move during the back-off keeps the 250 ms gap and one look in flight (S-C11, S-C18)", () => {
+    const s = waiting();
+    s.pointerMoved(900);
+    s.started(900, { trigger: "hover", videoTimeSec: 10 });
+    expect(s.hoverTriggerDue(900, 20, true)).toBe(false); // one in flight
+    expect(s.hoverTriggerDue(1_000, 20, false)).toBe(false); // 100 ms after the last pointer-started look
+    expect(s.hoverTriggerDue(1_150, 20, false)).toBe(true);
+  });
+
+  it("a move-started look that comes back unanswered advances the back-off: the third step (1000 ms), not the first (S-C11)", () => {
+    const s = waiting(); // two unanswered looks so far
+    s.pointerMoved(900);
+    s.started(900, { trigger: "hover", videoTimeSec: 10 });
+    s.lookUnanswered(1_000);
+    expect([s.retryWaiting(1_999), s.retryWaiting(2_000)]).toEqual([true, false]);
+    s.started(2_000, { videoTimeSec: 10 });
+    s.lookUnanswered(2_100);
+    expect([s.retryWaiting(4_099), s.retryWaiting(4_100)]).toEqual([true, false]); // then 2000 ms
+  });
+
+  it("a move does not reset the back-off; an analyzed answer does (S-C11)", () => {
+    const s = waiting();
+    s.pointerMoved(900);
+    s.started(900, { trigger: "hover", videoTimeSec: 10 });
+    s.lookAnswered();
+    expect(s.retryWaiting(900)).toBe(false);
+    s.started(1_000, { videoTimeSec: 10 });
+    s.lookUnanswered(1_100);
+    expect([s.retryWaiting(1_349), s.retryWaiting(1_350)]).toEqual([true, false]); // starts over at 250 ms
+  });
+
+  // The retry due at 750 ms: a look started at 0 came back busy at 500 ms.
+  const due750 = () => {
+    const s = new FrameScheduler(500, 3, "pointer");
+    s.pointerMoved(0);
+    s.framePresented();
+    s.started(0, { videoTimeSec: 0 });
+    s.lookUnanswered(500);
+    return s;
+  };
+
+  it("retry due at 750 ms: a move over a stale picture at 600 ms starts a look at 600 ms; the cadence at 650 ms still waits (S-C11)", () => {
+    const s = due750();
+    s.pointerMoved(600);
+    expect(s.hoverTriggerDue(600, 5, false)).toBe(true);
+    const c = due750();
+    c.framePresented();
+    expect([c.due(650), c.due(749), c.due(750)]).toEqual([false, false, true]);
+  });
+
+  it("retry due at 750 ms: reading looks, a cut and a load that ends still wait for it (S-C11)", () => {
+    // A tooltip shows and the pointer rests past its grace: reading looks, on their slow cadence.
+    const r = new FrameScheduler(500, 3, "pointer");
+    r.pointerMoved(0);
+    r.setTooltipShowing(true, 1_000);
+    r.framePresented();
+    r.started(14_000, { videoTimeSec: 4 });
+    r.framePresented();
+    expect(r.analysisState(15_000)).toBe("reading");
+    r.lookUnanswered(15_000); // the retry is due at 15250
+    expect([r.due(15_100), r.due(15_249)]).toEqual([false, false]);
+    const cut = due750();
+    cut.requestLook();
+    expect([cut.due(650), cut.due(750)]).toEqual([false, true]);
+    expect([due750().loadEndDue(650), due750().loadEndDue(750)]).toEqual([false, true]);
   });
 
   it("a cut waits for it", () => {

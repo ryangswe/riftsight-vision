@@ -199,7 +199,7 @@ Test: `compute-frame.test.ts:336`, `session-core.test.ts:2239`
 ### S-A10 — A frame the page deletes is made again at the next trusted play or pointer move
 
 When a page script removes the compute frame or the tooltip frame, both are made again at the next
-trusted `playing` event of the main video or the next trusted pointer move over its picture, as
+trusted play on a load-at-play page (S-A1), or the next trusted pointer move over the picture, as
 after an idle unload (S-A6). Nothing is made again on a timer or on an untrusted event.
 
 Status: changes in a product release.
@@ -412,7 +412,7 @@ Test: `compute-frame.test.ts:799`, `session-core.test.ts:2556`
 ### S-C5 — A pointer message over a stale picture asks for a look on that message
 
 A `pointer` message asks for a look at once when the session is ready, nothing is in flight, no
-retry is waiting (S-C11), the last pointer-started look began at least 250 ms ago, and the newest
+retry is waiting out its back-off (the one look that skips it, S-C11), the last pointer-started look began at least 250 ms ago, and the newest
 look's picture is stale: more than `max(400, B × rate)` ms of video time away, where B is the
 budget of S-P5 and rate the playback rate.
 
@@ -489,21 +489,28 @@ started. Three busy answers in a row make the next three due 250, 500 and 1000 m
 Test: `scheduler.test.ts:472`, `scheduler.test.ts:558`, `scheduler.test.ts:565`,
 `session-core.test.ts:1948`
 
-### S-C11 — No look of any kind starts before a waiting retry is due
+### S-C11 — A waiting retry holds every look but the one a pointer move starts
 
 A retry that is waiting (S-C10) has a not-before time. No look starts before it, whatever path asks:
-the cadence on a playing video, a pointer move over a stale picture (S-C5), the unverified-card
-looks (S-C7, S-C8), a cut (S-C9) and a load that ends (S-C6). A pointer move never shortens it. A
-seek or a new source drops the retry with the picture it belonged to.
+the cadence on a playing video, the repeats of a picture and of a resting pointer, the reading
+looks, the unverified-card looks (S-C7, S-C8), a cut (S-C9) and a load that ends (S-C6). One look
+skips the wait: the one a pointer move starts over a stale picture (S-C5), because the viewer is
+waiting on it. It still keeps one look in flight and the 250 ms gap between pointer-started looks
+(S-C18). A move does not shorten or reset the back-off: a look it starts that comes back unanswered
+makes the next step due (S-C10), and only an analyzed answer, a seek or a new source start it over.
+A seek or a new source drops the retry with the picture it belonged to.
 
-Example: a retry is due at 750 ms; at 600 ms the pointer moves over a stale picture, and at 650 ms
-the cadence comes due on a playing video: no look starts before 750 ms.
+Example: a retry is due at 750 ms; at 600 ms the pointer moves over a stale picture: a look starts
+at 600 ms. At 650 ms the cadence comes due on a playing video: it waits until 750 ms. If the look at
+600 ms comes back busy, the next retry waits 500 ms, not 250.
 
-Test: `scheduler.test.ts:539`, `scheduler.test.ts:757`, `scheduler.test.ts:832`,
-`slow-clock.test.ts:282`, `slow-clock.test.ts:289`, `slow-clock.test.ts:293`,
+Test: `scheduler.test.ts:539`, `scheduler.test.ts:585`, `scheduler.test.ts:757`, `scheduler.test.ts:832`,
+`slow-clock.test.ts:282`, `slow-clock.test.ts:290`, `slow-clock.test.ts:294`,
 `budgeted-pacing.test.ts:271`, `budgeted-pacing.test.ts:278`, `budgeted-pacing.test.ts:285`,
-`budgeted-pacing.test.ts:292`, `budgeted-pacing.test.ts:298`, `budgeted-pacing.test.ts:305`,
-`budgeted-pacing.test.ts:315`, `budgeted-pacing.test.ts:322`, `session-core.test.ts:2920`
+`budgeted-pacing.test.ts:294`, `budgeted-pacing.test.ts:305`, `budgeted-pacing.test.ts:326`,
+`budgeted-pacing.test.ts:335`, `budgeted-pacing.test.ts:352`, `budgeted-pacing.test.ts:359`,
+`budgeted-pacing.test.ts:365`, `budgeted-pacing.test.ts:372`, `budgeted-pacing.test.ts:382`,
+`budgeted-pacing.test.ts:389`, `session-core.test.ts:2920`
 
 ### S-C12 — A refused capture is not retried; the next pointer move asks again
 
@@ -637,7 +644,7 @@ B = 900 ms and the look starts when the picture is more than 900 ms of video awa
 and R = 250 ms: P = 800 ms and L − R − M = 1500 ms, so B = 800 ms. WebAssembly (F = 1000 ms),
 W = 800 ms, R = 900 ms: L − R − M = 850 ms is under F, so B = 1000 ms.
 
-Test: `slow-clock.test.ts:268`, `slow-clock.test.ts:306`, `slow-clock.test.ts:324`,
+Test: `slow-clock.test.ts:268`, `slow-clock.test.ts:307`, `slow-clock.test.ts:325`,
 `budgeted-pacing.test.ts:110`, `budgeted-pacing.test.ts:116`, `budgeted-pacing.test.ts:122`,
 `budgeted-pacing.test.ts:128`, `budgeted-pacing.test.ts:139`, `budgeted-pacing.test.ts:145`,
 `budgeted-pacing.test.ts:154`, `budgeted-pacing.test.ts:160`, `budgeted-pacing.test.ts:169`,
@@ -659,7 +666,7 @@ clause.
 Example: W = 800 ms, pacing on, a model load ends 1 s after the last look while the pointer is
 active: the look is asked at once, where the paced wait is 3200 ms.
 
-Test: `budgeted-pacing.test.ts:343`, `budgeted-pacing.test.ts:355`, `session-core.test.ts:2866`,
+Test: `budgeted-pacing.test.ts:410`, `budgeted-pacing.test.ts:422`, `session-core.test.ts:2866`,
 `session-core.test.ts:2888`, `relook-playing.test.ts:268`
 
 ### S-P3 — Under the shown hold, a reading look comes before the card's hold runs out
@@ -675,10 +682,10 @@ look's picture, inside the 7000 ms of the card's age plus the hold. At 1.25 time
 1600 ms: with W = R = 1500 ms the wait is min(6000, 1600 + 5000 − 1500 − 250) = 4850 ms, and the
 answer lands 6350 ms after the last look's picture, inside the card's life of 6600 ms.
 
-Test: `slow-clock.test.ts:220`, `slow-clock.test.ts:227`, `slow-clock.test.ts:341`,
-`slow-clock.test.ts:348`, `slow-clock.test.ts:355`, `slow-clock.test.ts:360`,
-`slow-clock.test.ts:366`, `slow-clock.test.ts:378`, `slow-clock.test.ts:387`,
-`slow-clock.test.ts:394`, `slow-clock.test.ts:401`
+Test: `slow-clock.test.ts:220`, `slow-clock.test.ts:227`, `slow-clock.test.ts:342`,
+`slow-clock.test.ts:349`, `slow-clock.test.ts:356`, `slow-clock.test.ts:361`,
+`slow-clock.test.ts:367`, `slow-clock.test.ts:379`, `slow-clock.test.ts:388`,
+`slow-clock.test.ts:395`, `slow-clock.test.ts:402`
 
 ### S-P4 — The pacer learns from analyses that were not reused
 
@@ -967,7 +974,7 @@ Test: pending (real-browser test)
 ## X. Invariants
 
 These hold across every clause. Others are stated in their groups: one look in flight (S-C17),
-the 250 ms gap (S-C18), no look before a due retry (S-C11), a refused capture blocks looks
+the 250 ms gap (S-C18), no look but a pointer move's before a due retry (S-C11), a refused capture blocks looks
 (S-C12), no picture asked while the pointer is off it (S-C4), no reading looks under the reading
 hold (S-C3), capture authority (S-B1 to S-B10), off means off (S-B11, S-B12), and what the pacer
 records (S-P4).

@@ -279,21 +279,22 @@ describe("what budgeted pacing fixed, under the rule current", () => {
   // The back-off bypass: a look fails at 500, its retry is due at 750, a trusted move at 600. The
   // video presents a frame a second, so the cadence has no frame waiting.
   const backoff = (rule: Rule) => runScenario(scenarioNamed("retry-backoff"), { workerMs: 500, measuredPacing: false, rule });
-  it("back-off: the move at 600 ms starts nothing; the second look is the retry at 750 ms (before: 600 ms)", () => {
-    expect(backoff("current").looks.slice(0, 2).map((l) => l.at)).toEqual([0, 750]);
+  it("back-off: the move at 600 ms starts a look at once, past the retry due at 750 ms (S-C11; rc1: waited for 750 ms)", () => {
+    const run = backoff("current");
+    expect(run.looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [600, "hover"]]);
   });
 
   // The same on the cadence path at a normal frame rate: `due()` started a look on the newly
   // presented frame while the retry (due 250 ms after the failure) was still waiting.
   const backoff50 = () => runScenario(scenarioNamed("retry-backoff-50fps"), { workerMs: 500, measuredPacing: false, rule: "current" });
-  it("back-off at 50 fps: no look of any kind before the due retry, 750 ms (before: the cadence at 500 ms)", () => {
+  it("back-off at 50 fps: with no move, no look of any kind before the due retry, 750 ms (the cadence waits; before: 500 ms)", () => {
     expect(backoff50().looks.slice(0, 2).map((l) => [l.at, l.trigger])).toEqual([[0, "hover"], [750, "cadence"]]);
   });
 
-  it("back-off on the cut path: a cut while a retry waits starts nothing before it is due", () => {
-    // A look fails at 500 (the retry is due at 750); at 600 the picture under the shown card
-    // changes and the host reports a cut. A card was shown by an earlier look.
-    const events: ScenarioEvent[] = [mv(0, 200, 250), mv(1_100, 204, 250), { at: 1_850, kind: "layout", cards: [{ id: "A", x: 100, y: 100, w: 200, h: 300 }] }];
+  it("back-off on the cut path: a cut while a retry waits starts nothing before it is due (S-C11)", () => {
+    // The second look fails at 1000 (the retry is due at 1250); at 1100 the picture under the shown
+    // card changes and the host reports a cut. The move at 900 came while that look was in flight.
+    const events: ScenarioEvent[] = [mv(0, 200, 250), mv(900, 204, 250), { at: 1_100, kind: "layout", cards: [{ id: "A", x: 100, y: 100, w: 200, h: 300 }] }];
     const run = runScenario(custom({ durationMs: 4_000, events, failLooks: [2] }), { workerMs: 500, measuredPacing: false, rule: "current" });
     const failed = run.looks[1]!.at; // the second look fails 500 ms after it starts
     const retryAt = failed + 500 + 250;

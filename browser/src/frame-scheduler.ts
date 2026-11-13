@@ -334,11 +334,12 @@ export class FrameScheduler {
    * (`ANALYSIS_WATCHDOG_MS`, or `FIRST_ANALYSIS_WATCHDOG_MS` before the first analysis). The still picture's other repeats are dropped, and the same picture
    * counts as newly presented again after a back-off, so that a paused video is looked at again
    * (with its repeats). This is not `requestLook`, which would also make the picture stale and
-   * let every pointer move look again at once, past the back-off.
+   * let every pointer move look again at once, whether or not the picture
+   * changed; a move starts a look past the back-off only on a stale picture (`hoverTriggerDue`).
    *
    * With `prompt` (a capture that failed for want of a picture: it may come any moment), the
    * retry is due as soon as the back-off runs out, whatever the cadence, as a `requestLook` is;
-   * it still marks nothing stale, so a pointer move cannot skip the back-off. Otherwise (the
+   * it still marks nothing stale, so a pointer move over the same picture does not skip the back-off. Otherwise (the
    * worker busy, or no reply) the retry also waits for the cadence.
    */
   lookUnanswered(now: number, opts: { prompt?: boolean } = {}): void {
@@ -397,8 +398,10 @@ export class FrameScheduler {
     return this.retryAt !== null && now >= this.retryAt;
   }
 
-  /** Is a retry waiting out its back-off? Then no look of any kind starts (the one guard every
-   *  path that starts a look goes through). */
+  /** Is a retry waiting out its back-off? Then no look starts that nobody is waiting for: the
+   *  cadence, repeats of a picture, reading looks, a cut, a load that ends, a re-look of the
+   *  pointer's group. The one exception is the look a pointer move starts on a stale picture
+   *  (`hoverTriggerDue`). */
   retryWaiting(now: number): boolean {
     return this.retryAt !== null && now < this.retryAt;
   }
@@ -420,7 +423,8 @@ export class FrameScheduler {
    *  When a look went unanswered and its retry was used up without an answer, or a look's
    *  capture was refused (say while the pointer was outside), the picture is due again now, at
    *  the cadence: a paused picture would otherwise never be looked at again. A retry still
-   *  waiting keeps its back-off: a pointer move never shortens it. */
+   *  waiting keeps its back-off, and a move does not reset it; but the look a move starts on a
+   *  stale picture does not wait for it (`hoverTriggerDue`). */
   pointerMoved(now: number): void {
     this.pointerInside = true;
     this.lastPointerAt = now;
@@ -522,10 +526,15 @@ export class FrameScheduler {
    * when analysis may run, nothing is in flight, no retry waits out its back-off, the last
    * analysis started this way is at least `HOVER_TRIGGER_MIN_GAP_MS` ago, and the newest analyzed
    * frame is stale. The cadence is not consulted.
+   *
+   * A retry waiting out its back-off does not hold this look back: the pointer's own move starts
+   * it, and the viewer is waiting on it. It does not shorten or reset the back-off: a look of
+   * this kind that comes back unanswered moves the back-off to its next step, and only an
+   * analyzed answer, a seek or a new source starts it over.
    */
   hoverTriggerDue(now: number, videoTimeSec: number, inFlight: boolean): boolean {
     const state = this.analysisState(now);
-    if (inFlight || state === "idle" || state === "probe" || this.retryWaiting(now)) return false;
+    if (inFlight || state === "idle" || state === "probe") return false;
     if (now - this.lastHoverTriggerAt < HOVER_TRIGGER_MIN_GAP_MS) return false;
     return this.frameStale(videoTimeSec, now);
   }

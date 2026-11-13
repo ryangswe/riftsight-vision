@@ -826,12 +826,17 @@
     {
       "id": "S-C11",
       "group": "C",
-      "title": "No look of any kind starts before a waiting retry is due",
+      "title": "A waiting retry holds every look but the one a pointer move starts",
       "status": "current",
       "tests": [
         {
           "file": "scheduler.test.ts",
           "line": 539,
+          "target": false
+        },
+        {
+          "file": "scheduler.test.ts",
+          "line": 585,
           "target": false
         },
         {
@@ -851,12 +856,12 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 289,
+          "line": 290,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 293,
+          "line": 294,
           "target": false
         },
         {
@@ -876,12 +881,7 @@
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 292,
-          "target": false
-        },
-        {
-          "file": "budgeted-pacing.test.ts",
-          "line": 298,
+          "line": 294,
           "target": false
         },
         {
@@ -891,12 +891,42 @@
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 315,
+          "line": 326,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 322,
+          "line": 335,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 352,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 359,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 365,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 372,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 382,
+          "target": false
+        },
+        {
+          "file": "budgeted-pacing.test.ts",
+          "line": 389,
           "target": false
         },
         {
@@ -1097,12 +1127,12 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 306,
+          "line": 307,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 324,
+          "line": 325,
           "target": false
         },
         {
@@ -1216,12 +1246,12 @@
       "tests": [
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 343,
+          "line": 410,
           "target": false
         },
         {
           "file": "budgeted-pacing.test.ts",
-          "line": 355,
+          "line": 422,
           "target": false
         },
         {
@@ -1260,47 +1290,47 @@
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 341,
+          "line": 342,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 348,
+          "line": 349,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 355,
+          "line": 356,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 360,
+          "line": 361,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 366,
+          "line": 367,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 378,
+          "line": 379,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 387,
+          "line": 388,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 394,
+          "line": 395,
           "target": false
         },
         {
           "file": "slow-clock.test.ts",
-          "line": 401,
+          "line": 402,
           "target": false
         }
       ],
