@@ -1526,7 +1526,7 @@ numbers.
 `npm run slow-clock` prints how the look scheduling behaves when the analysis takes longer than a
 fast computer needs. It drives the real `SessionCore` and `FrameScheduler` in `browser/src` on a
 virtual clock, with a stand-in worker (a fixed or varying analysis time), a configurable delay in
-getting the picture, and playback at other rates; the tables compare today's rule with two
+getting the picture, and playback at other rates; the tables compare today's rule with three
 candidate rules that exist only in the test harness (`test/support/slow-clock.ts`). It is a model
 of the scheduling policy, not a measurement of a browser: the times a computer takes are inputs.
 It needs no browser or network, and two runs print identical text.
