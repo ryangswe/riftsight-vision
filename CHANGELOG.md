@@ -14,6 +14,12 @@ break the public surface; this file names each break and how to migrate.
 - The store release workflow template has a `precheck_only` option: with `upload`, the upload
   job signs in to both stores and reads their state, then uploads nothing. Docs:
   [docs/store-uploads.md](docs/store-uploads.md).
+- `tests/release_prepare.py --version X` prepares the version commit of a release: it moves the
+  Unreleased entries under the new version and date, rewrites the compare links and sets the five
+  places that name the version, and refuses a version that is not greater, an empty Unreleased
+  section (except for a final whose candidates are in the changelog) and a dirty tree. `--check`
+  prints the planned changes and writes nothing. The Publish workflow now also installs the
+  version it just uploaded from the index in a fresh environment.
 
 ## [0.14.0rc2] - 2026-11-13
 

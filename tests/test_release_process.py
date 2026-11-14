@@ -71,3 +71,20 @@ def test_the_pull_request_template_asks_for_a_changelog_line():
 def test_security_names_the_report_a_vulnerability_button_beside_the_email():
     text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     assert "Report a vulnerability" in text and "riftsight.support@gmail.com" in text
+
+
+def test_the_five_places_that_name_the_version_agree_with_pyproject():
+    from release_prepare import read_strings
+    found = read_strings(ROOT)
+    assert set(found.values()) == {version()}, found
+
+
+def test_the_agreement_check_fails_when_one_place_is_left_behind(tmp_path):
+    import shutil
+    from release_prepare import STRINGS, read_strings
+    for name in STRINGS:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / name, tmp_path / name)
+    stale = tmp_path / "playbooks" / "setup.md"
+    stale.write_text(stale.read_text(encoding="utf-8").replace(version(), "0.0.1"), encoding="utf-8")
+    assert set(read_strings(tmp_path).values()) != {version()}

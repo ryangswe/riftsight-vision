@@ -91,3 +91,34 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  installed:
+    name: The uploaded version installs from the index
+    if: inputs.target == 'pypi' && github.ref_type == 'tag'
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the version from the index in a fresh environment and print it
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          requirement="cardvision==${version}"
+          python -m venv /tmp/fresh
+          for attempt in 1 2 3 4 5; do
+            if /tmp/fresh/bin/python -m pip install --no-cache-dir "$requirement"; then
+              installed="$(/tmp/fresh/bin/python -c "import cardvision; print(cardvision.__version__)")"
+              echo "Installed ${installed} from the index."
+              if [ "$installed" = "$version" ]; then exit 0; fi
+              break
+            fi
+            echo "Attempt ${attempt} of 5 failed; the index may not list ${version} yet." >&2
+            if [ "$attempt" -lt 5 ]; then sleep 60; fi
+          done
+          message="The upload of ${version} succeeded; only this check failed. The version cannot be uploaded again: re-run only this job, not the workflow."
+          echo "$message" >&2
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1

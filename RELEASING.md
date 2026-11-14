@@ -45,6 +45,17 @@ for the version, the version is already on the index or the index cannot be aske
 version is lower than the newest version tag. A re-run does only what is still missing. The
 commands above stay as the fallback when it did not run or was refused.
 
+To prepare the version commit of step 1, run `python tests/release_prepare.py --version X.Y.Z
+--check` to see the plan, then the same without `--check` on a clean tree. It moves the Unreleased
+entries under the new heading and date, rewrites the compare links (a final and a first candidate
+compare with the previous final, a later candidate with the candidate before it) and sets the five
+places that name the version. It refuses a version that is not greater than the current one, an
+empty Unreleased section and a tree with uncommitted changes. The one exception is a final whose
+candidates are already in the changelog: with nothing under Unreleased, its section says it is the
+version only, unchanged from the last candidate. The introduction of the release and
+its "Changes that may need action" lines stay yours to write. After the upload, the Publish
+workflow installs the new version from the index in a fresh environment and prints it.
+
 ## Patch and docs-only releases
 
 Steps 1, 3 and 4. A patch never breaks the public surface.
