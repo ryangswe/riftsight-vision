@@ -50,7 +50,7 @@ tag. A parser keeps only the fields it knows: extra fields are ignored.
 | `kind` | Fields | Checked on arrival |
 | --- | --- | --- |
 | `hello` | `version` | a positive integer: the content script's `PROTOCOL_VERSION` |
-| `pointer` | `x`, `y`, `mediaTime`, `touch`, `rate`? | `x` and `y` in fractions of the picture, from 0 to 1; `mediaTime` a finite number of seconds; `touch` a boolean; `rate` (optional) the video's `playbackRate`: a finite number, clamped to `MIN_PLAYBACK_RATE` (0.0625) to `MAX_PLAYBACK_RATE` (16), dropped otherwise |
+| `pointer` | `x`, `y`, `mediaTime`, `touch`, `rate`?, `restedMs`? | `x` and `y` in fractions of the picture, from 0 to 1; `mediaTime` a finite number of seconds; `touch` a boolean; `rate` (optional) the video's `playbackRate`: a finite number, clamped to `MIN_PLAYBACK_RATE` (0.0625) to `MAX_PLAYBACK_RATE` (16), dropped otherwise; `restedMs` (optional) the milliseconds since the last trusted move, a finite number of 0 or more, dropped otherwise: sent only for a resting mouse told to a new frame (see the handshake), never for a move |
 | `leave` | none | |
 | `intent` | none | the viewer is probably about to want recognition; sent only with the controller's `intent: "page"` (below). A frame that unloaded its worker when idle loads it again; otherwise it counts as activity. Added in version 2. |
 | `presented` | `mediaTime`, `rate`? | `mediaTime` a finite number; `rate` as for `pointer` |
@@ -87,7 +87,10 @@ What the messages mean:
 - `hello` asks the frame to say `ready` again, with its current status and shown card (see
   [the handshake](#the-handshake)).
 - `pointer` is real movement only: a pointer resting on the picture is not activity. With
-  `touch`, a tap opens the active window and leaves no resting pointer.
+  `touch`, a tap opens the active window and leaves no resting pointer. The one exception is
+  `restedMs`: a mouse that has rested past its grace period, told to a new frame, is no movement.
+  The frame records where it is and since when, so a slow start may follow (below), and treats
+  it as no activity: the rules for a moving pointer (entry look, active window) do not apply.
 - `presented`: the video showed a new picture (playback, a seek ended, the video became ready).
 - `capture` asks for the picture on screen now, at a width within `analysisWidth`. The content
   script answers with `frame` or `capture-failed`, with the same `requestId`. `retry: true`
@@ -138,7 +141,11 @@ still on `about:blank` after that minute (nothing loaded in it) is reported as `
   A `ready` that comes later still counts.
 - **A new instance:** the record of a card showing is cleared, a pointer is kept only if it is
   still within its window over the picture, and the picture's time and that pointer are sent
-  again. The same instance again changes nothing.
+  again. A mouse that rests past its grace period is kept, and sent with `restedMs`, only for the
+  first frame that has a handshake after the pointer's last move (including a frame that was not
+  yet connected when the pointer arrived), and only within `MAX_REST_MS` of that move. A frame
+  that replaces an earlier one during the same rest is told no resting pointer. The same instance
+  again changes nothing.
 
 ## The origin and source rule
 
@@ -181,8 +188,8 @@ authority of trusted pointer events (`event.isTrusted`), and checks again at eac
   cold start: on a slow machine, a tap made while the models still load may show nothing, and
   the next tap works.
 - **Slow start** (hover only): when the compute frame's `status` becomes `ready` (its model
-  loaded; the handshake is not the moment) while a mouse rests over the picture past its grace
-  period, a grant opens for the next capture the frame asks for, as long as the last trusted point
+  loaded; the handshake is not the moment) while a mouse rests over the picture, a grant opens
+  for the next capture the frame asks for, as long as the last trusted point
   is still over the picture and within `MAX_REST_MS` (60 s) of the last trusted event. The frame
   posts its `ready` status before the capture the load asks for, so the request comes at once: an
   unspent grant expires after `SLOW_START_GRANT_MS` (500 ms). It is one picture: that capture
@@ -191,10 +198,13 @@ authority of trusted pointer events (`event.isTrusted`), and checks again at eac
   waits `SLOW_START_RETRY_MS`, 2500 ms, for it). If the look finds a card, the card keeps the gate
   open under the hover rule above; if not, nothing more is given until the pointer moves. A new
   trusted move, a seek or a new source, a full reset and a new frame instance drop the grant; a
-  `ready` status repeated (with no other status between) grants nothing. A mouse still within its
-  grace period gets no grant (the grace period covers it), and a tap gets none. The slow start
-  applies to a pointer the frame learned of before its grace period ended: a pointer that rested
-  past it before the handshake is not kept (see the handshake above), so a page cannot remake the
+  `ready` status repeated (with no other status between) grants nothing. The grant needs no
+  grace period to have passed: inside it, the grace period already covers the capture, and a
+  capture asked just after it ends is not refused. A tap gets none. The first frame that has a
+  handshake after the pointer began to rest gets its one picture however late it connects,
+  within `MAX_REST_MS`: it is told the pointer rests (`restedMs`), and if its model had loaded
+  already, it asks that one look as it is told. A frame that replaces an earlier one during the
+  same rest is told nothing and gets none (see the handshake above), so a page cannot remake the
   frame to get a picture each time.
 - **Before every capture**, the last trusted point is checked again against the picture as it is
   laid out now, with `eligible`. A video that moved away under a resting pointer clears the gate

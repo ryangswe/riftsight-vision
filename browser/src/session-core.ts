@@ -396,6 +396,9 @@ export class SessionCore {
   /** A slow start's one picture is out (`lookOnLoad`): the prompt retry of its failed capture is
    *  part of it. Cleared once a picture arrives for it, or anything else happens. */
   private slowStart = false;
+  /** The slow start's look was asked since the last load ended: a pointer told as resting later
+   *  does not ask a second one. */
+  private slowStartTaken = false;
   /** A load ended under an eligible pointer while a retry waited out its back-off: the load's look
    *  is asked once the retry is due (`loadEndDue`), not at the paced cadence. */
   private loadEndPending = false;
@@ -463,6 +466,13 @@ export class SessionCore {
     this.noteMediaTime(mediaTime, now, rate);
     this.slowStart = false;
     this.scheduler.pointerRestedSince(now, restedMs);
+    // Told after the model loaded: the load's slow start went by without it, so it is owed now.
+    // Once per load (`slowStartTaken`), by the same rules as at a load's end.
+    if (this.entryLook && this.st.state === "ready" && !this.inFlight && !this.slowStartTaken && this.slowStartEligible(now) && !this.scheduler.retryWaiting(now)) {
+      this.slowStartTaken = true;
+      this.slowStart = true;
+      this.requestCapture();
+    }
     this.publish();
   }
 
@@ -700,6 +710,7 @@ export class SessionCore {
         // content script's slow start, capture-control.ts) can tell the look the load asked for.
         this.publish();
         if (reply.ok) {
+          this.slowStartTaken = false;
           this.lookOnLoad();
           this.publish();
         }
@@ -733,6 +744,7 @@ export class SessionCore {
       return;
     }
     if (this.slowStartEligible(now) && !this.scheduler.retryWaiting(now)) {
+      this.slowStartTaken = true;
       this.slowStart = true;
       this.requestCapture();
     }

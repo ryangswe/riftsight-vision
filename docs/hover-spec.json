@@ -64,12 +64,12 @@
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 947,
+          "line": 1001,
           "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 996,
+          "line": 1050,
           "target": false
         }
       ],
@@ -428,6 +428,36 @@
           "file": "compute-messages.test.ts",
           "line": 49,
           "target": false
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 802,
+          "target": false
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 811,
+          "target": false
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 822,
+          "target": false
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 830,
+          "target": false
+        },
+        {
+          "file": "compute-frame.test.ts",
+          "line": 839,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 1147,
+          "target": false
         }
       ],
       "pending": [
@@ -668,7 +698,7 @@
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 799,
+          "line": 853,
           "target": false
         },
         {

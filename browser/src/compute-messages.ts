@@ -93,11 +93,12 @@ export type ComputeOut =
 export const MIN_PLAYBACK_RATE = 0.0625;
 export const MAX_PLAYBACK_RATE = 16;
 
-/** A message's optional `rate`: a finite number, clamped; absent when missing or not a number. */
+/** A message's optional `restedMs`: a finite number of 0 or more; absent otherwise. */
 function restedField(v: unknown): { restedMs: number } | Record<string, never> {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? { restedMs: v } : {};
 }
 
+/** A message's optional `rate`: a finite number, clamped; absent when missing or not a number. */
 function rateField(v: unknown): { rate: number } | Record<string, never> {
   return typeof v === "number" && Number.isFinite(v) ? { rate: Math.min(MAX_PLAYBACK_RATE, Math.max(MIN_PLAYBACK_RATE, v)) } : {};
 }

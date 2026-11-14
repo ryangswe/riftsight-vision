@@ -371,7 +371,7 @@ describe("a slow start: the frame becomes ready while a mouse rests over the pic
     expect(h.answer()).toMatchObject({ kind: "frame", requestId: 2 });
   });
 
-  it("opens no grant for a mouse still within its grace period when the frame becomes ready", async () => {
+  it("a grant opened inside the grace period lapses after SLOW_START_GRANT_MS: a capture past it is refused", async () => {
     const h = resting(5_000);
     status(h, "ready");
     expect(h.control.captureAllowedNow()).toBe(true); // the grace period itself
@@ -1133,10 +1133,23 @@ describe("late frame: the compute frame connects after the grace period of a res
   it("the first frame after the pointer began gets its picture, a second one (a remake) gets none", async () => {
     const h = late(700);
     h.clear();
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    h.clear();
     h.ready(INSTANCE_B);
     expect(h.sent.filter((m) => m.kind === "pointer")).toEqual([]);
     status(h, "ready");
-    await captureNow(h, 1);
-    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("with graceMs 0 a plain move is never sent as resting", () => {
+    const h = connected({ limits: { graceMs: 0 } });
+    h.hover();
+    h.advance(1_000);
+    h.hover();
+    expect(h.sent.filter((m) => m.kind === "pointer")).toHaveLength(2);
+    for (const m of h.sent.filter((x) => x.kind === "pointer")) expect(m).not.toHaveProperty("restedMs");
   });
 });

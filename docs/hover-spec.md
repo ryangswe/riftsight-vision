@@ -117,7 +117,7 @@ ready run without it.
 Example: a video plays for 5 minutes with no pointer: the stage's index is never downloaded. The
 viewer points at the picture: the stage starts loading.
 
-Test: `compute-frame.test.ts:947`, `compute-frame.test.ts:996`
+Test: `compute-frame.test.ts:1001`, `compute-frame.test.ts:1050`
 
 ### S-A4 — After 10 idle minutes, the worker ends and both frames are removed
 
@@ -278,8 +278,15 @@ Test: `session-core.test.ts:2768`, `session-core.test.ts:2781`, `session-core.te
 `session-core.test.ts:2868`, `session-core.test.ts:2758`, `capture-control.test.ts:303`,
 `capture-control.test.ts:315`, `capture-control.test.ts:321`, `capture-control.test.ts:333`,
 `capture-control.test.ts:349`, `capture-control.test.ts:363`, `capture-control.test.ts:374`,
-`capture-control.test.ts:383`, `capture-control.test.ts:391`, `capture-control.test.ts:404`, `capture-control.test.ts:418`, `capture-control.test.ts:426`,
-`capture-control.test.ts:443`, `compute-frame.test.ts:788`; `capture-control.test.ts:1045`, `capture-control.test.ts:1069`, `capture-control.test.ts:1084`, `capture-control.test.ts:1095`, `capture-control.test.ts:1101`, `capture-control.test.ts:1109`, `capture-control.test.ts:1121`, `capture-control.test.ts:1133`, `session-core.test.ts:2831`, `session-core.test.ts:2847`, `compute-messages.test.ts:49`, end to end: pending (real-browser test)
+`capture-control.test.ts:383`, `capture-control.test.ts:391`, `capture-control.test.ts:404`,
+`capture-control.test.ts:418`, `capture-control.test.ts:426`, `capture-control.test.ts:443`,
+`compute-frame.test.ts:788`, `capture-control.test.ts:1045`, `capture-control.test.ts:1069`,
+`capture-control.test.ts:1084`, `capture-control.test.ts:1095`, `capture-control.test.ts:1101`,
+`capture-control.test.ts:1109`, `capture-control.test.ts:1121`, `capture-control.test.ts:1133`,
+`session-core.test.ts:2831`, `session-core.test.ts:2847`, `compute-messages.test.ts:49`,
+`compute-frame.test.ts:802`, `compute-frame.test.ts:811`, `compute-frame.test.ts:822`,
+`compute-frame.test.ts:830`, `compute-frame.test.ts:839`, `capture-control.test.ts:1147`; end to
+end: pending (real-browser test)
 
 ### S-B4 — A tap gives pictures for 10 s and no longer
 
@@ -414,7 +421,7 @@ flight at the leave stays in flight, and the back-off keeps counting.
 
 Example: the pointer leaves at 0 s and comes back at 3 s: no `capture` request is made between.
 
-Test: `compute-frame.test.ts:799`, `session-core.test.ts:2557`
+Test: `compute-frame.test.ts:853`, `session-core.test.ts:2557`
 
 ### S-C5 — A pointer message over a stale picture asks for a look on that message
 
