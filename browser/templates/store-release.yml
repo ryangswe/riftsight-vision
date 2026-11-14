@@ -78,7 +78,7 @@ jobs:
       - name: Lint the Firefox package
         run: |
           mkdir -p out/firefox && unzip -q -o out/firefox.zip -d out/firefox
-          npx --yes web-ext@8.10.0 lint --source-dir out/firefox --output json > out/lint.json || true
+          npx --yes web-ext@10.8.0 lint --source-dir out/firefox --output json > out/lint.json || true
 
       - name: The previous release's permissions
         run: |
