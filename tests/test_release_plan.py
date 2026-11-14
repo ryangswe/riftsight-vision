@@ -6,6 +6,10 @@ from __future__ import annotations
 import pytest
 
 import release_plan
+
+# How this repository is maintained, not whether the code works: a fork may leave these out
+# with `python -m pytest -m "not maintainer"` (README, Forking).
+pytestmark = pytest.mark.maintainer
 from release_plan import Facts, decide
 
 HERE = "a" * 40

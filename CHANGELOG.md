@@ -20,6 +20,10 @@ break the public surface; this file names each break and how to migrate.
   section (except for a final whose candidates are in the changelog) and a dirty tree. `--check`
   prints the planned changes and writes nothing. The Publish workflow now also installs the
   version it just uploaded from the index in a fresh environment.
+- The tests that check how this repository is maintained (license lines, the changelog, the
+  version's places, its own workflows) are marked `maintainer`. A fork can run the rest with
+  `python -m pytest -m "not maintainer"`. The README has a Forking section, and the Publish
+  workflow's install check reads the project's name from `pyproject.toml`.
 
 ## [0.14.0rc2] - 2026-11-13
 

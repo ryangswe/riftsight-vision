@@ -31,6 +31,8 @@ jobs:
   build:
     name: Build the package
     runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.project.outputs.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -41,6 +43,11 @@ jobs:
           python -m pip install --require-hashes -r requirements-publish.txt
           python -m build
           python -m twine check --strict dist/*
+      - name: The project's name, for the install check after the upload
+        id: project
+        run: |
+          name="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
       - name: The tag must match the package version
         if: inputs.target == 'pypi'
         run: |
@@ -95,7 +102,7 @@ jobs:
   installed:
     name: The uploaded version installs from the index
     if: inputs.target == 'pypi' && github.ref_type == 'tag'
-    needs: pypi
+    needs: [build, pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -104,13 +111,15 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the version from the index in a fresh environment and print it
+        env:
+          PROJECT: ${{ needs.build.outputs.name }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          requirement="cardvision==${version}"
+          requirement="${PROJECT}==${version}"
           python -m venv /tmp/fresh
           for attempt in 1 2 3 4 5; do
             if /tmp/fresh/bin/python -m pip install --no-cache-dir "$requirement"; then
-              installed="$(/tmp/fresh/bin/python -c "import cardvision; print(cardvision.__version__)")"
+              installed="$(/tmp/fresh/bin/python -c "import importlib.metadata, sys; print(importlib.metadata.version(sys.argv[1]))" "$PROJECT")"
               echo "Installed ${installed} from the index."
               if [ "$installed" = "$version" ]; then exit 0; fi
               break

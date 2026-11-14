@@ -38,6 +38,10 @@ import pytest
 
 from support_data import row_doc, write_lines
 
+# How this repository is maintained, not whether the code works: a fork may leave these out
+# with `python -m pytest -m "not maintainer"` (README, Forking).
+pytestmark = pytest.mark.maintainer
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 STEP_INDENT = "      - "
@@ -578,12 +582,13 @@ def test_the_facts_step_fails_when_the_publish_runs_cannot_be_listed(tmp_path, t
 def test_publish_installs_the_uploaded_version_from_the_index_with_read_only_power():
     text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
     job = text.split("\n  installed:\n", 1)[1]
-    assert "    needs: pypi\n" in job and "    if: inputs.target == 'pypi' && github.ref_type == 'tag'\n" in job
+    assert "    needs: [build, pypi]\n" in job and "    if: inputs.target == 'pypi' && github.ref_type == 'tag'\n" in job
     assert "    permissions:\n      contents: read\n" in job
     for forbidden in ("id-token", "environment:", "secrets.", "contents: write"):
         assert forbidden not in job
-    assert 'requirement="cardvision==${version}"' in job and 'pip install --no-cache-dir "$requirement"' in job
-    assert "cardvision.__version__" in job and '[ "$installed" = "$version" ]' in job
+    assert "PROJECT: ${{ needs.build.outputs.name }}" in job and 'requirement="${PROJECT}==${version}"' in job
+    assert 'pip install --no-cache-dir "$requirement"' in job and "importlib.metadata.version(sys.argv[1])" in job
+    assert '[ "$installed" = "$version" ]' in job
     assert "for attempt in 1 2 3 4 5" in job and "sleep 60" in job
     assert "The upload of ${version} succeeded; only this check failed." in job and "GITHUB_STEP_SUMMARY" in job
     assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)

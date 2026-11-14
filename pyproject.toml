@@ -114,4 +114,7 @@ ignore = ["F401", "F541", "ASYNC109", "ASYNC110", "ASYNC115", "ASYNC116"]
 # The labeling tool is a separate standard-library program with a unittest suite of its own
 # ("python -m unittest discover -s labeler"); pytest runs that suite too.
 testpaths = ["tests", "labeler"]
-addopts = "-ra"
+addopts = "-ra --strict-markers"
+markers = [
+    "maintainer: checks how this repository is maintained (license lines, the changelog, the version's places, its own workflows); a fork may leave them out with -m \"not maintainer\"",
+]
