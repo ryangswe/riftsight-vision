@@ -16,11 +16,14 @@
 //    it, and the finger lifting does not end it (the picture the tap asked for is taken after the
 //    finger is up); a canceled touch does.
 //  - Slow start (hover only): when the compute frame's status becomes `ready` (its model loaded)
-//    while a mouse rests over the picture past its grace period, the next capture it asks for is
-//    given, within `MAX_REST_MS` of the last trusted event, the point still over the picture, if it
-//    comes within `SLOW_START_GRANT_MS`. One picture: the grant is spent by that capture, unless it
-//    failed for want of a picture under the grant and may be retried (`SLOW_START_RETRY_MS`). A new
-//    trusted move, a seek or a new source, any reset and a new frame drop it.
+//    while a mouse rests over the picture (inside or past its grace period), the next capture it
+//    asks for is given, within `MAX_REST_MS` of the last trusted event, the point still over the
+//    picture, if it comes within `SLOW_START_GRANT_MS`. The first frame with a handshake after the
+//    mouse began to rest is told it rests (`restedMs`) and gets this however late it connects; a
+//    frame replacing an earlier one during the same rest is told nothing and gets none. One
+//    picture: the grant is spent by that capture, unless it failed for want of a picture under the
+//    grant and may be retried (`SLOW_START_RETRY_MS`). A new trusted move, a seek or a new source,
+//    any reset and a new frame drop it.
 //
 // Everything that means the viewer is gone clears all of it, the record of a card showing
 // included: the pointer leaving the picture or the document, the page hidden, a canceled
@@ -166,6 +169,9 @@ interface Authority {
   clientY: number;
   /** For a hover, the last trusted event over the picture; for a tap, the tap (never moved). */
   at: number;
+  /** A compute frame had a handshake during this authority, or was connected when it began: a
+   *  frame that connects after that replaces one, and a resting hover is not told to it. */
+  framed: boolean;
 }
 
 interface Handshake {
@@ -377,7 +383,12 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
   function sendPointer(known?: { x: number; y: number }): void {
     if (!authority || !watch) return;
     const at = known ?? where(authority.clientX, authority.clientY);
-    if (at) send({ kind: "pointer", x: at.x, y: at.y, mediaTime: watch.mediaTime(), touch: authority.kind === "tap", ...rateOf(watch.video) });
+    if (!at) return;
+    // A mouse that has rested past its grace period (only a new frame is told of one) is said to
+    // rest, with how long: the frame must not take it for a move.
+    const rested = authority.kind === "hover" ? now() - authority.at : 0;
+    const resting = rested > 0 && rested >= (options.limits?.graceMs ?? POINTER_GRACE_MS) ? { restedMs: rested } : {};
+    send({ kind: "pointer", x: at.x, y: at.y, mediaTime: watch.mediaTime(), touch: authority.kind === "tap", ...rateOf(watch.video), ...resting });
   }
 
   /** The frame reported `idle`: drop it, once. Nothing is sent to it after this. */
@@ -414,7 +425,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     if (frameRemoved && at && (event.type === "pointermove" || event.type === "pointerdown")) makeFrame();
     if (kind === "hover") {
       if (at) {
-        authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now() };
+        authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now(), framed: connectedFrame() !== null };
         // A move: the grace period runs again, and a slow start is not owed.
         dropGrant();
         sendPointer(at);
@@ -427,7 +438,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     const own = authority?.kind === "tap" && authority.pointerId === id;
     if (event.type === "pointerdown") {
       if (at) {
-        authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now() };
+        authority = { kind, pointerId: id, clientX: event.clientX, clientY: event.clientY, at: now(), framed: connectedFrame() !== null };
         sendPointer(at);
       } else if (authority?.kind === "tap") {
         // A new touch elsewhere ends the last tap's window.
@@ -550,7 +561,11 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     tooltipShowing = false;
     lastTooltipAt = -Infinity;
     resets++;
-    if (kept && !(where(kept.clientX, kept.clientY) && captureAllowed(gateState(), now(), options.limits))) authority = null;
+    // A resting mouse stays too, within `MAX_REST_MS`, for the first frame that connects after it
+    // began: that frame is told it rests (a slow start). A frame that replaces one gets none.
+    const restingOk = kept?.kind === "hover" && !kept.framed && slowStartAllowed(gateState(), now(), options.limits);
+    if (kept && !(where(kept.clientX, kept.clientY) && (captureAllowed(gateState(), now(), options.limits) || restingOk))) authority = null;
+    if (authority) authority.framed = true;
     if (watch) send({ kind: "presented", mediaTime: watch.mediaTime(), ...rateOf(watch.video) });
     sendPointer();
   }
@@ -618,7 +633,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
         const was = frameState;
         frameState = message.state;
         if (message.state !== "ready") dropGrant();
-        else if (was !== "ready" && authority?.kind === "hover" && now() - authority.at >= (options.limits?.graceMs ?? POINTER_GRACE_MS) && slowStartAllowed(gateState(), now(), options.limits)) {
+        else if (was !== "ready" && authority?.kind === "hover" && slowStartAllowed(gateState(), now(), options.limits)) {
           slowStartUntil = now() + SLOW_START_GRANT_MS;
         }
         options.onStatus?.(message);

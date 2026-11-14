@@ -31,6 +31,17 @@ break the public surface; this file names each break and how to migrate.
   8.10.0). A product that copied the template keeps its own version until it updates its
   `store/lint-baseline.json` with it.
 
+### Fixed
+
+- A card under a resting mouse is now named when the compute frame connects late. A page whose
+  model loads slowly, such as a new tab, could miss the one picture a resting pointer is owed:
+  the pointer had rested longer than the 10-second window when the frame connected, so the frame
+  never learned of it. The first frame to connect now is told that the pointer rests, and takes its
+  one picture when ready, up to 60 seconds after the last move. A frame made again during the same
+  rest gets none. A frame that became ready in the last moments of the 10 seconds now also gets
+  its picture when the capture request arrives just after them. The page-to-frame `pointer`
+  message has an optional `restedMs` field; messages without it work as before.
+
 ## [0.14.0rc2] - 2026-11-13
 
 A second release candidate. It changes one rule from 0.14.0rc1: a pointer move or tap onto a

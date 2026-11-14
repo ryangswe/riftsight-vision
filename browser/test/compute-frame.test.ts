@@ -796,6 +796,62 @@ describe("a look on pointer entry (entryLook)", () => {
     expect(captureCount(t)).toBe(1);
   });
 
+  describe("a pointer told as resting (restedMs)", () => {
+    const rested = (restedMs: number, mediaTime = 1) => tag({ kind: "pointer", x: 0.2, y: 0.5, mediaTime, touch: false, restedMs });
+
+    it("told, then the load ends: one capture", () => {
+      const t = setup({});
+      t.send(rested(15_000));
+      expect(captureCount(t)).toBe(0);
+      loaded(t.workers[0]!);
+      t.frame!.tick();
+      expect(captureCount(t)).toBe(1);
+    });
+
+    it("the load ended, then told: one capture, and no second one for a repeat", () => {
+      const t = setup({});
+      loaded(t.workers[0]!);
+      expect(captureCount(t)).toBe(0);
+      t.send(rested(15_000));
+      expect(captureCount(t)).toBe(1);
+      const capture = t.messages().filter((m) => m.kind === "capture").at(-1) as { requestId: number };
+      t.send(tag({ kind: "capture-failed", requestId: capture.requestId, reason: "no picture", retry: false }));
+      t.send(rested(15_000));
+      t.frame!.tick();
+      expect(captureCount(t)).toBe(1);
+    });
+
+    it("told and the load never ends: no capture", () => {
+      const t = setup({});
+      t.send(rested(15_000));
+      t.clock.now += 5_000;
+      t.frame!.tick();
+      expect(captureCount(t)).toBe(0);
+    });
+
+    it("the rest it names counts from the last move, not from when it arrived: told at 15 s, loaded at 65 s, no capture", () => {
+      const t = setup({});
+      t.send(rested(15_000));
+      t.clock.now += 50_000;
+      loaded(t.workers[0]!);
+      t.frame!.tick();
+      expect(captureCount(t)).toBe(0);
+    });
+
+    it("rested for MAX_REST_MS or more: no capture, in either order", () => {
+      const first = setup({});
+      first.send(rested(60_000));
+      loaded(first.workers[0]!);
+      first.frame!.tick();
+      expect(captureCount(first)).toBe(0);
+      const second = setup({});
+      loaded(second.workers[0]!);
+      second.send(rested(60_000));
+      second.frame!.tick();
+      expect(captureCount(second)).toBe(0);
+    });
+  });
+
   it.each(ON_OFF)("%s: what is asked off the picture after a leave, and on the return to a stale picture", (_, over, on) => {
     const t = setup(over);
     const w = t.workers[0]!;

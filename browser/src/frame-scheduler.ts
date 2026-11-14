@@ -436,6 +436,14 @@ export class FrameScheduler {
     }
   }
 
+  /** A mouse already resting over the picture, last active `restedMs` ago (a frame that connected
+   *  late is told of it). The pointer counts as inside; this is no activity now and makes no look
+   *  due. */
+  pointerRestedSince(now: number, restedMs: number): void {
+    this.pointerInside = true;
+    this.lastPointerAt = now - restedMs;
+  }
+
   /** The pointer left the picture. The grace period starts now, and with the pointer outside
    *  there is no "reading" state after it. */
   pointerLeft(now: number): void {

@@ -55,8 +55,11 @@ export type ComputeIn =
   | { kind: "hello"; version: number }
   /** The pointer over the picture, in fractions of the picture; `mediaTime` is the video's time,
    *  `rate` its playback rate (optional; a finite number, clamped to `MIN_PLAYBACK_RATE` to
-   *  `MAX_PLAYBACK_RATE` on arrival). */
-  | { kind: "pointer"; x: number; y: number; mediaTime: number; touch: boolean; rate?: number }
+   *  `MAX_PLAYBACK_RATE` on arrival). `restedMs` (optional, a finite number of 0 or more): the
+   *  mouse has rested at this point for that long, not just arrived. It is how a frame that
+   *  connects late learns of a resting pointer: the point counts for a slow start, and it is no
+   *  new pointer activity. Absent: the pointer just moved. */
+  | { kind: "pointer"; x: number; y: number; mediaTime: number; touch: boolean; rate?: number; restedMs?: number }
   /** The pointer left the picture. */
   | { kind: "leave" }
   /** The viewer is probably about to want recognition: a frame that unloaded its worker when idle
@@ -89,6 +92,11 @@ export type ComputeOut =
 /** The least and most playback rate a `rate` field is clamped to: the rates a browser plays at. */
 export const MIN_PLAYBACK_RATE = 0.0625;
 export const MAX_PLAYBACK_RATE = 16;
+
+/** A message's optional `restedMs`: a finite number of 0 or more; absent otherwise. */
+function restedField(v: unknown): { restedMs: number } | Record<string, never> {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? { restedMs: v } : {};
+}
 
 /** A message's optional `rate`: a finite number, clamped; absent when missing or not a number. */
 function rateField(v: unknown): { rate: number } | Record<string, never> {
@@ -216,7 +224,7 @@ export function computeProtocol(tag = "cardvision"): ComputeProtocol {
         return isVersion(m.version) ? { kind: "hello", version: m.version } : null;
       case "pointer":
         return isFraction(m.x) && isFraction(m.y) && isNum(m.mediaTime) && typeof m.touch === "boolean"
-          ? { kind: "pointer", x: m.x, y: m.y, mediaTime: m.mediaTime, touch: m.touch, ...rateField(m.rate) }
+          ? { kind: "pointer", x: m.x, y: m.y, mediaTime: m.mediaTime, touch: m.touch, ...rateField(m.rate), ...restedField(m.restedMs) }
           : null;
       case "leave":
         return { kind: "leave" };
