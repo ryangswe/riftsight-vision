@@ -15,6 +15,10 @@ from pathlib import Path
 import pytest
 
 import release_prepare
+
+# How this repository is maintained, not whether the code works: a fork may leave these out
+# with `python -m pytest -m "not maintainer"` (README, Forking).
+pytestmark = pytest.mark.maintainer
 from release_prepare import STRINGS, Refused, prepare, previous_link_target, read_strings
 
 FIXTURES = Path(__file__).parent / "fixtures" / "release_prepare"

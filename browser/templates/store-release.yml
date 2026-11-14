@@ -16,7 +16,7 @@
 # one store failed after the other succeeded, re-run the failed job: the store that already has
 # the version is skipped.
 #
-# Replace the two steps marked PRODUCT with the product's own commands. Pin every `uses:` to a
+# Replace the step marked PRODUCT with the product's own commands. Pin every `uses:` to a
 # commit when copying. Release tags are TAG_PREFIX followed by the version (v1.2.0); a product
 # whose tags look different (extension-v1.2.0) sets TAG_PREFIX and the `tags:` pattern to match.
 # This file must name no CDN credential or pointer tool: `check` refuses it.

@@ -7,6 +7,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from cardvision.cli import SUBCOMMANDS
 from release_plan import HEADING, sections as sections_of
 
@@ -24,6 +26,7 @@ def sections() -> dict[str, str]:
     return sections_of(CHANGELOG)    # the parser is shared with tests/release_plan.py, which the release workflow runs
 
 
+@pytest.mark.maintainer
 def test_the_changelog_has_an_unreleased_section_and_one_for_every_released_version():
     found = sections()
     assert "Unreleased" in found and "0.1.0" in found
@@ -32,11 +35,13 @@ def test_the_changelog_has_an_unreleased_section_and_one_for_every_released_vers
     assert list(found)[0] == "Unreleased"
 
 
+@pytest.mark.maintainer
 def test_the_changelog_covers_the_version_in_pyproject_or_has_unreleased_entries():
     found = sections()
     assert version() in found or found["Unreleased"].strip(), "no section for this version and nothing under Unreleased"
 
 
+@pytest.mark.maintainer
 def test_every_changelog_section_uses_the_standard_headings_and_lists_something():
     for name, body in sections().items():
         kinds = re.findall(r"^### (.+)$", body, re.M)
@@ -53,6 +58,7 @@ def test_the_stability_page_names_every_command():
     assert not missing, f"docs/stability.md does not name: {missing}"
 
 
+@pytest.mark.maintainer
 def test_dependabot_covers_pip_npm_and_actions_monthly_and_grouped():
     text = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
     assert re.findall(r"package-ecosystem: (\S+)", text) == ["pip", "npm", "github-actions"]
@@ -63,22 +69,26 @@ def test_dependabot_covers_pip_npm_and_actions_monthly_and_grouped():
     assert re.findall(r"^      (\S+-checks):$", text, re.M) == ["python-checks", "npm-checks"]
 
 
+@pytest.mark.maintainer
 def test_the_pull_request_template_asks_for_a_changelog_line():
     text = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
     assert "no user-visible change" in text and "CHANGELOG.md" in text
 
 
+@pytest.mark.maintainer
 def test_security_names_the_report_a_vulnerability_button_beside_the_email():
     text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     assert "Report a vulnerability" in text and "riftsight.support@gmail.com" in text
 
 
+@pytest.mark.maintainer
 def test_the_five_places_that_name_the_version_agree_with_pyproject():
     from release_prepare import read_strings
     found = read_strings(ROOT)
     assert set(found.values()) == {version()}, found
 
 
+@pytest.mark.maintainer
 def test_the_agreement_check_fails_when_one_place_is_left_behind(tmp_path):
     import shutil
     from release_prepare import STRINGS, read_strings

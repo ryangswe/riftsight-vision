@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from cardvision.core import constants
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +58,7 @@ def licensed_files(root: Path = ROOT) -> list[Path]:
     return sorted([*inside, *top])
 
 
+@pytest.mark.maintainer
 def test_every_source_file_starts_with_the_license_identifier():
     files = python_files()
     assert files and {"labeler", "examples"} <= {path.parent.name for path in files}
@@ -64,6 +67,7 @@ def test_every_source_file_starts_with_the_license_identifier():
     assert missing == []
 
 
+@pytest.mark.maintainer
 def test_every_file_of_the_licensed_folders_carries_the_license_line():
     """Python, TOML, YAML and text files, scripts in JavaScript and TypeScript, style sheets,
     pages and every Markdown page start with the identifier, written as that kind of file
@@ -94,6 +98,7 @@ def test_every_file_of_the_licensed_folders_carries_the_license_line():
             ".gitignore", "README.md"} <= names
 
 
+@pytest.mark.maintainer
 def test_installed_packages_and_build_output_are_never_scanned(tmp_path):
     """``browser/node_modules`` and ``browser/dist`` hold other people's files and generated
     ones. They are left out wherever they lie, and every other file of a licensed folder is in."""
@@ -206,6 +211,7 @@ def install_by_name_problem(line: str, extras: set[str]) -> str | None:
     return f"no such extra: {', '.join(unknown)}" if unknown else None
 
 
+@pytest.mark.maintainer
 def test_every_install_by_name_names_the_package_and_its_real_extras():
     """The package is on the package index as this name from 0.4.0, so a page may say to install
     it by name. An instruction that does must name exactly this package, and only extras that
@@ -408,3 +414,16 @@ def test_the_hand_block_s_release_document_hash_is_the_pinned_one():
              if page.is_file()}
     assert {page: hashes for page, hashes in found.items() if set(hashes) - {pinned}} == {}
     assert found.get("docs/release-files.md") == [pinned]
+
+
+def test_a_fork_can_leave_out_the_maintainer_checks_as_the_readme_says():
+    """The README tells a fork how to run only the tests of the code. The marker it names must be
+    registered, or pytest refuses it under ``--strict-markers``."""
+    import tomllib
+
+    options = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]
+    assert "--strict-markers" in options["addopts"]
+    assert any(line.startswith("maintainer:") for line in options["markers"])
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    forking = readme.split("\n## Forking\n", 1)[1].split("\n## ", 1)[0]
+    assert '`python -m pytest -m "not maintainer"`' in forking

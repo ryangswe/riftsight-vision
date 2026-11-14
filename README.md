@@ -130,6 +130,25 @@ thank-you that does not buy support beyond what is promised above.
   card images that this repository does not contain and does not license ([NOTICE](NOTICE),
   [docs/faq.md](docs/faq.md), the [license table](PROVENANCE.md#licenses-by-artifact)).
 
+## Forking
+
+Fork it and change what you need. The repository holds three kinds of files:
+
+- **The library, its tools and documents:** everything not named below. Their tests run in any
+  fork: `python -m pytest -m "not maintainer"`.
+- **Templates for your own project,** such as `browser/templates/store-release.yml` for uploads
+  to the extension stores ([docs/store-uploads.md](docs/store-uploads.md)). Copy one and fill in
+  your own settings.
+- **How this repository is run:** the workflows under `.github/workflows/`, the release scripts
+  in `tests/` and [RELEASING.md](RELEASING.md). The tests marked `maintainer` check them and this
+  repository's conventions: a license line on every file, the changelog's format and the version
+  written alike in five files. Keep them, change them or drop them.
+
+The workflows that run by themselves (the release, Dependabot's auto-merge and Scorecard) check
+the repository's name, so in a fork they do nothing until you change it in their `if:` lines.
+Publishing to PyPI runs only by hand and needs your own trusted publisher there. To publish under
+another name, rename the project in `pyproject.toml`; the workflow reads the name from there.
+
 ## Trademark
 
 The Apache license does not cover the RiftSight name or logo. A fork or a product built on this
