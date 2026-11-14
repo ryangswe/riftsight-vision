@@ -117,7 +117,7 @@ ready run without it.
 Example: a video plays for 5 minutes with no pointer: the stage's index is never downloaded. The
 viewer points at the picture: the stage starts loading.
 
-Test: `compute-frame.test.ts:1001`, `compute-frame.test.ts:1050`
+Test: `compute-frame.test.ts:1003`, `compute-frame.test.ts:1052`
 
 ### S-A4 — After 10 idle minutes, the worker ends and both frames are removed
 
@@ -257,11 +257,12 @@ taken at that moment, and never later than 60 s (`MAX_REST_MS`) after the last t
 move. If that look finds a card, the card keeps showing under the rules of S-B2 and S-B3. If it
 finds nothing, no further picture is taken until the pointer moves. A capture that fails and is
 retried promptly (S-C10) is part of the one picture, not a second one. A tap gets no such picture:
-S-B4 is unchanged for a cold start. The first compute frame that has a handshake after the pointer
-began to rest gets its one picture however late it connects, within the same 60 s: the content
-script tells it that the pointer rests, and since when, which is no new pointer activity (the
-rules for a moving pointer, S-B2, do not apply to it). A frame that replaces an earlier one during
-the same resting pointer gets none, so a page cannot remake the frame to get a picture each time.
+S-B4 is unchanged for a cold start. If no frame was connected when the rest
+began, the first frame to connect during it gets its one picture, however late, within the same
+60 s: the content script tells it that the pointer rests, and since when, which is no new pointer
+activity (the rules for a moving pointer, S-B2, do not apply to it). A frame whose model is
+already loaded when it is told takes its picture then. A frame that replaces an earlier one gets
+none, so a page cannot remake the frame to get a picture each time.
 The content script keeps the grant for the capture the frame asks for at once: an unspent grant
 lapses after 500 ms, or at a seek. A ready frame is granted its picture whenever the pointer is
 within the 60 s, also in the last moments of the 10 s, so a capture asked just after them is not
@@ -284,8 +285,8 @@ Test: `session-core.test.ts:2768`, `session-core.test.ts:2781`, `session-core.te
 `capture-control.test.ts:1084`, `capture-control.test.ts:1095`, `capture-control.test.ts:1101`,
 `capture-control.test.ts:1109`, `capture-control.test.ts:1121`, `capture-control.test.ts:1133`,
 `session-core.test.ts:2831`, `session-core.test.ts:2847`, `compute-messages.test.ts:49`,
-`compute-frame.test.ts:802`, `compute-frame.test.ts:811`, `compute-frame.test.ts:822`,
-`compute-frame.test.ts:830`, `compute-frame.test.ts:839`, `capture-control.test.ts:1147`; end to
+`compute-frame.test.ts:802`, `compute-frame.test.ts:811`, `compute-frame.test.ts:824`,
+`compute-frame.test.ts:832`, `compute-frame.test.ts:841`, `capture-control.test.ts:1147`; end to
 end: pending (real-browser test)
 
 ### S-B4 — A tap gives pictures for 10 s and no longer
@@ -421,7 +422,7 @@ flight at the leave stays in flight, and the back-off keeps counting.
 
 Example: the pointer leaves at 0 s and comes back at 3 s: no `capture` request is made between.
 
-Test: `compute-frame.test.ts:853`, `session-core.test.ts:2557`
+Test: `compute-frame.test.ts:855`, `session-core.test.ts:2557`
 
 ### S-C5 — A pointer message over a stale picture asks for a look on that message
 

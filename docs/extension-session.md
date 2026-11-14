@@ -90,7 +90,9 @@ What the messages mean:
   `touch`, a tap opens the active window and leaves no resting pointer. The one exception is
   `restedMs`: a mouse that has rested past its grace period, told to a new frame, is no movement.
   The frame records where it is and since when, so a slow start may follow (below), and treats
-  it as no activity: the rules for a moving pointer (entry look, active window) do not apply.
+  it as no activity: it opens no active window and asks no entry look. (If a product's `graceMs`
+  is shorter than the frame's own 10 s window, a rest the frame still counts as recent keeps the
+  frame's window rules for that time.)
 - `presented`: the video showed a new picture (playback, a seek ended, the video became ready).
 - `capture` asks for the picture on screen now, at a width within `analysisWidth`. The content
   script answers with `frame` or `capture-failed`, with the same `requestId`. `retry: true`
@@ -142,9 +144,9 @@ still on `about:blank` after that minute (nothing loaded in it) is reported as `
 - **A new instance:** the record of a card showing is cleared, a pointer is kept only if it is
   still within its window over the picture, and the picture's time and that pointer are sent
   again. A mouse that rests past its grace period is kept, and sent with `restedMs`, only for the
-  first frame that has a handshake after the pointer's last move (including a frame that was not
-  yet connected when the pointer arrived), and only within `MAX_REST_MS` of that move. A frame
-  that replaces an earlier one during the same rest is told no resting pointer. The same instance
+  first frame to connect during the rest, if no frame was connected when the rest began, and only
+  within `MAX_REST_MS` of that move. A frame that replaces an earlier one is told no resting
+  pointer. The same instance
   again changes nothing.
 
 ## The origin and source rule
@@ -200,11 +202,11 @@ authority of trusted pointer events (`event.isTrusted`), and checks again at eac
   trusted move, a seek or a new source, a full reset and a new frame instance drop the grant; a
   `ready` status repeated (with no other status between) grants nothing. The grant needs no
   grace period to have passed: inside it, the grace period already covers the capture, and a
-  capture asked just after it ends is not refused. A tap gets none. The first frame that has a
-  handshake after the pointer began to rest gets its one picture however late it connects,
-  within `MAX_REST_MS`: it is told the pointer rests (`restedMs`), and if its model had loaded
-  already, it asks that one look as it is told. A frame that replaces an earlier one during the
-  same rest is told nothing and gets none (see the handshake above), so a page cannot remake the
+  capture asked just after it ends is not refused. A tap gets none. If no frame was
+  connected when the rest began, the first frame to connect during it gets its one picture,
+  however late, within `MAX_REST_MS`: it is told the pointer rests (`restedMs`), and a frame whose
+  model is already loaded takes that picture as it is told. A frame that replaces an earlier one
+  is told nothing and gets none (see the handshake above), so a page cannot remake the
   frame to get a picture each time.
 - **Before every capture**, the last trusted point is checked again against the picture as it is
   laid out now, with `eligible`. A video that moved away under a resting pointer clears the gate

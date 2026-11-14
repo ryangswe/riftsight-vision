@@ -64,12 +64,12 @@
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 1001,
+          "line": 1003,
           "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 1050,
+          "line": 1052,
           "target": false
         }
       ],
@@ -441,17 +441,17 @@
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 822,
+          "line": 824,
           "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 830,
+          "line": 832,
           "target": false
         },
         {
           "file": "compute-frame.test.ts",
-          "line": 839,
+          "line": 841,
           "target": false
         },
         {
@@ -698,7 +698,7 @@
       "tests": [
         {
           "file": "compute-frame.test.ts",
-          "line": 853,
+          "line": 855,
           "target": false
         },
         {

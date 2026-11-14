@@ -814,6 +814,8 @@ describe("a look on pointer entry (entryLook)", () => {
       expect(captureCount(t)).toBe(0);
       t.send(rested(15_000));
       expect(captureCount(t)).toBe(1);
+      const capture = t.messages().filter((m) => m.kind === "capture").at(-1) as { requestId: number };
+      t.send(tag({ kind: "capture-failed", requestId: capture.requestId, reason: "no picture", retry: false }));
       t.send(rested(15_000));
       t.frame!.tick();
       expect(captureCount(t)).toBe(1);
