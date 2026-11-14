@@ -449,6 +449,23 @@ export class SessionCore {
     this.publish();
   }
 
+  /** A mouse that has rested over the picture for `restedMs` (its last move was that long ago):
+   *  what a frame that connected late is told. It sets where the pointer is and when it last
+   *  moved, so a slow start (`lookOnLoad`) may follow within `MAX_REST_MS`. It is no pointer
+   *  activity now: nothing is looked at for it, and `entryEligible` holds only while the move it
+   *  names is within the grace period. */
+  pointerRested(x: number, y: number, mediaTime: number, restedMs: number, rate?: number): void {
+    if (this.st.state === "stopped") return;
+    const now = this.deps.now();
+    this.pointerAt = { x, y };
+    this.pointerOver = "mouse";
+    this.mediaTime = mediaTime;
+    this.noteMediaTime(mediaTime, now, rate);
+    this.slowStart = false;
+    this.scheduler.pointerRestedSince(now, restedMs);
+    this.publish();
+  }
+
   /** The newest analyzed answer for this source (it stays through a look that comes back
    *  unanswered, unlike `result`), and where the pointer was and the card under it when the last
    *  look started: what a move is compared with (`ontoNewCard`). While a retry waits, no analyzed

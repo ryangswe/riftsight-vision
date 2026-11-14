@@ -2828,6 +2828,28 @@ describe("SessionCore: a look on pointer entry (entryLook)", () => {
       expect(p.run(5_000, "fail")).toBe(0);
     });
 
+    it("a pointer told as resting (a frame that connected late): one slow-start picture, no pointer activity, nothing past MAX_REST_MS", () => {
+      const p = playing();
+      scene.card = null;
+      p.core.pointerRested(0.2, 0.5, 3, POINTER_GRACE_MS + 5_000);
+      expect(p.core.scheduler.pointerActive(clock)).toBe(false);
+      expect(p.out.captures).toHaveLength(0);
+      p.load();
+      expect(p.askedSince(clock)).toEqual([0]);
+      p.respond("answer");
+      expect(p.run(30_000, "answer")).toBe(0);
+      const old = playing();
+      old.core.pointerRested(0.2, 0.5, 3, MAX_REST_MS);
+      old.load();
+      expect(old.out.captures).toHaveLength(0);
+    });
+
+    it("a pointer told as resting within the grace period is still active (a move that long ago)", () => {
+      const p = playing();
+      p.core.pointerRested(0.2, 0.5, 3, 1_000);
+      expect(p.core.scheduler.pointerActive(clock)).toBe(true);
+    });
+
     it("a slow start asks nothing for a pointer that left, nor with the entry look off", () => {
       const p = playing();
       p.enter();

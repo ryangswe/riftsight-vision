@@ -264,7 +264,8 @@ export function startComputeFrame(env: ComputeFrameEnv): ComputeFrame | null {
         return;
       case "pointer":
         resume();
-        if (message.rate === undefined) core.pointer(message.x, message.y, message.mediaTime, message.touch);
+        if (message.restedMs !== undefined && !message.touch) core.pointerRested(message.x, message.y, message.mediaTime, message.restedMs, message.rate);
+        else if (message.rate === undefined) core.pointer(message.x, message.y, message.mediaTime, message.touch);
         else core.pointer(message.x, message.y, message.mediaTime, message.touch, message.rate);
         // After the look: the look this pointer asked for is not delayed by the stage; one the
         // worker is already analyzing is answered without it. A pointer that resumes an idle

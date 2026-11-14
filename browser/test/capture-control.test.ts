@@ -388,15 +388,17 @@ describe("a slow start: the frame becomes ready while a mouse rests over the pic
     expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
   });
 
-  it("opens no grant when the frame became ready just before the grace period ended", async () => {
+  it("gives its one picture when the frame became ready just before the grace period ended", async () => {
     const h = connected();
     status(h, "loading");
     h.hover();
     h.advance(POINTER_GRACE_MS - 100);
     status(h, "ready");
-    h.advance(200); // past the grace period, within what a grant would last
+    h.advance(200); // past the grace period, within what a grant lasts
     await captureNow(h, 1);
-    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, reason: NOT_POINTING });
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
   });
 
   it("a seek during a granted capture that then fails for want of a picture: no re-grant", async () => {
@@ -1035,5 +1037,106 @@ describe("loadWhen waits for playing, not play", () => {
     loadWhen(v as unknown as HTMLVideoElement, "play", make);
     expect(make).toHaveBeenCalledTimes(1);
     expect(v.count()).toBe(0);
+  });
+});
+
+describe("boundary: ready just inside the grace period, capture asked just past it", () => {
+  const status = (h: ReturnType<typeof setup>, state: "loading" | "ready") => h.deliver({ kind: "status", state, error: null, backend: state === "ready" ? "wasm" : null });
+  it("the resting mouse still gets its one picture", async () => {
+    const h = connected();
+    status(h, "loading");
+    h.hover();
+    h.advance(POINTER_GRACE_MS - 200);
+    h.clear();
+    status(h, "ready");
+    h.advance(400);
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+  });
+});
+
+describe("late frame: the compute frame connects after the grace period of a resting mouse", () => {
+  const status = (h: ReturnType<typeof setup>, state: "loading" | "ready") => h.deliver({ kind: "status", state, error: null, backend: state === "ready" ? "wasm" : null });
+  const late = (afterGrace: number) => {
+    const h = setup();
+    h.control.attach(asVideo(h.video));
+    h.hover();
+    h.advance(POINTER_GRACE_MS + afterGrace);
+    h.ready();
+    return h;
+  };
+
+  it("the resting mouse still gets its one picture once the frame is ready", async () => {
+    const h = setup();
+    h.control.attach(asVideo(h.video));
+    h.hover();
+    h.advance(POINTER_GRACE_MS + 700);
+    h.ready();
+    const told = h.sent.filter((m) => m.kind === "pointer");
+    h.clear();
+    status(h, "loading");
+    h.advance(800);
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect({ told: told.length, answer: h.answer()?.kind }).toEqual({ told: 1, answer: "frame" });
+  });
+
+  it("tells the frame the pointer rests, with how long, and gives exactly one picture", async () => {
+    const h = late(700);
+    expect(h.sent.filter((m) => m.kind === "pointer")).toMatchObject([{ restedMs: POINTER_GRACE_MS + 700 }]);
+    h.clear();
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame" });
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("a pointer that just moved is told without restedMs", () => {
+    const h = connected();
+    h.hover();
+    expect(h.sent.find((m) => m.kind === "pointer")).not.toHaveProperty("restedMs");
+  });
+
+  it("a frame that connects past MAX_REST_MS gets no pointer message and no picture", async () => {
+    const h = late(MAX_REST_MS);
+    expect(h.sent.filter((m) => m.kind === "pointer")).toEqual([]);
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("a pointer that is not over the picture gets nothing", async () => {
+    const h = setup();
+    h.control.attach(asVideo(h.video));
+    h.hover(5_000, 5_000);
+    h.advance(POINTER_GRACE_MS + 700);
+    h.ready();
+    expect(h.sent.filter((m) => m.kind === "pointer")).toEqual([]);
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("a remade frame past the grace period gets no pointer message and no picture, within MAX_REST_MS", async () => {
+    const h = connected();
+    h.hover();
+    h.advance(POINTER_GRACE_MS + 700);
+    h.clear();
+    h.ready(INSTANCE_B);
+    expect(h.sent.filter((m) => m.kind === "pointer")).toEqual([]);
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
+  });
+
+  it("the first frame after the pointer began gets its picture, a second one (a remake) gets none", async () => {
+    const h = late(700);
+    h.clear();
+    h.ready(INSTANCE_B);
+    expect(h.sent.filter((m) => m.kind === "pointer")).toEqual([]);
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
   });
 });
