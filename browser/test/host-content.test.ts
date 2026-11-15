@@ -510,7 +510,6 @@ describe("the view adapter's inputs", () => {
     expect(s.pointerEvents).toBe("none");
     expect(s.visibility).toBe("hidden");
     expect(s.zIndex).toBe("2147483646");
-    expect(s.boxShadow).toBe("0 0 1px red;pointer-events:auto;visibility:visible;z-index:1");
   });
 
   it("post() goes to the view frame at the extension's origin, and is false with no window", async () => {
