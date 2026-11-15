@@ -11,6 +11,12 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Build and packaging for a shared hover host (experimental, not part of the public API): three
+  new self-contained files, `dist/host-content.js`, `dist/host-compute.js` and
+  `dist/host-settings.js`, with declaration shims, built beside the runtime without changing any
+  of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
+  browser test harness; both are recorded in the manifest's options and checked. The host's types
+  are frozen; its behavior is not written yet, so each function throws "not implemented yet".
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of

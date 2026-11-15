@@ -2,7 +2,7 @@
 // Vendor the built runtime into a product's folder, all from this checkout's HEAD:
 //
 //   npm run build && npm run vendor -- --into ../my-product/vendor/cardvision-browser
-//       [--commit SHA] [--no-opencv] [--no-ort-wasm] [--node-tools] [--unmanaged RULE]... [--adopt]
+//       [--commit SHA] [--no-opencv] [--no-ort-wasm] [--node-tools] [--host] [--harness] [--unmanaged RULE]... [--adopt]
 //
 // --commit must name HEAD (or be left out): the build in dist/ is of HEAD, and the tool refuses a
 // dist/ whose build-info.json names another commit or a tree with changes. --into is relative to the
@@ -17,12 +17,14 @@ import { parseArgs } from "node:util";
 import { DEFAULT_UNMANAGED, vendorInto } from "./vendor-lib.mjs";
 
 const USAGE =
-  "Usage: npm run vendor -- --into FOLDER [--commit SHA] [--no-opencv] [--no-ort-wasm] [--node-tools] [--unmanaged RULE]... [--adopt]\n" +
+  "Usage: npm run vendor -- --into FOLDER [--commit SHA] [--no-opencv] [--no-ort-wasm] [--node-tools] [--host] [--harness] [--unmanaged RULE]... [--adopt]\n" +
   "  --into FOLDER     the product's vendor folder, relative to where you ran npm; replaced whole or not at all\n" +
   "  --commit SHA      the toolkit commit; must be HEAD of this checkout (default)\n" +
   "  --no-opencv       leave OpenCV.js out (no geometric stage)\n" +
   "  --no-ort-wasm     leave ONNX Runtime's WebAssembly files out; the manifest still names the version and files to ship\n" +
   "  --node-tools      add node/verify-release.mjs, node/package-zip.mjs, node/store-upload.mjs\n" +
+  "  --host            add the shared hover host (experimental): host-content.js, host-compute.js, host-settings.js and their declarations\n" +
+  "  --harness         add the browser test harness (browser/harness/*.mjs) as harness/*.mjs\n" +
   "  --unmanaged RULE  what the product owns in FOLDER: a folder (\"notes/\") or one exact file name (\"README.md\"); repeatable\n" +
   "  --adopt           replace a non-empty folder that has no cardvision-vendor.json (a hand-vendored runtime, VENDOR.json)\n" +
   "  The tool refuses a folder that holds other files, a symbolic link, and a folder inside this checkout.";
@@ -36,6 +38,8 @@ try {
       "no-opencv": { type: "boolean", default: false },
       "no-ort-wasm": { type: "boolean", default: false },
       "node-tools": { type: "boolean", default: false },
+      host: { type: "boolean", default: false },
+      harness: { type: "boolean", default: false },
       unmanaged: { type: "string", multiple: true },
       adopt: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -79,6 +83,8 @@ try {
     opencv: !values["no-opencv"],
     ortWasm: !values["no-ort-wasm"],
     nodeTools: values["node-tools"],
+    host: values.host,
+    harness: values.harness,
     unmanaged: values.unmanaged?.length ? values.unmanaged : DEFAULT_UNMANAGED,
     adopt: values.adopt,
     warn: (message) => console.warn(`warning: ${message}`),
