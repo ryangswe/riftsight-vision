@@ -120,22 +120,22 @@ export interface StatusState {
   highWater: Partial<Record<Target, string>>;
 }
 
-export function readState(path: string | undefined): { state: StatusState; note?: string } {
+export function readState(path: string | undefined): { state: StatusState; note?: string; read: boolean } {
   const empty: StatusState = { schemaVersion: 1, highWater: {} };
-  if (!path) return { state: empty };
+  if (!path) return { state: empty, read: false };
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
   } catch {
-    return { state: empty, note: "No earlier run's versions to compare with: a version that went back cannot be told this time." };
+    return { state: empty, read: false, note: "No earlier run's versions to compare with: a version that went back cannot be told this time." };
   }
   try {
     const o = JSON.parse(raw) as StatusState;
     const high: StatusState["highWater"] = {};
     for (const t of ["chrome", "firefox"] as const) if (typeof o.highWater?.[t] === "string") high[t] = o.highWater[t];
-    return { state: { schemaVersion: 1, highWater: high } };
+    return { state: { schemaVersion: 1, highWater: high }, read: true };
   } catch {
-    return { state: empty, note: "The earlier run's versions could not be read and are ignored." };
+    return { state: empty, read: false, note: "The earlier run's versions could not be read and are ignored." };
   }
 }
 
@@ -146,7 +146,7 @@ export interface StatusResult {
   state: StatusState;
 }
 
-export async function runStatus(a: { config: StoreConfig; releasesDir: string; state?: StatusState }, deps: StatusDeps): Promise<StatusResult> {
+export async function runStatus(a: { config: StoreConfig; releasesDir: string; state?: StatusState; stateRead?: boolean }, deps: StatusDeps): Promise<StatusResult> {
   const { release, path: releasePath, count } = newestRelease(a.releasesDir);
   const problems: string[] = [];
   const notes: string[] = [];
@@ -169,7 +169,10 @@ export async function runStatus(a: { config: StoreConfig; releasesDir: string; s
     if (published === null) {
       allPublic = false;
       if (high[target] !== undefined) problems.push(`${names[target]}: lists no public version, though ${high[target]} was public on an earlier run (taken down?)`);
-      else if (count > 1) problems.push(`${names[target]}: lists no public version, though earlier releases exist (${count - 1} earlier release file(s))`);
+      // With the previous run's versions read and none seen for this store, a version waiting for
+      // its initial review is not a fault. Without them (a first run, or a lost cache) earlier
+      // release files say the store should list one.
+      else if (count > 1 && !a.stateRead) problems.push(`${names[target]}: lists no public version, though earlier releases exist (${count - 1} earlier release file(s))`);
       else notes.push(`${names[target]}: no public version yet. ${release.version} is in review, or not submitted.`);
       lines.push(`- ${names[target]}: no public version`);
       continue;

@@ -132,13 +132,27 @@ describe("status", () => {
     expect(r.text).toMatch(/Note: addons\.mozilla\.org: 1\.1\.0 is not public yet/);
   });
 
-  it("a first release the stores do not list yet is a note; once earlier releases exist it is a fault", async () => {
+  it("a first release the stores do not list yet is a note; with earlier releases and no saved state it is a fault, with saved state a note", async () => {
     const first = await run(workspace(), { chrome: null, amo: null });
     expect(first.code, first.text).toBe(0);
     expect(first.text).toMatch(/Chrome Web Store: no public version yet/);
+    // No saved state at all (a first run, or a lost cache): earlier release files say it should be listed.
     const later = await run(workspace(["1.1.0"]), { chrome: null, amo: "1.0.0" });
     expect(later.code).toBe(1);
     expect(later.text).toMatch(/Chrome Web Store: lists no public version, though earlier releases exist/);
+    // The saved state was read and has no public version for the store: it is waiting for its initial review.
+    const dir = workspace(["1.1.0"]);
+    const state = join(dir, "state.json");
+    writeFileSync(state, JSON.stringify({ schemaVersion: 1, highWater: { chrome: "1.0.0" } }));
+    const waiting = await run(dir, { chrome: "1.0.0", amo: null }, ["--state-in", state, "--state-out", state]);
+    expect(waiting.code, waiting.text).toBe(0);
+    expect(waiting.text).toMatch(/addons\.mozilla\.org: no public version yet/);
+    // The same on every later day, and the takedown rule is unchanged for a store that had a version.
+    expect((await run(dir, { chrome: "1.0.0", amo: null }, ["--state-in", state])).code).toBe(0);
+    expect((await run(dir, { chrome: null, amo: null }, ["--state-in", state])).code).toBe(1);
+    // An unreadable state is no state.
+    writeFileSync(state, "not json");
+    expect((await run(dir, { chrome: "1.0.0", amo: null }, ["--state-in", state])).code).toBe(1);
   });
 
   it("a mismatch exits 1: a store newer than the newest release file", async () => {

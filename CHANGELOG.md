@@ -24,23 +24,33 @@ break the public surface; this file names each break and how to migrate.
   template earlier updates that step (see
   [docs/store-uploads.md](docs/store-uploads.md#release-on-merge)).
 - `store-upload.mjs check` writes a release record, `--record-out FILE.json`, as JSON and Markdown
-  (`FILE.md`): versions, package hashes, the vendored toolkit's commit (`--vendor-manifest`), the
-  permission surface, the Firefox lint counts and a product's own facts (`--facts`). It refuses a
-  record whose text names a credential, a denied word or a path on a machine, and it fails a
-  workflow job that has `contents: write` and names an environment. `--load-unpacked-zip` adds a
-  package for people who load the extension unpacked. A new `assets` command collects the
-  packages, the record and `SHA256SUMS` for a GitHub release, never the Firefox source archive,
-  and `browser/templates/store-release.yml` has a `release-assets` job that attaches them with
-  `contents: write` and no store access. The template's actions are now pinned to full commits. The record also holds a digest of each package's unpacked files, the commit's check runs (`--ci-results`) and the bundled model release, which `--runtimes` checks against the version's row of the product's runtime table. `check` refuses a workflow in which a job that names an environment has no permissions of its own or write permission could reach it.
-  See [docs/store-uploads.md](docs/store-uploads.md).
+  (`FILE.md`): versions, package hashes, a digest of each package's unpacked files, the vendored
+  toolkit's commit (`--vendor-manifest`), the permission surface, the Firefox lint counts, the
+  commit's check runs (`--ci-results`), the bundled model release and a product's own facts
+  (`--facts`). `--runtimes` checks the model release against the version's row of the product's
+  runtime table. It refuses a record whose text names a credential, a denied word or a path on a
+  machine. `--load-unpacked-zip` adds a package for people who load the extension unpacked. A new
+  `assets` command collects the packages, the record and `SHA256SUMS` for a GitHub release, never
+  the Firefox source archive. `browser/templates/store-release.yml` has a `release-assets` job
+  that runs on a tag push, or on a dispatch that ticks `attach` (the merge workflow's dispatch
+  does), with `contents: write`, no store access and a per-tag concurrency group. It lists the
+  release's assets and refuses to replace them when it cannot, or when a `SHA256SUMS` already there
+  differs; `SHA256SUMS` goes up first. The template's actions are now pinned to full commits.
+  `check` also refuses a workflow in which a job that names an environment has no permissions of
+  its own, or write permission could reach it, or whose jobs it cannot read. See
+  [docs/store-uploads.md](docs/store-uploads.md).
 - `store-upload.mjs status` is a daily check that needs no credential: it compares the newest
   release file's version with the version the Chrome Web Store's update service and the
   addons.mozilla.org add-on API show the public, and with the release file's new optional
   `expect` entries (addresses that must hold a repository file's bytes, such as a live settings
-  file). A version still in review passes with a note; a store that shows a newer version, a
-  version that went back since the previous run, an address that differs or a store that cannot be
-  read fails. `browser/templates/store-status.yml` runs it daily with `contents: read` and no
-  environment. See [docs/store-uploads.md](docs/store-uploads.md#the-daily-status-check).
+  file). A version still in review passes with a note, as does an add-on waiting for its initial
+  review once the previous run's versions are read. It fails on a store that shows a newer version,
+  a version that went back since the previous run, a version that was public and now is not (a
+  takedown), an address that differs, or a store that cannot be read. A 401 or 403 from the add-on
+  API counts as no public version, a 429 or a server error is retried after 30 seconds and then 2
+  minutes, and each read times out after 20 seconds. `browser/templates/store-status.yml` runs it
+  daily with `contents: read` and no environment. See
+  [docs/store-uploads.md](docs/store-uploads.md#the-daily-status-check).
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of

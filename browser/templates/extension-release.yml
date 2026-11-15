@@ -10,7 +10,7 @@
 #   - store/releases/<version>.json exists;
 #   - the changelog has a dated, non-empty section for the version (`## [1.2.0] - 2026-11-13`).
 # Then it creates the tag and the GitHub release (the changelog section is the notes) and starts
-# store-release.yml on the tag with `upload` set. That run builds, checks, and waits for the `store`
+# store-release.yml on the tag with `upload` and `attach` set. That run builds, checks, and waits for the `store`
 # environment's required reviewer before it touches a store. Without all three, nothing happens.
 # A pre-release version with a release file (1.2.0-rc1; store versions are numeric) and a version
 # lower than the newest final version tag are refused. A push that leaves the version alone does
@@ -101,4 +101,4 @@ jobs:
         if: steps.plan.outputs.dispatch == 'true'
         env:
           TAG: ${{ steps.plan.outputs.tag }}
-        run: gh workflow run store-release.yml --ref "$TAG" -f upload=true
+        run: gh workflow run store-release.yml --ref "$TAG" -f upload=true -f attach=true

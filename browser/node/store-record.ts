@@ -253,7 +253,7 @@ export function workflowGuardProblems(workflowText: string): string[] {
     if (/^jobs:/.test(l)) inJobs = true;
     else if (live(l) && indentOf(l) === 0) {
       inJobs = false;
-      topPerm = /^permissions\s*:/.test(l);
+      topPerm = /^["']?permissions["']?\s*:/.test(l);
       if (topPerm) top.push(l);
     } else if (!inJobs && topPerm) top.push(l);
   }

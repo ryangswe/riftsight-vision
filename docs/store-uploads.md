@@ -69,7 +69,7 @@ It is [experimental](stability.md#experimental).
 The template [`browser/templates/extension-release.yml`](../browser/templates/extension-release.yml)
 replaces pushing the tag by hand. Merging the version commit to the main branch is the release:
 a push to main runs one job that creates the tag and the GitHub release and starts
-`store-release.yml` on that tag with `upload` set. That run builds and checks as before, then
+`store-release.yml` on that tag with `upload` and `attach` set. That run builds and checks as before, then
 waits for the `store` environment's reviewer, so the upload is still approved on its page.
 
 It acts only when all three hold:
@@ -255,8 +255,18 @@ It writes `out/record.json` and, beside it, `out/record.md`. Both hold machine f
   is checked for its version and hashed);
 - the permission surface of each browser and whether the release file says it changed;
 - for each package built from files, the number of files and one digest over them: the SHA-256 of
-  the sorted lines `<sha256>  <file name>`, one per unpacked file, so the unpacked tree can be
-  matched without the zip's own bytes (which can differ between builds);
+  the lines `<sha256>  <file name>\n`, one per unpacked file (folders are not files), sorted by
+  file name. A name is the path in the zip, so it keeps the package's top folder when it has one.
+  The unpacked tree can be matched without the zip's own bytes, which differ between builds. From
+  the unpacked folder (names with spaces or newlines need a stricter script; `check` reads the zip
+  itself):
+
+  ```
+  find . -type f | sed 's|^\./||' | LC_ALL=C sort | while read -r f; do
+    printf '%s  %s\n' "$(shasum -a 256 "$f" | cut -d' ' -f1)" "$f"
+  done | shasum -a 256
+  ```
+
 - the commit's check runs (`--ci-results`, the output of
   `gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs --paginate --jq '.check_runs[]'`;
   `checks: read` is enough): each one's name, status, conclusion and the Actions run behind it,
@@ -275,18 +285,21 @@ its text holds a path on someone's machine (a home, temporary or runner folder, 
 network share), a CDN, object-store or store credential name (`AMO_…`, `CWS_…`, a token name) or
 one of the product's `deny` words, so a fact must not carry any of them.
 
-The template's `release-assets` job runs after the build whenever the run's ref is a tag, whatever
-started it (a tag push, a dispatch on the tag, or a merge workflow that dispatches this one; a tag
-made with a workflow's own token starts no workflow, so that dispatch is how such a release is
-built), or when a dispatch ticks `attach`. It runs `store-upload.mjs assets`, which checks each package against the hash in
+The template's `release-assets` job runs after the build on a tag push, or on a dispatch that ticks
+`attach`. The merge workflow dispatches with `attach` set: a tag made with a workflow's own token
+starts no push run, so that dispatch is how such a release attaches. A dispatch without `attach`
+(the steps of [the first run](#the-first-run), a re-run of the upload) never attaches: the zips are
+not byte-for-byte reproducible, so a second attach on the same tag would be refused. It runs `store-upload.mjs assets`, which checks each package against the hash in
 the record and copies the Chrome, Firefox and load-unpacked packages, `release-record.json`,
 `release-record.md` and `SHA256SUMS` into `release-assets/`, and then `gh release upload` attaches
 them to the tag's release. It never attaches the Firefox source archive, and the job never runs in
 the `store` environment (see the rule `check` applies to the workflow, above). A per-tag
 `concurrency` group keeps two attaches of one tag from overlapping. The job needs the release to exist; if the tag's release is created after the
-workflow starts, run the job again when it is (Re-run failed jobs). If the release already has a
-`SHA256SUMS`, the job compares it with this run's and refuses to replace the assets when they
-differ (another build); identical bytes are uploaded again (`--clobber`).
+workflow starts, run the job again when it is (Re-run failed jobs). The job lists the
+release's assets first, and stops if it cannot. If a `SHA256SUMS` is there, it downloads it (and
+stops if it cannot) and refuses to replace the assets when it differs from this run's (another
+build); identical bytes are uploaded again (`--clobber`). `SHA256SUMS` goes up first, so a partial
+upload leaves the guard in place.
 
 To adopt it, copy the template's `release-assets` job and the extra `check` options and artifact
 paths into `.github/workflows/store-release.yml`, and have the product's build write the load-unpacked
@@ -322,7 +335,8 @@ by number, so `1.10.0` follows `1.9.0`) and reads each configured store's public
 | a store shows the newest release file's version | passes |
 | a store shows an older version | passes, with a note: the version is in review or has not been submitted. No credential can tell the two apart, so a version that stays in review for days appears in the note every day |
 | a store lists no public version, and the product has no earlier release file | passes, with a note (the release is in review) |
-| a store lists no public version, and earlier release files exist | fails |
+| a store lists no public version, earlier release files exist, and the previous run's versions were read with none seen for this store | passes, with a note (a version waiting for its initial review is not red every day) |
+| a store lists no public version, earlier release files exist, and there are no previous versions to read (a first run, an unreadable or evicted cache) | fails |
 | a store shows a newer version than the newest release file | fails |
 | a store's version went back since the previous run | fails (needs `--state-in`). A staged rollout that shows part of the audience the older version can trip this: wait for the rollout, or delete the cache entry |
 | a store listed a public version on an earlier run and lists none now, even with one release file | fails (a takedown) |

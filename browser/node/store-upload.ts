@@ -128,11 +128,11 @@ function defaultZipManifest(zipPath: string): { path: string; manifest: Record<s
   return { path, manifest: JSON.parse(text) as Record<string, unknown> };
 }
 
-function defaultZipFiles(zipPath: string): Array<{ name: string; sha256: string }> {
+export function defaultZipFiles(zipPath: string): Array<{ name: string; sha256: string }> {
   const names = execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf-8", maxBuffer: 64 << 20 }).split("\n").filter((n) => n !== "" && !n.endsWith("/"));
-  // unzip reads its file argument as a pattern: refuse names it would expand.
+  // unzip reads its file argument as a pattern, and an option when it starts with `-`: refuse both.
   return names.map((name) => {
-    if (/[*?[\]\\]/.test(name)) throw new StoreError(`${basename(zipPath)}: a file name holds * ? [ ] or \\ (${name.slice(0, 40)})`);
+    if (name.startsWith("-") || /[*?[\]\\]/.test(name)) throw new StoreError(`${basename(zipPath)}: a file name starts with - or holds * ? [ ] or \\ (${name.slice(0, 40)})`);
     return { name, sha256: sha256(new Uint8Array(execFileSync("unzip", ["-p", zipPath, name], { maxBuffer: 1 << 30 }))) };
   });
 }
@@ -313,6 +313,7 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     if (a.runId !== undefined && !/^[0-9]{1,20}$/.test(a.runId)) throw new Usage("--run-id must be digits");
     const vendor = readVendorFacts(a.vendorManifest);
     const productFacts = a.facts ? readFactsFile(a.facts) : {};
+    if (productFacts.modelRelease !== undefined && typeof productFacts.modelRelease !== "string") throw new StoreError(`${basename(a.facts!)}: modelRelease must be text (a release id), not ${typeof productFacts.modelRelease}`);
     const record: ReleaseRecord = {
       schemaVersion: RECORD_SCHEMA,
       version: release.version,
@@ -580,8 +581,8 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
       if (values["env-file"]) throw new Usage("--env-file is for upload: status uses no credentials");
       if (!values.config || !values.releases) throw new Usage("status needs --config and --releases");
       summaryPath = values.summary;
-      const { state, note } = readState(values["state-in"]);
-      const res = await runStatus({ config: readStoreConfig(values.config), releasesDir: values.releases, state }, deps);
+      const { state, note, read } = readState(values["state-in"]);
+      const res = await runStatus({ config: readStoreConfig(values.config), releasesDir: values.releases, state, stateRead: read }, deps);
       if (note) res.lines.splice(2, 0, `Note: ${note}`, "");
       for (const line of res.lines) deps.log(line);
       if (values.summary) appendFileSync(values.summary, `${res.lines.join("\n")}\n`);

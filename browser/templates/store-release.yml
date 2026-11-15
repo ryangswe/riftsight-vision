@@ -9,17 +9,20 @@
 # `upload` runs in the `store` environment, whose required reviewer approves it on that page; only
 # then does it get store access. It checks both stores before uploading anything.
 #
-# Pushing the tag runs both jobs. "Run workflow" on the tag (Actions page, "Use workflow from":
-# the tag) runs the build alone, or both with `upload` ticked; with `precheck_only` ticked too, the
-# upload job signs in and reads both stores but uploads nothing. A tag push never sets it, and a
-# run from a branch is refused. If
+# Pushing the tag runs all three jobs. "Run workflow" on the tag (Actions page, "Use workflow from":
+# the tag) runs the build alone, or the build and the upload with `upload` ticked, and the assets
+# job only with `attach` ticked; with `precheck_only` ticked too, the upload job signs in and reads
+# both stores but uploads nothing. A tag push never sets `precheck_only`, and a run from a branch
+# is refused. If
 # one store failed after the other succeeded, re-run the failed job: the store that already has
 # the version is skipped.
 #
 # A third job, `release-assets`, has `contents: write` and no store access and no environment: it
 # attaches the packages, SHA256SUMS and the release record to the tag's GitHub release (never the
-# source archive). It runs whenever the run's ref is a tag, whoever started the run (a tag push, a
-# dispatch on the tag, or the merge workflow). Create the release first; if it does not exist yet,
+# source archive). It runs on a tag push, or on a dispatch with `attach` ticked (the merge workflow
+# dispatches with it, since a tag made with a workflow's token starts no push run). A dispatch
+# without `attach` never attaches, so a re-run of the build on an attached tag stays green: the
+# zips are not byte-for-byte reproducible. Create the release first; if it does not exist yet,
 # re-run that job after.
 #
 # Replace the step marked PRODUCT with the product's own commands. Every `uses:` is pinned to a
@@ -44,7 +47,7 @@ on:
         type: boolean
         default: false
       attach:
-        description: "Also run the release-assets job (a tag push always does)"
+        description: "Also run the release-assets job (a tag push always does; a dispatch does not unless ticked)"
         type: boolean
         default: false
 
@@ -207,7 +210,7 @@ jobs:
   release-assets:
     name: Attach to the release (no store access)
     needs: build
-    if: github.ref_type == 'tag' || inputs.attach
+    if: github.event_name == 'push' || inputs.attach
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -236,11 +239,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Assets already on the release stay unless this run's bytes are identical: a changed
-          # SHA256SUMS means another build, and replacing its assets is refused.
-          if gh release download "$TAG" --pattern SHA256SUMS --output existing-sums 2>/dev/null; then
+          # SHA256SUMS means another build, and replacing its assets is refused. Every failure to
+          # find out stops the job (nothing is replaced on a guess).
+          if ! assets=$(gh release view "$TAG" --json assets --jq '.assets[].name'); then
+            echo "Could not list the release's assets. Not replacing anything." >&2
+            exit 1
+          fi
+          if printf '%s\n' "$assets" | grep -qx SHA256SUMS; then
+            if ! gh release download "$TAG" --pattern SHA256SUMS --output existing-sums; then
+              echo "Could not read the release's SHA256SUMS. Not replacing anything." >&2
+              exit 1
+            fi
             if ! cmp -s existing-sums release-assets/SHA256SUMS; then
               echo "The release already has different assets (SHA256SUMS differs). Not replacing them." >&2
               exit 1
             fi
           fi
-          gh release upload "$TAG" release-assets/* --clobber
+          # SHA256SUMS first, so a partial upload leaves the guard above in place.
+          gh release upload "$TAG" release-assets/SHA256SUMS --clobber
+          files=()
+          for f in release-assets/*; do [ "$f" = release-assets/SHA256SUMS ] || files+=("$f"); done
+          gh release upload "$TAG" "${files[@]}" --clobber

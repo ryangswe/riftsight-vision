@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { sha256 } from "../node/store-checks.js";
 import { contentsDigest, readCiResults, readFactsFile, readRuntimesRow, readVendorFacts, recordProblems, workflowGuardProblems } from "../node/store-record.js";
-import { type Deps, main } from "../node/store-upload.js";
+import { type Deps, defaultZipFiles, main } from "../node/store-upload.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const TEMPLATES = join(HERE, "..", "templates");
@@ -270,7 +270,8 @@ describe("the template's release-assets job", () => {
   it("attaches the files the tool collected, never the source archive or the out folder", () => {
     const j = job(template(), "release-assets");
     expect(j).toMatch(/assets --record out\/record\.json --dir out --out-dir release-assets/);
-    expect(j).toMatch(/gh release upload "\$TAG" release-assets\/\* --clobber/);
+    expect(j).toMatch(/gh release upload "\$TAG" release-assets\/SHA256SUMS --clobber\n/);
+    expect(j).toMatch(/gh release upload "\$TAG" "\$\{files\[@\]\}" --clobber/);
     expect(j).not.toMatch(/firefox-source|out\/\*/);
   });
 
@@ -290,11 +291,19 @@ describe("the template's release-assets job", () => {
     expect(log.join("\n")).toMatch(/the job release-assets can write to the repository and names an environment/);
   });
 
-  it("runs whenever the ref is a tag, whoever started the run, or when asked", () => {
+  it("attaches on a tag push or a dispatch that ticks attach, and on no other dispatch", () => {
     const text = template();
-    expect(job(text, "release-assets")).toMatch(/if: github\.ref_type == 'tag' \|\| inputs\.attach\n/);
-    expect(job(text, "release-assets")).not.toMatch(/github\.event_name/);
-    expect(text).toMatch(/\n {6}attach:\n(?: {8}.*\n)*? {8}default: false\n/);
+    const condition = job(text, "release-assets").match(/\n {4}if: (.*)\n/)![1]!;
+    expect(condition).toBe("github.event_name == 'push' || inputs.attach");
+    // Evaluate the condition for each way a run starts.
+    const attaches = (event: string, attach: boolean): boolean => new Function("github", "inputs", `return ${condition.replace(/==/g, "===")};`)({ event_name: event }, { attach }) as boolean;
+    expect(attaches("push", false)).toBe(true);
+    expect(attaches("workflow_dispatch", false)).toBe(false);
+    expect(attaches("workflow_dispatch", true)).toBe(true);
+    expect(job(text, "release-assets")).not.toMatch(/ref_type/);
+    // The merge workflow dispatches with attach, since its tag starts no push run.
+    const merge = readFileSync(join(TEMPLATES, "extension-release.yml"), "utf-8");
+    expect(merge).toMatch(/gh workflow run store-release\.yml --ref "\$TAG" -f upload=true -f attach=true\n/);
     // One attach per tag at a time.
     expect(job(text, "release-assets")).toMatch(/concurrency:\n {6}group: release-assets-\$\{\{ github\.ref_name \}\}\n {6}cancel-in-progress: false/);
     // The record is built by the build job and carried in its artifact.
@@ -311,7 +320,7 @@ describe("the template's release-assets job", () => {
     expect(build).toMatch(/permissions:\n {6}contents: read\n {6}checks: read\n/);
   });
 
-  it("replaces assets already on the release only when the sums are identical", () => {
+  it("replaces assets already on the release only when the sums are identical, and stops when it cannot tell", () => {
     const j = job(template(), "release-assets");
     const at = j.indexOf("- name: Attach them to the release");
     const lines = j.slice(at).split("\n");
@@ -325,24 +334,37 @@ describe("the template's release-assets job", () => {
     dirs.push(dir);
     mkdirSync(join(dir, "release-assets"));
     writeFileSync(join(dir, "release-assets", "SHA256SUMS"), "new sums\n");
-    // A stand-in gh: `release download` writes EXISTING (when set) to the output file; `release upload` logs.
+    writeFileSync(join(dir, "release-assets", "chrome.zip"), "z");
+    writeFileSync(join(dir, "release-assets", "release-record.json"), "{}");
+    // A stand-in gh. `release view` lists LIST (or fails when VIEW_FAILS); `release download`
+    // writes EXISTING (or fails when DOWNLOAD_FAILS); `release upload` logs its arguments.
     const gh = `gh() { case "$2" in
-      download) [ -n "\${EXISTING:-}" ] || return 1; printf '%s\n' "$EXISTING" > existing-sums ;;
-      upload) echo uploaded >> log ;;
+      view) [ -z "\${VIEW_FAILS:-}" ] || return 1; printf '%s' "\${LIST:-}" ;;
+      download) [ -z "\${DOWNLOAD_FAILS:-}" ] || return 1; printf '%s\n' "$EXISTING" > existing-sums ;;
+      upload) shift 3; echo "$*" >> log ;;
     esac; }`;
-    const run = (existing: string): { code: number; uploaded: boolean } => {
+    const run = (env: Record<string, string>): { code: number; uploads: string[] } => {
       rmSync(join(dir, "log"), { force: true });
       let code = 0;
       try {
-        execFileSync("bash", ["-eo", "pipefail", "-c", `${gh}\n${body.join("\n")}`], { cwd: dir, env: { PATH: process.env.PATH, TAG: "v1.0.0", EXISTING: existing }, stdio: "pipe" });
+        execFileSync("bash", ["-eo", "pipefail", "-c", `${gh}\n${body.join("\n")}`], { cwd: dir, env: { PATH: process.env.PATH, TAG: "v1.0.0", ...env }, stdio: "pipe" });
       } catch (e) {
         code = (e as { status: number }).status;
       }
-      return { code, uploaded: existsSync(join(dir, "log")) };
+      return { code, uploads: existsSync(join(dir, "log")) ? readFileSync(join(dir, "log"), "utf-8").trim().split("\n") : [] };
     };
-    expect(run("")).toEqual({ code: 0, uploaded: true });
-    expect(run("new sums")).toEqual({ code: 0, uploaded: true });
-    expect(run("other sums")).toEqual({ code: 1, uploaded: false });
+    const both = ["release-assets/SHA256SUMS --clobber", "release-assets/chrome.zip release-assets/release-record.json --clobber"];
+    // Nothing attached yet: upload, the sums first.
+    expect(run({ LIST: "" })).toEqual({ code: 0, uploads: both });
+    // The same sums are already there: upload again.
+    expect(run({ LIST: "SHA256SUMS\nchrome.zip", EXISTING: "new sums" })).toEqual({ code: 0, uploads: both });
+    // Other sums: refuse, upload nothing.
+    expect(run({ LIST: "SHA256SUMS", EXISTING: "other sums" })).toEqual({ code: 1, uploads: [] });
+    // Failing to list, or to read a listed SHA256SUMS: refuse, upload nothing.
+    expect(run({ VIEW_FAILS: "1" })).toEqual({ code: 1, uploads: [] });
+    expect(run({ LIST: "SHA256SUMS", DOWNLOAD_FAILS: "1", EXISTING: "new sums" })).toEqual({ code: 1, uploads: [] });
+    // Assets without a SHA256SUMS (another file only) are not a conflict.
+    expect(run({ LIST: "chrome.zip" }).code).toBe(0);
   });
 });
 
@@ -352,6 +374,10 @@ describe("the workflow guard", () => {
   it("passes a write job with no environment, and a store job with its own read permissions", () => {
     expect(workflowGuardProblems(wf(safe))).toEqual([]);
     expect(workflowGuardProblems(wf(`${safe}  up:\n    environment: store\n    permissions:\n      id-token: write\n      contents: read\n`))).toEqual([]);
+    // A multi-key block with a write permission beside the environment is found, whatever the order.
+    for (const block of ["      id-token: write\n      contents: write\n", "      contents: write\n      id-token: write\n"]) {
+      expect(workflowGuardProblems(wf(`  up:\n    environment: store\n    permissions:\n${block}`)), block).toEqual([expect.stringMatching(/the job up can write.*names an environment/)]);
+    }
   });
   it("flags each shape of a write job with an environment", () => {
     for (const perm of ["    permissions:\n      contents: write\n", "    permissions: { contents: write }\n", "    permissions:\n      contents: 'write'\n", '    permissions:\n      contents: "write"\n', "    permissions: write-all\n"]) {
@@ -369,6 +395,7 @@ describe("the workflow guard", () => {
     expect(workflowGuardProblems(wf(withEnv, "permissions:\n  contents: write\n"))).toEqual([expect.stringMatching(/top level/)]);
     expect(workflowGuardProblems(wf(withEnv, "permissions: write-all\n"))).toEqual([expect.stringMatching(/top level/)]);
     expect(workflowGuardProblems(wf(withEnv, "permissions: { contents: write }\n"))).toEqual([expect.stringMatching(/top level/)]);
+    expect(workflowGuardProblems(wf(withEnv, '"permissions":\n  contents: write\n'))).toEqual([expect.stringMatching(/top level/)]);
     expect(workflowGuardProblems(wf("  j:\n    runs-on: x\n", "permissions:\n  contents: write\n"))).toEqual([]);
   });
   it("flags a trailing comment on a job header and a header that is not plain", () => {
@@ -432,6 +459,15 @@ describe("the record's other facts", () => {
     expect(readRuntimesRow(join(dir, "cdn/RUNTIMES.json"), "1.0.0")).toEqual({ ortWeb: "1.29.0", releaseId: "example-1" });
   });
 
+  it("refuses a model release that is not text", async () => {
+    const dir = workspace();
+    writeFileSync(join(dir, "store/record-facts.json"), JSON.stringify({ facts: { modelRelease: 12 } }));
+    const log: string[] = [];
+    expect(await main(checkArgv(dir), deps(log))).toBe(1);
+    expect(log.join("\n")).toMatch(/modelRelease must be text/);
+    expect(existsSync(join(dir, "record.json"))).toBe(false);
+  });
+
   it("refuses runtimes or CI results without a record", async () => {
     const dir = workspace();
     const argv = checkArgv(dir).filter((a, i, all) => !["--record-out", "--vendor-manifest"].includes(a) && !["--record-out", "--vendor-manifest"].includes(all[i - 1] ?? ""));
@@ -444,5 +480,50 @@ describe("every workflow template", () => {
     const uses = [...template().matchAll(/^\s*(?:- )?uses: (\S+)/gm)].map((m) => m[1]!);
     expect(uses.length).toBeGreaterThanOrEqual(8);
     for (const u of uses) expect(u, u).toMatch(/^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/);
+  });
+});
+
+describe("the real zip reader", () => {
+  const hasZip = ((): boolean => {
+    try {
+      execFileSync("which", ["zip"], { stdio: "ignore" });
+      execFileSync("which", ["unzip"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  it.skipIf(!hasZip)("counts the files of a real zip (a folder is not one) and digests them as the docs say", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-record-test-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, "pkg/sub"), { recursive: true });
+    writeFileSync(join(dir, "pkg/manifest.json"), '{"version":"1.0.0"}');
+    writeFileSync(join(dir, "pkg/sub/code.js"), "console.log(1)\n");
+    execFileSync("zip", ["-q", "-r", "-X", join(dir, "p.zip"), "."], { cwd: join(dir, "pkg") });
+    const files = defaultZipFiles(join(dir, "p.zip"));
+    expect(files.map((f) => f.name).sort()).toEqual(["manifest.json", "sub/code.js"]);
+    const sha = (text: string): string => sha256(new TextEncoder().encode(text));
+    expect(files.find((f) => f.name === "sub/code.js")!.sha256).toBe(sha("console.log(1)\n"));
+    const digest = contentsDigest(files);
+    expect(digest.files).toBe(2);
+    // The digest: the sha256 of the sorted, newline-terminated `<sha256>  <name>` lines.
+    expect(digest.contentsSha256).toBe(sha(`${sha('{"version":"1.0.0"}')}  manifest.json\n${sha("console.log(1)\n")}  sub/code.js\n`));
+    // The shell command the docs give gives the same digest.
+    const sh = execFileSync("bash", ["-c", `cd pkg && find . -type f | sed 's|^\\./||' | LC_ALL=C sort | while read -r f; do printf '%s  %s\\n' "$(shasum -a 256 "$f" | cut -d' ' -f1)" "$f"; done | shasum -a 256 | cut -d' ' -f1`], { cwd: dir, encoding: "utf-8" }).trim();
+    expect(sh).toBe(digest.contentsSha256);
+  });
+
+  it.skipIf(!hasZip)("refuses a name that starts with - or holds a pattern character, instead of passing it to unzip", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-record-test-"));
+    dirs.push(dir);
+    for (const name of ["-n", "a[1].js", "what?.js", "star*.js"]) {
+      rmSync(join(dir, "pkg"), { recursive: true, force: true });
+      mkdirSync(join(dir, "pkg"));
+      writeFileSync(join(dir, "pkg", name), "x");
+      rmSync(join(dir, "q.zip"), { force: true });
+      execFileSync("zip", ["-q", "-X", join(dir, "q.zip"), "--", name], { cwd: join(dir, "pkg") });
+      expect(() => defaultZipFiles(join(dir, "q.zip")), name).toThrow(/starts with - or holds/);
+    }
   });
 });
