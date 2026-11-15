@@ -27,6 +27,9 @@ describe("old storage profiles", () => {
       expect(stored?.raw).toBeTypeOf("object");
       if (LAST_ATTEMPT_KEY in profile) expect(typeof profile[LAST_ATTEMPT_KEY]).toBe("number");
       if (DISMISSED_UPDATE_KEY in profile) expect(typeof profile[DISMISSED_UPDATE_KEY]).toBe("string");
+      if ("cardSize" in profile) expect(typeof profile.cardSize).toBe("number");
+      if ("cardLanguage" in profile) expect(typeof profile.cardLanguage).toBe("string");
+      if ("details" in profile) expect(typeof profile.details).toBe("boolean");
       for (const key of [ENABLED_KEY, KEEP_CARD_KEY]) if (key in profile) expect(typeof profile[key]).toBe("boolean");
     });
 
@@ -43,6 +46,14 @@ describe("old storage profiles", () => {
       const sw = createSwitches(memoryStorage(structuredClone(profile)), changeBus());
       expect(await sw.enabled()).toBe(profile[ENABLED_KEY] !== false);
       expect(await sw.keepCard()).toBe(profile[KEEP_CARD_KEY] !== false);
+    });
+
+    it("reads each switch as flipped from its default (both were exported switched off)", async () => {
+      expect(profile[ENABLED_KEY]).toBe(false);
+      expect(profile[KEEP_CARD_KEY]).toBe(false);
+      const sw = createSwitches(memoryStorage(structuredClone(profile)), changeBus());
+      expect(await sw.enabled()).toBe(false);
+      expect(await sw.keepCard()).toBe(false);
     });
   });
 });
