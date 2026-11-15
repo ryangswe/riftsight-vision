@@ -40,7 +40,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1093,
+          "line": 1121,
           "target": false
         }
       ],
@@ -209,7 +209,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 542,
+          "line": 570,
           "target": false
         }
       ],
@@ -233,7 +233,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 575,
+          "line": 603,
           "target": false
         }
       ],
@@ -252,7 +252,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 628,
+          "line": 656,
           "target": false
         }
       ],
@@ -326,82 +326,92 @@
         },
         {
           "file": "capture-control.test.ts",
+          "line": 364,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 378,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 389,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 398,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 406,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 419,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 433,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 441,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 458,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 470,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 488,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 508,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 517,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 526,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 536,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 547,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
           "line": 349,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 363,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 374,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 383,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 391,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 404,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 418,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 426,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 443,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 455,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 473,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 493,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 502,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 511,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 521,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 1172,
+          "line": 1200,
           "target": false
         },
         {
@@ -411,42 +421,42 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1122,
+          "line": 1150,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1146,
+          "line": 1174,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1161,
+          "line": 1189,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1192,
+          "line": 1220,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1198,
+          "line": 1226,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1206,
+          "line": 1234,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1218,
+          "line": 1246,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1230,
+          "line": 1258,
           "target": false
         },
         {
@@ -491,7 +501,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1244,
+          "line": 1272,
           "target": false
         }
       ],
@@ -507,17 +517,17 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 770,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 781,
+          "line": 798,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
           "line": 809,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 837,
           "target": false
         }
       ],
@@ -531,7 +541,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 588,
+          "line": 616,
           "target": false
         }
       ],
@@ -545,7 +555,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 702,
+          "line": 730,
           "target": false
         }
       ],
@@ -559,7 +569,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 534,
+          "line": 562,
           "target": false
         },
         {
@@ -626,12 +636,12 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 673,
+          "line": 701,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 727,
+          "line": 755,
           "target": false
         }
       ],
@@ -645,7 +655,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 1050,
+          "line": 1078,
           "target": false
         },
         {
@@ -1260,7 +1270,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 996,
+          "line": 1024,
           "target": false
         },
         {
@@ -1432,7 +1442,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 551,
+          "line": 579,
           "target": false
         },
         {
@@ -1879,7 +1889,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 747,
+          "line": 775,
           "target": false
         }
       ],
@@ -1951,7 +1961,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 919,
+          "line": 947,
           "target": false
         }
       ],
@@ -1970,7 +1980,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1041,
+          "line": 1069,
           "target": false
         }
       ],

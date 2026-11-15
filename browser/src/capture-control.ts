@@ -592,8 +592,9 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     slowStartUntil = -Infinity;
     const dropsBefore = slowStartCleared;
     if (!allowed) return refuse(NOT_POINTING);
-    // The rest's one picture after the grace period, whatever opened it, is spent here.
-    if (granted && authority && !captureAllowed(gateState(), now(), options.limits)) authority.slowStartGiven = true;
+    // The rest's one picture after the grace period, whatever opened it, is counted when it is
+    // delivered (below): a grab that fails takes no picture and leaves the rest its one.
+    const rest = granted && authority && !captureAllowed(gateState(), now(), options.limits) ? authority : null;
     const begun = { watch, source: watch?.source, handshake, resets };
     captureInFlight = true;
     let grab: Grab;
@@ -617,6 +618,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       if (granted && grab.retry && slowStartCleared === dropsBefore) slowStartUntil = now() + SLOW_START_RETRY_MS;
       return refuse(grab.reason, grab.retry);
     }
+    if (rest) rest.slowStartGiven = true;
     postWithTransfer(connectedFrame(), protocol.tag({ kind: "frame", requestId, bitmap: grab.bitmap, mediaTime: grab.mediaTime }), frameOrigin, grab.bitmap);
   }
 

@@ -346,6 +346,21 @@ describe("a slow start: the frame becomes ready while a mouse rests over the pic
     expect(left.answer()).toMatchObject({ kind: "capture-failed", reason: NOT_POINTING });
   });
 
+  it("a granted capture that took no picture, then a restart before the retry: the rest still gets its one picture", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.video.readyState = 1;
+    h.request(1);
+    await flush();
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 1, retry: true });
+    h.video.readyState = 4;
+    status(h, "loading");
+    status(h, "ready");
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 2 });
+    expect(await spent(h, 3)).toBe(false);
+  });
+
   it("a capture that failed for want of a picture keeps the grant for its retry: still one picture", async () => {
     const h = resting();
     status(h, "ready");
@@ -518,11 +533,24 @@ describe("a slow start: the frame becomes ready while a mouse rests over the pic
     expect(await spent(h, 2)).toBe(false);
   });
 
-  it("a frame ready inside the grace period, then restarted past it, gets one picture, and no more", async () => {
+  it("a frame ready before the rest, then restarted past the grace period, gets one picture, and no more", async () => {
     const h = connected();
     status(h, "ready");
     h.hover();
     await captureNow(h, 1); // inside the grace period: no grant needed
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    h.advance(25_000);
+    expect(await spent(h, 2)).toBe(true);
+    expect(await spent(h, 3)).toBe(false);
+  });
+
+  it("a frame first ready inside the rest's grace period, then restarted past it, gets one picture, and no more", async () => {
+    const h = connected();
+    status(h, "loading");
+    h.hover();
+    h.advance(2_000);
+    status(h, "ready");
+    await captureNow(h, 1); // inside the grace period
     expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
     h.advance(25_000);
     expect(await spent(h, 2)).toBe(true);
