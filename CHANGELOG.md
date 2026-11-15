@@ -17,11 +17,18 @@ break the public surface; this file names each break and how to migrate.
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
   are frozen; its behavior is not written yet, so each function throws "not implemented yet".
-- The browser test harness for hover behavior, `browser/harness/` (vendored with `npm run vendor
-  -- --harness`): the shared test, its check list with the hover-spec clause of each check, the
-  NetLog network scope and a local video page. What is specific to one product is a module given
-  with `--product <file>`; `browser/harness/example/product.mjs` shows its fields. The checks and
-  their clauses are those both products already ran; `test/hover-harness.test.ts` pins them.
+- The shared hover host's settings core and switches (experimental, not part of the public API):
+  `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
+  the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
+  real flips only, and lets a flip that arrives during the start-up read win over the read's answer
+  ([docs/hover-spec.md](docs/hover-spec.md), S-H1). The stored key names and value shapes are
+  pinned by a test.
+- The shared hover host's site policy (experimental, not part of the public API):
+  `pagePolicy` says whether hovers run on a page and whether its video loads at play or at the
+  earliest pointer, and `allowedParentOrigin` says which parents may frame the compute page. One
+  route table covers YouTube and Twitch as [S-G1 to S-G3](docs/hover-spec.md) set them, with the
+  seven Twitch side pages and one shared reserved list. Its test reads the address tables and
+  examples out of the spec, so a spec edit that breaks a row fails the test.
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of

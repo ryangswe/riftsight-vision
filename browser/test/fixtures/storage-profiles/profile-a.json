@@ -1,0 +1,48 @@
+{
+  "cardLanguage": "fr",
+  "cardSize": 120,
+  "enabled": false,
+  "keepCard": false,
+  "settings.lastAttemptAt": 1794764244803,
+  "settings.lastGood": {
+    "fetchedAt": 1794764244952,
+    "raw": {
+      "cardLink": "https://cards.example.invalid/search?q={printedId}",
+      "fallbacks": [
+        {
+          "id": "fallback",
+          "template": "https://fallback.example.invalid/images/{sourceFile}"
+        }
+      ],
+      "localizedArt": {
+        "fr": {
+          "list": "https://cdn.example.invalid/l10n/fr/list.68571817c96c5c83.json",
+          "listSha256": "68571817c96c5c832ddf3f4ecb1ee43a0c9dafb8a5a7dde379eb50a294cc3aa4",
+          "template": "https://cdn.example.invalid/l10n/fr/{sourceFile}"
+        }
+      },
+      "namesOnly": false,
+      "primary": {
+        "id": "cdn",
+        "template": "https://cdn.example.invalid/art/{art}"
+      },
+      "release": {
+        "geometric": {
+          "manifestSha256": "2f8fe63a6224321de5d0a24cf30067d37a358706b1ed38b015282ab68dc69ae9",
+          "path": "vision/releases/f9768b25241e4970/geometric.json",
+          "sha256": "d72e654c3645b02dde39fe0be595ef173409544f6e10ea1164759d6c284dbade"
+        },
+        "id": "f9768b25241e4970",
+        "minimumExtensionVersion": "0.2.0",
+        "path": "vision/releases/f9768b25241e4970/release.json",
+        "sha256": "2cb72cc6837572f49baf91e463c75685f5befc1a4fc1bc8533a7f5619ef2c34f"
+      },
+      "schemaVersion": 1,
+      "update": {
+        "latest": "0.6.0",
+        "url": "https://code.example.invalid/releases/tag/v0.6.0"
+      },
+      "updatedAt": "2026-11-14T00:00:00Z"
+    }
+  }
+}
