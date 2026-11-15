@@ -1,0 +1,51 @@
+{
+  "cardLanguage": "en",
+  "cardSize": 80,
+  "details": false,
+  "enabled": false,
+  "keepCard": false,
+  "settings.lastAttemptAt": 1794764365305,
+  "settings.lastGood": {
+    "fetchedAt": 1794764365552,
+    "raw": {
+      "details": {
+        "path": "data/details-bdd8ffa0.json",
+        "sha256": "c94d3162fbdd6773c490e50afd813c9eae06644fdd158c89c03a34ba5f7aacea"
+      },
+      "detailsDe": {
+        "path": "data/details-de-61578bb6.json",
+        "sha256": "3e499e752620c6a90ed59a200a18132411045ba50ea06c76673ecd53298e5151"
+      },
+      "detailsEs": {
+        "path": "data/details-es-1ba07787.json",
+        "sha256": "77c1005401bd4fd1dd7abead933235efcdb445de720551146bc8f8bd13abf74c"
+      },
+      "detailsFr": {
+        "path": "data/details-fr-c89689d9.json",
+        "sha256": "ce8e08348ced4c0d7c0ccda524ab3162c12c2902ebce2b3a88a1c5987c32515c"
+      },
+      "detailsIt": {
+        "path": "data/details-it-c753b864.json",
+        "sha256": "4d1dae3cdcfc2bda7f56f612f1d8d1ced878eaed58ef82423eef567c439cbb38"
+      },
+      "detailsPt": {
+        "path": "data/details-pt-02a3fe19.json",
+        "sha256": "dbd66e9d6bc78cd91bed5120f4ce737ad947067e303ee2ce0682b3e5720204ce"
+      },
+      "fallbacks": [],
+      "namesOnly": false,
+      "primary": {
+        "id": "cdn",
+        "template": "https://cdn.example.invalid/art/{art}"
+      },
+      "release": {
+        "id": "f2a15e5d0dd78b81",
+        "minimumExtensionVersion": "0.4.0",
+        "path": "vision/releases/f2a15e5d0dd78b81/release.json",
+        "sha256": "07e7f9dcdccfd9e7b23a2e4868965de7ee0f332625f1534550f7a0f8501965f0"
+      },
+      "schemaVersion": 1,
+      "updatedAt": "2026-10-29T00:00:00Z"
+    }
+  }
+}

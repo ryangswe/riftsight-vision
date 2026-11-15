@@ -11,12 +11,6 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
-- Build and packaging for a shared hover host (experimental, not part of the public API): three
-  new self-contained files, `dist/host-content.js`, `dist/host-compute.js` and
-  `dist/host-settings.js`, with declaration shims, built beside the runtime without changing any
-  of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
-  browser test harness; both are recorded in the manifest's options and checked. The host's types
-  are frozen; its behavior is not written yet, so each function throws "not implemented yet".
 - An advisory downstream check, `.github/workflows/canary.yml` ("Downstream canary"), with its helper
   `browser/scripts/canary.mjs`. For each product listed in the repository variable
   `CANARY_TARGETS` (repository, pinned commit, vendor folder, the product's own check commands) it
@@ -24,6 +18,43 @@ break the public surface; this file names each break and how to migrate.
   product's manifest records, and runs the product's checks. It is not a required check, reads no
   secret, and is a neutral skip when the variable is empty. A passing run saves a marker in the
   Actions cache, so a re-run of the same files and products is skipped and cites the earlier run.
+- The browser test harness for hover behavior, `browser/harness/` (vendored with `npm run vendor
+  -- --harness`): the shared test, its check list with the hover-spec clause of each check, the
+  NetLog network scope and a local video page. What is specific to one product is a module given
+  with `--product <file>`; `browser/harness/example/product.mjs` shows its fields. The checks and
+  their clauses are those both products already ran; `test/hover-harness.test.ts` pins them.
+- The shared hover host's lifecycle (experimental, not part of the public API):
+  `browser/src/host/lifecycle.ts`, a pure reducer that decides when the two frames are made and
+  removed, from the switch, a trusted `playing`, a trusted pointer over the picture, the tab
+  coming to the front, the capture control's idle removal and make, and keep-card flips. It holds
+  the rules of S-A1, S-A2, S-A6 to S-A8, S-A10, S-B11, S-G5, S-H1 and S-H3 of
+  [docs/hover-spec.md](docs/hover-spec.md): a switch-on, the start-up read included, is a fresh
+  start; a hidden tab owes its load until it comes to the front with the main video playing; a
+  flip during the start-up read wins. Nothing calls it yet.
+- The shared hover host's outline and video pick (experimental, in `browser/src/host/`): the
+  outline element and its placement (S-F1, S-F3, S-F4), and the main-video pick (S-G4). A turned
+  outline is always drawn turned, with no upright-box fallback, because the toolkit cuts a card's
+  box to the picture before it works out the turn; a property test with a seeded generator shows
+  it stays inside the picture for boxes at each edge and corner. A held card has no outline. The
+  main video is picked again on trusted `playing` events and, at most once a second, on moves.
+- Build and packaging for a shared hover host (experimental, not part of the public API): three
+  new self-contained files, `dist/host-content.js`, `dist/host-compute.js` and
+  `dist/host-settings.js`, with declaration shims, built beside the runtime without changing any
+  of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
+  browser test harness; both are recorded in the manifest's options and checked. The host's types
+  are frozen; its behavior is not written yet, so each function throws "not implemented yet".
+- The shared hover host's settings core and switches (experimental, not part of the public API):
+  `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
+  the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
+  real flips only, and lets a flip that arrives during the start-up read win over the read's answer
+  ([docs/hover-spec.md](docs/hover-spec.md), S-H1). The stored key names and value shapes are
+  pinned by a test.
+- The shared hover host's site policy (experimental, not part of the public API):
+  `pagePolicy` says whether hovers run on a page and whether its video loads at play or at the
+  earliest pointer, and `allowedParentOrigin` says which parents may frame the compute page. One
+  route table covers YouTube and Twitch as [S-G1 to S-G3](docs/hover-spec.md) set them, with the
+  seven Twitch side pages and one shared reserved list. Its test reads the address tables and
+  examples out of the spec, so a spec edit that breaks a row fails the test.
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
