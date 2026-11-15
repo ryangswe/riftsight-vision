@@ -168,20 +168,21 @@ for the front tab.
 
 Test: pending (real-browser test)
 
-### S-A8 — A background tab loads at play but takes no picture
+### S-A8 — A background tab waits for the front before it loads
 
-A video that plays in a background tab makes the frames as a visible one does (S-A1). No picture
-is taken while the page is hidden (S-B6).
+A video that starts playing in a background tab loads recognition only when the tab comes to the
+front with its video playing. This is the rule of S-A7 and S-H3 for a video that simply starts
+playing behind the front tab. No picture is taken while the page is hidden (S-B6).
 
-Status: open decision.
-
-This clause states what the code does today. Whether a background tab should wait for the front
-(as in S-A7 and S-H3) is not decided.
+Status: changes in a product release.
 
 Example: a watch page is open in a tab behind the front tab, and the page changes in place to the
-next video: the frames are made when that video plays. No picture is taken until the tab is shown
-and the viewer points at the video. A background tab that was never in front may not play its
-video at all; the real-browser test settles that.
+next video: nothing is made when that video plays. The viewer brings the tab to the front while the
+video plays: both frames are made then. Five stream tabs open at once load recognition once, in the
+tab in front.
+
+Today: both products make the frames in a background tab when its video plays, as a visible tab
+does (S-A1), and take no picture until the tab is shown.
 
 Test: pending (real-browser test)
 
@@ -853,22 +854,21 @@ its box but outside the card shows nothing.
 
 Test: `shown-outline.test.ts:112`, `shown-outline.test.ts:121`, `tilt.test.ts:405`
 
-### S-F3 — A turned outline near the picture's edge
+### S-F3 — A turned outline is always turned, and never reaches past the picture
 
-Status: open decision.
+Both extensions draw the turned outline, with no upright-box fallback. The turned outline marks
+exactly where a hover counts. The toolkit cuts a card's box to the picture before it works out the
+turn, so the outline it hands over fits inside the picture and never reaches past it.
 
-Both options:
+Status: changes in a product release.
 
-- **Upright-box fallback.** A turned outline that would reach past the picture is drawn as the
-  card's box clipped to the picture, upright. The box can cover pixels where a hover does not count.
-- **Always turned.** The turned outline is drawn about the box's center, also where it reaches past
-  the picture, unclipped.
+Example: a card turned 20 degrees with a corner past the bottom edge: the box is cut to the
+picture, the turn is worked out from the cut box, and the turned outline is drawn inside the
+picture, where a hover counts. It is not replaced by an upright box.
 
-A third shape, the turned outline clipped to the picture, would match where a hover counts; it is
-not built.
-
-Example: a card turned 20 degrees whose corner reaches 8 px past the bottom edge: drawn upright and
-clipped under the upright-box option, turned and reaching past the edge under the other.
+Today: one product draws the card's upright box, clipped to the picture, when the turned outline
+would reach past the picture; that box can cover pixels where a hover does not count. The other
+always draws the turned outline.
 
 Test: pending (real-browser test)
 
@@ -919,13 +919,34 @@ at play. The side-page list is exactly these seven: `/following`, `/creatorcamp`
 Other addresses that are not a channel, video or clip, such as the front page, directories, search
 and settings, wait for a hover too. The list and the address check are one shared list and one
 strict check, shared by the products: an address that is not one of the load-at-play forms waits
-for a hover. The details of the address rule may change when its route table is reviewed.
-In-page navigation with no new `playing` event loads at the earliest pointer.
+for a hover. In-page navigation with no new `playing` event loads at the earliest pointer.
 
 Status: changes in a product release.
 
+The address check, by path (a query string and a `#` part are ignored):
+
+| Address | Loads |
+| --- | --- |
+| `/name`, `/name/`, `/Name` (a channel: 1 to 25 letters, digits or `_`) | at play |
+| `/name/clip/AbC-123` (a clip) | at play |
+| `/videos/123` (a past broadcast) | at play |
+| `/Videos/123`, `/VIDEOS/123` (a capital in `/videos/`; lowercase only) | at a hover |
+| `/following`, `/creatorcamp`, `/collections`, `/payments`, `/privacy`, `/products`, `/team` | at a hover |
+| `/name/clip/a.b`, `/name/clip/a%20b` (a clip slug with a character Twitch does not use) | at a hover |
+| `//name`, `/name//`, `/videos//123` (repeated slashes) | at a hover |
+| `/name/Clip/slug` (a capital in `clip`), `/name/clip/slug/extra` | at a hover |
+| `/` (the front page) | at a hover |
+| a 26-character name, or a name with `-` or `.` | at a hover |
+| `/name/videos`, `/name/about`, `/name/schedule` (channel sub-pages) | at a hover |
+| a reserved page: `/directory`, `/search`, `/settings`, `/store`, `/wallet`, `/turbo`, `/bits`, `/drops`, `/prime`, `/inventory`, `/messages`, `/subscriptions`, `/friends`, `/jobs`, `/downloads`, `/broadcast`, `/moderator/…`, `/popout/…`, `/p/…`, `/u/…` and the rest of the shared list | at a hover |
+| moving inside Twitch from a channel to a side page while the video keeps playing | at a hover |
+
+`videos` and `clip` are lowercase only. Embeds on other sites, `m.twitch.tv` and `http://`
+addresses are not served at all. A hover works on every Twitch page; only the start differs.
+
 Example: on `www.twitch.tv`, the path `/name/clip/AbC-123` playing loads at once. The path
-`/following` playing loads at the earliest pointer move over the picture.
+`/following` playing loads at the earliest pointer move over the picture. `/videos/123` loads at
+play; `/Videos/123` waits for a hover.
 
 Today: the two products keep different lists of site pages and different address rules. They
 differ on these seven pages, on repeated slashes, on the case of `/videos/` and on the characters
