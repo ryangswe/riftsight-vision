@@ -28,16 +28,18 @@ export interface LifecycleState {
   readonly switchHeard: boolean;
 }
 
-/** What the host knows at the moment of the event. The reducer reads a fact only where a rule
- *  needs it, so the host may supply getters (for example, re-picking the main video only when
- *  `mainPlaying` is read). */
+/** What the host knows at the moment of the event. An untrusted event reads no fact, so the host
+ *  need not work any out for one. For every other event the host works the facts out itself,
+ *  whatever the reducer reads: on every trusted `playing` while hovers are on it picks the main
+ *  video again (S-G4), in every phase, also with both frames made and after an idle removal. */
 export interface LifecycleFacts {
   /** The tab is in front (`document.visibilityState !== "hidden"`). */
   readonly visible: boolean;
   /** The page policy now, from `location.href`. */
   readonly page: LifecyclePage;
-  /** The main video, picked again now (S-G4), exists and is not paused. On a trusted `playing`
-   *  the host picks again whatever the event's target; on an untrusted one it picks nothing. */
+  /** The main video exists and is not paused. On every trusted `playing` while hovers are on, the
+   *  host picks the main video again before the step, whatever the event's target and whether or
+   *  not the reducer reads this (S-G4); on an untrusted one it picks nothing. */
   readonly mainPlaying: boolean;
   /** Which of the host's frames are in the page now (a page script may have removed one). */
   readonly frames: { readonly compute: boolean; readonly view: boolean };
@@ -153,7 +155,6 @@ function onPlaying(state: LifecycleState, facts: LifecycleFacts): LifecycleStep 
 
 /** A trusted pointer over the picture (S-A2, S-A6, S-A10). */
 function onPointer(state: LifecycleState, facts: LifecycleFacts): LifecycleStep {
-  if (facts.page === "inactive") return unchanged(state);
   switch (state.phase) {
     case "off":
     case "idle": // S-A6: the capture control's make() answers this move, not the host.
@@ -168,16 +169,19 @@ function onPointer(state: LifecycleState, facts: LifecycleFacts): LifecycleStep 
 
 /** The tab came to the front (S-A7, S-A8, S-H3). */
 function onFront(state: LifecycleState, facts: LifecycleFacts): LifecycleStep {
-  if (state.phase === "owed") {
-    if (!playsNow(facts)) return step(state, { phase: "waiting", remakeOwed: false });
-    // The owed load is paid. A keep-card flip owed beside it is paid by the same remake.
-    if (state.remakeOwed && facts.frames.compute) return step(state, { phase: "live", remakeOwed: false }, [{ type: "remake-compute" }]);
-    return made(state, facts);
-  }
-  if (!state.remakeOwed) return unchanged(state);
-  if (state.phase === "live" && facts.frames.compute) return step(state, { remakeOwed: false }, [{ type: "remake-compute" }]);
+  if (state.phase === "off" || state.phase === "idle") return state.remakeOwed ? step(state, { remakeOwed: false }) : unchanged(state);
+  // A keep-card flip owed while a compute frame runs is paid now, by a remake that also makes a
+  // missing view frame, and so pays an owed load too.
+  if (state.remakeOwed && facts.frames.compute) return step(state, { phase: "live", remakeOwed: false }, [{ type: "remake-compute" }]);
+  if (state.phase === "owed" && playsNow(facts)) return made(state, facts);
   // No compute frame to remake: the next one reads the new value.
-  return step(state, { remakeOwed: false });
+  const remakeOwed = false;
+  if (state.phase !== "owed") return state.remakeOwed ? step(state, { remakeOwed }) : unchanged(state);
+  // The owed load is dropped (the video is paused, or the page no longer loads at play). A frame
+  // still in the page keeps the phase live: the next trusted play or pointer makes the missing one
+  // (S-A10). With none, the tab waits.
+  const anyFrame = facts.frames.compute || facts.frames.view;
+  return step(state, { phase: anyFrame ? "live" : "waiting", remakeOwed });
 }
 
 /** A keep-card flip (S-H3). */
@@ -197,7 +201,10 @@ export function lifecycleStep(state: LifecycleState, event: LifecycleEvent, fact
       // S-A1: a `playing` the page made is ignored.
       return event.trusted ? onPlaying(state, facts) : unchanged(state);
     case "pointer":
-      return event.trusted && event.overPicture ? onPointer(state, facts) : unchanged(state);
+      if (!event.trusted) return unchanged(state);
+      // S-G5: off an active page a pointer counts for nothing, and the video is no longer followed.
+      if (facts.page === "inactive") return state.phase === "off" ? unchanged(state) : { state, effects: [{ type: "detach-video" }] };
+      return event.overPicture ? onPointer(state, facts) : unchanged(state);
     case "front":
       return onFront(state, facts);
     case "idle-remove":

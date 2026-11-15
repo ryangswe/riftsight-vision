@@ -21,7 +21,7 @@ break the public surface; this file names each break and how to migrate.
   `browser/src/host/lifecycle.ts`, a pure reducer that decides when the two frames are made and
   removed, from the switch, a trusted `playing`, a trusted pointer over the picture, the tab
   coming to the front, the capture control's idle removal and make, and keep-card flips. It holds
-  the rules of S-A1, S-A2, S-A6 to S-A8, S-A10, S-B11, S-H1 and S-H3 of
+  the rules of S-A1, S-A2, S-A6 to S-A8, S-A10, S-B11, S-G5, S-H1 and S-H3 of
   [docs/hover-spec.md](docs/hover-spec.md): a switch-on, the start-up read included, is a fresh
   start; a hidden tab owes its load until it comes to the front with the main video playing; a
   flip during the start-up read wins. Nothing calls it yet.

@@ -137,9 +137,22 @@ describe("S-A2: elsewhere, a trusted pointer over the picture makes the frames",
     { name: "waiting, a paused video on a load-at-play page: made", from: state("waiting"), event: POINTER, facts: facts({ mainPlaying: false }), phase: "live", effects: [MAKE] },
     { name: "a pointer not over the picture: nothing", from: state("waiting"), event: { type: "pointer", trusted: true, overPicture: false }, facts: facts({ page: "pointer" }), phase: "waiting", effects: [] },
     { name: "an untrusted pointer: nothing", from: state("waiting"), event: { type: "pointer", trusted: false, overPicture: true }, facts: facts({ page: "pointer" }), phase: "waiting", effects: [] },
-    { name: "a page that is not active: nothing", from: state("waiting"), event: POINTER, facts: facts({ page: "inactive" }), phase: "waiting", effects: [] },
+    { name: "a page that is not active: nothing made", from: state("waiting"), event: POINTER, facts: facts({ page: "inactive" }), phase: "waiting", effects: [DETACH] },
     { name: "off: nothing", from: state("off"), event: POINTER, facts: facts({ page: "pointer" }), phase: "off", effects: [] },
     { name: "live with both frames: nothing", from: state("live"), event: POINTER, facts: facts({ frames: BOTH }), phase: "live", effects: [] },
+  ]);
+});
+
+describe("S-G5: off an active page, a trusted pointer counts for nothing and the video is detached", () => {
+  const INACTIVE = facts({ page: "inactive", frames: BOTH });
+  table([
+    { name: "live, over the picture: detached, nothing made or removed", from: state("live"), event: POINTER, facts: INACTIVE, phase: "live", effects: [DETACH] },
+    { name: "live, a frame deleted: detached, nothing made", from: state("live"), event: POINTER, facts: facts({ page: "inactive", frames: { compute: true, view: false } }), phase: "live", effects: [DETACH] },
+    { name: "live, not over the picture: detached", from: state("live"), event: { type: "pointer", trusted: true, overPicture: false }, facts: INACTIVE, phase: "live", effects: [DETACH] },
+    { name: "idle: detached", from: state("idle"), event: POINTER, facts: facts({ page: "inactive" }), phase: "idle", effects: [DETACH] },
+    { name: "owed: detached", from: state("owed"), event: POINTER, facts: facts({ page: "inactive" }), phase: "owed", effects: [DETACH] },
+    { name: "an untrusted pointer: nothing", from: state("live"), event: { type: "pointer", trusted: false, overPicture: true }, facts: INACTIVE, phase: "live", effects: [] },
+    { name: "off: nothing (the video was detached at off)", from: state("off"), event: POINTER, facts: facts({ page: "inactive" }), phase: "off", effects: [] },
   ]);
 });
 
@@ -366,6 +379,38 @@ describe("S-H3: a keep-card flip remakes the compute frame, now in front, later 
     ]);
     expect(after.remakeOwed).toBe(false);
     expect(effects).not.toContainEqual(REMAKE);
+  });
+
+  it("an owed load dropped at the front with a compute frame still in the page pays the owed flip, and stays live", () => {
+    const { state: after, effects } = run(state("live"), [
+      [KEEP_CARD, facts({ frames: BOTH, visible: false })],
+      // The page deleted the view frame; a trusted play behind owes the load.
+      [PLAYING, facts({ frames: { compute: true, view: false }, visible: false })],
+      // The tab comes to the front with the main video paused: the load is dropped, the flip is not.
+      [FRONT, facts({ frames: { compute: true, view: false }, mainPlaying: false })],
+    ]);
+    expect(effects).toEqual([REMAKE]);
+    expect(after).toEqual(state("live"));
+  });
+
+  table([
+    { name: "owed with a compute frame and a flip owed, front on a page that loads at the pointer: remade, live", from: state("owed", { remakeOwed: true }), event: FRONT, facts: facts({ page: "pointer", frames: { compute: true, view: false } }), phase: "live", effects: [REMAKE], remakeOwed: false },
+    { name: "owed with only the view frame left, front with the video paused: live, nothing remade", from: state("owed", { remakeOwed: true }), event: FRONT, facts: facts({ mainPlaying: false, frames: { compute: false, view: true } }), phase: "live", effects: [], remakeOwed: false },
+    { name: "owed with a frame left and no flip owed, front with the video paused: live", from: state("owed"), event: FRONT, facts: facts({ mainPlaying: false, frames: { compute: true, view: false } }), phase: "live", effects: [], remakeOwed: false },
+    { name: "owed with no frame, front with the video paused: waiting", from: state("owed", { remakeOwed: true }), event: FRONT, facts: facts({ mainPlaying: false }), phase: "waiting", effects: [], remakeOwed: false },
+    { name: "waiting with a compute frame and a flip owed, front: remade, live", from: state("waiting", { remakeOwed: true }), event: FRONT, facts: facts({ mainPlaying: false, frames: { compute: true, view: false } }), phase: "live", effects: [REMAKE], remakeOwed: false },
+    { name: "idle with a flip owed, front: the flag goes, nothing remade", from: state("idle", { remakeOwed: true }), event: FRONT, facts: facts(), phase: "idle", effects: [], remakeOwed: false },
+  ]);
+
+  it("waiting with a compute frame: a flip behind is paid by one remake at the front", () => {
+    const withCompute = { compute: true, view: false };
+    const { state: after, effects } = run(state("waiting"), [
+      [KEEP_CARD, facts({ frames: withCompute, visible: false })],
+      [FRONT, facts({ frames: withCompute, mainPlaying: false })],
+      [FRONT, facts({ frames: withCompute, mainPlaying: false })],
+    ]);
+    expect(effects).toEqual([REMAKE]);
+    expect(after.remakeOwed).toBe(false);
   });
 
   it("the compute frame deleted while a flip is owed: the tab coming to the front remakes nothing", () => {
