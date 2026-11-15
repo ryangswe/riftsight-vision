@@ -97,6 +97,10 @@ is optional or belongs to one runtime.
 
 Each step has a section of its own below, which names its module.
 
+In a browser extension, the runtime around these steps decides when to look and which card stays
+shown as the pointer moves. [hover-map.md](hover-map.md) draws it, and [hover-spec.md](hover-spec.md)
+states its rules one by one.
+
 ## The catalog: the one file a game supplies
 
 Module: `cardvision/core/catalog.py`. Template: `games/_template/`.
