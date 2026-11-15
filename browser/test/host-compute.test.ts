@@ -140,7 +140,7 @@ describe("the standard preset", () => {
 
   it("is what reaches the compute frame, with the geometric pair only for a product that can have the stage", async () => {
     const plain = env();
-    await (await startHostCompute(plain.env))!.stop();
+    (await startHostCompute(plain.env))!.stop();
     expect(optionsReached()).toMatchObject({ ...STANDARD_PRESET });
     expect(optionsReached()).not.toHaveProperty("geometricScope");
     expect(optionsReached()).not.toHaveProperty("geometricLoad");
