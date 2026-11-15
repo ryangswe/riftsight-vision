@@ -6,13 +6,25 @@
 //        --tag <tag> --permissions store/permissions.json [--previous-permissions FILE]
 //        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] --workflow FILE...
 //        [--lint REPORT [--lint-baseline FILE]] [--hashes-out FILE] [--summary FILE]
+//        [--load-unpacked-zip Z] [--record-out FILE.json --vendor-manifest FILE [--facts FILE]
+//        [--commit SHA] [--run-id ID]]
 //
 //     The build job's last step, with no store access: the files agree with each other and with
 //     the tag, the permission surface is the one committed (and a change is acknowledged), the
 //     notes exist, the "before upload" addresses answer, the workflow mentions no CDN
 //     credential, and the Firefox lint has no error and no warning outside the product's
 //     baseline. A Chrome zip may keep its files in one top-level folder; a Firefox zip may not.
-//     Writes the packages' sha256 to --hashes-out and a summary for the run page.
+//     Writes the packages' sha256 to --hashes-out and a summary for the run page. With
+//     --record-out it also writes the release record (machine facts only: versions, hashes, the
+//     vendored toolkit commit, permissions, the lint result) as FILE.json and FILE.md, and
+//     refuses a record whose text names a credential or a local path. It also refuses a workflow
+//     job that can write to the repository (`contents: write`) and names an environment.
+//
+//   node store-upload.mjs assets --record FILE.json --dir DIR --out-dir DIR
+//
+//     The release-assets job, with no store access: copies the load-unpacked, Chrome and Firefox
+//     packages the record names (each checked against its recorded hash) and the record's two
+//     files into --out-dir and writes SHA256SUMS. The Firefox source archive is never copied.
 //
 //   node store-upload.mjs upload --config … --release … --targets chrome,firefox --hashes FILE
 //        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]
@@ -58,6 +70,18 @@ import {
 } from "./store-checks.js";
 import { chromeDecision, type ChromeItem, chromePublish, chromeStatus, chromeUpload, StoreError } from "./store-chrome.js";
 import { readEnvFile, serviceAccountToken } from "./store-google.js";
+import {
+  type PackageFact,
+  RECORD_SCHEMA,
+  readFactsFile,
+  readVendorFacts,
+  recordJson,
+  recordMarkdown,
+  recordProblems,
+  type ReleaseRecord,
+  releaseAssets,
+  writeJobsInEnvironments,
+} from "./store-record.js";
 
 export interface Deps {
   env: Record<string, string | undefined>;
@@ -121,6 +145,14 @@ export interface CheckArgs {
   /** `web-ext lint --output json` of the Firefox package, and the product's known warnings. */
   lint?: string;
   lintBaseline?: string;
+  /** A package people load unpacked (its version is checked, its hash recorded). */
+  loadUnpackedZip?: string;
+  /** Where to write the release record (`FILE.json`; the Markdown goes to `FILE.md`). */
+  recordOut?: string;
+  vendorManifest?: string;
+  facts?: string;
+  commit?: string;
+  runId?: string;
 }
 
 /** Everything the build job verifies. Returns the problems (empty: pass) and the summary. */
@@ -135,7 +167,9 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
 
   // No CDN credential or flag tool in any workflow file.
   for (const w of a.workflows) {
-    for (const f of denyFindings(readFileSync(w, "utf-8"), config.deny)) problems.push(`${w} mentions a denied name (${f})`);
+    const text = readFileSync(w, "utf-8");
+    for (const f of denyFindings(text, config.deny)) problems.push(`${w} mentions a denied name (${f})`);
+    for (const job of writeJobsInEnvironments(text)) problems.push(`${w}: the job ${job} can write to the repository and names an environment (a job with store access must not)`);
   }
 
   const committed = surfaceFile(a.permissions);
@@ -146,6 +180,8 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     ["firefox", a.firefoxZip],
   ];
   let changed = false;
+  const facts: Record<"chrome" | "firefox" | "firefoxSource" | "loadUnpacked", PackageFact | undefined> = { chrome: undefined, firefox: undefined, firefoxSource: undefined, loadUnpacked: undefined };
+  const surfaces: ReleaseRecord["permissions"] = {};
   for (const [target, zip] of targets) {
     if (!zip) continue;
     if (!config[target]) problems.push(`a ${target} package was given but ${a.config} names no ${target} item`);
@@ -169,16 +205,29 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     }
     const bytes = deps.readFile(zip);
     hashes[basename(zip)] = sha256(bytes);
+    facts[target] = { file: basename(zip), bytes: bytes.length, sha256: hashes[basename(zip)]!, manifestVersion: String(manifest.version) };
+    surfaces[target] = surface;
     const folder = manifestPath === "manifest.json" ? "" : `, files in \`${manifestPath.slice(0, -"manifest.json".length)}\``;
     summary.push(`- ${target}: \`${basename(zip)}\` ${bytes.length} bytes${folder}, sha256 \`${hashes[basename(zip)]}\``);
   }
   if (a.firefoxSource) {
     const bytes = deps.readFile(a.firefoxSource);
     hashes[basename(a.firefoxSource)] = sha256(bytes);
+    facts.firefoxSource = { file: basename(a.firefoxSource), bytes: bytes.length, sha256: hashes[basename(a.firefoxSource)]! };
     summary.push(`- firefox source: \`${basename(a.firefoxSource)}\` sha256 \`${hashes[basename(a.firefoxSource)]}\``);
   } else if (a.firefoxZip) {
     summary.push("- firefox source: none (the add-on's code is not minified or generated)");
   }
+  if (a.loadUnpackedZip) {
+    const { manifest } = deps.zipManifest(a.loadUnpackedZip);
+    const name = basename(a.loadUnpackedZip);
+    if (manifest.version !== release.version) problems.push(`${name} is version ${String(manifest.version)}, the release is ${release.version}`);
+    const bytes = deps.readFile(a.loadUnpackedZip);
+    hashes[name] = sha256(bytes);
+    facts.loadUnpacked = { file: name, bytes: bytes.length, sha256: hashes[name], manifestVersion: String(manifest.version) };
+    summary.push(`- load-unpacked: \`${name}\` ${bytes.length} bytes, sha256 \`${hashes[name]}\``);
+  }
+  let lintFact: ReleaseRecord["lint"] = null;
   if (a.lintBaseline && !a.lint) problems.push("--lint-baseline needs --lint (the web-ext lint JSON report)");
   if (!a.lint && a.firefoxZip) summary.push("- firefox lint: no report given (--lint), not checked");
   if (a.lint) {
@@ -187,6 +236,7 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     const lint = lintProblems(report, baseline);
     problems.push(...lint.problems);
     const known = report.warnings.length - lint.problems.filter((p) => p.startsWith("new lint warning")).length;
+    lintFact = { errors: report.errors.length, warnings: report.warnings.length, inBaseline: known };
     summary.push(`- firefox lint: ${report.errors.length} errors, ${report.warnings.length} warnings (${known} in the baseline)`);
     if (lint.gone.length > 0) {
       summary.push(`- firefox lint: no longer warned, can leave the baseline: ${lint.gone.map((f) => `${f.code} in ${f.file}`).join("; ")}`);
@@ -219,6 +269,37 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
   for (const p of await beforeProblems(release, deps.fetchFn)) problems.push(`before upload: ${p}`);
   if ((release.before ?? []).length > 0) summary.push("", `Before upload: ${(release.before ?? []).length} address(es) checked.`);
 
+  if (a.recordOut) {
+    if (!a.recordOut.endsWith(".json")) throw new Usage("--record-out names a .json file (the Markdown is written beside it)");
+    if (!a.vendorManifest) throw new Usage("--record-out needs --vendor-manifest");
+    if (a.commit !== undefined && !/^[0-9a-f]{40}$/.test(a.commit)) throw new Usage("--commit must be a full 40-character SHA");
+    if (a.runId !== undefined && !/^[0-9]{1,20}$/.test(a.runId)) throw new Usage("--run-id must be digits");
+    const vendor = readVendorFacts(a.vendorManifest);
+    const record: ReleaseRecord = {
+      schemaVersion: RECORD_SCHEMA,
+      version: release.version,
+      tag: a.tag,
+      commit: a.commit ?? null,
+      runId: a.runId ?? null,
+      ...vendor,
+      packages: Object.fromEntries(Object.entries(facts).filter(([, v]) => v)) as ReleaseRecord["packages"],
+      permissions: surfaces,
+      permissionsChanged: release.permissionsChanged === true,
+      chrome: release.chrome ? { submit: release.chrome.submit, publish: release.chrome.publish } : null,
+      lint: lintFact,
+      beforeUpload: { checked: (release.before ?? []).length },
+      facts: a.facts ? readFactsFile(a.facts) : {},
+    };
+    const json = recordJson(record);
+    const markdown = recordMarkdown(record);
+    const refused = recordProblems([json, markdown], config.deny ?? []);
+    problems.push(...refused);
+    if (refused.length === 0) {
+      writeFileSync(a.recordOut, json);
+      writeFileSync(a.recordOut.replace(/\.json$/, ".md"), markdown);
+      summary.push("", `Release record written (${basename(a.recordOut)}, ${basename(a.recordOut.replace(/\.json$/, ".md"))}).`);
+    }
+  }
   if (a.hashesOut) writeFileSync(a.hashesOut, `${JSON.stringify(hashes, null, 2)}\n`);
   summary.push("", problems.length === 0 ? "**All checks passed.**" : `**${problems.length} problem(s):**`, ...problems.map((p) => `- ${p}`));
   return { problems, summary, hashes };
@@ -386,7 +467,9 @@ const USAGE = `usage:
   node store-upload.mjs check --config FILE --release FILE --tag TAG [--tag-prefix v] --permissions FILE
        [--previous-permissions FILE] [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S]
        --workflow FILE [--workflow FILE…] [--lint REPORT [--lint-baseline FILE]]
-       [--hashes-out FILE] [--summary FILE]
+       [--hashes-out FILE] [--summary FILE] [--load-unpacked-zip Z]
+       [--record-out FILE.json --vendor-manifest FILE [--facts FILE] [--commit SHA] [--run-id ID]]
+  node store-upload.mjs assets --record FILE.json --dir DIR --out-dir DIR
   node store-upload.mjs upload --config FILE --release FILE --targets chrome,firefox --hashes FILE
        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]
        [--env-file FILE]`;
@@ -420,12 +503,26 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
         "precheck-only": { type: "boolean", default: false },
         summary: { type: "string" },
         "env-file": { type: "string" },
+        "load-unpacked-zip": { type: "string" },
+        "record-out": { type: "string" },
+        "vendor-manifest": { type: "string" },
+        facts: { type: "string" },
+        commit: { type: "string" },
+        "run-id": { type: "string" },
+        record: { type: "string" },
+        dir: { type: "string" },
+        "out-dir": { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     });
     if (values.help || !command) {
       deps.log(USAGE);
       return command ? 0 : 2;
+    }
+    if (command === "assets") {
+      if (!values.record || !values.dir || !values["out-dir"]) throw new Usage("assets needs --record, --dir and --out-dir");
+      for (const name of releaseAssets({ recordJson: values.record, dir: values.dir, outDir: values["out-dir"] }, deps.readFile)) deps.log(`asset: ${name}`);
+      return 0;
     }
     if (!values.config || !values.release) throw new Usage("--config and --release are required");
     summaryPath = values.summary;
@@ -450,6 +547,12 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
           hashesOut: values["hashes-out"],
           lint: values.lint,
           lintBaseline: values["lint-baseline"],
+          loadUnpackedZip: values["load-unpacked-zip"],
+          recordOut: values["record-out"],
+          vendorManifest: values["vendor-manifest"],
+          facts: values.facts,
+          commit: values.commit,
+          runId: values["run-id"],
         },
         deps,
       );

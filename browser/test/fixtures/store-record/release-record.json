@@ -1,0 +1,90 @@
+{
+  "beforeUpload": {
+    "checked": 1
+  },
+  "chrome": {
+    "publish": "default",
+    "submit": "auto"
+  },
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "facts": {
+    "modelRelease": "example-1",
+    "ortVersion": "1.29.0"
+  },
+  "lint": {
+    "errors": 0,
+    "inBaseline": 0,
+    "warnings": 0
+  },
+  "opencv": {
+    "commit": "fedcba9876543210fedcba9876543210fedcba98",
+    "tag": "4.12.0"
+  },
+  "ort": "1.29.0",
+  "packages": {
+    "chrome": {
+      "bytes": 20,
+      "file": "chrome.zip",
+      "manifestVersion": "1.0.0",
+      "sha256": "01c6aa298a00e682bc52e05d030b355a87f54e638fbdcccd02a59a301784a055"
+    },
+    "firefox": {
+      "bytes": 21,
+      "file": "firefox.zip",
+      "manifestVersion": "1.0.0",
+      "sha256": "b290ab678dc43f822f8693737b2a100a44f4bc3f8f509e19e9f470c085551e3e"
+    },
+    "firefoxSource": {
+      "bytes": 20,
+      "file": "firefox-source.zip",
+      "sha256": "23a09542290174dd8f8bbc6deca7963098df5d8fef09a1e7a7eea88448fd8ce4"
+    },
+    "loadUnpacked": {
+      "bytes": 27,
+      "file": "load-unpacked.zip",
+      "manifestVersion": "1.0.0",
+      "sha256": "4b0eb2ecc30fecd375360e7f6f012f28bb7c6b5c963ce5b669d2d0bb3e15b6a8"
+    }
+  },
+  "permissions": {
+    "chrome": {
+      "content_script_matches": [],
+      "data_collection": [],
+      "externally_connectable": [],
+      "host_permissions": [],
+      "optional_host_permissions": [
+        "https://www.example.org/*"
+      ],
+      "optional_permissions": [],
+      "permissions": [
+        "storage"
+      ],
+      "web_accessible_matches": []
+    },
+    "firefox": {
+      "content_script_matches": [],
+      "data_collection": [
+        "required:none"
+      ],
+      "externally_connectable": [],
+      "host_permissions": [],
+      "optional_host_permissions": [
+        "https://www.example.org/*"
+      ],
+      "optional_permissions": [],
+      "permissions": [
+        "storage"
+      ],
+      "web_accessible_matches": []
+    }
+  },
+  "permissionsChanged": false,
+  "runId": "123456789",
+  "schemaVersion": 1,
+  "tag": "v1.0.0",
+  "toolkit": {
+    "commit": "89abcdef0123456789abcdef0123456789abcdef",
+    "version": "0.14.1"
+  },
+  "version": "1.0.0"
+}

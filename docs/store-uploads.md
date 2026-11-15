@@ -33,10 +33,12 @@ It is [experimental](stability.md#experimental).
      CDN tool, or a word the product lists in `deny`;
    - `web-ext lint` finds an error in the Firefox package, or a warning not in the product's
      `store/lint-baseline.json` (by rule and file; the run page names baseline entries that no
-     longer occur, so they can be removed).
+     longer occur, so they can be removed);
+   - a workflow job can write to the repository (`contents: write`) and also names an
+     environment (such a job must never hold store access).
 
    It writes each package's sha256 and a summary (versions, hashes, notes, any permission change,
-   what goes where) to the run page.
+   what goes where) to the run page, and the [release record](#the-release-record-and-the-release-assets).
 3. **The upload job** runs in the `store` environment, whose required reviewer (the store account's holder) approves it on
    the run page. Only then does GitHub hand it the store credentials. `store-upload.mjs upload`
    refuses when its environment holds a denied name or a package's sha256 differs from the build
@@ -51,6 +53,11 @@ It is [experimental](stability.md#experimental).
    creates nothing on the listing), uploads to Chrome and submits for review unless the release
    file says `upload-only`, then creates the Firefox version with its source archive, release notes
    and notes to reviewers. Each step is written to the run page as it happens.
+
+4. **The release assets job** (`release-assets`) has `contents: write` and nothing else: no
+   environment, no identity token, no store or CDN credential, only the run's own `GITHUB_TOKEN`.
+   It attaches the packages, `SHA256SUMS` and the release record to the tag's GitHub release
+   ([below](#the-release-record-and-the-release-assets)). It does not wait for the approval.
 
 ## Release on merge
 
@@ -148,9 +155,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: read }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 22 }
       - run: npm ci
       - run: npm run store:build   # the product's own build into out/
@@ -176,6 +183,7 @@ skipped, and the other one is finished. The upload jobs of two runs never overla
 store/store.config.json        the store items, and words the workflow must never contain
 store/permissions.json         the permission surface of this release, per browser
 store/lint-baseline.json       the Firefox lint warnings the product knows and accepts
+store/record-facts.json        optional: facts the release record carries beyond what the tool reads
 store/releases/<version>.json  one per release
 store/releases/<version>/      its notes files
 ```
@@ -211,6 +219,49 @@ new version can add warnings; update the version and the baseline together.
 
 The template's `store/` folder ([`browser/templates/store/`](../browser/templates/store/)) has
 one of each, with made-up ids.
+
+## The release record and the release assets
+
+`check` can write a record of the release, for a reader who wants to match a downloaded package to
+the build that made it. Add to the template's `check` step:
+
+```
+--record-out out/record.json --vendor-manifest vendor/cardvision-browser/cardvision-vendor.json \
+--facts store/record-facts.json --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+```
+
+It writes `out/record.json` and, beside it, `out/record.md`. Both hold machine facts only:
+
+- the version and tag, the commit and the run id;
+- the vendored toolkit's version and commit, and the ONNX Runtime and OpenCV versions, read from
+  the vendor manifest (`--vendor-manifest`, required with `--record-out`);
+- each package's file name, size and sha256, and its manifest's version (the Chrome, Firefox and
+  Firefox source packages, and `--load-unpacked-zip` for a package people load unpacked, which
+  is checked for its version and hashed);
+- the permission surface of each browser and whether the release file says it changed;
+- the Firefox lint counts, how Chrome submits, and how many "before upload" addresses were checked;
+- the product's own facts from `store/record-facts.json`, if it has one:
+  `{"facts": {"name": "short text, a number, or true or false"}}`, names of letters and digits.
+
+What a reader cannot match against a build stays out: the live check's notes and anything a
+person judged. The record names files, never paths. `check` refuses to write it, and fails, when
+its text holds a path on someone's machine, a CDN or object-store credential name or one of the
+product's `deny` words, so a fact must not carry any of them.
+
+The template's `release-assets` job runs after the build, on a tag push (or a dispatch with
+`attach` ticked). It runs `store-upload.mjs assets`, which checks each package against the hash in
+the record and copies the Chrome, Firefox and load-unpacked packages, `release-record.json`,
+`release-record.md` and `SHA256SUMS` into `release-assets/`, and then `gh release upload` attaches
+them to the tag's release. It never attaches the Firefox source archive, and the job never runs in
+the `store` environment: `check` fails a workflow where a job with `contents: write` names an
+environment. The job needs the release to exist; if the tag's release is created after the
+workflow starts, run the job again when it is (Re-run failed jobs). A re-run replaces the assets
+(`--clobber`).
+
+To adopt it, copy the template's `release-assets` job and the extra `check` options and artifact
+paths into `.github/workflows/store-release.yml`, and have the product's build write the load-unpacked
+package to `out/` (name it with `--load-unpacked-zip`) if it has one. A product's `release-assets`
+job keeps `contents: write` at the job, not at the workflow.
 
 ## Credentials
 

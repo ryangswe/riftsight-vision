@@ -23,6 +23,16 @@ break the public surface; this file names each break and how to migrate.
   scans `.github/workflows/extension-release.yml` when the file exists; a product that copied the
   template earlier updates that step (see
   [docs/store-uploads.md](docs/store-uploads.md#release-on-merge)).
+- `store-upload.mjs check` writes a release record, `--record-out FILE.json`, as JSON and Markdown
+  (`FILE.md`): versions, package hashes, the vendored toolkit's commit (`--vendor-manifest`), the
+  permission surface, the Firefox lint counts and a product's own facts (`--facts`). It refuses a
+  record whose text names a credential, a denied word or a path on a machine, and it fails a
+  workflow job that has `contents: write` and names an environment. `--load-unpacked-zip` adds a
+  package for people who load the extension unpacked. A new `assets` command collects the
+  packages, the record and `SHA256SUMS` for a GitHub release, never the Firefox source archive,
+  and `browser/templates/store-release.yml` has a `release-assets` job that attaches them with
+  `contents: write` and no store access. The template's actions are now pinned to full commits.
+  See [docs/store-uploads.md](docs/store-uploads.md).
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
