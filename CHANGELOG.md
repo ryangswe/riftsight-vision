@@ -18,6 +18,12 @@ break the public surface; this file names each break and how to migrate.
   every named file and symbol exists, every clause exists and every covered file is anchored. It
   checks names, not behavior.
 
+### Changed
+
+- [docs/hover-map.md](docs/hover-map.md): the diagrams read better on GitHub. The overview of the
+  frames is laid out top to bottom, the card-shown diagram is split into the fresh card, the shown
+  hold and the reading hold, and "How to read it" says how the diagrams are drawn.
+
 ## [0.14.1] - 2026-11-14
 
 A patch release with one fix to the browser runtime's slow start: a resting mouse's card is
