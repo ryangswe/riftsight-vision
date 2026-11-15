@@ -22,6 +22,8 @@ New here? [Start here](start-here.md) picks the page for you. This is the full l
 | I want to… | Read |
 | --- | --- |
 | Understand the detector, recognizer, bank, accept rule, rotation retry, hover rule, and the catalog file a game supplies | [how-it-works.md](how-it-works.md) |
+| See, as diagrams, how the browser extension decides when to look, when a picture may be taken, and which card it shows and keeps under the pointer | [hover-map.md](hover-map.md) |
+| Know exactly how hovers behave, rule by rule, each with the test that checks it | [hover-spec.md](hover-spec.md) |
 | Know what this repository holds, and what it does not | [whats-included.md](whats-included.md) |
 | Find answers on AI use, the pretrained starting points, commercial use, the private test set, card art, rebuilding the weights and other games | [faq.md](faq.md) |
 
