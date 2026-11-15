@@ -20,7 +20,7 @@ break the public surface; this file names each break and how to migrate.
 - An advisory downstream check, `.github/workflows/canary.yml` ("Downstream canary"), with its helper
   `browser/scripts/canary.mjs`. For each product listed in the repository variable
   `CANARY_TARGETS` (repository, pinned commit, vendor folder, the product's own check commands) it
-  builds the runtime at the pull request's head, vendors it into the product with the options the
+  builds the runtime of the pull request's merge commit (or of `main` on a push), vendors it into the product with the options the
   product's manifest records, and runs the product's checks. It is not a required check, reads no
   secret, and is a neutral skip when the variable is empty. A passing run saves a marker in the
   Actions cache, so a re-run of the same files and products is skipped and cites the earlier run.

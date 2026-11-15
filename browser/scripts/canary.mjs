@@ -56,9 +56,9 @@ export function parseTargets(text) {
   return problems.length > 0 ? { problems } : { targets };
 }
 
-/** The marker key: the tracked files that decide a run (browser/**, docs/hover-spec.*) and the targets. */
+/** The marker key: the tracked files that decide a run (browser/**, docs/hover-spec.*, the workflow file) and the targets. */
 export function markerKey(root, targets) {
-  const listed = execFileSync("git", ["-C", root, "ls-files", "-s", "--", "browser", "docs/hover-spec.*"], { encoding: "utf-8", maxBuffer: 1 << 28 });
+  const listed = execFileSync("git", ["-C", root, "ls-files", "-s", "--", "browser", "docs/hover-spec.*", ".github/workflows/canary.yml"], { encoding: "utf-8", maxBuffer: 1 << 28 });
   return createHash("sha256").update(listed).update("\0").update(JSON.stringify(targets)).digest("hex");
 }
 

@@ -5,7 +5,8 @@
 # checkout, checks the product out at its pinned commit, vendors the new build into it with the
 # options the product's own manifest records, and runs the product's own checks (its steps, in
 # the variable). OpenCV.js, which takes long to build from source, is borrowed from the product's
-# own vendored folder; the vendor step checks it against opencv.lock.json. The product's code is only read and built here; nothing is pushed anywhere.
+# own vendored folder; the vendor step checks it against opencv.lock.json. The product's install
+# scripts and tests do run here, with no secret to read; nothing is pushed anywhere.
 #
 # It is advisory: not a required check, so a red run is information for the reviewer, not a block.
 #
@@ -14,11 +15,11 @@
 # a neutral skip, shown in the job summary.
 #
 # A passing run saves a marker in the Actions cache, keyed by a hash of browser/**,
-# docs/hover-spec.* and the targets. A later run with the same key (a re-run, or a version pull
+# docs/hover-spec.*, this workflow and the targets. A later run with the same key (a re-run, or a version pull
 # request that changes none of them) finds the marker, skips the builds and cites the earlier run.
 #
-# Safety: the pull request event only, with its own power; contents: read; no secrets; checkouts keep no
-# credentials. The commands in the variable are the maintainer's, and run with no secret to read.
+# Safety: the pull request event only, with its own power; contents: read; no secrets;
+# checkouts keep no credentials. The commands in the variable are the maintainer's, and run with no secret to read.
 name: Downstream canary
 
 on:
@@ -52,6 +53,7 @@ jobs:
           CANARY_TARGETS: ${{ vars.CANARY_TARGETS }}
         run: node browser/scripts/canary.mjs plan .
       - name: Look for an earlier passing run of the same inputs
+        id: restore
         if: steps.plan.outputs.run == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -59,7 +61,7 @@ jobs:
           key: canary-ok-${{ steps.plan.outputs.key }}
       - name: Skip when the marker is found
         id: marker
-        if: steps.plan.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true' && steps.restore.outputs.cache-hit == 'true'
         run: node browser/scripts/canary.mjs marker-note canary-marker/note.txt
 
   targets:
@@ -104,7 +106,7 @@ jobs:
       - name: Install Chrome for Testing, puppeteer-core and ffmpeg
         if: matrix.chrome
         run: |
-          set -eu
+          set -euo pipefail
           npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
           # Pinned, so a new Chrome release never changes a run on its own.
           npx --yes @puppeteer/browsers@3.2.7 install chrome@157.0.8103.78 --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
@@ -114,11 +116,19 @@ jobs:
           sudo apt-get install -y -qq ffmpeg
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run the product's own checks
+        id: checks
         env:
           STEPS: ${{ toJSON(matrix.steps) }}
           TARGET_REPO: ${{ matrix.repo }}
           TARGET_SHA: ${{ matrix.sha }}
         run: node toolkit/browser/scripts/canary.mjs run product
+      - name: Report a failure before the checks began
+        if: failure() && steps.checks.outcome == 'skipped'
+        env:
+          TARGET_REPO: ${{ matrix.repo }}
+          TARGET_SHA: ${{ matrix.sha }}
+        run: |
+          printf '### %s at %s: failed before the product checks ran (see the log)\n' "$TARGET_REPO" "${TARGET_SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
 
   record:
     name: Record the pass

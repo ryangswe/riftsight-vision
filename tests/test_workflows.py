@@ -719,6 +719,15 @@ def test_the_marker_key_follows_the_targets_and_the_files_that_decide_a_run(tmp_
     (repo / "docs" / "hover-spec.md").write_text("new spec\n")
     git(repo, "add", "-A")
     assert plan_of(targets_text(), repo)["key"] != base
+    spec_key = plan_of(targets_text(), repo)["key"]
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / ".github" / "workflows" / "canary.yml").write_text("one\n")
+    git(repo, "add", "-A")
+    workflow_key = plan_of(targets_text(), repo)["key"]
+    assert workflow_key != spec_key
+    (repo / ".github" / "workflows" / "canary.yml").write_text("two\n")
+    git(repo, "add", "-A")
+    assert plan_of(targets_text(), repo)["key"] != workflow_key
 
 
 @needs_node
@@ -798,3 +807,25 @@ def test_the_run_step_reports_every_step_and_fails_when_one_fails(tmp_path):
     assert "| `echo fine` | passed |" in shown and "| `exit 3` | failed (3) |" in shown
     done = canary("run", str(product), STEPS=json.dumps(["true"]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(tmp_path / "ok.md"))
     assert done.returncode == 0
+
+
+def test_the_canary_skip_criteria_are_wired_through_the_marker():
+    """The restore and the save name one folder and one key; the plan job's ``run`` output holds
+    the marker skip, which only a cache hit can set; the targets run only when ``run`` is true; and
+    the marker is recorded only when every target passed."""
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    restore = re.search(r"actions/cache/restore@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
+    save = re.search(r"actions/cache/save@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
+    assert restore and save and restore.group(1) == save.group(1) == "canary-marker"
+    assert restore.group(2) == "canary-ok-${{ steps.plan.outputs.key }}"
+    assert save.group(2) == "canary-ok-${{ needs.plan.outputs.key }}"
+    assert "run: ${{ steps.plan.outputs.run == 'true' && steps.marker.outputs.skip != 'true' }}" in text
+    steps = steps_of("canary.yml")
+    assert steps["Skip when the marker is found"]["if"] == "steps.plan.outputs.run == 'true' && steps.restore.outputs.cache-hit == 'true'"
+    assert re.search(r"name: Look for an earlier passing run of the same inputs\n\s+id: restore\n", text)
+    assert "    needs: plan\n    if: needs.plan.outputs.run == 'true'\n" in text
+    assert re.search(r"    needs: \[plan, targets\]\n    if: .*needs\.targets\.result == 'success'", text)
+
+
+def test_the_canary_chrome_step_stops_on_a_failed_pipe():
+    assert "set -euo pipefail" in steps_of("canary.yml")["Install Chrome for Testing, puppeteer-core and ffmpeg"]["run"]
