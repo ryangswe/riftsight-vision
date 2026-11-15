@@ -50,7 +50,10 @@ export interface VideoPickEnv {
 
 export interface VideoPick {
   /** The main video: the kept pick while it is connected and was made less than a second ago,
-   *  otherwise a new pick. Call it on a trusted pointer move or whenever the pick is wanted. */
+   *  otherwise a new pick. A result of "no video" is kept for up to a second too: this differs from
+   *  products that scan again on every call while no video exists, and follows S-G4's "at most
+   *  once a second", which has no exception for none. A trusted `playing` always picks again at
+   *  once. Call it on a trusted pointer move or whenever the pick is wanted. */
   current(): HTMLVideoElement | null;
   /** A `playing` event: picks again now when the event is trusted, whatever its target. Returns
    *  the main video; an untrusted event changes nothing and returns the kept pick. */

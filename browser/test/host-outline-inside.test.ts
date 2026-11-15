@@ -2,7 +2,9 @@
 // S-F3 as a property: a turned outline stays inside the picture for boxes at each edge, because
 // the toolkit cuts every box to the frame (clipToFrame) before the turn is worked out
 // (outlineFromTilt, which solves rectFromAabb), and the turned rectangle's own bounding box is
-// that cut box. A seeded generator; nothing here reaches the network.
+// that cut box. This holds by construction only while the picture keeps the frame's aspect (one
+// uniform scale, as the cases below draw it); a stretched `object-fit: fill` picture is outside it.
+// A seeded generator; nothing here reaches the network.
 import { describe, expect, it } from "vitest";
 
 import type { Candidate } from "../src/boxes.js";

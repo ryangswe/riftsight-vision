@@ -66,7 +66,9 @@ export interface OutlinedCard {
  * of its height) about the center of the box, turned by `rotation` degrees in pixels, as
  * `computeCardQuad` draws it. There is no upright fallback for a turned outline that reaches past
  * the picture: the toolkit cuts a card's box to the frame before it works out the turn, so the
- * turned outline fits inside the picture (S-F3). An upright card, an out-of-range turn, a
+ * turned outline fits inside the picture (S-F3). That holds by construction only while the picture
+ * keeps the frame's aspect (one uniform scale); a stretched `object-fit: fill` picture is outside
+ * it. An upright card, an out-of-range turn, a
  * malformed outline or a side under 4 px gets the box, as `outlineRect` places it. Null when the
  * box itself draws nothing, and for a held card, which keeps its tooltip and loses its outline
  * (S-F4).

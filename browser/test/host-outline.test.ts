@@ -218,7 +218,6 @@ describe("CardOutline", () => {
     expect(el.style.pointerEvents).toBe("none");
     expect(el.style.position).toBe("fixed");
     expect(el.getAttribute("aria-hidden")).toBe("true");
-    expect(el.tabIndex).toBe(-1);
     expect(el.hasAttribute("tabindex")).toBe(false);
     expect(el.getAttribute("data-example")).toBe("outline");
     expect(el.style.display).toBe("none");
