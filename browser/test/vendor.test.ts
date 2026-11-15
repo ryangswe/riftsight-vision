@@ -53,6 +53,7 @@ function fakeToolkit(tag: string, { opencv = true, spec = true } = {}): Kit {
     "node/verify-release.mjs": `v ${tag}`,
     "node/package-zip.mjs": `p ${tag}`,
     "node/store-upload.mjs": `s ${tag}`,
+    "node/release-decide.mjs": `r ${tag}`,
     "THIRD-PARTY-NOTICES.txt": `notices ${tag}`,
     "cardvision.d.ts": `export * from "./types/index.js"; // ${tag}`,
     "compute-session.d.ts": `export * from "./types/compute-session.js"; // ${tag}`,

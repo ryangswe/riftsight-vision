@@ -11,6 +11,15 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- `browser/templates/extension-release.yml` releases an extension when its version is merged: on a
+  push to the main branch, when the version in `package.json` has no tag, `store/releases/<version>.json`
+  exists and the changelog has a section for it, the workflow creates the tag and the GitHub
+  release (the section is the notes) and starts `store-release.yml` on the tag with `upload` set,
+  which still waits for the `store` environment's approval. A lower version than the newest tag is
+  refused, and a re-run does only what is missing. The decision is the new Node tool
+  `node/release-decide.mjs`, vendored with `--node-tools`; `store-release.yml`'s `check` step now
+  also scans `.github/workflows/extension-release.yml` when the file exists. See
+  [docs/store-uploads.md](docs/store-uploads.md#release-on-merge).
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of

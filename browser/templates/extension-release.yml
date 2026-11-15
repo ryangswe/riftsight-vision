@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Releasing an extension when its version is merged: copy this file to
+# .github/workflows/extension-release.yml in the extension's repository, beside store-release.yml
+# (browser/templates/store-release.yml). See the toolkit's docs/store-uploads.md, "Release on merge".
+#
+# A push to main runs one job. It gathers the facts, then `release-decide.mjs` decides, before
+# anything is written. It acts only when all three hold:
+#   - the version in package.json has no tag;
+#   - store/releases/<version>.json exists;
+#   - the changelog has a non-empty section for the version.
+# Then it creates the tag and the GitHub release (the changelog section is the notes) and starts
+# store-release.yml on the tag with `upload` set. That run builds, checks, and waits for the `store`
+# environment's required reviewer before it touches a store. Without all three, nothing happens.
+# A version lower than the newest version tag is refused. A push that leaves the version alone does
+# nothing. A re-run does only what is still missing.
+#
+# A tag made with the workflow token starts no workflow, so the store run is started by a dispatch.
+# This workflow has no `store` environment, no id-token and no secret: it can write contents (the
+# tag and the release) and start workflows, and nothing else. The upload stays in store-release.yml.
+# This file must name no CDN credential or pointer tool: `store-upload.mjs check` refuses it, and
+# store-release.yml's check step scans it when it is present.
+#
+# Edit only the lines marked PRODUCT. Pin every `uses:` to a full commit when copying.
+
+name: Extension release
+
+on:
+  push:
+    branches: [main] # PRODUCT: the branch releases are merged to
+
+permissions:
+  contents: read
+
+env:
+  # PRODUCT: where these live in the repository, and the tag prefix (v1.2.0). The tag prefix is the
+  # one store-release.yml uses.
+  PACKAGE_JSON: package.json
+  CHANGELOG: CHANGELOG.md
+  RELEASES_DIR: store/releases
+  TAG_PREFIX: v
+  DECIDE_TOOL: vendor/cardvision-browser/node/release-decide.mjs
+
+jobs:
+  release:
+    name: Tag, release and start the store run
+    runs-on: ubuntu-latest
+    # One at a time: two pushes must not both create the same tag.
+    concurrency:
+      group: extension-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Gather the facts
+        run: |
+          version="$(node -p "require('./${PACKAGE_JSON}').version")"
+          tag="${TAG_PREFIX}${version}"
+          git ls-remote --tags origin "refs/tags/${TAG_PREFIX}*" > "${RUNNER_TEMP}/tags.txt"
+          if gh release view "$tag" > /dev/null 2>&1; then exists=true; else exists=false; fi
+          runs="$(gh run list --workflow store-release.yml --branch "$tag" --json databaseId --jq length)"
+          {
+            echo "RELEASE_EXISTS=${exists}"
+            echo "STORE_RUNS=${runs}"
+          } >> "$GITHUB_ENV"
+      - name: Decide
+        id: plan
+        run: |
+          node "$DECIDE_TOOL" --package-json "$PACKAGE_JSON" --releases-dir "$RELEASES_DIR" \
+            --changelog "$CHANGELOG" --tag-prefix "$TAG_PREFIX" --commit "$GITHUB_SHA" \
+            --tags-file "${RUNNER_TEMP}/tags.txt" --release-exists "$RELEASE_EXISTS" \
+            --store-runs "$STORE_RUNS" --notes "${RUNNER_TEMP}/notes.md" \
+            --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Create the tag and the release
+        if: steps.plan.outputs.create == 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          if [ "${{ steps.plan.outputs.prerelease }}" = "true" ]; then
+            gh release create "$TAG" --title "$TAG" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md" --prerelease
+          else
+            gh release create "$TAG" --title "$TAG" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md"
+          fi
+      - name: Start the store run, which waits for approval
+        if: steps.plan.outputs.dispatch == 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: gh workflow run store-release.yml --ref "$TAG" -f upload=true

@@ -13,7 +13,9 @@ It is [experimental](stability.md#experimental).
 ## How a release goes up
 
 1. **The tag.** Pushing a release tag (`v1.2.3`) starts the workflow. A product whose tags look
-   different (`extension-v1.2.3`) sets the template's `TAG_PREFIX` and its `tags:` pattern.
+   different (`extension-v1.2.3`) sets the template's `TAG_PREFIX` and its `tags:` pattern. A
+   product that adopts [release on merge](#release-on-merge) does not push the tag: merging the
+   version creates it.
 2. **The build job** has no store access. It builds the packages from that commit, runs the
    product's own release checks, then `store-upload.mjs check`, which refuses when:
    - the tag, the release file and the packages' manifests name different versions;
@@ -49,6 +51,46 @@ It is [experimental](stability.md#experimental).
    creates nothing on the listing), uploads to Chrome and submits for review unless the release
    file says `upload-only`, then creates the Firefox version with its source archive, release notes
    and notes to reviewers. Each step is written to the run page as it happens.
+
+## Release on merge
+
+The template [`browser/templates/extension-release.yml`](../browser/templates/extension-release.yml)
+replaces pushing the tag by hand. Merging the version commit to the main branch is the release:
+a push to main runs one job that creates the tag and the GitHub release and starts
+`store-release.yml` on that tag with `upload` set. That run builds and checks as before, then
+waits for the `store` environment's reviewer, so the upload is still approved on its page.
+
+It acts only when all three hold:
+
+1. the version in `package.json` has no tag (`TAG_PREFIX` followed by the version);
+2. `store/releases/<version>.json` exists;
+3. `CHANGELOG.md` has a non-empty section for the version (`## [1.2.3] - 2026-01-01`, `## 1.2.3`
+   or `## v1.2.3`); that section is the GitHub release's notes.
+
+Otherwise nothing happens, and the job's summary says which is missing. A push that leaves the
+version alone does nothing. A version lower than the newest version tag is refused and the job
+fails. If the job stops half way, re-run it: it does only what is missing (the release, or the
+store run, which it starts only when none has been started for the tag). A tag made with the
+workflow's token starts no workflow, so the store run is started by a dispatch, not by the tag.
+
+The decision is `node/release-decide.mjs`, one of the vendored Node tools (`npm run vendor --
+--node-tools`); it reads no network, and the workflow gathers the facts it is given (the remote
+tags, whether the release exists, how many store runs the tag has) and acts only on its outputs.
+The workflow holds `contents: write` and `actions: write` and nothing else: no `store`
+environment, no store credential, no identity token. The upload stays in `store-release.yml`.
+
+To adopt it:
+
+1. Copy the template to `.github/workflows/extension-release.yml`, next to `store-release.yml`,
+   and pin its `uses:` to commits. Edit only the lines marked `PRODUCT`: the branch, the file
+   locations and the tag prefix (the same one `store-release.yml` uses).
+2. Vendor with `--node-tools` so `vendor/cardvision-browser/node/release-decide.mjs` exists.
+3. Keep `store-release.yml` as it is. Its `check` step scans `extension-release.yml` for denied
+   names whenever the file is present, so the file must name no CDN or object-store credential,
+   pointer command or flag command, or a word in `deny`.
+4. Release as before: one pull request holds the version, the changelog section and
+   `store/releases/<version>.json`; merging it starts the release. Do not push the tag. If the
+   tag already exists, the version is not released again.
 
 ## Running it by hand, and after a failure
 
@@ -235,5 +277,6 @@ On that machine the credentials are files, not a token:
 
 It uploads packages and submits them for review. It never changes a store listing, a screenshot
 or a justification field, never publishes to a CDN or moves a release pointer or flag (the
-workflow names no such credential, and `check` refuses one that does), never commits, and
-writes nothing outside the run.
+workflows name no such credential, and `check` refuses one that does), never commits, and
+writes nothing outside the run. The only thing written to the repository is what
+[release on merge](#release-on-merge) creates: the tag and the GitHub release.
