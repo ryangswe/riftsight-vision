@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Old profiles: each file in test/fixtures/storage-profiles/ is the whole the extension's local storage of
+// Old profiles: each file in test/fixtures/storage-profiles/ is the whole local extension storage of
 // one real, older build of a product that uses the host. Both products' profiles must read
 // correctly through the settings core and the switches.
 import { readdirSync, readFileSync } from "node:fs";
@@ -40,6 +40,7 @@ describe("old storage profiles", () => {
       const r = await createSettingsCore(schema(), memoryStorage(structuredClone(profile))).read();
       expect(r.origin).toBe("fetched");
       expect(r.fetchedAt).toBe(stored.fetchedAt);
+      expect(r.settings).toEqual(stored.raw);
     });
 
     it("reads the switches as stored", async () => {
