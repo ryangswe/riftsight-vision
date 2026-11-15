@@ -9,7 +9,7 @@ authors:
 license:
   - Apache-2.0
   - CC-BY-4.0
-version: "0.14.0"
+version: "0.14.1"
 abstract: >-
   A card detector, a card recognizer, the embedding bank and accept rule they run with, labels
   on public gameplay video as a manifest, and the tools that train, label and evaluate. Built

@@ -9,6 +9,24 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-14
+
+A patch release with one fix to the browser runtime's slow start: a resting mouse's card is
+named when the compute frame connects late. If no frame was connected when the mouse came to
+rest, the first frame to connect during that rest gets its one picture, however late; a frame the
+page makes again during the same rest still gets none. Changes that may need action:
+
+- Vendor the page and frame code together. The page now tells a new frame how long the pointer
+  has rested (the optional `restedMs` field of `pointer`); an older frame ignores the field and
+  treats the message as a move.
+- A frame that becomes ready inside the 10-second window now opens its one-picture grant too, so
+  a failed capture's prompt retry can land a little after the window ends. It is still one
+  picture.
+
+`PROTOCOL_VERSION` stays 2. The hover spec's open clauses are settled in this release's docs
+(S-A8, S-F3, S-G3; they change in a product release). No model, release document or recognizer
+decision changes.
+
 ### Fixed
 
 - A card under a resting mouse is now named when the compute frame connects late. A page whose
@@ -1768,7 +1786,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0
 [0.14.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc1...v0.14.0rc2
 [0.14.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0rc1
