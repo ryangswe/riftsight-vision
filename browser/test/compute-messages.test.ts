@@ -46,6 +46,14 @@ describe("compute message checks", () => {
     expect(parseComputeIn(tag({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 1, touch: false }))).toEqual({ kind: "pointer", x: 0.5, y: 0.5, mediaTime: 1, touch: false });
   });
 
+  it("takes an optional restedMs on pointer: a finite number of 0 or more, dropped otherwise", () => {
+    const base = { kind: "pointer", x: 0.5, y: 0.5, mediaTime: 1, touch: false };
+    expect(parseComputeIn(tag({ ...base, restedMs: 12_000 }))).toEqual({ ...base, restedMs: 12_000 });
+    for (const restedMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, "5", null]) {
+      expect(parseComputeIn(tag({ ...base, restedMs }))).toEqual(base);
+    }
+  });
+
   it("refuses untagged, malformed or out-of-range messages", () => {
     expect(parseComputeIn({ kind: "leave" })).toBeNull();
     expect(parseComputeIn(tag({ kind: "pointer", x: 1.2, y: 0, mediaTime: 0, touch: false }))).toBeNull();
