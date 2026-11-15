@@ -31,8 +31,8 @@
 // offers); the clip is synthetic. A product's test settings should turn off any geometric stage,
 // because CI runners have no accelerated WebGPU.
 //
-// Each check names the clause it covers in the toolkit's hover spec (docs/hover-spec.md in
-// ryangswe/riftsight-vision), in the table in clauses.mjs. An expected failure is listed in the
+// Each check names the clause it covers in the toolkit's hover spec (docs/hover-spec.md), in the
+// table in clauses.mjs. An expected failure is listed in the
 // product module with the old value, the intended value and what removes it, and, where it fails
 // only under a timing condition, that condition (it must pass when the condition does not hold).
 // A setup failure, a timeout, a crash, a missing NetLog or a network violation is never an
@@ -384,14 +384,14 @@ async function extensionWorker(ext) {
   return target.worker();
 }
 
-/** Set a stored setting as the popup does (chrome.storage.local), from the extension's background.
+/** Set a stored setting as the popup does (the extension's local storage area), from the extension's background.
  *  If the worker stops between finding it and using it, the next one is tried once. */
 async function setStored(ext, key, value) {
   for (let attempt = 1; ; attempt += 1) {
     try {
       const worker = await extensionWorker(ext);
       if (!worker) throw new Error("setup: the extension's background worker is not running");
-      await worker.evaluate((k, v) => chrome.storage.local.set({ [k]: v }), key, value);
+      await worker.evaluate((area, k, v) => chrome.storage[area].set({ [k]: v }), "local", key, value);
       break;
     } catch (error) {
       if (attempt >= 2) throw error;
