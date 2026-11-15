@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Stand-ins for chrome.storage.local and chrome.storage.onChanged, for the host's settings tests.
+// Stand-ins for the extension storage area and its change events, for the host's settings tests.
 import type { KeyValueStorage, StorageChange, StorageChanges } from "../../src/host/settings-core.js";
 
 export type MemoryStorage = KeyValueStorage & { data: Record<string, unknown> };

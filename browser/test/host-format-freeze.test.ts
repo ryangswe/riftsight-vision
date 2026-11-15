@@ -11,13 +11,13 @@ import { DEFAULT_RAW, schema, URL_UNDER_TEST } from "./support/host-settings-sch
 
 describe("the stored format", () => {
   it("keeps the key names", () => {
-    expect({ ENABLED_KEY, KEEP_CARD_KEY, LAST_GOOD_KEY, LAST_ATTEMPT_KEY, DISMISSED_UPDATE_KEY }).toEqual({
-      ENABLED_KEY: "enabled",
-      KEEP_CARD_KEY: "keepCard",
-      LAST_GOOD_KEY: "settings.lastGood",
-      LAST_ATTEMPT_KEY: "settings.lastAttemptAt",
-      DISMISSED_UPDATE_KEY: "update.dismissed",
-    });
+    expect([ENABLED_KEY, KEEP_CARD_KEY, LAST_GOOD_KEY, LAST_ATTEMPT_KEY, DISMISSED_UPDATE_KEY]).toEqual([
+      "enabled",
+      "keepCard",
+      "settings.lastGood",
+      "settings.lastAttemptAt",
+      "update.dismissed",
+    ]);
   });
 
   it("keeps the refresh interval at one hour", () => expect(SETTINGS_REFRESH_MS).toBe(3_600_000));
