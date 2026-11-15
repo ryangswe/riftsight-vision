@@ -30,16 +30,18 @@ export interface LifecycleState {
 
 /** What the host knows at the moment of the event. An untrusted event reads no fact, so the host
  *  need not work any out for one. For every other event the host works the facts out itself,
- *  whatever the reducer reads: on every trusted `playing` while hovers are on it picks the main
- *  video again (S-G4), in every phase, also with both frames made and after an idle removal. */
+ *  whatever the reducer reads: on every trusted `playing` while hovers are on and the page is
+ *  active, it picks the main video again (S-G4), in every phase, also with both frames made and
+ *  after an idle removal. On a page that is not active it picks nothing (S-G5). */
 export interface LifecycleFacts {
   /** The tab is in front (`document.visibilityState !== "hidden"`). */
   readonly visible: boolean;
   /** The page policy now, from `location.href`. */
   readonly page: LifecyclePage;
-  /** The main video exists and is not paused. On every trusted `playing` while hovers are on, the
-   *  host picks the main video again before the step, whatever the event's target and whether or
-   *  not the reducer reads this (S-G4); on an untrusted one it picks nothing. */
+  /** The main video exists and is not paused. On every trusted `playing` while hovers are on and
+   *  the page is active, the host picks the main video again before the step, whatever the event's
+   *  target and whether or not the reducer reads this (S-G4); on an untrusted one, or on a page
+   *  that is not active, it picks nothing. */
   readonly mainPlaying: boolean;
   /** Which of the host's frames are in the page now (a page script may have removed one). */
   readonly frames: { readonly compute: boolean; readonly view: boolean };
