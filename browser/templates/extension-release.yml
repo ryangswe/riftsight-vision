@@ -8,11 +8,12 @@
 # anything is written. It acts only when all three hold:
 #   - the version in package.json has no tag;
 #   - store/releases/<version>.json exists;
-#   - the changelog has a non-empty section for the version.
+#   - the changelog has a dated, non-empty section for the version (`## [1.2.0] - 2026-11-13`).
 # Then it creates the tag and the GitHub release (the changelog section is the notes) and starts
 # store-release.yml on the tag with `upload` set. That run builds, checks, and waits for the `store`
 # environment's required reviewer before it touches a store. Without all three, nothing happens.
-# A version lower than the newest version tag is refused. A push that leaves the version alone does
+# A pre-release version (1.2.0-rc1; store versions are numeric) and a version lower than the newest
+# final version tag are refused. A push that leaves the version alone does
 # nothing. A re-run does only what is still missing.
 #
 # A tag made with the workflow token starts no workflow, so the store run is started by a dispatch.
@@ -22,6 +23,8 @@
 # store-release.yml's check step scans it when it is present.
 #
 # Edit only the lines marked PRODUCT. Pin every `uses:` to a full commit when copying.
+# Adopt it in a pull request that does not change the version, while the current version is already
+# tagged: a merge that adds this file with an untagged version releases it.
 
 name: Extension release
 
@@ -44,6 +47,7 @@ env:
 jobs:
   release:
     name: Tag, release and start the store run
+    if: github.repository == 'YOUR-ORG/YOUR-REPO' # PRODUCT: this repository, so a fork never releases
     runs-on: ubuntu-latest
     # One at a time: two pushes must not both create the same tag.
     concurrency:
@@ -58,11 +62,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
       - name: Gather the facts
         run: |
           version="$(node -p "require('./${PACKAGE_JSON}').version")"
           tag="${TAG_PREFIX}${version}"
-          git ls-remote --tags origin "refs/tags/${TAG_PREFIX}*" > "${RUNNER_TEMP}/tags.txt"
+          # The tags, read with the token (so a private repository works), and the commit each
+          # annotated tag names.
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${TAG_PREFIX}" --jq '.[] | tojson' > "${RUNNER_TEMP}/tags.ndjson"
+          : > "${RUNNER_TEMP}/tag-objects.ndjson"
+          for sha in $(jq -r 'select(.object.type == "tag") | .object.sha' "${RUNNER_TEMP}/tags.ndjson"); do
+            gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq tojson >> "${RUNNER_TEMP}/tag-objects.ndjson"
+          done
           if gh release view "$tag" > /dev/null 2>&1; then exists=true; else exists=false; fi
           runs="$(gh run list --workflow store-release.yml --branch "$tag" --json databaseId --jq length)"
           {
@@ -74,7 +87,8 @@ jobs:
         run: |
           node "$DECIDE_TOOL" --package-json "$PACKAGE_JSON" --releases-dir "$RELEASES_DIR" \
             --changelog "$CHANGELOG" --tag-prefix "$TAG_PREFIX" --commit "$GITHUB_SHA" \
-            --tags-file "${RUNNER_TEMP}/tags.txt" --release-exists "$RELEASE_EXISTS" \
+            --tags-api "${RUNNER_TEMP}/tags.ndjson" --tag-objects "${RUNNER_TEMP}/tag-objects.ndjson" \
+            --release-exists "$RELEASE_EXISTS" \
             --store-runs "$STORE_RUNS" --notes "${RUNNER_TEMP}/notes.md" \
             --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Create the tag and the release
@@ -82,11 +96,7 @@ jobs:
         env:
           TAG: ${{ steps.plan.outputs.tag }}
         run: |
-          if [ "${{ steps.plan.outputs.prerelease }}" = "true" ]; then
-            gh release create "$TAG" --title "$TAG" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md" --prerelease
-          else
-            gh release create "$TAG" --title "$TAG" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md"
-          fi
+          gh release create "$TAG" --title "$TAG" --target "$GITHUB_SHA" --notes-file "${RUNNER_TEMP}/notes.md"
       - name: Start the store run, which waits for approval
         if: steps.plan.outputs.dispatch == 'true'
         env:

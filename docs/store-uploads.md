@@ -64,31 +64,50 @@ It acts only when all three hold:
 
 1. the version in `package.json` has no tag (`TAG_PREFIX` followed by the version);
 2. `store/releases/<version>.json` exists;
-3. `CHANGELOG.md` has a non-empty section for the version (`## [1.2.3] - 2026-01-01`, `## 1.2.3`
-   or `## v1.2.3`); that section is the GitHub release's notes.
+3. `CHANGELOG.md` has a dated section for the version, with something in it: the heading line
+   carries a `YYYY-MM-DD` date (`## [1.2.3] - 2026-11-13` or `## 1.2.3 (2026-11-14)`). A heading
+   such as `## [1.2.3] - Unreleased` counts as missing. The section is the GitHub release's notes.
 
 Otherwise nothing happens, and the job's summary says which is missing. A push that leaves the
-version alone does nothing. A version lower than the newest version tag is refused and the job
-fails. If the job stops half way, re-run it: it does only what is missing (the release, or the
-store run, which it starts only when none has been started for the tag). A tag made with the
-workflow's token starts no workflow, so the store run is started by a dispatch, not by the tag.
+version alone does nothing. Two things are refused and fail the job: a version with a pre-release
+suffix (`1.2.3-rc1`), because store versions are numeric, and a version lower than the newest
+final version tag (pre-release tags are not compared, so one does not block a hotfix). If the job
+stops half way, re-run it: it does only what is missing, the release or the store run. A tag made
+with the workflow's token starts no workflow, so the store run is started by a dispatch, not by
+the tag.
 
 The decision is `node/release-decide.mjs`, one of the vendored Node tools (`npm run vendor --
---node-tools`); it reads no network, and the workflow gathers the facts it is given (the remote
-tags, whether the release exists, how many store runs the tag has) and acts only on its outputs.
-The workflow holds `contents: write` and `actions: write` and nothing else: no `store`
-environment, no store credential, no identity token. The upload stays in `store-release.yml`.
+--node-tools`). It reads no network: the workflow gathers the facts it is given (the tags, read
+through the API with the workflow's token so a private repository works, whether the release
+exists, how many store runs the tag has) and acts only on its outputs. The workflow is given
+`contents: write` and `actions: write` and no `store` environment, store credential or identity
+token; the upload stays in `store-release.yml`. `store-upload.mjs check` scans the file for denied
+names only (a CDN or object-store credential, a pointer or flag command, a word in `deny`). It
+does not check the workflow's permissions, so keep them as the template has them.
+
+Two details:
+
+- Two merges seconds apart: the tag goes on the later commit, which also contains the earlier
+  version. That is harmless.
+- "Start the store run only if none has started" reads `gh run list --workflow store-release.yml
+  --branch <tag>`. If that misses a run, a second dispatch is a duplicate: it still waits for the
+  `store` environment's approval, and can be cancelled there.
 
 To adopt it:
 
 1. Copy the template to `.github/workflows/extension-release.yml`, next to `store-release.yml`,
-   and pin its `uses:` to commits. Edit only the lines marked `PRODUCT`: the branch, the file
-   locations and the tag prefix (the same one `store-release.yml` uses).
+   and pin its `uses:` to commits. Edit only the lines marked `PRODUCT`: the repository in the
+   fork guard (`if: github.repository == 'YOUR-ORG/YOUR-REPO'`; until it is set the job never runs), the
+   branch, the file locations and the tag prefix (the same one `store-release.yml` uses).
 2. Vendor with `--node-tools` so `vendor/cardvision-browser/node/release-decide.mjs` exists.
-3. Keep `store-release.yml` as it is. Its `check` step scans `extension-release.yml` for denied
-   names whenever the file is present, so the file must name no CDN or object-store credential,
-   pointer command or flag command, or a word in `deny`.
-4. Release as before: one pull request holds the version, the changelog section and
+3. Make `store-release.yml`'s "Check the release" step scan the new file. A copy of the template
+   from before release on merge does not: replace the step with the template's (it sets
+   `RELEASE_WORKFLOW` to `--workflow .github/workflows/extension-release.yml` when the file
+   exists), or add `--workflow .github/workflows/extension-release.yml` to the `check` command by
+   hand. The file must name no CDN or object-store credential, pointer command or flag command.
+4. **Adopt it in a pull request that does not change the version**, while the current version is
+   already tagged. Otherwise the adoption merge itself releases the version.
+5. From then on, release with one pull request that holds the version, the changelog section and
    `store/releases/<version>.json`; merging it starts the release. Do not push the tag. If the
    tag already exists, the version is not released again.
 

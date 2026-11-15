@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { compareVersions, decide, type Facts, main, notesFor, tagsOf } from "../node/release-decide.js";
+import { compareVersions, decide, type Facts, main, notesFor, tagsFromApi, tagsOf } from "../node/release-decide.js";
 import { denyFindings } from "../node/store-checks.js";
 
 const TEMPLATES = join(fileURLToPath(new URL(".", import.meta.url)), "..", "templates");
@@ -36,8 +36,13 @@ const CHANGELOG = `# Changelog
 - A candidate.
 
 ## [1.5.0] - 2026-11-14
+
+## [1.6.0] - Unreleased
+
+- Not dated.
 `;
 const tagLine = (tag: string, sha = OTHER): string => `${sha}\trefs/tags/${tag}`;
+const apiRef = (tag: string, sha = OTHER, type = "commit"): string => JSON.stringify({ ref: `refs/tags/${tag}`, node_id: "x", url: "u", object: { sha, type, url: "u" } });
 
 function facts(over: Partial<Facts> = {}): Facts {
   return {
@@ -56,7 +61,7 @@ function facts(over: Partial<Facts> = {}): Facts {
 describe("the three conditions", () => {
   it("releases, with the changelog section as notes, when all three hold", () => {
     const p = decide(facts());
-    expect(p).toMatchObject({ action: "release", tag: "v1.3.0", create: true, dispatch: true, prerelease: false });
+    expect(p).toMatchObject({ action: "release", tag: "v1.3.0", create: true, dispatch: true });
     expect(p.notes).toBe("### Added\n\n- A new thing.\n");
   });
 
@@ -89,9 +94,16 @@ describe("the three conditions", () => {
     for (const version of ["", "1.3", "v1.3.0", "../x"]) expect(decide(facts({ version })).action).toBe("refuse");
   });
 
-  it("marks a pre-release version", () => {
+  it("refuses a pre-release version, because store versions are numeric", () => {
     const p = decide(facts({ version: "1.4.0-rc1" }));
-    expect(p).toMatchObject({ action: "release", tag: "v1.4.0-rc1", prerelease: true });
+    expect(p).toMatchObject({ action: "refuse", create: false, dispatch: false });
+    expect(p.reason).toMatch(/pre-release suffix; store versions are numeric/);
+  });
+
+  it("does nothing for a version whose changelog heading has no date", () => {
+    const p = decide(facts({ version: "1.6.0" }));
+    expect(p).toMatchObject({ action: "nothing", create: false, dispatch: false });
+    expect(p.reason).toMatch(/dated/);
   });
 });
 
@@ -99,24 +111,22 @@ describe("a version lower than the newest tag", () => {
   it("is refused, and nothing is created", () => {
     const p = decide(facts({ version: "1.3.0", tags: [tagLine("v1.4.0"), tagLine("v1.2.0")].join("\n") }));
     expect(p).toMatchObject({ action: "refuse", create: false, dispatch: false });
-    expect(p.reason).toMatch(/lower than the newest version tag, v1\.4\.0/);
+    expect(p.reason).toMatch(/lower than the newest final version tag, v1\.4\.0/);
   });
 
-  it("is refused against a pre-release tag of a higher version", () => {
-    expect(decide(facts({ tags: tagLine("v1.4.0-rc1") })).action).toBe("refuse");
+  it("is checked against final tags only: a pre-release tag does not block a hotfix", () => {
+    const tags = [tagLine("v1.4.0-rc1"), tagLine("v1.3.0"), tagLine("v1.2.0")].join("\n");
+    expect(decide(facts({ version: "1.3.1", tags, changelog: CHANGELOG.replace("## [1.3.0]", "## [1.3.1]") })).action).toBe("release");
   });
 
-  it("lets the release follow its own candidate, and ignores tags of another prefix and non-version tags", () => {
-    const tags = [tagLine("v1.3.0-rc2"), tagLine("ext-v9.0.0"), tagLine("vNext"), tagLine("v1.2.0")].join("\n");
+  it("ignores tags of another prefix and tags that are not versions", () => {
+    const tags = [tagLine("ext-v9.0.0"), tagLine("vNext"), tagLine("v1.2.0")].join("\n");
     expect(decide(facts({ tags })).action).toBe("release");
   });
 
-  it("compares versions the way semver does", () => {
+  it("compares versions numerically", () => {
     expect(compareVersions("1.9.0", "1.10.0")).toBeLessThan(0);
-    expect(compareVersions("1.0.0-rc1", "1.0.0")).toBeLessThan(0);
-    expect(compareVersions("1.0.0-rc.2", "1.0.0-rc.10")).toBeLessThan(0);
-    expect(compareVersions("1.0.0-alpha", "1.0.0-alpha.1")).toBeLessThan(0);
-    expect(compareVersions("1.0.0-1", "1.0.0-a")).toBeLessThan(0);
+    expect(compareVersions("2.0.0", "1.99.99")).toBeGreaterThan(0);
     expect(compareVersions("2.0.0", "2.0.0")).toBe(0);
   });
 
@@ -140,6 +150,23 @@ describe("a re-run, with the tag on this commit", () => {
     expect(decide(facts({ tags, releaseExists: true, releaseFile: false }))).toMatchObject({ action: "nothing", dispatch: false });
     expect(decide(facts({ tags, releaseExists: false, storeRuns: 1, changelog: "" }))).toMatchObject({ action: "nothing", create: false });
   });
+  it("reads the tags from the API's answers, following annotated tags to their commits", () => {
+    const refs = [apiRef("v1.2.0"), apiRef("v1.3.0", "c".repeat(40), "tag"), apiRef("v1.1.0", "d".repeat(40), "tag"), apiRef("v1.0.0", "e".repeat(40), "tag"), ""].join("\n");
+    const objects = [
+      JSON.stringify({ sha: "c".repeat(40), tag: "v1.3.0", object: { sha: COMMIT, type: "commit" } }),
+      // a tag of a tag: followed
+      JSON.stringify({ sha: "d".repeat(40), object: { sha: "f".repeat(40), type: "tag" } }),
+      JSON.stringify({ sha: "f".repeat(40), object: { sha: OTHER, type: "commit" } }),
+    ].join("\n");
+    const { commits } = tagsOf(tagsFromApi(refs, objects), "v");
+    expect(commits.get("v1.2.0")).toBe(OTHER);
+    expect(commits.get("v1.3.0")).toBe(COMMIT);
+    expect(commits.get("v1.1.0")).toBe(OTHER);
+    // an annotated tag the API gave no object for is left out, never taken for a commit
+    expect(commits.has("v1.0.0")).toBe(false);
+    expect(tagsFromApi("")).toBe("");
+    expect(() => tagsFromApi("not json")).toThrow();
+  });
   it("takes a peeled tag's commit over the tag object's", () => {
     const annotated = [tagLine("v1.3.0", OTHER), `${COMMIT}\trefs/tags/v1.3.0^{}`].join("\n");
     expect(tagsOf(annotated, "v").commits.get("v1.3.0")).toBe(COMMIT);
@@ -147,12 +174,19 @@ describe("a re-run, with the tag on this commit", () => {
 });
 
 describe("the changelog reader", () => {
-  it("finds a section by its version in the usual headings, not by prefix", () => {
-    expect(notesFor("## 1.2.0\n\n- a\n", "1.2.0")).toBe("- a\n");
+  it("finds a dated section by its version in the usual headings, not by prefix", () => {
+    expect(notesFor("## 1.2.0 (2026-11-14)\n\n- a\n", "1.2.0")).toBe("- a\n");
+    expect(notesFor("## [1.2.0] - 2026-11-13\n\n- a\n", "1.2.0")).toBe("- a\n");
     expect(notesFor("## [v1.2.0] (2026-01-01)\n- a\n## 1.1.0\n- b\n", "1.2.0")).toBe("- a\n");
-    expect(notesFor("## [1.2.0-rc1]\n- a\n", "1.2.0")).toBeNull();
+    expect(notesFor("## [1.2.0-rc1] - 2026-01-01\n- a\n", "1.2.0")).toBeNull();
     expect(notesFor("## [1.2.01]\n- a\n", "1.2.0")).toBeNull();
-    expect(notesFor("## [1.2.0]\n\n", "1.2.0")).toBeNull();
+    expect(notesFor("## [1.2.0] - 2026-01-01\n\n", "1.2.0")).toBeNull();
+  });
+
+  it("counts a section with no date as missing", () => {
+    for (const heading of ["## [1.2.0] - Unreleased", "## [1.2.0]", "## 1.2.0", "## [1.2.0] - 2026-1-3", "## [1.2.0] - 20261113"]) {
+      expect(notesFor(`${heading}\n\n- a\n`, "1.2.0")).toBeNull();
+    }
   });
 });
 
@@ -169,10 +203,10 @@ describe("the command", () => {
     if (over.releaseFile !== false) writeFileSync(join(dir, `store/releases/${version}.json`), "{}");
     writeFileSync(join(dir, "package.json"), JSON.stringify({ version }));
     writeFileSync(join(dir, "CHANGELOG.md"), CHANGELOG);
-    writeFileSync(join(dir, "tags.txt"), over.tags ?? tagLine("v1.2.0"));
+    writeFileSync(join(dir, "tags.ndjson"), over.tags ?? apiRef("v1.2.0"));
     const args = [
       "--package-json", join(dir, "package.json"), "--releases-dir", join(dir, "store/releases"), "--changelog", join(dir, "CHANGELOG.md"),
-      "--commit", COMMIT, "--tags-file", join(dir, "tags.txt"), "--release-exists", "false", "--store-runs", "0",
+      "--commit", COMMIT, "--tags-api", join(dir, "tags.ndjson"), "--release-exists", "false", "--store-runs", "0",
       "--notes", join(dir, "notes.md"), "--output", join(dir, "out.txt"), "--summary", join(dir, "summary.md"),
     ];
     return { dir, args };
@@ -186,19 +220,19 @@ describe("the command", () => {
     const { dir, args } = setup();
     expect(main(args, quiet().log)).toBe(0);
     expect(readFileSync(join(dir, "notes.md"), "utf-8")).toBe("### Added\n\n- A new thing.\n");
-    expect(readFileSync(join(dir, "out.txt"), "utf-8")).toBe("tag=v1.3.0\ncreate=true\nprerelease=false\ndispatch=true\n");
+    expect(readFileSync(join(dir, "out.txt"), "utf-8")).toBe("tag=v1.3.0\ncreate=true\ndispatch=true\n");
     expect(readFileSync(join(dir, "summary.md"), "utf-8")).toMatch(/^release: /);
   });
 
   it("with no release file, exits 0 and creates and dispatches nothing", () => {
     const { dir, args } = setup({ releaseFile: false });
     expect(main(args, quiet().log)).toBe(0);
-    expect(readFileSync(join(dir, "out.txt"), "utf-8")).toBe("tag=v1.3.0\ncreate=false\nprerelease=false\ndispatch=false\n");
+    expect(readFileSync(join(dir, "out.txt"), "utf-8")).toBe("tag=v1.3.0\ncreate=false\ndispatch=false\n");
     expect(existsSync(join(dir, "notes.md"))).toBe(false);
   });
 
   it("refuses a lower version with exit 1 and no outputs", () => {
-    const { dir, args } = setup({ tags: tagLine("v1.9.0") });
+    const { dir, args } = setup({ tags: apiRef("v1.9.0") });
     expect(main(args, quiet().log)).toBe(1);
     expect(existsSync(join(dir, "out.txt"))).toBe(false);
     expect(existsSync(join(dir, "notes.md"))).toBe(false);
@@ -240,6 +274,13 @@ describe("the template workflow", () => {
     for (const line of uses) expect(line).toMatch(/uses: [\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+(\.\d+){1,2}$/);
   });
 
+  it("guards forks, sets up Node and reads the tags with the token", () => {
+    expect(text).toMatch(/\n {4}if: github\.repository == 'YOUR-ORG\/YOUR-REPO' # PRODUCT: /);
+    expect(text).toMatch(/- uses: actions\/setup-node@[0-9a-f]{40} # v\d+\.\d+\.\d+\n {8}with:\n {10}node-version: 22\n/);
+    expect(text).toMatch(/gh api --paginate "repos\/\$\{GITHUB_REPOSITORY\}\/git\/matching-refs\/tags\/\$\{TAG_PREFIX\}"/);
+    expect(text).not.toMatch(/git ls-remote/);
+  });
+
   it("runs on a push to the main branch only, and decides before it creates or dispatches", () => {
     expect(text).toMatch(/\non:\n {2}push:\n {4}branches: \[main\]/);
     expect(text).not.toMatch(/pull_request|workflow_dispatch|schedule/);
@@ -250,7 +291,7 @@ describe("the template workflow", () => {
     expect(text).toMatch(/- name: Create the tag and the release\n {8}if: steps\.plan\.outputs\.create == 'true'\n/);
     expect(text).toMatch(/- name: Start the store run, which waits for approval\n {8}if: steps\.plan\.outputs\.dispatch == 'true'\n/);
     expect(text).toMatch(/gh workflow run store-release\.yml --ref "\$TAG" -f upload=true\n/);
-    expect((text.match(/gh release create/g) ?? []).length).toBe(2);
+    expect((text.match(/gh release create/g) ?? []).length).toBe(1);
     expect(text).toMatch(/concurrency:\n {6}group: extension-release\n {6}cancel-in-progress: false/);
   });
 
