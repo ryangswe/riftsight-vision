@@ -23,6 +23,12 @@ break the public surface; this file names each break and how to migrate.
   real flips only, and lets a flip that arrives during the start-up read win over the read's answer
   ([docs/hover-spec.md](docs/hover-spec.md), S-H1). The stored key names and value shapes are
   pinned by a test.
+- The shared hover host's site policy (experimental, not part of the public API):
+  `pagePolicy` says whether hovers run on a page and whether its video loads at play or at the
+  earliest pointer, and `allowedParentOrigin` says which parents may frame the compute page. One
+  route table covers YouTube and Twitch as [S-G1 to S-G3](docs/hover-spec.md) set them, with the
+  seven Twitch side pages and one shared reserved list. Its test reads the address tables and
+  examples out of the spec, so a spec edit that breaks a row fails the test.
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
