@@ -15,7 +15,7 @@ import {
 
 const SPEC = readFileSync(fileURLToPath(new URL("../../docs/hover-spec.md", import.meta.url)), "utf8");
 const BOTH = { sites: { youtube: true, twitch: true }, dev: false };
-const DEV = { sites: { youtube: true, twitch: true }, dev: true };
+const LOCAL_OK = { sites: { youtube: true, twitch: true }, dev: true };
 
 function section(id: string): string {
   const start = SPEC.indexOf(`### ${id} `);
@@ -108,8 +108,8 @@ describe("S-G3 address table, read from the spec", () => {
   });
 
   it("does not serve embeds on other sites, m.twitch.tv or http", () => {
-    expect(pagePolicy(new URL("https://m.twitch.tv/name"), BOTH)).toEqual({ active: false });
-    expect(pagePolicy(new URL("http://www.twitch.tv/name"), BOTH)).toEqual({ active: false });
+    expect(pagePolicy(new URL("/x", "https://m.twitch.tv"), BOTH)).toEqual({ active: false });
+    expect(pagePolicy(new URL("/x", "http://www.twitch.tv"), BOTH)).toEqual({ active: false });
     expect(pagePolicy(new URL("https://example.com/name"), BOTH)).toEqual({ active: false });
   });
 
@@ -169,18 +169,18 @@ describe("sites, development and parents", () => {
   it("a site the config turns off is not active", () => {
     const yt = { sites: { youtube: true, twitch: false }, dev: false };
     const tw = { sites: { youtube: false, twitch: true }, dev: false };
-    expect(pagePolicy(new URL("https://www.twitch.tv/name"), yt).active).toBe(false);
-    expect(pagePolicy(new URL("https://www.youtube.com/watch"), tw).active).toBe(false);
-    expect(pagePolicy(new URL("https://www.twitch.tv/name"), tw).active).toBe(true);
+    expect(pagePolicy(new URL("/x", "https://www.twitch.tv"), yt).active).toBe(false);
+    expect(pagePolicy(new URL("/x", "https://www.youtube.com"), tw).active).toBe(false);
+    expect(pagePolicy(new URL("/x", "https://www.twitch.tv"), tw).active).toBe(true);
   });
 
   it("the local hosts are served in a development build only, at play, on any path", () => {
     for (const url of ["http://127.0.0.1/x", "http://localhost:8080/a/b?c=1", "http://127.0.0.1:3000/"]) {
-      expect(pagePolicy(new URL(url), DEV)).toEqual({ active: true, site: "local", load: "play", route: "local" });
+      expect(pagePolicy(new URL(url), LOCAL_OK)).toEqual({ active: true, site: "local", load: "play", route: "local" });
       expect(pagePolicy(new URL(url), BOTH)).toEqual({ active: false });
     }
-    expect(pagePolicy(new URL("https://localhost/x"), DEV).active).toBe(false);
-    expect(pagePolicy(new URL("http://localhost.evil.com/x"), DEV).active).toBe(false);
+    expect(pagePolicy(new URL("https://localhost/x"), LOCAL_OK).active).toBe(false);
+    expect(pagePolicy(new URL("http://localhost.evil.com/x"), LOCAL_OK).active).toBe(false);
   });
 
   it("route ids are unique and the table has one array, first match wins", () => {
@@ -200,10 +200,10 @@ describe("sites, development and parents", () => {
     expect(allowedParentOrigin("https://www.youtube.com", { sites: { youtube: false, twitch: true }, dev: false })).toBe(false);
     expect(allowedParentOrigin("http://127.0.0.1:8080", BOTH)).toBe(false);
     for (const o of ["http://127.0.0.1", "http://localhost", "http://localhost:3000", "http://127.0.0.1:8080"]) {
-      expect(allowedParentOrigin(o, DEV), o).toBe(true);
+      expect(allowedParentOrigin(o, LOCAL_OK), o).toBe(true);
     }
     for (const o of ["https://localhost", "http://localhost.evil.com", "http://localhost:abc", "http://127.0.0.1:"]) {
-      expect(allowedParentOrigin(o, DEV), o).toBe(false);
+      expect(allowedParentOrigin(o, LOCAL_OK), o).toBe(false);
     }
   });
 });
