@@ -99,6 +99,9 @@ describe("the three conditions", () => {
     expect(p).toMatchObject({ action: "refuse", create: false, dispatch: false });
     expect(p.reason).toMatch(/pre-release suffix; store versions are numeric/);
   });
+  it("does nothing for a pre-release version with no release file, so such a main stays green", () => {
+    expect(decide(facts({ version: "1.4.0-rc1", releaseFile: false }))).toMatchObject({ action: "nothing", create: false, dispatch: false });
+  });
 
   it("does nothing for a version whose changelog heading has no date", () => {
     const p = decide(facts({ version: "1.6.0" }));
@@ -162,8 +165,8 @@ describe("a re-run, with the tag on this commit", () => {
     expect(commits.get("v1.2.0")).toBe(OTHER);
     expect(commits.get("v1.3.0")).toBe(COMMIT);
     expect(commits.get("v1.1.0")).toBe(OTHER);
-    // an annotated tag the API gave no object for is left out, never taken for a commit
-    expect(commits.has("v1.0.0")).toBe(false);
+    // an annotated tag the API gave no object for fails closed: kept on its tag object, never on a commit
+    expect(commits.get("v1.0.0")).toBe("e".repeat(40));
     expect(tagsFromApi("")).toBe("");
     expect(() => tagsFromApi("not json")).toThrow();
   });

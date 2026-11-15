@@ -70,7 +70,8 @@ It acts only when all three hold:
 
 Otherwise nothing happens, and the job's summary says which is missing. A push that leaves the
 version alone does nothing. Two things are refused and fail the job: a version with a pre-release
-suffix (`1.2.3-rc1`), because store versions are numeric, and a version lower than the newest
+suffix (`1.2.3-rc1`) that has a release file, because store versions are numeric (without one it
+does nothing), and a version lower than the newest
 final version tag (pre-release tags are not compared, so one does not block a hotfix). If the job
 stops half way, re-run it: it does only what is missing, the release or the store run. A tag made
 with the workflow's token starts no workflow, so the store run is started by a dispatch, not by
@@ -87,8 +88,11 @@ does not check the workflow's permissions, so keep them as the template has them
 
 Two details:
 
-- Two merges seconds apart: the tag goes on the later commit, which also contains the earlier
-  version. That is harmless.
+- Merges close together: one run goes at a time, and GitHub keeps only the newest waiting run,
+  so a waiting run is replaced by a newer push. The newest commit's version is then the one
+  released, and a version merged in between can be left untagged; tag it by hand if it matters.
+- An annotated tag the API cannot follow to a commit still counts as a tag: nothing is released
+  under its name, and its version is compared.
 - "Start the store run only if none has started" reads `gh run list --workflow store-release.yml
   --branch <tag>`. If that misses a run, a second dispatch is a duplicate: it still waits for the
   `store` environment's approval, and can be cancelled there.

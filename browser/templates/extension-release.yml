@@ -12,8 +12,8 @@
 # Then it creates the tag and the GitHub release (the changelog section is the notes) and starts
 # store-release.yml on the tag with `upload` set. That run builds, checks, and waits for the `store`
 # environment's required reviewer before it touches a store. Without all three, nothing happens.
-# A pre-release version (1.2.0-rc1; store versions are numeric) and a version lower than the newest
-# final version tag are refused. A push that leaves the version alone does
+# A pre-release version with a release file (1.2.0-rc1; store versions are numeric) and a version
+# lower than the newest final version tag are refused. A push that leaves the version alone does
 # nothing. A re-run does only what is still missing.
 #
 # A tag made with the workflow token starts no workflow, so the store run is started by a dispatch.

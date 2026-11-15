@@ -16,9 +16,9 @@ break the public surface; this file names each break and how to migrate.
   exists and the changelog has a dated section for it (`## [1.2.0] - 2026-11-13`), the workflow
   creates the tag and the GitHub release (the section is the notes) and starts `store-release.yml`
   on the tag with `upload` set, which still waits for the `store` environment's approval. A
-  pre-release version is refused, since store versions are numeric, and so is a version lower
-  than the newest final tag. A re-run does only what is missing, and the tags are read with the
-  workflow's token, so a private repository works. The decision is the new Node tool
+  pre-release version with a release file is refused, since store versions are numeric, and so is
+  a version lower than the newest final tag. A re-run does only what is missing, and the tags are
+  read with the workflow's token, so a private repository works. The decision is the new Node tool
   `node/release-decide.mjs`, vendored with `--node-tools`. `store-release.yml`'s `check` step also
   scans `.github/workflows/extension-release.yml` when the file exists; a product that copied the
   template earlier updates that step (see

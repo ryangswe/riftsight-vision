@@ -48,8 +48,9 @@ export function compareVersions(a: string, b: string): number {
  * Tag references as the GitHub API lists them, in the shape of `git ls-remote --tags`. `refs` is one
  * JSON object per line from `git/matching-refs/tags/<prefix>` (`{ref, object: {type, sha}}`);
  * `objects` is one object per line from `git/tags/<sha>` for each annotated tag (`{sha, object: {type,
- * sha}}`). An annotated tag is followed to the commit it names; one that cannot be followed is left
- * out, so it is never taken for a tag on this commit.
+ * sha}}`). An annotated tag is followed to the commit it names. One that cannot be followed fails
+ * closed: it is kept with the last object it reached, so it still counts as a tag (its version is
+ * compared, and it never matches this commit), and nothing is released under its name.
  */
 export function tagsFromApi(refs: string, objects = ""): string {
   const lines = (text: string): unknown[] =>
@@ -67,7 +68,7 @@ export function tagsFromApi(refs: string, objects = ""): string {
       if (!next) break;
       ({ type, sha } = next);
     }
-    if (type === "commit") out.push(`${sha}\t${entry.ref}`);
+    out.push(`${sha}\t${entry.ref}`);
   }
   return out.join("\n");
 }
@@ -133,6 +134,8 @@ function plan(action: Plan["action"], reason: string, tag: string, rest: Partial
 export function decide(f: Facts): Plan {
   const tag = `${f.tagPrefix}${f.version}`;
   if (/^\d+\.\d+\.\d+-./.test(f.version)) {
+    // Refused only when a release was prepared for it; otherwise the push leaves nothing to do.
+    if (!f.releaseFile) return plan("nothing", `${f.version} has a pre-release suffix and no release file; nothing to release.`, tag);
     return plan("refuse", `The version ${f.version} has a pre-release suffix; store versions are numeric (X.Y.Z), so nothing was created.`, tag);
   }
   if (!VERSION.test(f.version)) return plan("refuse", `The version ${JSON.stringify(f.version)} in package.json is not X.Y.Z.`, tag);
