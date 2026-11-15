@@ -1088,6 +1088,14 @@ worker loads; OpenCV.js and its license text, after checking them against `openc
 has one; and `cardvision-vendor-check.mjs`. `--no-opencv` and `--no-ort-wasm` leave a group out, and
 `--node-tools` adds `node/*.mjs`.
 
+Two more options add files. `--host` adds the shared hover host (experimental, not part of the
+public API): `host-content.js`, `host-compute.js` and `host-settings.js`, one self-contained file
+per realm, with their license texts when the bundle has any and their declarations
+(`host-content.d.ts`, `host-compute.d.ts`, `host-settings.d.ts`). They come from the same commit as
+the runtime and go in the same swap, and the check fails on a mix. `--harness` adds the browser test
+harness, `browser/harness/*.mjs`, as `harness/*.mjs`. Both are recorded in the manifest's `options`
+as `host` and `harness`; a manifest that has neither reads as false.
+
 `cardvision-vendor.json` records the toolkit version, the commit, the options, the ONNX Runtime pin
 and each file's size and SHA-256. The pin is written even under `--no-ort-wasm`: a product that
 copies ONNX Runtime from its own dependency reads `ort.version` and `ort.files` from the manifest
@@ -1097,7 +1105,7 @@ and builds with exactly those.
 {
   "schemaVersion": 1,
   "toolkit": { "version": "0.14.0", "commit": "<40-character SHA>" },
-  "options": { "opencv": true, "ortWasm": false, "nodeTools": false },
+  "options": { "opencv": true, "ortWasm": false, "nodeTools": false, "host": false, "harness": false },
   "unmanaged": [],
   "ort": { "version": "1.29.0", "files": ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"] },
   "opencv": { "tag": "5.0.0", "commit": "<OpenCV SHA>", "emsdk": "4.0.20", "files": { "opencv.mjs": { "bytes": 125547, "sha256": "<hex>" } }, "lockSha256": "<hex>" },

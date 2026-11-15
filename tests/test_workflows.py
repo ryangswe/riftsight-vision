@@ -592,3 +592,14 @@ def test_publish_installs_the_uploaded_version_from_the_index_with_read_only_pow
     assert "for attempt in 1 2 3 4 5" in job and "sleep 60" in job
     assert "The upload of ${version} succeeded; only this check failed." in job and "GITHUB_STEP_SUMMARY" in job
     assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)
+
+
+# ---------------------------------------------------------------------------------- browser.yml
+def test_the_runtime_hash_step_runs_only_for_pull_requests_into_the_hover_host_branch():
+    """The step proves that the host work leaves the five runtime files alone. A pull request
+    into main may change them on purpose, and a push has no merge base to compare with."""
+    steps = steps_of("browser.yml")
+    step = steps["Check that the five runtime files match the merge base's build"]
+    assert step["if"] == "github.event_name == 'pull_request' && startsWith(github.base_ref, 'standard-hover/t8')"
+    assert "node browser/scripts/runtime-hashes.mjs" in step["run"] and "git merge-base" in step["run"]
+    assert steps["Build"]["if"] == ""
