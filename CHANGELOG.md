@@ -63,6 +63,8 @@ break the public surface; this file names each break and how to migrate.
 - [docs/hover-map.md](docs/hover-map.md): the diagrams read better on GitHub. The overview of the
   frames is laid out top to bottom, the card-shown diagram is split into the fresh card, the shown
   hold and the reading hold, and "How to read it" says how the diagrams are drawn.
+- `tests/release_prepare.py` also sets `CITATION.cff`: its `version` and its `date-released`, to
+  the date of the version commit. It refuses a `CITATION.cff` with no `date-released` line.
 
 ## [0.14.1] - 2026-11-14
 
@@ -83,6 +85,14 @@ page makes again during the same rest still gets none. Changes that may need act
 decision changes.
 
 ### Fixed
+
+- A resting mouse now gets at most one slow-start picture per rest. When the compute frame's
+  worker restarted under a pointer that had not moved, the frame became ready a second time and the
+  content script granted a second picture after the 10 seconds. A rest now gets one picture after
+  the 10 seconds because of a grant, for a frame connected before the rest, one that was ready
+  inside the 10 seconds and a late one. It is counted when the picture is delivered: a grant that
+  lapses unspent or is dropped by a seek, or a capture that takes no picture, does not use it up.
+  A trusted move begins a new rest. The rest of the one-picture rule is unchanged.
 
 - A card under a resting mouse is now named when the compute frame connects late. A page whose
   model loads slowly, such as a new tab, could miss the one picture a resting pointer is owed:

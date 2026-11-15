@@ -172,3 +172,19 @@ def test_a_damaged_changelog_is_refused_not_crashed_on(damage, reason):
 def test_a_date_that_is_not_yyyy_mm_dd_is_refused(tree):
     with pytest.raises(Refused, match="not a date"):
         prepare(tree, "0.14.0rc2", "13/11/2026", check=True)
+
+
+def test_citation_gets_the_version_and_the_release_date(tree):
+    plan = prepare(tree, "0.14.0rc2", "2026-11-20", check=False)
+    text = (tree / "CITATION.cff").read_text(encoding="utf-8")
+    assert 'version: "0.14.0rc2"' in text and 'date-released: "2026-11-20"' in text
+    assert "CITATION.cff: date-released -> 2026-11-20" in plan
+
+
+def test_a_citation_without_a_release_date_is_refused(tree):
+    path = tree / "CITATION.cff"
+    path.write_text(path.read_text(encoding="utf-8").replace('date-released: "2026-11-12"\n', ""), encoding="utf-8")
+    git(tree, "commit", "-q", "-am", "no date")
+    with pytest.raises(Refused, match="date-released"):
+        prepare(tree, "0.14.0rc2", "2026-11-13", check=False)
+
