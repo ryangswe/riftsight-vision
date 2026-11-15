@@ -345,7 +345,8 @@ by number, so `1.10.0` follows `1.9.0`) and reads each configured store's public
 
 A failed scheduled run emails the repository's maintainers, so each failure is a fault to look at,
 not a reminder. The template keeps the previous run's versions in the Actions cache (the highest
-version seen per store; a bad reading does not lower it). After a rollback you made on purpose,
+version seen per store; a bad reading does not lower it), and saves them even when the run is red,
+so a first red run still leaves state for the next day. After a rollback you made on purpose,
 delete that cache entry (Actions, Caches), or the check stays red. Without a cache the check still
 runs and notes that a version that went back cannot be told.
 

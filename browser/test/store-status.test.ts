@@ -328,10 +328,15 @@ describe("the status workflow template", () => {
     expect(denyFindings(text, config.deny)).toEqual([]);
     expect(text).toMatch(/status --config store\/store\.config\.json --releases store\/releases/);
   });
+  it("saves the state even when the run is red, so a day without state does not repeat", () => {
+    expect(text).toMatch(/- uses: actions\/cache\/restore@[0-9a-f]{40} /);
+    expect(text).toMatch(/- uses: actions\/cache\/save@[0-9a-f]{40} [^\n]*\n {8}if: always\(\)\n/);
+    expect(text).not.toMatch(/- uses: actions\/cache@/);
+  });
 
   it("pins each `uses:` to a full commit", () => {
     const uses = [...text.matchAll(/^\s*(?:- )?uses: (\S+)/gm)].map((m) => m[1]!);
-    expect(uses.length).toBe(3);
+    expect(uses.length).toBe(4);
     for (const u of uses) expect(u, u).toMatch(/^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/);
   });
 });
