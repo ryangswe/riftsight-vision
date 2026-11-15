@@ -103,6 +103,9 @@ ask them to paste a password or a token into the chat.
 8. **Commits are signed off by the person, not by you** (`git commit -s`, with the git identity
    of the person you work for). The sign-off is their statement under the Developer Certificate
    of Origin. Don't invent one. If you can't tell whose identity git is using, ask.
+9. **A change to a file the hover map covers updates [docs/hover-map.md](docs/hover-map.md) in
+   the same pull request.** Its coverage list names the files. `tests/test_hover_map.py` checks
+   that the names it anchors still exist, not that the diagrams still describe the behavior.
 
 ## Before you finish
 

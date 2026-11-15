@@ -9,6 +9,15 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
+  the frames and their messages, the decision points (may a picture be taken, is a look asked for,
+  what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
+  [docs/hover-spec.md](docs/hover-spec.md) it carries out. `tests/test_hover_map.py` checks that
+  every named file and symbol exists, every clause exists and every covered file is anchored. It
+  checks names, not behavior.
+
 ## [0.14.1] - 2026-11-14
 
 A patch release with one fix to the browser runtime's slow start: a resting mouse's card is

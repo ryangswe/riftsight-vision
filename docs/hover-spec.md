@@ -8,6 +8,7 @@ analyzed, what is shown at the pointer, and how a viewer's settings apply. Each 
 behavior, with an example and the test that checks it. It states the behavior; the mechanism is
 in [extension-session.md](extension-session.md) (the two-frame contract) and
 [browser/README.md](../browser/README.md) (the session, pacing, the geometric stage).
+[hover-map.md](hover-map.md) maps the parts that carry out these clauses and the flows between them.
 
 ## What "standard" means
 

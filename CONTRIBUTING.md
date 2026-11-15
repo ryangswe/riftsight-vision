@@ -71,6 +71,10 @@ Every file in `cardvision/`, `tests/`, `labeler/`, `examples/`, `games/`, `data/
 with the license line (`SPDX-License-Identifier: Apache-2.0`, written as a comment of that kind
 of file). JSON and CSV files are the exception, since they have no comments. A test checks it.
 
+If you change a file in the coverage list of [docs/hover-map.md](docs/hover-map.md) (the browser
+runtime's hover path), update that page in the same pull request. `tests/test_hover_map.py` checks
+that the names it anchors still exist; it does not check that the diagrams are still true.
+
 ## Sign-off (DCO)
 
 Every commit carries a `Signed-off-by` line. A check blocks a pull request that has a commit
