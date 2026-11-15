@@ -17,6 +17,13 @@ break the public surface; this file names each break and how to migrate.
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
   are frozen; its behavior is not written yet, so each function throws "not implemented yet".
+- An advisory downstream check, `.github/workflows/canary.yml` ("Downstream canary"), with its helper
+  `browser/scripts/canary.mjs`. For each product listed in the repository variable
+  `CANARY_TARGETS` (repository, pinned commit, vendor folder, the product's own check commands) it
+  builds the runtime at the pull request's head, vendors it into the product with the options the
+  product's manifest records, and runs the product's checks. It is not a required check, reads no
+  secret, and is a neutral skip when the variable is empty. A passing run saves a marker in the
+  Actions cache, so a re-run of the same files and products is skipped and cites the earlier run.
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
