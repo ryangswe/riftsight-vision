@@ -75,10 +75,24 @@ export function createViewFrame(doc: Document, host: Element, src: string, look:
   // Not in the tab order: there is nothing in it to focus.
   frame.tabIndex = -1;
   // Nothing in it can be clicked: the pointer passes through to whatever is under it.
-  frame.style.cssText = `${FRAME_STYLE}z-index:${VIEW_Z_INDEX};visibility:hidden;pointer-events:none;left:0;top:0;overflow:hidden;box-shadow:${look.shadow};`;
+  frame.style.cssText = `${FRAME_STYLE}z-index:${VIEW_Z_INDEX};visibility:hidden;pointer-events:none;left:0;top:0;overflow:hidden;`;
+  // Its own property, after the rest: a value cannot add declarations of its own.
+  frame.style.boxShadow = look.shadow;
   frame.src = src;
   host.appendChild(frame);
   return frame;
+}
+
+/** Whether `target` may hold the extension's page yet. While the iframe is still on its first
+ *  `about:blank` (the page's own origin, so its location can be read), a message for the
+ *  extension's origin would only be dropped, with an error in the page's console. Once the
+ *  extension's page is there, its location cannot be read from here, and that is the sign. */
+function atOrigin(target: Window, origin: string): boolean {
+  try {
+    return target.location.origin === origin;
+  } catch {
+    return true;
+  }
 }
 
 /** The handle the adapter gets for `frame`: placing it and posting to it, nothing else. */
@@ -95,7 +109,7 @@ export function viewFrameHandle(frame: HTMLIFrameElement, origin: string): ViewF
     },
     post(message: unknown): boolean {
       const target = frame.contentWindow;
-      if (!target) return false;
+      if (!target || !atOrigin(target, origin)) return false;
       try {
         target.postMessage(message, origin);
         return true;

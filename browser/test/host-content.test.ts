@@ -11,7 +11,7 @@ import type { ProductConfig } from "../src/host/config.js";
 import { HIDE_DELAY_MS, type HostContent, startHostContent } from "../src/host/content.js";
 import type { KeyValueStorage } from "../src/host/settings-core.js";
 import type { ViewAdapter, ViewFrame, ViewLayout } from "../src/host/view.js";
-import { changeBus, memoryStorage } from "./support/host-storage.js";
+import { type ChangeBus, changeBus, memoryStorage } from "./support/host-storage.js";
 
 const EXT = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
 const PAGE = "https://www.youtube.com";
@@ -187,7 +187,24 @@ class Document_ extends Target {
   }
 }
 
+/** The resize observers made, and which still observe. */
+const observers: Array<{ observed: unknown[]; connected: boolean }> = [];
+class ResizeObserver_ {
+  readonly record = { observed: [] as unknown[], connected: true };
+  constructor(readonly callback: () => void) {
+    observers.push(this.record);
+  }
+  observe(target: unknown): void {
+    this.record.observed.push(target);
+  }
+  disconnect(): void {
+    this.record.connected = false;
+  }
+}
+const observing = (video: unknown): number => observers.filter((o) => o.connected && o.observed.includes(video)).length;
+
 class Window_ extends Target {
+  readonly ResizeObserver = ResizeObserver_;
   readonly location = { href: WATCH };
   innerWidth = 1600;
   innerHeight = 900;
@@ -259,7 +276,8 @@ const settle = async (): Promise<void> => {
 
 interface StandOptions {
   stored?: Record<string, unknown>;
-  storage?: Pick<KeyValueStorage, "get">;
+  /** The storage, or a maker given the change events (for a change timed against the read). */
+  storage?: Pick<KeyValueStorage, "get"> | ((bus: ChangeBus) => Pick<KeyValueStorage, "get">);
   paused?: boolean;
   href?: string;
   /** Start without awaiting the start-up read. */
@@ -283,7 +301,7 @@ async function stand(options: StandOptions = {}) {
     win: win as unknown as Window,
     doc: doc as unknown as Document,
     extensionUrl: (path) => `${EXT}/${path}`,
-    storage: options.storage ?? memory,
+    storage: typeof options.storage === "function" ? options.storage(bus) : (options.storage ?? memory),
     storageChanges: bus,
     view: adapter,
     now: () => t,
@@ -472,6 +490,29 @@ describe("the view adapter's inputs", () => {
     expect([s.width, s.height, s.left, s.top, s.borderRadius]).toEqual(["123.456px", "78.9012px", "0.25px", "1.5px", "3.3px"]);
   });
 
+  it("post() is false while the view frame is still on its first about:blank, and nothing is posted", async () => {
+    const r = await stand({ paused: true });
+    onBlank(r);
+    r.move();
+    const frame = (r.calls.find((c) => c.name === "attach") as Extract<Call, { name: "attach" }>).frame;
+    const window = r.view()!.frameWindow!;
+    expect(frame.post({ kind: "card" })).toBe(false);
+    expect(window.sent).toEqual([]);
+    window.loaded = true;
+    expect(frame.post({ kind: "card" })).toBe(true);
+  });
+
+  it("the look's shadow cannot change what the host keeps: a value with a ';' leaves pointer-events and visibility", async () => {
+    const r = await stand({ paused: true });
+    (r.adapter.look as { shadow: string }).shadow = "0 0 1px red;pointer-events:auto;visibility:visible;z-index:1";
+    r.move();
+    const s = r.view()!.style;
+    expect(s.pointerEvents).toBe("none");
+    expect(s.visibility).toBe("hidden");
+    expect(s.zIndex).toBe("2147483646");
+    expect(s.boxShadow).toBe("0 0 1px red;pointer-events:auto;visibility:visible;z-index:1");
+  });
+
   it("post() goes to the view frame at the extension's origin, and is false with no window", async () => {
     const r = await showing();
     const frame = (r.calls.find((c) => c.name === "attach") as Extract<Call, { name: "attach" }>).frame;
@@ -606,6 +647,27 @@ describe("frames made again", () => {
     r.playing();
     expect(r.names().slice(at, at + 3)).toEqual(["detach", "attach", "show"]);
     expect(r.computeWindow()!.kinds().filter((k) => k === "hello")).toHaveLength(1);
+  });
+
+  it("after the page removed the view frame, a new shown card with no pointer move gives detach, attach, show", async () => {
+    const r = await showing();
+    r.view()!.remove();
+    const at = r.calls.length;
+    const next = { ...CARD, cardId: "OGN-004" };
+    r.shown(next);
+    expect(r.names().slice(at)).toEqual(["detach", "attach", "show"]);
+    expect((r.calls[at + 2] as Extract<Call, { name: "show" }>).card).toEqual(next);
+    expect(r.view()!.isConnected).toBe(true);
+  });
+
+  it("a view frame removed while the compute frame is loaded but not ready is made again with no second hello", async () => {
+    const r = await stand({ paused: true });
+    r.move();
+    expect(r.computeWindow()!.kinds()).toEqual(["hello"]);
+    r.view()!.remove();
+    r.move(650, 370);
+    expect(r.view()).not.toBeNull();
+    expect(r.computeWindow()!.kinds()).toEqual(["hello"]);
   });
 
   it("a compute frame the page removed is made again, alone, and is said hello to", async () => {
@@ -748,16 +810,28 @@ describe("the main video", () => {
     const larger = r.doc.body.appendChild(new Video(r.doc)) as Video;
     larger.rect = { left: 0, top: 0, width: 1600, height: 900 };
     const before = frame.kinds().filter((k) => k === "discontinuity").length;
-    // Past the second a pick is kept: still, a made-up playing picks nothing.
-    r.advance(1_500);
     r.playing(larger, false);
     expect(frame.kinds().filter((k) => k === "discontinuity")).toHaveLength(before);
-    // A trusted playing whose target is neither video: the pick runs again now.
+    // Still within the second of the last pick (no clock move): a trusted playing whose target is
+    // neither video picks again now, where a pointer move would keep the old pick.
+    r.move(641, 360);
+    expect(frame.kinds().filter((k) => k === "discontinuity")).toHaveLength(before);
     r.playing(r.doc.body.appendChild(r.doc.createElement("audio")));
     expect(frame.kinds().filter((k) => k === "discontinuity")).toHaveLength(before + 1);
     // The new main video counts for the pointer at once.
     r.move(1500, 850);
     expect(frame.sent.map((s) => s.message as { kind: string }).at(-1)?.kind).toBe("pointer");
+  });
+
+  it("an untrusted playing past the second a pick is kept picks nothing either", async () => {
+    const r = await showing();
+    const frame = r.computeWindow()!;
+    const larger = r.doc.body.appendChild(new Video(r.doc)) as Video;
+    larger.rect = { left: 0, top: 0, width: 1600, height: 900 };
+    const before = frame.kinds().filter((k) => k === "discontinuity").length;
+    r.advance(1_500);
+    r.playing(larger, false);
+    expect(frame.kinds().filter((k) => k === "discontinuity")).toHaveLength(before);
   });
 
   it("leaving a watch page for the miniplayer detaches the video; back on /watch with no new playing, the next pointer picks it again and hovers work", async () => {
@@ -827,6 +901,25 @@ describe("the enabled switch", () => {
     expect(r.iframes()).toHaveLength(0);
   });
 
+  it("a flip to off that lands after the read has its answer, but before the host applies it, leaves no video followed", async () => {
+    // The read answers on; the change comes in the moment between (a reaction queued behind the
+    // switch's own). The flip is newer, so the answer is dropped, and no video is picked for it.
+    const r = await stand({
+      noSettle: true,
+      storage: (bus) => ({
+        get: () => {
+          const answer = Promise.resolve({ enabled: true });
+          void answer.then(() => undefined).then(() => bus.emit({ enabled: { oldValue: true, newValue: false } }));
+          return answer;
+        },
+      }),
+    });
+    await settle();
+    expect(r.host.state).toBe("off");
+    expect(r.iframes()).toHaveLength(0);
+    expect(r.video.listeners).toEqual([]);
+  });
+
   it("a failed start-up read runs on; a write of false over a stored false still turns hovers off", async () => {
     const storage = { get: () => Promise.reject(new Error("storage unavailable")) };
     const r = await stand({ storage });
@@ -860,12 +953,17 @@ describe("the enabled switch", () => {
     r.setFlag("enabled", true, false);
     expect(r.iframes()).toHaveLength(0);
     expect(r.outline()).toBeNull();
-    // The video is no longer followed: the control's watch on it is gone.
+    // The video is no longer followed: the control's watch on it and the box observer are gone.
     expect(r.video.listeners).toEqual([]);
+    expect(observing(r.video)).toBe(0);
     const at = r.calls.length;
     r.deliver(protocol.tag({ kind: "shown", card: CARD }), frame);
     r.move();
+    r.playing();
     expect(r.calls.length).toBe(at);
+    // Not followed again by a trusted playing while off.
+    expect(r.video.listeners).toEqual([]);
+    expect(observing(r.video)).toBe(0);
     expect(r.iframes()).toHaveLength(0);
   });
 });
@@ -905,11 +1003,13 @@ describe("stop()", () => {
     r.playing();
     expect(r.pendingTimers()).toBeGreaterThan(0);
     expect(r.win.frames.size).toBe(1);
+    expect(observing(r.video)).toBe(1);
     r.host.stop();
     expect(r.win.listeners).toEqual([]);
     expect(r.doc.listeners).toEqual([]);
     expect(r.video.listeners).toEqual([]);
     expect(r.bus.listeners).toBe(0);
+    expect(observing(r.video)).toBe(0);
     expect(r.pendingTimers()).toBe(0);
     expect(r.win.frames.size).toBe(0);
     expect(r.iframes()).toHaveLength(0);
