@@ -39,7 +39,7 @@ export const RUNTIME_FILES = [
 ];
 /** The declarations: the entry shims beside the runtime, and types/ (tsc output of src/). */
 export const TYPE_SHIMS = ["cardvision.d.ts", "compute-session.d.ts", "page-capture.d.ts", "remote-release.d.ts"];
-export const NODE_TOOLS = ["node/verify-release.mjs", "node/package-zip.mjs", "node/store-upload.mjs"];
+export const NODE_TOOLS = ["node/verify-release.mjs", "node/package-zip.mjs", "node/store-upload.mjs", "node/release-decide.mjs"];
 /** Every vendored folder lists these. */
 export const REQUIRED = ["cardvision.js", "worker.js", "compute-session.js", "page-capture.js", "remote-release.js", ...TYPE_SHIMS, "types/index.d.ts", CHECKER, ...LICENSE_FILES];
 /** What a product owns in the folder is named exactly; nothing is, by default. */

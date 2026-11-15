@@ -22,7 +22,7 @@ const USAGE =
   "  --commit SHA      the toolkit commit; must be HEAD of this checkout (default)\n" +
   "  --no-opencv       leave OpenCV.js out (no geometric stage)\n" +
   "  --no-ort-wasm     leave ONNX Runtime's WebAssembly files out; the manifest still names the version and files to ship\n" +
-  "  --node-tools      add node/verify-release.mjs, node/package-zip.mjs, node/store-upload.mjs\n" +
+  "  --node-tools      add node/verify-release.mjs, node/package-zip.mjs, node/store-upload.mjs, node/release-decide.mjs\n" +
   "  --unmanaged RULE  what the product owns in FOLDER: a folder (\"notes/\") or one exact file name (\"README.md\"); repeatable\n" +
   "  --adopt           replace a non-empty folder that has no cardvision-vendor.json (a hand-vendored runtime, VENDOR.json)\n" +
   "  The tool refuses a folder that holds other files, a symbolic link, and a folder inside this checkout.";

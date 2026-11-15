@@ -19,7 +19,8 @@
 # Replace the step marked PRODUCT with the product's own commands. Pin every `uses:` to a
 # commit when copying. Release tags are TAG_PREFIX followed by the version (v1.2.0); a product
 # whose tags look different (extension-v1.2.0) sets TAG_PREFIX and the `tags:` pattern to match.
-# This file must name no CDN credential or pointer tool: `check` refuses it.
+# This file must name no CDN credential or pointer tool: `check` refuses it. Releasing when the
+# version is merged (tag, release and the dispatch of this workflow) is extension-release.yml.
 
 name: Store release
 
@@ -96,10 +97,12 @@ jobs:
         run: |
           version="${TAG#"$TAG_PREFIX"}"
           source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
+          # The release-on-merge workflow, when the product has adopted it, is scanned too.
+          RELEASE_WORKFLOW=""; [ -f .github/workflows/extension-release.yml ] && RELEASE_WORKFLOW="--workflow .github/workflows/extension-release.yml"
           node "$STORE_TOOL" check --config store/store.config.json --release "store/releases/$version.json" \
             --tag "$TAG" --tag-prefix "$TAG_PREFIX" --permissions store/permissions.json $PREVIOUS \
             --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \
-            --workflow .github/workflows/store-release.yml \
+            --workflow .github/workflows/store-release.yml $RELEASE_WORKFLOW \
             --lint out/lint.json --lint-baseline store/lint-baseline.json \
             --hashes-out out/hashes.json --summary "$GITHUB_STEP_SUMMARY"
 
