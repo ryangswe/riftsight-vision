@@ -17,6 +17,14 @@ break the public surface; this file names each break and how to migrate.
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
   are frozen; its behavior is not written yet, so each function throws "not implemented yet".
+- The shared hover host's lifecycle (experimental, not part of the public API):
+  `browser/src/host/lifecycle.ts`, a pure reducer that decides when the two frames are made and
+  removed, from the switch, a trusted `playing`, a trusted pointer over the picture, the tab
+  coming to the front, the capture control's idle removal and make, and keep-card flips. It holds
+  the rules of S-A1, S-A2, S-A6 to S-A8, S-A10, S-B11, S-H1 and S-H3 of
+  [docs/hover-spec.md](docs/hover-spec.md): a switch-on, the start-up read included, is a fresh
+  start; a hidden tab owes its load until it comes to the front with the main video playing; a
+  flip during the start-up read wins. Nothing calls it yet.
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
