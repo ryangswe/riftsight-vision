@@ -470,13 +470,63 @@ describe("a slow start: the frame becomes ready while a mouse rests over the pic
     expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 4, reason: NOT_POINTING });
   });
 
-  it("a new trusted move drops a grant", async () => {
-    const h = resting();
+  it("a new trusted move drops a grant at once", async () => {
+    // With no grace period, only a grant could allow a capture right after the move.
+    const h = connected({ limits: { graceMs: 0 } });
+    status(h, "loading");
+    h.hover();
+    h.advance(25_000);
     status(h, "ready");
     expect(h.control.captureAllowedNow()).toBe(true);
     h.hover();
-    h.advance(POINTER_GRACE_MS + 1);
     expect(h.control.captureAllowedNow()).toBe(false);
+  });
+
+  const spent = async (h: ReturnType<typeof setup>, id: number) => {
+    // Restarts the frame and asks for a capture: true when it was given a picture.
+    status(h, "loading");
+    status(h, "ready");
+    await captureNow(h, id);
+    return h.answer()?.kind === "frame";
+  };
+
+  it("a grant that lapses unspent does not use up the rest: the next restart is granted", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.advance(SLOW_START_GRANT_MS);
+    expect(h.control.captureAllowedNow()).toBe(false);
+    expect(await spent(h, 1)).toBe(true);
+    expect(await spent(h, 2)).toBe(false);
+  });
+
+  it("a grant dropped by a seek does not use up the rest: the next restart is granted", async () => {
+    const h = resting();
+    status(h, "ready");
+    h.video.fire("seeking");
+    expect(h.control.captureAllowedNow()).toBe(false);
+    expect(await spent(h, 1)).toBe(true);
+    expect(await spent(h, 2)).toBe(false);
+  });
+
+  it("ready, loading and ready again before any capture still gives one picture, and no more", async () => {
+    const h = resting();
+    status(h, "ready");
+    status(h, "loading");
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    expect(await spent(h, 2)).toBe(false);
+  });
+
+  it("a frame ready inside the grace period, then restarted past it, gets one picture, and no more", async () => {
+    const h = connected();
+    status(h, "ready");
+    h.hover();
+    await captureNow(h, 1); // inside the grace period: no grant needed
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    h.advance(25_000);
+    expect(await spent(h, 2)).toBe(true);
+    expect(await spent(h, 3)).toBe(false);
   });
 });
 

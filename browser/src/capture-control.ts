@@ -172,9 +172,9 @@ interface Authority {
   /** A compute frame had a handshake during this authority, or was connected when it began: a
    *  frame that connects after that replaces one, and a resting hover is not told to it. */
   framed: boolean;
-  /** A slow start's grant was given during this authority (a rest): a frame that becomes ready
-   *  again in the same rest (its worker restarted) is granted none. A trusted move makes a new
-   *  authority, so a new rest may be granted again. */
+  /** A picture was taken after the grace period because of a slow start's grant during this
+   *  authority (a rest): a frame that becomes ready again in the same rest (its worker restarted)
+   *  is granted none. A trusted move makes a new authority, so a new rest may be granted again. */
   slowStartGiven?: boolean;
 }
 
@@ -592,6 +592,8 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     slowStartUntil = -Infinity;
     const dropsBefore = slowStartCleared;
     if (!allowed) return refuse(NOT_POINTING);
+    // The rest's one picture after the grace period, whatever opened it, is spent here.
+    if (granted && authority && !captureAllowed(gateState(), now(), options.limits)) authority.slowStartGiven = true;
     const begun = { watch, source: watch?.source, handshake, resets };
     captureInFlight = true;
     let grab: Grab;
@@ -638,7 +640,6 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
         frameState = message.state;
         if (message.state !== "ready") dropGrant();
         else if (was !== "ready" && authority?.kind === "hover" && !authority.slowStartGiven && slowStartAllowed(gateState(), now(), options.limits)) {
-          authority.slowStartGiven = true;
           slowStartUntil = now() + SLOW_START_GRANT_MS;
         }
         options.onStatus?.(message);
