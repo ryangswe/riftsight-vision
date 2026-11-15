@@ -23,6 +23,8 @@ break the public surface; this file names each break and how to migrate.
 - [docs/hover-map.md](docs/hover-map.md): the diagrams read better on GitHub. The overview of the
   frames is laid out top to bottom, the card-shown diagram is split into the fresh card, the shown
   hold and the reading hold, and "How to read it" says how the diagrams are drawn.
+- `tests/release_prepare.py` also sets `CITATION.cff`: its `version` and its `date-released`, to
+  the date of the version commit. It refuses a `CITATION.cff` with no `date-released` line.
 
 ## [0.14.1] - 2026-11-14
 

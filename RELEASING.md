@@ -48,8 +48,8 @@ commands above stay as the fallback when it did not run or was refused.
 To prepare the version commit of step 1, run `python tests/release_prepare.py --version X.Y.Z
 --check` to see the plan, then the same without `--check` on a clean tree. It moves the Unreleased
 entries under the new heading and date, rewrites the compare links (a final and a first candidate
-compare with the previous final, a later candidate with the candidate before it) and sets the five
-places that name the version. It refuses a version that is not greater than the current one, an
+compare with the previous final, a later candidate with the candidate before it) and sets the six
+places that name the version, `CITATION.cff` among them (with its release date). It refuses a version that is not greater than the current one, an
 empty Unreleased section and a tree with uncommitted changes. The one exception is a final whose
 candidates are already in the changelog: with nothing under Unreleased, its section says it is the
 version only, unchanged from the last candidate. The introduction of the release and
