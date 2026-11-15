@@ -17,6 +17,12 @@ break the public surface; this file names each break and how to migrate.
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
   are frozen; its behavior is not written yet, so each function throws "not implemented yet".
+- The shared hover host's settings core and switches (experimental, not part of the public API):
+  `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
+  the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
+  real flips only, and lets a flip that arrives during the start-up read win over the read's answer
+  ([docs/hover-spec.md](docs/hover-spec.md), S-H1). The stored key names and value shapes are
+  pinned by a test.
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
