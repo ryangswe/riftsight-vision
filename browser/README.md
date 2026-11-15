@@ -1096,6 +1096,19 @@ the runtime and go in the same swap, and the check fails on a mix. `--harness` a
 harness, `browser/harness/*.mjs`, as `harness/*.mjs`. Both are recorded in the manifest's `options`
 as `host` and `harness`; a manifest that has neither reads as false.
 
+The harness is the hover browser test: a product's unpacked extension in headless Chrome for
+Testing, on a local page with a clip rendered from card pictures, with a NetLog check that nothing
+leaves 127.0.0.1 and the stand-in settings host. `harness/hover-browser.mjs` holds the shared
+part and its check list (`clauses.mjs`, each check with its [hover spec](../docs/hover-spec.md)
+clause). What is specific to one product goes in a module given with `--product <file>`; the
+fields and a neutral example are in `browser/harness/example/product.mjs`, and
+`harness/product-shape.mjs` checks the shape before a run. Run it with
+`node harness/hover-browser.mjs --product <file> --chrome <Chrome for Testing> --release <release
+folder> --art <folder outside the product's repository> --dist <build> [--dist-idle <build>]`;
+The local video page in `harness/serve.mjs` has the same video element and styles as the products' manual page, with neutral text. `ffmpeg` and `openssl` must be on the PATH and `puppeteer-core` installed beside it
+(`PUPPETEER_CORE_DIR`). `test/hover-harness.test.ts` pins the check list and runs the command
+as far as its argument checks, without a browser.
+
 `cardvision-vendor.json` records the toolkit version, the commit, the options, the ONNX Runtime pin
 and each file's size and SHA-256. The pin is written even under `--no-ort-wasm`: a product that
 copies ONNX Runtime from its own dependency reads `ort.version` and `ort.files` from the manifest
