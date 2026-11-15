@@ -313,6 +313,12 @@ describe("the geometric capability", () => {
     expect(optionsReached()).toMatchObject({ geometricScope: "focus", geometricLoad: "pointer", loadRequest: withStage });
   });
 
+  it("accepts a request whose geometric fields are present but undefined, since no stage can load from them", async () => {
+    const request = { ...BUNDLED, geometricUrl: undefined, geometricDebug: undefined };
+    (await startHostCompute(env({ loadRequest: () => request }).env))!.stop();
+    expect(optionsReached().loadRequest).toBe(request);
+  });
+
   it("accepts a plain request without the capability", async () => {
     (await startHostCompute(env().env))!.stop();
     expect(optionsReached().loadRequest).toBe(BUNDLED);
@@ -453,6 +459,21 @@ describe("observers", () => {
     expect(optionsReached().recordSkip).toBe(hooks.recordSkip);
     expect(optionsReached().onDecision).toBe(hooks.onDecision);
     expect(optionsReached()).not.toHaveProperty("chooseRelease");
+  });
+
+  it("never lets a stray field on the observers or release hooks replace an option the host sets", async () => {
+    const onShown = () => undefined;
+    const recordSkip = () => undefined;
+    // Objects a product already had, carrying more than the hooks (only fresh literals are type-checked).
+    const stray = { hold: SHOWN_HOLD, idleUnloadMs: 1, parentOrigin: "https://elsewhere.example", allowedParentOrigin: () => true, rotatedOutlines: false, mode: "auto" };
+    const observe = { ...stray, onShown } as unknown as HostComputeEnv["observe"];
+    const release = { ...stray, recordSkip } as unknown as HostComputeEnv["release"];
+    (await startHostCompute(env({ observe, release }).env))!.stop();
+    const reached = optionsReached();
+    expect(reached).toMatchObject({ hold: READING_HOLD, idleUnloadMs: 600_000, parentOrigin: SITE, rotatedOutlines: true, mode: "pointer" });
+    expect(reached.allowedParentOrigin("https://elsewhere.example")).toBe(false);
+    expect(reached.onShown).toBe(onShown);
+    expect(reached.recordSkip).toBe(recordSkip);
   });
 });
 

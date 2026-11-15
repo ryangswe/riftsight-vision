@@ -55,7 +55,7 @@ export async function startHostCompute(env: HostComputeEnv): Promise<HostCompute
   // Past the origin check: the product reads its settings and builds the request, once.
   const loadRequest = await env.loadRequest();
   if (!config.capabilities.geometricStage) {
-    const field = Object.keys(loadRequest).find((key) => key.startsWith("geometric"));
+    const field = Object.entries(loadRequest).find(([key, value]) => key.startsWith("geometric") && value !== undefined)?.[0];
     if (field !== undefined) throw new Error(`startHostCompute: the load request has ${field}, but this product has no geometric stage`);
   }
   const keepCard = await createSwitches(env.storage, NO_CHANGES).keepCard();
@@ -70,8 +70,15 @@ export async function startHostCompute(env: HostComputeEnv): Promise<HostCompute
     ...(config.capabilities.geometricStage ? GEOMETRIC_OPTIONS : {}),
     hold: keepCard ? READING_HOLD : SHOWN_HOLD,
     idleUnloadMs: env.devIdleUnloadMs ?? STANDARD_PRESET.idleUnloadMs,
-    ...env.release,
-    ...env.observe,
+    // By name, so a stray field on either object can never replace an option set above.
+    ...defined({
+      chooseRelease: env.release?.chooseRelease,
+      recordSkip: env.release?.recordSkip,
+      onDecision: env.release?.onDecision,
+      onGeometricStatus: env.release?.onGeometricStatus,
+      onShown: env.observe?.onShown,
+      onAnalysis: env.observe?.onAnalysis,
+    }),
     createWorker: env.createWorker,
     loadRequest,
     now: env.now ?? (() => performance.now()),
@@ -90,6 +97,11 @@ export async function startHostCompute(env: HostComputeEnv): Promise<HostCompute
   };
   pageWindow.addEventListener("pagehide", stop);
   return { frame, stop };
+}
+
+/** The entries whose value is not undefined, so an absent hook stays absent rather than set to undefined. */
+function defined<T extends Record<string, unknown>>(fields: T): Partial<T> {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as Partial<T>;
 }
 
 /** No switch changes are watched here: the hold is fixed for the frame's life (a flip remakes the frame). */
