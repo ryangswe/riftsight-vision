@@ -7,7 +7,7 @@
 //        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] --workflow FILE...
 //        [--lint REPORT [--lint-baseline FILE]] [--hashes-out FILE] [--summary FILE]
 //        [--load-unpacked-zip Z] [--record-out FILE.json --vendor-manifest FILE [--facts FILE]
-//        [--commit SHA] [--run-id ID]]
+//        [--commit SHA] [--run-id ID] [--ci-results FILE] [--runtimes FILE]]
 //
 //     The build job's last step, with no store access: the files agree with each other and with
 //     the tag, the permission surface is the one committed (and a change is acknowledged), the
@@ -16,9 +16,12 @@
 //     baseline. A Chrome zip may keep its files in one top-level folder; a Firefox zip may not.
 //     Writes the packages' sha256 to --hashes-out and a summary for the run page. With
 //     --record-out it also writes the release record (machine facts only: versions, hashes, the
-//     vendored toolkit commit, permissions, the lint result) as FILE.json and FILE.md, and
+//     vendored toolkit commit, permissions, the lint result, a digest of each package's files, and
+//     with --ci-results the commit's check runs) as FILE.json and FILE.md. With --runtimes the
+//     facts file's modelRelease must be the version's row in the product's cdn/RUNTIMES.json. It
 //     refuses a record whose text names a credential or a local path. It also refuses a workflow
-//     job that can write to the repository (`contents: write`) and names an environment.
+//     in which a job names an environment without its own permissions, or write permission sits
+//     beside an environment (see workflowGuardProblems in store-record.ts).
 //
 //   node store-upload.mjs assets --record FILE.json --dir DIR --out-dir DIR
 //
@@ -90,13 +93,18 @@ import {
   recordProblems,
   type ReleaseRecord,
   releaseAssets,
-  writeJobsInEnvironments,
+  workflowGuardProblems,
+  contentsDigest,
+  readCiResults,
+  readRuntimesRow,
 } from "./store-record.js";
 
 export interface Deps {
   env: Record<string, string | undefined>;
   fetchFn: typeof fetch;
   readFile: (path: string) => Uint8Array;
+  /** Every file of a zip with its sha256 (the release record's contents digest). */
+  zipFiles?: (zipPath: string) => Array<{ name: string; sha256: string }>;
   /** A zip's manifest.json and where it is in the zip (`manifestEntry`). */
   zipManifest: (zipPath: string) => { path: string; manifest: Record<string, unknown> };
   log: (line: string) => void;
@@ -120,11 +128,21 @@ function defaultZipManifest(zipPath: string): { path: string; manifest: Record<s
   return { path, manifest: JSON.parse(text) as Record<string, unknown> };
 }
 
+function defaultZipFiles(zipPath: string): Array<{ name: string; sha256: string }> {
+  const names = execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf-8", maxBuffer: 64 << 20 }).split("\n").filter((n) => n !== "" && !n.endsWith("/"));
+  // unzip reads its file argument as a pattern: refuse names it would expand.
+  return names.map((name) => {
+    if (/[*?[\]\\]/.test(name)) throw new StoreError(`${basename(zipPath)}: a file name holds * ? [ ] or \\ (${name.slice(0, 40)})`);
+    return { name, sha256: sha256(new Uint8Array(execFileSync("unzip", ["-p", zipPath, name], { maxBuffer: 1 << 30 }))) };
+  });
+}
+
 export const DEFAULT_DEPS: Deps = {
   env: process.env,
   fetchFn: fetch,
   readFile: (p) => new Uint8Array(readFileSync(p)),
   zipManifest: defaultZipManifest,
+  zipFiles: defaultZipFiles,
   log: (line) => console.log(line),
 };
 
@@ -165,6 +183,10 @@ export interface CheckArgs {
   facts?: string;
   commit?: string;
   runId?: string;
+  /** The commit's check runs (`gh api …/check-runs` output). */
+  ciResults?: string;
+  /** The product's cdn/RUNTIMES.json: the record's model release must be the version's row. */
+  runtimes?: string;
 }
 
 /** Everything the build job verifies. Returns the problems (empty: pass) and the summary. */
@@ -181,7 +203,7 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
   for (const w of a.workflows) {
     const text = readFileSync(w, "utf-8");
     for (const f of denyFindings(text, config.deny)) problems.push(`${w} mentions a denied name (${f})`);
-    for (const job of writeJobsInEnvironments(text)) problems.push(`${w}: the job ${job} can write to the repository and names an environment (a job with store access must not)`);
+    for (const p of workflowGuardProblems(text)) problems.push(`${w}: ${p}`);
   }
 
   const committed = surfaceFile(a.permissions);
@@ -218,6 +240,7 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     const bytes = deps.readFile(zip);
     hashes[basename(zip)] = sha256(bytes);
     facts[target] = { file: basename(zip), bytes: bytes.length, sha256: hashes[basename(zip)]!, manifestVersion: String(manifest.version) };
+    if (a.recordOut) Object.assign(facts[target]!, contentsDigest((deps.zipFiles ?? defaultZipFiles)(zip)));
     surfaces[target] = surface;
     const folder = manifestPath === "manifest.json" ? "" : `, files in \`${manifestPath.slice(0, -"manifest.json".length)}\``;
     summary.push(`- ${target}: \`${basename(zip)}\` ${bytes.length} bytes${folder}, sha256 \`${hashes[basename(zip)]}\``);
@@ -237,6 +260,7 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     const bytes = deps.readFile(a.loadUnpackedZip);
     hashes[name] = sha256(bytes);
     facts.loadUnpacked = { file: name, bytes: bytes.length, sha256: hashes[name], manifestVersion: String(manifest.version) };
+    if (a.recordOut) Object.assign(facts.loadUnpacked, contentsDigest((deps.zipFiles ?? defaultZipFiles)(a.loadUnpackedZip)));
     summary.push(`- load-unpacked: \`${name}\` ${bytes.length} bytes, sha256 \`${hashes[name]}\``);
   }
   let lintFact: ReleaseRecord["lint"] = null;
@@ -281,12 +305,14 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
   for (const p of await beforeProblems(release, deps.fetchFn)) problems.push(`before upload: ${p}`);
   if ((release.before ?? []).length > 0) summary.push("", `Before upload: ${(release.before ?? []).length} address(es) checked.`);
 
+  if ((a.ciResults || a.runtimes) && !a.recordOut) throw new Usage("--ci-results and --runtimes go with --record-out");
   if (a.recordOut) {
     if (!a.recordOut.endsWith(".json")) throw new Usage("--record-out names a .json file (the Markdown is written beside it)");
     if (!a.vendorManifest) throw new Usage("--record-out needs --vendor-manifest");
     if (a.commit !== undefined && !/^[0-9a-f]{40}$/.test(a.commit)) throw new Usage("--commit must be a full 40-character SHA");
     if (a.runId !== undefined && !/^[0-9]{1,20}$/.test(a.runId)) throw new Usage("--run-id must be digits");
     const vendor = readVendorFacts(a.vendorManifest);
+    const productFacts = a.facts ? readFactsFile(a.facts) : {};
     const record: ReleaseRecord = {
       schemaVersion: RECORD_SCHEMA,
       version: release.version,
@@ -294,14 +320,26 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
       commit: a.commit ?? null,
       runId: a.runId ?? null,
       ...vendor,
+      modelRelease: typeof productFacts.modelRelease === "string" ? productFacts.modelRelease : null,
+      ci: a.ciResults ? readCiResults(a.ciResults, a.runId) : null,
       packages: Object.fromEntries(Object.entries(facts).filter(([, v]) => v)) as ReleaseRecord["packages"],
       permissions: surfaces,
       permissionsChanged: release.permissionsChanged === true,
       chrome: release.chrome ? { submit: release.chrome.submit, publish: release.chrome.publish } : null,
       lint: lintFact,
       beforeUpload: { checked: (release.before ?? []).length },
-      facts: a.facts ? readFactsFile(a.facts) : {},
+      facts: Object.fromEntries(Object.entries(productFacts).filter(([k]) => k !== "modelRelease")),
     };
+    if (a.runtimes) {
+      try {
+        const row = readRuntimesRow(a.runtimes, release.version);
+        if (record.modelRelease === null) problems.push(`the record names no model release: set modelRelease in the facts file (${basename(a.runtimes)} says ${row.releaseId})`);
+        else if (record.modelRelease !== row.releaseId) problems.push(`the bundled model release ${record.modelRelease} is not ${row.releaseId}, the row of ${release.version} in ${basename(a.runtimes)}`);
+        if (row.ortWeb && record.ort && row.ortWeb !== record.ort) problems.push(`the vendored ONNX Runtime ${record.ort} is not ${row.ortWeb}, the row of ${release.version} in ${basename(a.runtimes)}`);
+      } catch (error) {
+        problems.push((error as Error).message);
+      }
+    }
     const json = recordJson(record);
     const markdown = recordMarkdown(record);
     const refused = recordProblems([json, markdown], config.deny ?? []);
@@ -480,7 +518,8 @@ const USAGE = `usage:
        [--previous-permissions FILE] [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S]
        --workflow FILE [--workflow FILE…] [--lint REPORT [--lint-baseline FILE]]
        [--hashes-out FILE] [--summary FILE] [--load-unpacked-zip Z]
-       [--record-out FILE.json --vendor-manifest FILE [--facts FILE] [--commit SHA] [--run-id ID]]
+       [--record-out FILE.json --vendor-manifest FILE [--facts FILE] [--commit SHA] [--run-id ID]
+       [--ci-results FILE] [--runtimes FILE]]
   node store-upload.mjs status --config FILE --releases DIR [--state-in FILE] [--state-out FILE] [--summary FILE]
   node store-upload.mjs assets --record FILE.json --dir DIR --out-dir DIR
   node store-upload.mjs upload --config FILE --release FILE --targets chrome,firefox --hashes FILE
@@ -522,6 +561,8 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
         facts: { type: "string" },
         commit: { type: "string" },
         "run-id": { type: "string" },
+        "ci-results": { type: "string" },
+        runtimes: { type: "string" },
         record: { type: "string" },
         releases: { type: "string" },
         "state-in": { type: "string" },
@@ -581,6 +622,8 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
           facts: values.facts,
           commit: values.commit,
           runId: values["run-id"],
+          ciResults: values["ci-results"],
+          runtimes: values.runtimes,
         },
         deps,
       );

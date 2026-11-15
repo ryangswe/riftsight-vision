@@ -37,8 +37,11 @@ function workspace(extraVersions: string[] = []): string {
 
 interface Stores {
   chrome?: string | null | "down" | "error" | "other";
-  amo?: string | null | "down" | "error";
+  amo?: string | null | "down" | "error" | 401 | 403;
   config?: Buffer | number;
+  /** Statuses answered, in order, before the real answer (a rate limit, a restart). */
+  chromeFirst?: number[];
+  configFirst?: number[];
 }
 
 /** A fake of the two public reads and the expected address. */
@@ -47,10 +50,14 @@ function fakeStores(s: Stores) {
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push(`${init?.method ?? "GET"} ${url}`);
+    // Every read has a timeout.
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
     if (init?.method && init.method !== "GET") return new Response("no", { status: 405 });
     if (url.startsWith("https://update.test/")) {
       expect(decodeURIComponent(url)).toContain(`id=${ITEM}&uc`);
       expect(url).not.toMatch(/%26v%3D/);
+      const early = s.chromeFirst?.shift();
+      if (early !== undefined) return new Response("busy", { status: early });
       if (s.chrome === "down") return new Response("down", { status: 503 });
       if (s.chrome === "error") throw new Error("connection reset");
       const id = s.chrome === "other" ? "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz" : ITEM;
@@ -60,10 +67,13 @@ function fakeStores(s: Stores) {
     if (url.startsWith("https://amo.test/api/v5/addons/addon/")) {
       expect(url).toBe("https://amo.test/api/v5/addons/addon/example-addon/");
       if (s.amo === "down") return new Response("down", { status: 502 });
+      if (s.amo === 401 || s.amo === 403) return new Response("{}", { status: s.amo });
       if (s.amo === null) return new Response('{"detail":"Not found."}', { status: 404 });
       return new Response(JSON.stringify({ slug: "example-addon", status: "public", current_version: { version: s.amo ?? "1.0.0", file: { status: "public" } } }), { status: 200 });
     }
     if (url === "https://cdn.example.org/data/config.json") {
+      const early = s.configFirst?.shift();
+      if (early !== undefined) return new Response("busy", { status: early });
       if (typeof s.config === "number") return new Response("gone", { status: s.config });
       return new Response(new Uint8Array(s.config ?? LIVE), { status: 200 });
     }
@@ -71,6 +81,8 @@ function fakeStores(s: Stores) {
   }) as typeof fetch;
   return { fetchFn, calls };
 }
+
+const slept: number[] = [];
 
 function deps(stores: Stores, log: string[] = []): Deps & { calls: string[] } {
   const { fetchFn, calls } = fakeStores(stores);
@@ -82,7 +94,9 @@ function deps(stores: Stores, log: string[] = []): Deps & { calls: string[] } {
       throw new Error("status reads no package");
     },
     log: (line) => log.push(line),
-    sleep: async () => undefined,
+    sleep: async (ms) => {
+      slept.push(ms);
+    },
     chromeUpdateBase: "https://update.test/crx",
     amoBase: "https://amo.test",
     calls,
@@ -187,6 +201,41 @@ describe("status", () => {
     expect((await run(workspace(), { amo: "down" })).text).toMatch(/addons\.mozilla\.org: cannot read the public version/);
     expect((await run(workspace(), { chrome: "error" })).text).toMatch(/connection reset after 3 tries/);
     expect((await run(workspace(), { chrome: "other" })).text).toMatch(/answered for another item/);
+  });
+
+  it("retries a rate limit and a restart, waiting 30 s and then 2 min, for a store and for an expect address", async () => {
+    slept.length = 0;
+    const r = await run(workspace(), { chromeFirst: [429, 503], configFirst: [503, 429] });
+    expect(r.code, r.text).toBe(0);
+    expect(slept).toEqual([30_000, 120_000, 30_000, 120_000]);
+    expect(r.calls.filter((c) => c.includes("update.test")).length).toBe(3);
+    expect(r.calls.filter((c) => c.includes("config.json")).length).toBe(3);
+    const stuck = await run(workspace(), { configFirst: [503, 503, 503] });
+    expect(stuck.code).toBe(1);
+    expect(stuck.text).toMatch(/HTTP 503 after 3 tries/);
+  });
+
+  it("treats addons.mozilla.org 401 and 403 as no public version: a note for a first release, a fault later", async () => {
+    for (const code of [401, 403] as const) {
+      const first = await run(workspace(), { amo: code });
+      expect(first.code, first.text).toBe(0);
+      expect(first.text).toMatch(/addons\.mozilla\.org: no public version yet/);
+      const later = await run(workspace(["1.1.0"]), { chrome: "1.0.0", amo: code });
+      expect(later.code).toBe(1);
+      expect(later.text).toMatch(/addons\.mozilla\.org: lists no public version, though earlier releases exist/);
+    }
+  });
+
+  it("a store that listed a public version and now lists none is a fault, even with one release file", async () => {
+    const dir = workspace();
+    const state = join(dir, "state.json");
+    expect((await run(dir, {}, ["--state-out", state])).code).toBe(0);
+    const gone = await run(dir, { chrome: null }, ["--state-in", state, "--state-out", state]);
+    expect(gone.code).toBe(1);
+    expect(gone.text).toMatch(/Chrome Web Store: lists no public version, though 1\.0\.0 was public on an earlier run \(taken down\?\)/);
+    expect(JSON.parse(readFileSync(state, "utf-8")).highWater.chrome).toBe("1.0.0");
+    // Without that history, the same answer is a first release in review.
+    expect((await run(workspace(), { chrome: null })).code).toBe(0);
   });
 
   it("orders versions as dotted numbers, and names a version it cannot order", async () => {

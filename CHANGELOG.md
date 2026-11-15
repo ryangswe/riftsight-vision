@@ -31,7 +31,7 @@ break the public surface; this file names each break and how to migrate.
   package for people who load the extension unpacked. A new `assets` command collects the
   packages, the record and `SHA256SUMS` for a GitHub release, never the Firefox source archive,
   and `browser/templates/store-release.yml` has a `release-assets` job that attaches them with
-  `contents: write` and no store access. The template's actions are now pinned to full commits.
+  `contents: write` and no store access. The template's actions are now pinned to full commits. The record also holds a digest of each package's unpacked files, the commit's check runs (`--ci-results`) and the bundled model release, which `--runtimes` checks against the version's row of the product's runtime table. `check` refuses a workflow in which a job that names an environment has no permissions of its own or write permission could reach it.
   See [docs/store-uploads.md](docs/store-uploads.md).
 - `store-upload.mjs status` is a daily check that needs no credential: it compares the newest
   release file's version with the version the Chrome Web Store's update service and the

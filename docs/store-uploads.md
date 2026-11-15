@@ -34,8 +34,13 @@ It is [experimental](stability.md#experimental).
    - `web-ext lint` finds an error in the Firefox package, or a warning not in the product's
      `store/lint-baseline.json` (by rule and file; the run page names baseline entries that no
      longer occur, so they can be removed);
-   - a workflow job can write to the repository (`contents: write`) and also names an
-     environment (such a job must never hold store access).
+   - a workflow where write permission could reach a job that holds store access: a job that
+     names an environment has no `permissions:` of its own, or has a write permission itself
+     (block or `{ contents: write }` form, quoted or not, at any indentation), or the workflow
+     grants write at its top level while any job names an environment. It also refuses what it
+     cannot read: a comment on a job's header line, a job written in flow style, or a `jobs:`
+     block with no job it recognizes. This guards the template's layout; it does not read
+     reusable workflows or YAML anchors.
 
    It writes each package's sha256 and a summary (versions, hashes, notes, any permission change,
    what goes where) to the run page, and the [release record](#the-release-record-and-the-release-assets).
@@ -228,8 +233,17 @@ the build that made it. Add to the template's `check` step:
 
 ```
 --record-out out/record.json --vendor-manifest vendor/cardvision-browser/cardvision-vendor.json \
---facts store/record-facts.json --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+--facts store/record-facts.json --runtimes cdn/RUNTIMES.json --ci-results out/ci.jsonl \
+--commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
 ```
+
+`--facts`, `--runtimes` and `--ci-results` are optional. The template passes `--facts` and
+`--runtimes` only when `store/record-facts.json` and `cdn/RUNTIMES.json` exist, and `--ci-results`
+when its step that reads the commit's check runs succeeded.
+
+The tool is vendored with `--node-tools` ([extension.md](extension.md)): a product must re-vendor
+it from a toolkit commit that has these commands (`--record-out`, `assets`, `status`) before it
+copies this template; an older vendored copy refuses the options.
 
 It writes `out/record.json` and, beside it, `out/record.md`. Both hold machine facts only:
 
@@ -240,24 +254,39 @@ It writes `out/record.json` and, beside it, `out/record.md`. Both hold machine f
   Firefox source packages, and `--load-unpacked-zip` for a package people load unpacked, which
   is checked for its version and hashed);
 - the permission surface of each browser and whether the release file says it changed;
+- for each package built from files, the number of files and one digest over them: the SHA-256 of
+  the sorted lines `<sha256>  <file name>`, one per unpacked file, so the unpacked tree can be
+  matched without the zip's own bytes (which can differ between builds);
+- the commit's check runs (`--ci-results`, the output of
+  `gh api repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs --paginate --jq '.check_runs[]'`;
+  `checks: read` is enough): each one's name, status, conclusion and the Actions run behind it,
+  without the run being recorded;
+- the bundled model release (the facts file's `modelRelease`). With `--runtimes`, `check` fails
+  unless it is the `bundledRelease.id` of the version's row in the product's `cdn/RUNTIMES.json`
+  ([the runtime table](cdn.md#the-runtime-table)), and unless the row's `ortWeb` is the vendored
+  ONNX Runtime;
 - the Firefox lint counts, how Chrome submits, and how many "before upload" addresses were checked;
 - the product's own facts from `store/record-facts.json`, if it has one:
   `{"facts": {"name": "short text, a number, or true or false"}}`, names of letters and digits.
 
 What a reader cannot match against a build stays out: the live check's notes and anything a
 person judged. The record names files, never paths. `check` refuses to write it, and fails, when
-its text holds a path on someone's machine, a CDN or object-store credential name or one of the
-product's `deny` words, so a fact must not carry any of them.
+its text holds a path on someone's machine (a home, temporary or runner folder, a drive letter or a
+network share), a CDN, object-store or store credential name (`AMO_…`, `CWS_…`, a token name) or
+one of the product's `deny` words, so a fact must not carry any of them.
 
-The template's `release-assets` job runs after the build, on a tag push (or a dispatch with
-`attach` ticked). It runs `store-upload.mjs assets`, which checks each package against the hash in
+The template's `release-assets` job runs after the build whenever the run's ref is a tag, whatever
+started it (a tag push, a dispatch on the tag, or a merge workflow that dispatches this one; a tag
+made with a workflow's own token starts no workflow, so that dispatch is how such a release is
+built), or when a dispatch ticks `attach`. It runs `store-upload.mjs assets`, which checks each package against the hash in
 the record and copies the Chrome, Firefox and load-unpacked packages, `release-record.json`,
 `release-record.md` and `SHA256SUMS` into `release-assets/`, and then `gh release upload` attaches
 them to the tag's release. It never attaches the Firefox source archive, and the job never runs in
-the `store` environment: `check` fails a workflow where a job with `contents: write` names an
-environment. The job needs the release to exist; if the tag's release is created after the
-workflow starts, run the job again when it is (Re-run failed jobs). A re-run replaces the assets
-(`--clobber`).
+the `store` environment (see the rule `check` applies to the workflow, above). A per-tag
+`concurrency` group keeps two attaches of one tag from overlapping. The job needs the release to exist; if the tag's release is created after the
+workflow starts, run the job again when it is (Re-run failed jobs). If the release already has a
+`SHA256SUMS`, the job compares it with this run's and refuses to replace the assets when they
+differ (another build); identical bytes are uploaded again (`--clobber`).
 
 To adopt it, copy the template's `release-assets` job and the extra `check` options and artifact
 paths into `.github/workflows/store-release.yml`, and have the product's build write the load-unpacked
@@ -268,7 +297,8 @@ job keeps `contents: write` at the job, not at the workflow.
 
 `store-upload.mjs status` and the template [`browser/templates/store-status.yml`](../browser/templates/store-status.yml)
 tell the maintainer when what the stores show is not what the repository says. It needs no
-credential: the workflow runs daily with `contents: read`, in no environment, and can read the repository and the two public addresses, nothing else.
+credential: the workflow runs daily with `contents: read`, in no environment, and reads the repository, the two public store addresses, the `expect` addresses of the release
+file and the Actions cache that holds the previous run's versions. Nothing else.
 
 ```
 node store-upload.mjs status --config store/store.config.json --releases store/releases \
@@ -284,7 +314,8 @@ by number, so `1.10.0` follows `1.9.0`) and reads each configured store's public
   key. A staged rollout can show part of the audience the older version, and an item that is
   restricted to testers or one domain may not be listed at all.
 - **Firefox:** `https://addons.mozilla.org/api/v5/addons/addon/<addon>/`, the add-on's
-  `current_version`.
+  `current_version`. A 404, 401 or 403 means no public version (a draft is hidden from the
+  public API).
 
 | What it finds | Result |
 | --- | --- |
@@ -293,9 +324,10 @@ by number, so `1.10.0` follows `1.9.0`) and reads each configured store's public
 | a store lists no public version, and the product has no earlier release file | passes, with a note (the release is in review) |
 | a store lists no public version, and earlier release files exist | fails |
 | a store shows a newer version than the newest release file | fails |
-| a store's version went back since the previous run | fails (needs `--state-in`) |
+| a store's version went back since the previous run | fails (needs `--state-in`). A staged rollout that shows part of the audience the older version can trip this: wait for the rollout, or delete the cache entry |
+| a store listed a public version on an earlier run and lists none now, even with one release file | fails (a takedown) |
 | an `expect` address does not answer 200, or its bytes differ | fails |
-| a store cannot be read (three tries) | fails |
+| a store cannot be read (three tries, after 30 seconds and then 2 minutes, each with a 20-second limit; a rate limit is retried too) | fails |
 
 A failed scheduled run emails the repository's maintainers, so each failure is a fault to look at,
 not a reminder. The template keeps the previous run's versions in the Actions cache (the highest

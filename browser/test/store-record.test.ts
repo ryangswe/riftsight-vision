@@ -3,6 +3,7 @@
 // release carries, and the rule that the job holding `contents: write` never runs in `store`.
 // Nothing here reaches the network; every address, id and package is made up.
 
+import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { sha256 } from "../node/store-checks.js";
-import { readFactsFile, readVendorFacts, recordProblems, releaseAssets, writeJobsInEnvironments } from "../node/store-record.js";
+import { contentsDigest, readCiResults, readFactsFile, readRuntimesRow, readVendorFacts, recordProblems, workflowGuardProblems } from "../node/store-record.js";
 import { type Deps, main } from "../node/store-upload.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -44,6 +45,19 @@ function workspace(): string {
   writeFileSync(join(dir, "firefox.zip"), "firefox package bytes");
   writeFileSync(join(dir, "firefox-source.zip"), "firefox source bytes");
   writeFileSync(join(dir, "load-unpacked.zip"), "load-unpacked package bytes");
+  mkdirSync(join(dir, "cdn"));
+  writeFileSync(join(dir, "cdn/RUNTIMES.json"), JSON.stringify({ "0.9.0": { ortWeb: "1.28.0", bundledRelease: { id: "old" } }, "1.0.0": { ortWeb: "1.29.0", bundledRelease: { id: "example-1" } } }));
+  writeFileSync(
+    join(dir, "ci.jsonl"),
+    [
+      { name: "tests", status: "completed", conclusion: "success", details_url: "https://github.example/o/r/actions/runs/555/job/1" },
+      { name: "lint", status: "completed", conclusion: "failure", details_url: "https://github.example/o/r/actions/runs/555/job/2" },
+      { name: "Build and check", status: "in_progress", conclusion: null, details_url: "https://github.example/o/r/actions/runs/123456789/job/9" },
+      { name: "external", status: "completed", conclusion: "neutral", details_url: "https://status.example/x" },
+    ]
+      .map((o) => JSON.stringify(o))
+      .join("\n"),
+  );
   writeFileSync(join(dir, "lint.json"), JSON.stringify({ errors: [], warnings: [], notices: [{ code: "N" }] }));
   writeFileSync(
     join(dir, "cardvision-vendor.json"),
@@ -64,6 +78,10 @@ function deps(log: string[] = []): Deps {
     env: {},
     fetchFn: (async () => new Response("details", { status: 200 })) as typeof fetch,
     readFile: (p) => new Uint8Array(readFileSync(p)),
+    zipFiles: (p) => [
+      { name: "manifest.json", sha256: sha256(new TextEncoder().encode(`manifest of ${p.split("/").pop()}`)) },
+      { name: "a/code.js", sha256: sha256(new TextEncoder().encode(`code of ${p.split("/").pop()}`)) },
+    ],
     zipManifest: (p) => ({ path: "manifest.json", manifest: (p.endsWith("firefox.zip") ? FIREFOX_MANIFEST : CHROME_MANIFEST) as Record<string, unknown> }),
     log: (line) => log.push(line),
   };
@@ -87,6 +105,8 @@ function checkArgv(dir: string, extra: string[] = []): string[] {
     "--record-out", join(dir, "record.json"),
     "--vendor-manifest", join(dir, "cardvision-vendor.json"),
     "--facts", join(dir, "store/record-facts.json"),
+    "--ci-results", join(dir, "ci.jsonl"),
+    "--runtimes", join(dir, "cdn/RUNTIMES.json"),
     "--commit", COMMIT,
     "--run-id", "123456789",
     ...extra,
@@ -131,6 +151,13 @@ describe("the release record", () => {
       ["C:\\build\\out", /local path/],
       ["EXAMPLE_CDN_SECRET", /denied name/],
       ["AWS_SECRET_KEY", /credential/],
+      ["C:/build/out", /local path/],
+      ["/github/workspace/out", /local path/],
+      [["", "home", "runner", "work"].join("/"), /local path/],
+      ["\\\\server\\share\\out", /local path/],
+      ["AMO_JWT_SECRET", /credential \(AMO_JWT_SECRET\)/],
+      ["AMO_JWT_ISSUER", /credential \(AMO_JWT_ISSUER\)/],
+      ["CWS_SERVICE_ACCOUNT_KEY", /credential \(CWS_SERVICE_ACCOUNT_KEY\)/],
     ] as const) {
       const dir = workspace();
       writeFileSync(join(dir, "store/record-facts.json"), JSON.stringify({ facts: { note: value } }));
@@ -139,6 +166,12 @@ describe("the release record", () => {
       expect(log.join("\n")).toMatch(expected);
       expect(existsSync(join(dir, "record.json"))).toBe(false);
     }
+  });
+
+  it("does not mistake a file: match pattern, a web address or a version for a path", () => {
+    const text = JSON.stringify({ host_permissions: ["file:///*", "https://www.example.org/a/b", "*://*/*"], version: "1.0.0", note: "see https://x.example.org:8080/y" });
+    expect(recordProblems([text, "- optional_host_permissions: `file:///*`, `https://www.example.org/*`"], [])).toEqual([]);
+    expect(recordProblems([`"file://${["", "home", "runner", "x"].join("/")}"`], [])).toEqual(["the release record names a local path"]);
   });
 
   it("reads only plain facts and a real vendor manifest", () => {
@@ -243,11 +276,10 @@ describe("the template's release-assets job", () => {
 
   it("is refused by `check` when it names an environment, and the store job is not", () => {
     const text = template();
-    expect(writeJobsInEnvironments(text)).toEqual([]);
+    expect(workflowGuardProblems(text)).toEqual([]);
     const broken = text.replace("    permissions:\n      contents: write\n", "    environment: store\n    permissions:\n      contents: write\n");
     expect(broken).not.toBe(text);
-    expect(writeJobsInEnvironments(broken)).toEqual(["release-assets"]);
-    expect(writeJobsInEnvironments(text.replace("      contents: write\n", "      contents: write\n      id-token: write\n").replace("    permissions:\n      contents: write", "    environment: store\n    permissions:\n      contents: write"))).toEqual(["release-assets"]);
+    expect(workflowGuardProblems(broken)).toEqual([expect.stringMatching(/the job release-assets can write to the repository and names an environment/)]);
   });
 
   it("makes check fail a workflow whose write job names the store environment", async () => {
@@ -258,13 +290,152 @@ describe("the template's release-assets job", () => {
     expect(log.join("\n")).toMatch(/the job release-assets can write to the repository and names an environment/);
   });
 
-  it("runs after the build, from a tag push or a dispatch that asks for it", () => {
+  it("runs whenever the ref is a tag, whoever started the run, or when asked", () => {
     const text = template();
-    expect(job(text, "release-assets")).toMatch(/if: github\.event_name == 'push' \|\| inputs\.attach\n/);
+    expect(job(text, "release-assets")).toMatch(/if: github\.ref_type == 'tag' \|\| inputs\.attach\n/);
+    expect(job(text, "release-assets")).not.toMatch(/github\.event_name/);
     expect(text).toMatch(/\n {6}attach:\n(?: {8}.*\n)*? {8}default: false\n/);
+    // One attach per tag at a time.
+    expect(job(text, "release-assets")).toMatch(/concurrency:\n {6}group: release-assets-\$\{\{ github\.ref_name \}\}\n {6}cancel-in-progress: false/);
     // The record is built by the build job and carried in its artifact.
     expect(job(text, "build")).toMatch(/--record-out out\/record\.json --vendor-manifest /);
     expect(job(text, "build")).toMatch(/out\/record\.json\n\s+out\/record\.md/);
+  });
+
+  it("passes the facts and the runtime table only when the product has the files, and gathers the commit's check runs", () => {
+    const build = job(template(), "build");
+    expect(build).toMatch(/\[ -f store\/record-facts\.json \] && facts="--facts store\/record-facts\.json"/);
+    expect(build).toMatch(/\[ -f cdn\/RUNTIMES\.json \] && runtimes="--runtimes cdn\/RUNTIMES\.json"/);
+    expect(build).toMatch(/\$facts \$runtimes \$CI_RESULTS/);
+    expect(build).toMatch(/gh api "repos\/\$GITHUB_REPOSITORY\/commits\/\$GITHUB_SHA\/check-runs/);
+    expect(build).toMatch(/permissions:\n {6}contents: read\n {6}checks: read\n/);
+  });
+
+  it("replaces assets already on the release only when the sums are identical", () => {
+    const j = job(template(), "release-assets");
+    const at = j.indexOf("- name: Attach them to the release");
+    const lines = j.slice(at).split("\n");
+    const start = lines.findIndex((l) => l.trim() === "run: |") + 1;
+    const body: string[] = [];
+    for (const l of lines.slice(start)) {
+      if (l.trim() !== "" && !l.startsWith("          ")) break;
+      body.push(l.slice(10));
+    }
+    const dir = mkdtempSync(join(tmpdir(), "store-record-test-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, "release-assets"));
+    writeFileSync(join(dir, "release-assets", "SHA256SUMS"), "new sums\n");
+    // A stand-in gh: `release download` writes EXISTING (when set) to the output file; `release upload` logs.
+    const gh = `gh() { case "$2" in
+      download) [ -n "\${EXISTING:-}" ] || return 1; printf '%s\n' "$EXISTING" > existing-sums ;;
+      upload) echo uploaded >> log ;;
+    esac; }`;
+    const run = (existing: string): { code: number; uploaded: boolean } => {
+      rmSync(join(dir, "log"), { force: true });
+      let code = 0;
+      try {
+        execFileSync("bash", ["-eo", "pipefail", "-c", `${gh}\n${body.join("\n")}`], { cwd: dir, env: { PATH: process.env.PATH, TAG: "v1.0.0", EXISTING: existing }, stdio: "pipe" });
+      } catch (e) {
+        code = (e as { status: number }).status;
+      }
+      return { code, uploaded: existsSync(join(dir, "log")) };
+    };
+    expect(run("")).toEqual({ code: 0, uploaded: true });
+    expect(run("new sums")).toEqual({ code: 0, uploaded: true });
+    expect(run("other sums")).toEqual({ code: 1, uploaded: false });
+  });
+});
+
+describe("the workflow guard", () => {
+  const wf = (jobs: string, top = "permissions:\n  contents: read\n"): string => `name: x\non: push\n${top}jobs:\n${jobs}`;
+  const safe = "  build:\n    runs-on: x\n    steps: []\n  attach:\n    permissions:\n      contents: write\n    runs-on: x\n";
+  it("passes a write job with no environment, and a store job with its own read permissions", () => {
+    expect(workflowGuardProblems(wf(safe))).toEqual([]);
+    expect(workflowGuardProblems(wf(`${safe}  up:\n    environment: store\n    permissions:\n      id-token: write\n      contents: read\n`))).toEqual([]);
+  });
+  it("flags each shape of a write job with an environment", () => {
+    for (const perm of ["    permissions:\n      contents: write\n", "    permissions: { contents: write }\n", "    permissions:\n      contents: 'write'\n", '    permissions:\n      contents: "write"\n', "    permissions: write-all\n"]) {
+      expect(workflowGuardProblems(wf(`  j:\n    environment: store\n${perm}`)), perm).toEqual([expect.stringMatching(/the job j can write.*names an environment/)]);
+    }
+    // Another order, flow-style environment, other indentation.
+    expect(workflowGuardProblems(wf(`  j:\n    permissions:\n      contents: write\n    environment: { name: store }\n`))).toHaveLength(1);
+    expect(workflowGuardProblems("on: push\njobs:\n    j:\n        environment: store\n        permissions:\n            contents: write\n")).toHaveLength(1);
+  });
+  it("flags an environment job with no permissions of its own", () => {
+    expect(workflowGuardProblems(wf("  j:\n    environment: store\n    runs-on: x\n"))).toEqual([expect.stringMatching(/the job j names an environment and has no permissions of its own/)]);
+  });
+  it("flags a top-level write while any job names an environment, not otherwise", () => {
+    const withEnv = "  j:\n    environment: store\n    permissions:\n      contents: read\n";
+    expect(workflowGuardProblems(wf(withEnv, "permissions:\n  contents: write\n"))).toEqual([expect.stringMatching(/top level/)]);
+    expect(workflowGuardProblems(wf(withEnv, "permissions: write-all\n"))).toEqual([expect.stringMatching(/top level/)]);
+    expect(workflowGuardProblems(wf(withEnv, "permissions: { contents: write }\n"))).toEqual([expect.stringMatching(/top level/)]);
+    expect(workflowGuardProblems(wf("  j:\n    runs-on: x\n", "permissions:\n  contents: write\n"))).toEqual([]);
+  });
+  it("flags a trailing comment on a job header and a header that is not plain", () => {
+    expect(workflowGuardProblems(wf("  j: # note\n    environment: store\n    permissions:\n      contents: write\n"))).toEqual(expect.arrayContaining([expect.stringMatching(/the job j: a comment on its header/)]));
+    expect(workflowGuardProblems(wf("  j: { runs-on: x }\n"))).toEqual([expect.stringMatching(/not a plain job header/)]);
+  });
+  it("fails closed when it finds no jobs", () => {
+    expect(workflowGuardProblems("name: x\non: push\n")).toEqual([expect.stringMatching(/no `jobs:` block/)]);
+    expect(workflowGuardProblems("name: x\njobs:\n")).toEqual([expect.stringMatching(/no job the check recognizes/)]);
+  });
+});
+
+describe("the record's other facts", () => {
+  it("lists a digest of each package's files, stable under order, and the check runs without this run's own", async () => {
+    const dir = workspace();
+    expect(await main(checkArgv(dir), deps())).toBe(0);
+    const record = JSON.parse(readFileSync(join(dir, "record.json"), "utf-8")) as { packages: Record<string, { files?: number; contentsSha256?: string }>; ci: Array<{ name: string; conclusion: string | null; runId: string | null }>; modelRelease: string };
+    expect(record.packages.chrome).toMatchObject({ files: 2, contentsSha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(record.packages.firefoxSource?.contentsSha256).toBeUndefined();
+    expect(record.ci).toEqual([
+      { name: "external", status: "completed", conclusion: "neutral", runId: null },
+      { name: "lint", status: "completed", conclusion: "failure", runId: "555" },
+      { name: "tests", status: "completed", conclusion: "success", runId: "555" },
+    ]);
+    expect(record.modelRelease).toBe("example-1");
+    const a = { name: "a", sha256: "1".repeat(64) };
+    const b = { name: "b", sha256: "2".repeat(64) };
+    expect(contentsDigest([a, b])).toEqual(contentsDigest([b, a]));
+    expect(contentsDigest([a, b]).contentsSha256).not.toBe(contentsDigest([a, { ...b, sha256: "3".repeat(64) }]).contentsSha256);
+    expect(contentsDigest([a, b]).contentsSha256).not.toBe(contentsDigest([a, { ...b, name: "c" }]).contentsSha256);
+  });
+
+  it("reads check runs from the whole answer, a list or lines, and refuses anything else", () => {
+    const dir = workspace();
+    const run = { name: "t", status: "completed", conclusion: "success", details_url: "https://x.example/actions/runs/7/job/1" };
+    const want = [{ name: "t", status: "completed", conclusion: "success", runId: "7" }];
+    for (const [name, text] of [["a.json", JSON.stringify({ total_count: 1, check_runs: [run] })], ["b.json", JSON.stringify([run])], ["c.json", `${JSON.stringify(run)}\n`]] as const) {
+      writeFileSync(join(dir, name), text);
+      expect(readCiResults(join(dir, name)), name).toEqual(want);
+    }
+    writeFileSync(join(dir, "d.json"), "not json");
+    expect(() => readCiResults(join(dir, "d.json"))).toThrow(/not check-run JSON/);
+    writeFileSync(join(dir, "e.json"), JSON.stringify([{ status: "x" }]));
+    expect(() => readCiResults(join(dir, "e.json"))).toThrow(/no name/);
+  });
+
+  it("fails check when the model release is not the version's row in the runtime table, or the row is missing", async () => {
+    const bad = async (edit: (dir: string) => void, expected: RegExp): Promise<void> => {
+      const dir = workspace();
+      edit(dir);
+      const log: string[] = [];
+      expect(await main(checkArgv(dir), deps(log)), expected.source).toBe(1);
+      expect(log.join("\n")).toMatch(expected);
+      expect(existsSync(join(dir, "record.json"))).toBe(true);
+    };
+    await bad((d) => writeFileSync(join(d, "store/record-facts.json"), JSON.stringify({ facts: { modelRelease: "other" } })), /bundled model release other is not example-1, the row of 1\.0\.0/);
+    await bad((d) => writeFileSync(join(d, "store/record-facts.json"), JSON.stringify({ facts: { ortVersion: "1.29.0" } })), /names no model release/);
+    await bad((d) => writeFileSync(join(d, "cdn/RUNTIMES.json"), JSON.stringify({ "0.9.0": { bundledRelease: { id: "old" } } })), /has no row for version 1\.0\.0/);
+    await bad((d) => writeFileSync(join(d, "cdn/RUNTIMES.json"), JSON.stringify({ "1.0.0": { ortWeb: "1.30.0", bundledRelease: { id: "example-1" } } })), /ONNX Runtime 1\.29\.0 is not 1\.30\.0/);
+    const dir = workspace();
+    expect(readRuntimesRow(join(dir, "cdn/RUNTIMES.json"), "1.0.0")).toEqual({ ortWeb: "1.29.0", releaseId: "example-1" });
+  });
+
+  it("refuses runtimes or CI results without a record", async () => {
+    const dir = workspace();
+    const argv = checkArgv(dir).filter((a, i, all) => !["--record-out", "--vendor-manifest"].includes(a) && !["--record-out", "--vendor-manifest"].includes(all[i - 1] ?? ""));
+    expect(await main(argv, deps())).toBe(2);
   });
 });
 

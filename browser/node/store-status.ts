@@ -64,13 +64,17 @@ export function newestRelease(dir: string): { path: string; release: ReleaseFile
   return { ...best, count: found.length };
 }
 
+/** Waits before the second and third try: a store that rate-limits or restarts needs minutes. */
+export const BACKOFF_MS = [30_000, 120_000];
+const TIMEOUT_MS = 20_000;
+
 async function get(fetchFn: typeof fetch, url: string, sleep?: (ms: number) => Promise<void>): Promise<Response> {
   let last = "";
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await (sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(2000 * attempt);
+    if (attempt > 0) await (sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(BACKOFF_MS[attempt - 1]!);
     try {
-      const res = await fetchFn(url, { method: "GET", cache: "no-store" });
-      if (res.status < 500) return res;
+      const res = await fetchFn(url, { method: "GET", cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS) });
+      if (res.status < 500 && res.status !== 429) return res;
       last = `HTTP ${res.status}`;
     } catch (error) {
       last = (error as Error).message;
@@ -102,7 +106,8 @@ export async function chromePublicVersion(itemId: string, deps: StatusDeps): Pro
 /** The newest public listed version of an add-on, or null when it has none (or is unknown). */
 export async function amoPublicVersion(addon: string, deps: StatusDeps): Promise<string | null> {
   const res = await get(deps.fetchFn, `${deps.amoBase ?? AMO_API}/api/v5/addons/addon/${encodeURIComponent(addon)}/`, deps.sleep);
-  if (res.status === 404) return null;
+  // A listing with no public version answers 404, or 401 or 403 for a draft the API hides.
+  if (res.status === 404 || res.status === 401 || res.status === 403) return null;
   if (res.status !== 200) throw new StoreError(`addons.mozilla.org: HTTP ${res.status}`);
   const body = (await res.json()) as { current_version?: { version?: unknown } | null };
   const v = body.current_version?.version;
@@ -163,7 +168,8 @@ export async function runStatus(a: { config: StoreConfig; releasesDir: string; s
     }
     if (published === null) {
       allPublic = false;
-      if (count > 1) problems.push(`${names[target]}: lists no public version, though earlier releases exist (${count - 1} earlier release file(s))`);
+      if (high[target] !== undefined) problems.push(`${names[target]}: lists no public version, though ${high[target]} was public on an earlier run (taken down?)`);
+      else if (count > 1) problems.push(`${names[target]}: lists no public version, though earlier releases exist (${count - 1} earlier release file(s))`);
       else notes.push(`${names[target]}: no public version yet. ${release.version} is in review, or not submitted.`);
       lines.push(`- ${names[target]}: no public version`);
       continue;
@@ -192,7 +198,7 @@ export async function runStatus(a: { config: StoreConfig; releasesDir: string; s
     }
     const label = `${e.url}${e.why ? ` (${e.why})` : ""}`;
     try {
-      const res = await fetchOnce(deps.fetchFn, e.url);
+      const res = await get(deps.fetchFn, e.url, deps.sleep);
       if (res.status !== 200) {
         problems.push(`${label}: HTTP ${res.status}`);
         continue;
@@ -209,10 +215,6 @@ export async function runStatus(a: { config: StoreConfig; releasesDir: string; s
   for (const n of notes) lines.push("", `Note: ${n}`);
   lines.push("", problems.length === 0 ? "**No fault found.**" : `**${problems.length} problem(s):**`, ...problems.map((p) => `- ${p}`));
   return { problems, notes, lines, state: { schemaVersion: 1, highWater: high } };
-}
-
-async function fetchOnce(fetchFn: typeof fetch, url: string): Promise<Response> {
-  return fetchFn(url, { method: "GET", cache: "no-store" });
 }
 
 export const writeState = (path: string, state: StatusState): void => writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`);
