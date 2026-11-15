@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 
 const TYPES = { ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".mkv": "video/x-matroska", ".ogv": "video/ogg" };
 
+// The page: one video element with the same styles as the products' manual page, with neutral text.
 const PAGE = `<!doctype html>
 <html lang="en">
 <head>

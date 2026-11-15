@@ -1105,7 +1105,7 @@ fields and a neutral example are in `browser/harness/example/product.mjs`, and
 `harness/product-shape.mjs` checks the shape before a run. Run it with
 `node harness/hover-browser.mjs --product <file> --chrome <Chrome for Testing> --release <release
 folder> --art <folder outside the product's repository> --dist <build> [--dist-idle <build>]`;
-`ffmpeg` and `openssl` must be on the PATH and `puppeteer-core` installed beside it
+The local video page in `harness/serve.mjs` has the same video element and styles as the products' manual page, with neutral text. `ffmpeg` and `openssl` must be on the PATH and `puppeteer-core` installed beside it
 (`PUPPETEER_CORE_DIR`). `test/hover-harness.test.ts` pins the check list and runs the command
 as far as its argument checks, without a browser.
 

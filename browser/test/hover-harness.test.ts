@@ -3,12 +3,15 @@
 // product module must have, and that the harness starts from the example module and says what it
 // still needs. It runs no browser and reaches no network.
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "../harness/clauses.mjs";
 import example from "../harness/example/product.mjs";
-import { productProblems } from "../harness/product-shape.mjs";
+import { productProblems, SLOTS } from "../harness/product-shape.mjs";
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -58,6 +61,14 @@ describe("the product module", () => {
   });
 });
 
+describe("the clip's layer order", () => {
+  it("draws the slots A, B, C, D in that order whatever order a module lists its places", () => {
+    expect(SLOTS).toEqual(["A", "B", "C", "D"]);
+    const { A, B, C, D } = example.places;
+    expect(productProblems({ ...example, places: { D, C, B, A } }, CHECKS)).toEqual([]);
+  });
+});
+
 describe("the harness command", () => {
   const run = (...args: string[]) => spawnSync(process.execPath, [here("../harness/hover-browser.mjs"), ...args], { encoding: "utf-8", timeout: 30_000 });
 
@@ -70,10 +81,31 @@ describe("the harness command", () => {
     expect(some.stderr).toContain("missing --chrome, --release or --art");
   });
 
+  it("needs a build folder from --dist or the module", () => {
+    const dir = mkdtempSync(join(tmpdir(), "harness-product-"));
+    try {
+      const file = join(dir, "product.mjs");
+      const exampleUrl = pathToFileURL(here("../harness/example/product.mjs")).href;
+      writeFileSync(file, `import example from ${JSON.stringify(exampleUrl)};\nconst { dist, ...rest } = example;\nexport default rest;\n`);
+      const none = run("--product", file, "--chrome", "x", "--release", "x", "--art", "/nowhere/art");
+      expect(none.status).toBe(2);
+      expect(none.stderr).toContain("missing --dist");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("needs the module to name its repository root", () => {
+    expect(productProblems({ ...example, root: undefined }, CHECKS)).toEqual(["root is not a URL (the product's repository root: --art must be outside it)"]);
+  });
+
   it("refuses a module that is not a product, and a check it does not know", () => {
     const bad = run("--product", here("../harness/clauses.mjs"));
     expect(bad.status).toBe(2);
     expect(bad.stderr).toContain("--product");
+    const inside = run("--product", here("../harness/example/product.mjs"), "--chrome", "x", "--release", "x", "--art", here("../harness/example/art"), "--only", "frames-at-play");
+    expect(inside.status).toBe(2);
+    expect(inside.stderr).toContain("--art must be outside");
     const unknown = run("--product", here("../harness/example/product.mjs"), "--chrome", "x", "--release", "x", "--art", "/nowhere/art", "--only", "no-such-check");
     expect(unknown.status).toBe(2);
     expect(unknown.stderr).toContain("--only: no check no-such-check");

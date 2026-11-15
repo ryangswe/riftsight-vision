@@ -8,11 +8,10 @@ export default {
   /** The product's config file, and the settings address in it (the stand-in serves that host). */
   config: new URL("./config.json", import.meta.url),
   settingsUrl: (config) => config.settingsUrl,
-  /** The folder of the unpacked build the run loads by default (--dist overrides it), and the
-   *  product's repository root: --art must be outside it. Both optional; the root defaults to the
-   *  working folder. */
-  dist: new URL("../../../dist", import.meta.url),
+  /** The product's repository root (required): --art must be outside it. And the folder of the
+   *  unpacked build the run loads by default (optional; --dist overrides it). */
   root: new URL("../../../", import.meta.url),
+  dist: new URL("../../../dist", import.meta.url),
   /** The dev builds' debug global in the compute frame: { state, analyzed, ... }. */
   debugGlobal: "__exampleDebug",
   /** The outline's wrapper in the page. */

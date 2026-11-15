@@ -32,9 +32,9 @@
 // because CI runners have no accelerated WebGPU.
 //
 // Each check names the clause it covers in the toolkit's hover spec (docs/hover-spec.md), in the
-// table in clauses.mjs. An expected failure is listed in the
-// product module with the old value, the intended value and what removes it, and, where it fails
-// only under a timing condition, that condition (it must pass when the condition does not hold).
+// table in clauses.mjs. An expected failure is listed in the product module with the old value,
+// the intended value and what removes it, and, where it fails only under a timing condition, that
+// condition (it must pass when the condition does not hold).
 // A setup failure, a timeout, a crash, a missing NetLog or a network violation is never an
 // expected failure. A listed check that passes is an unexpected pass and fails the run, so the
 // list is reviewed. Without --only, every check must have run.
@@ -50,7 +50,7 @@ import { parseArgs } from "node:util";
 
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "./clauses.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
-import { productProblems } from "./product-shape.mjs";
+import { productProblems, SLOTS } from "./product-shape.mjs";
 import { startServer } from "./serve.mjs";
 
 /** The whole run's deadline: past it the run stops, fails and still writes its report. */
@@ -88,7 +88,7 @@ const only = values.only ? new Set(values.only.split(",")) : null;
 if (only) for (const id of only) if (!CHECKS.includes(id)) usage(`--only: no check ${id}`);
 const want = (id) => !only || only.has(id);
 if (!values["dist-idle"] && IDLE_CHECKS.some(want)) usage("--dist-idle is needed for the idle checks (or leave them out with --only)");
-const repoRoot = PRODUCT.root ? fileURLToPath(PRODUCT.root) : process.cwd();
+const repoRoot = fileURLToPath(PRODUCT.root);
 if (!relative(repoRoot, resolve(values.art)).startsWith("..")) usage("--art must be outside the product's repository: card art is never committed");
 
 const puppeteerDir = process.env.PUPPETEER_CORE_DIR;
@@ -140,7 +140,7 @@ for (const [slot, id] of Object.entries(PRODUCT.cards)) {
 /** The clip, rendered with ffmpeg: VP8 in WebM (Chrome for Testing plays no H.264). */
 function renderClip() {
   const clip = join(work, "clip.webm");
-  const slots = Object.keys(PLACES);
+  const slots = SLOTS; // fixed order: a later slot is drawn over an earlier one (D over A)
   const inputs = slots.flatMap((s) => ["-loop", "1", "-i", cards[s].file]);
   const scaled = slots.map((s, i) => `[${i + 1}]scale=${box(s).w}:${box(s).h}[${s}]`);
   let last = "bg";
@@ -384,14 +384,14 @@ async function extensionWorker(ext) {
   return target.worker();
 }
 
-/** Set a stored setting as the popup does (the extension's local storage area), from the extension's background.
+/** Set a stored setting as the popup does (chrome.storage.local), from the extension's background.
  *  If the worker stops between finding it and using it, the next one is tried once. */
 async function setStored(ext, key, value) {
   for (let attempt = 1; ; attempt += 1) {
     try {
       const worker = await extensionWorker(ext);
       if (!worker) throw new Error("setup: the extension's background worker is not running");
-      await worker.evaluate((area, k, v) => chrome.storage[area].set({ [k]: v }), "local", key, value);
+      await worker.evaluate((k, v) => chrome.storage.local.set({ [k]: v }), key, value);
       break;
     } catch (error) {
       if (attempt >= 2) throw error;

@@ -6,7 +6,8 @@
 const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v) => typeof v === "string" && v.length > 0;
 const isNumber = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
-const SLOTS = ["A", "B", "C", "D"];
+/** The card slots, in the order the clip draws them: a later slot is laid over an earlier one. */
+export const SLOTS = ["A", "B", "C", "D"];
 
 /** @param {unknown} product @param {readonly string[]} checkIds the shared check ids */
 export function productProblems(product, checkIds) {
@@ -27,6 +28,7 @@ export function productProblems(product, checkIds) {
   }
   if (!isObject(p.expectedFail)) problems.push("expectedFail is not an object");
   else for (const id of Object.keys(p.expectedFail)) if (!checkIds.includes(id)) problems.push(`expectedFail names no check ${id}`);
-  for (const key of ["dist", "root"]) if (p[key] !== undefined && !(p[key] instanceof URL)) problems.push(`${key} is not a URL`);
+  if (!(p.root instanceof URL)) problems.push("root is not a URL (the product's repository root: --art must be outside it)");
+  if (p.dist !== undefined && !(p.dist instanceof URL)) problems.push("dist is not a URL");
   return problems;
 }
