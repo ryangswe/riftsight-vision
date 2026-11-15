@@ -51,9 +51,10 @@ function g3Rows(): Row[] {
 describe("S-G3 address table, read from the spec", () => {
   const rows = g3Rows();
 
-  it("has the rows the table is expected to carry", () => {
-    expect(rows.length).toBeGreaterThanOrEqual(12);
-    expect(rows.flatMap((r) => r.addresses).length).toBeGreaterThanOrEqual(40);
+  it("has exactly the rows and addresses the table carries", () => {
+    // Exact counts: removing a row or an address from the spec must be a visible test edit.
+    expect(rows.length).toBe(13);
+    expect(rows.flatMap((r) => r.addresses).length).toBe(45);
   });
 
   for (const row of g3Rows()) {
@@ -297,10 +298,22 @@ describe("each product's current site rules give the same answers through the ho
 
   it("both products' parent-origin rules give the same answers", () => {
     // Both: exact https origins per enabled site, and the local hosts with an optional port in dev.
-    const product = (origin: string, dev: boolean) =>
-      origin === "https://www.youtube.com" || origin === "https://www.twitch.tv" || (dev && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin));
+    type Sites = { youtube: boolean; twitch: boolean };
+    const product = (origin: string, sites: Sites, dev: boolean) =>
+      (sites.youtube && origin === "https://www.youtube.com") ||
+      (sites.twitch && origin === "https://www.twitch.tv") ||
+      (dev && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin));
+    const configs: Sites[] = [
+      { youtube: true, twitch: true },
+      { youtube: true, twitch: false },
+      { youtube: false, twitch: true },
+    ];
     for (const origin of ["https://www.youtube.com", "https://www.twitch.tv", "https://youtube.com", "http://localhost:5173", "http://127.0.0.1", "null", "https://localhost"]) {
-      for (const dev of [false, true]) expect(allowedParentOrigin(origin, { sites: { youtube: true, twitch: true }, dev }), `${origin} ${dev}`).toBe(product(origin, dev));
+      for (const sites of configs) {
+        for (const dev of [false, true]) {
+          expect(allowedParentOrigin(origin, { sites, dev }), `${origin} ${JSON.stringify(sites)} ${dev}`).toBe(product(origin, sites, dev));
+        }
+      }
     }
   });
 });
