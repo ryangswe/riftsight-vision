@@ -32,6 +32,16 @@ anchors of its code, and the spec clauses it carries out.
 - A clause is written `S-B13` and is defined in [hover-spec.md](hover-spec.md).
 - Times and thresholds are in the spec and the code, not here.
 
+How the diagrams are drawn:
+
+- **One diagram answers one question.** A diagram that answers two is split, however small. A big
+  diagram that answers one question stays whole; about 15 nodes is a prompt to check whether it
+  answers two, not a limit.
+- **Overview first, then detail.** Layer 1 is the overview. Layers 2 and 3 zoom in. Each split
+  follows a seam in the code: a separate policy, phase or component.
+- On GitHub, a large diagram can be zoomed, or opened full screen, from the buttons that appear
+  over it.
+
 ## Layer 1: the frames and their messages
 
 An extension runs one session across two frames
@@ -42,7 +52,7 @@ it; it holds the session and the worker. A product draws the tooltip from the ca
 ### 1a. Who talks to whom
 
 ```mermaid
-flowchart LR
+flowchart TD
   PAGE["Video page: video and trusted pointer"]
   CC["Content script: capture control"]
   CF["Compute frame"]
@@ -332,8 +342,12 @@ stateDiagram-v2
 
 ### 2d. Is a card shown, and is it held?
 
-A fresh card is the named card of the newest result that may still describe the picture, at the
-pointer. A hold decides what is shown when there is none, and when a different one appears.
+Two questions, in order. Is there a fresh card at the pointer? Then, what does the hold do with
+that answer? With no hold, the fresh card is shown, or nothing when there is none. The two holds
+each have their own diagram.
+
+**Is there a fresh card?** It is the named card of the newest result that may still describe the
+picture, at the pointer.
 
 ```mermaid
 flowchart TD
@@ -343,15 +357,6 @@ flowchart TD
   NAMED{"box at the pointer accepted and named?"}
   FRESH["a fresh card"]
   NOFRESH["no fresh card"]
-  HOLD{"which hold?"}
-  OUT["show the fresh card, or nothing"]
-  KEEP["a fresh card replaces the kept one; with none, keep it until misses, time, leaving its box, or another box at the pointer end it"]
-  SHOWNF{"no fresh card, focus scope, unverified face in the pointer's group?"}
-  NOTHING["show nothing, the kept card ends"]
-  KEPT{"a card is kept and the pointer is inside its area?"}
-  SAME{"fresh is the kept card, or the pointer moved onto it?"}
-  NEW["show the fresh card"]
-  OLD["keep the old card, marked held once seen gone"]
 
   RES --> AGE
   AGE -->|no| NOFRESH
@@ -360,17 +365,6 @@ flowchart TD
   FOCUS -->|no| NAMED
   NAMED -->|yes| FRESH
   NAMED -->|no| NOFRESH
-  FRESH --> HOLD
-  NOFRESH --> HOLD
-  HOLD -->|"no hold"| OUT
-  HOLD -->|"shown hold"| SHOWNF
-  SHOWNF -->|yes| NOTHING
-  SHOWNF -->|no| KEEP
-  HOLD -->|"reading hold"| KEPT
-  KEPT -->|no| OUT
-  KEPT -->|yes| SAME
-  SAME -->|yes| NEW
-  SAME -->|no| OLD
 ```
 
 | Element | Anchors | Spec |
@@ -379,8 +373,60 @@ flowchart TD
 | Box at the pointer | `browser/src/hover-at.ts#hoverAt`, `browser/src/hover-layer.ts#resolveHover`, `browser/src/hover-layer.ts#selectHoverLayer` | S-W1 |
 | Unverified faces in focus scope | `browser/src/session-core.ts#pointerGroupUnverified`, `browser/src/session-core.ts#SessionCore.pointerGroupHoldsUnverified` | S-W9 |
 | Which hold | `browser/src/session-core.ts#SessionCore.shown`, `browser/src/session-core.ts#ShownHold` | S-W4, S-W6 |
+
+**The shown hold.** What is shown when the fresh answer is missing or changes.
+
+```mermaid
+flowchart TD
+  F{"a fresh card?"}
+  SHOW["show it, and keep it"]
+  FOC{"no fresh card, focus scope, unverified face in the pointer's group?"}
+  KEPT{"a card is kept, pointer inside its box?"}
+  OTHER{"another box at the pointer?"}
+  ENDED{"enough misses, or enough time?"}
+  KEEP["keep showing the kept card"]
+  NOTHING["show nothing, the kept card ends"]
+
+  F -->|yes| SHOW
+  F -->|no| FOC
+  FOC -->|yes| NOTHING
+  FOC -->|no| KEPT
+  KEPT -->|no| NOTHING
+  KEPT -->|yes| OTHER
+  OTHER -->|yes| NOTHING
+  OTHER -->|no| ENDED
+  ENDED -->|yes| NOTHING
+  ENDED -->|no| KEEP
+```
+
+| Element | Anchors | Spec |
+| --- | --- | --- |
 | Shown hold; an old reply is not a miss | `browser/src/session-core.ts#SHOWN_HOLD`, `browser/src/session-core.ts#SessionCore.boxAtPointer`, `browser/src/session-core.ts#SessionCore.onFrameResult` | S-W2, S-W6 |
+
+**The reading hold.** A shown card stays while the pointer stays where it was seen.
+
+```mermaid
+flowchart TD
+  KEPT{"a card is kept, pointer inside its area?"}
+  OUT["show the fresh card, or nothing"]
+  SAME{"fresh is the kept card, or the pointer moved onto it?"}
+  NEW["show the fresh card"]
+  OLD["keep the old card, marked held once seen gone"]
+
+  KEPT -->|no| OUT
+  KEPT -->|yes| SAME
+  SAME -->|yes| NEW
+  SAME -->|no| OLD
+```
+
+| Element | Anchors | Spec |
+| --- | --- | --- |
 | Reading hold | `browser/src/session-core.ts#READING_HOLD`, `browser/src/session-core.ts#SessionCore.readingHold`, `browser/src/session-core.ts#SessionCore.movedOnto`, `browser/src/session-core.ts#SessionCore.takeEvidence` | S-W4, S-W5, S-W7 |
+
+**What the card carries and when it is reported.**
+
+| Element | Anchors | Spec |
+| --- | --- | --- |
 | Held and outline | `browser/src/session-core.ts#Shown`, `browser/src/session-core.ts#turnedOutline` | S-W7, S-F1, S-F2, S-F4 |
 | Reported only when it changed | `browser/src/session-core.ts#SessionCore.publishShown`, `browser/src/session-core.ts#steady` | S-W8 |
 | Told to the scheduler | `browser/src/session-core.ts#SessionCore.reportShown` | S-C2, S-C3 |
