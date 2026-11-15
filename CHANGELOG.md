@@ -9,6 +9,27 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Fixed
+
+- A card under a resting mouse is now named when the compute frame connects late. A page whose
+  model loads slowly, such as a new tab, could miss the one picture a resting pointer is owed:
+  the pointer had rested longer than the 10-second window when the frame connected, so the frame
+  never learned of it. The first frame to connect now is told that the pointer rests, and takes its
+  one picture when ready, up to 60 seconds after the last move. A frame made again during the same
+  rest gets none. A frame that became ready in the last moments of the 10 seconds now also gets
+  its picture when the capture request arrives just after them. The page-to-frame `pointer`
+  message has an optional `restedMs` field; messages without it work as before.
+
+## [0.14.0] - 2026-11-14
+
+The browser runtime paces looks to keep an answer within its lifetime, holds looks back while a
+retry waits (except a move or tap onto a different card), and takes one picture when a slow model
+finishes loading under a resting mouse. Its code is release candidate 0.14.0rc2's, unchanged; a
+product shipped that candidate to both browser stores with no regression. The changes that may
+need action are under 0.14.0rc1 and 0.14.0rc2. Since rc2, only release and store tooling changed,
+listed below. `PROTOCOL_VERSION` stays 2, and no model, release document or recognizer decision
+changes.
+
 ### Added
 
 - The store release workflow template has a `precheck_only` option: with `upload`, the upload
@@ -33,14 +54,7 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
-- A card under a resting mouse is now named when the compute frame connects late. A page whose
-  model loads slowly, such as a new tab, could miss the one picture a resting pointer is owed:
-  the pointer had rested longer than the 10-second window when the frame connected, so the frame
-  never learned of it. The first frame to connect now is told that the pointer rests, and takes its
-  one picture when ready, up to 60 seconds after the last move. A frame made again during the same
-  rest gets none. A frame that became ready in the last moments of the 10 seconds now also gets
-  its picture when the capture request arrives just after them. The page-to-frame `pointer`
-  message has an optional `restedMs` field; messages without it work as before.
+- `CITATION.cff` names the current version and its release date (it still said 0.3.0).
 
 ## [0.14.0rc2] - 2026-11-13
 
@@ -1754,7 +1768,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc2...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0
 [0.14.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc1...v0.14.0rc2
 [0.14.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0rc1
 [0.13.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.12.0...v0.13.0
