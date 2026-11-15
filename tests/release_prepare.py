@@ -5,9 +5,10 @@
 
 It moves the entries under ``## [Unreleased]`` of ``CHANGELOG.md`` beneath a new ``## [X] - date``
 heading, leaving an empty Unreleased section above it, rewrites the compare links at the bottom of
-the changelog, and sets the five places that name the version: ``pyproject.toml``,
-``cardvision/__init__.py``, ``docs/quickstart.md``, ``playbooks/setup.md`` and the quickstart marker of
-``tests/beginner_path.py``. Each is found by its pattern, not by its line.
+the changelog, and sets the six places that name the version: ``pyproject.toml``,
+``cardvision/__init__.py``, ``docs/quickstart.md``, ``playbooks/setup.md``, the quickstart marker of
+``tests/beginner_path.py`` and ``CITATION.cff`` (whose ``date-released`` it also sets). Each is found
+by its pattern, not by its line.
 
 The compare link of a final version compares it with the previous final version; a first candidate
 (``rc1``) does too; a later candidate (``rcN``) compares with ``rc(N-1)``.
@@ -37,7 +38,10 @@ STRINGS = {
     "docs/quickstart.md": re.compile(r"^cardvision (?P<v>\d+\.\d+\.\d+(?:rc\d+)?)$", re.M),
     "playbooks/setup.md": re.compile(r"^- \*\*Expect:\*\* `cardvision (?P<v>[^`]+)`\.$", re.M),
     "tests/beginner_path.py": re.compile(r'^    \(QUICKSTART, "cardvision (?P<v>\d+\.\d+\.\d+(?:rc\d+)?)"\),$', re.M),
+    "CITATION.cff": re.compile(r'^version: "(?P<v>[^"]+)"$', re.M),
 }
+# CITATION.cff also names the release date; it is set to the date of the version commit.
+CITATION_DATE = re.compile(r'^date-released: "(?P<d>\d{4}-\d{2}-\d{2})"$', re.M)
 UNRELEASED_LINK = re.compile(r"^\[Unreleased\]: (?P<base>\S+)/compare/v(?P<last>\S+?)\.\.\.HEAD$", re.M)
 REMINDER = ("Not written: the introduction of the release and its \"Changes that may need action\" lines "
             "are the maintainer's. Add them under the new heading before the pull request.")
@@ -48,7 +52,7 @@ class Refused(Exception):
 
 
 def read_strings(root: Path) -> dict[str, str]:
-    """The version each of the five places names; a place with no match, or two, is an error."""
+    """The version each of the six places names; a place with no match, or two, is an error."""
     found = {}
     for name, pattern in STRINGS.items():
         matches = pattern.findall((root / name).read_text(encoding="utf-8"))
@@ -136,6 +140,12 @@ def prepare(root: Path, version: str, date: str, check: bool) -> list[str]:
         text = path.read_text(encoding="utf-8")
         writes[path] = pattern.sub(lambda m: m.group(0).replace(m["v"], version), text)
         plan.append(f"{name}: {old} -> {version}")
+    citation = root / "CITATION.cff"
+    dated, count = CITATION_DATE.subn(f'date-released: "{date}"', writes[citation])
+    if count != 1:
+        raise Refused(f"CITATION.cff: expected one date-released line, found {count}.")
+    writes[citation] = dated
+    plan.append(f"CITATION.cff: date-released -> {date}")
     if not check:
         for path, text in writes.items():
             path.write_text(text, encoding="utf-8")

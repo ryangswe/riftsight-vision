@@ -82,7 +82,7 @@ def test_security_names_the_report_a_vulnerability_button_beside_the_email():
 
 
 @pytest.mark.maintainer
-def test_the_five_places_that_name_the_version_agree_with_pyproject():
+def test_the_places_that_name_the_version_agree_with_pyproject():
     from release_prepare import read_strings
     found = read_strings(ROOT)
     assert set(found.values()) == {version()}, found
