@@ -165,8 +165,8 @@
     {
       "id": "S-A8",
       "group": "A",
-      "title": "A background tab loads at play but takes no picture",
-      "status": "open decision",
+      "title": "A background tab waits for the front before it loads",
+      "status": "changes in a product release",
       "tests": [],
       "pending": [
         "real-browser test"
@@ -1698,8 +1698,8 @@
     {
       "id": "S-F3",
       "group": "F",
-      "title": "A turned outline near the picture's edge",
-      "status": "open decision",
+      "title": "A turned outline is always turned, and never reaches past the picture",
+      "status": "changes in a product release",
       "tests": [],
       "pending": [
         "real-browser test"
