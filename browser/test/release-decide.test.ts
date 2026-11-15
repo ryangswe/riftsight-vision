@@ -293,7 +293,7 @@ describe("the template workflow", () => {
     expect(text.indexOf("gh workflow run")).toBeGreaterThan(decide);
     expect(text).toMatch(/- name: Create the tag and the release\n {8}if: steps\.plan\.outputs\.create == 'true'\n/);
     expect(text).toMatch(/- name: Start the store run, which waits for approval\n {8}if: steps\.plan\.outputs\.dispatch == 'true'\n/);
-    expect(text).toMatch(/gh workflow run store-release\.yml --ref "\$TAG" -f upload=true\n/);
+    expect(text).toMatch(/gh workflow run store-release\.yml --ref "\$TAG" -f upload=true -f attach=true\n/);
     expect((text.match(/gh release create/g) ?? []).length).toBe(1);
     expect(text).toMatch(/concurrency:\n {6}group: extension-release\n {6}cancel-in-progress: false/);
   });
