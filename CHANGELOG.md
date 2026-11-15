@@ -17,12 +17,6 @@ break the public surface; this file names each break and how to migrate.
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
   are frozen; its behavior is not written yet, so each function throws "not implemented yet".
-- The shared hover host's outline and video pick (experimental, in `browser/src/host/`): the
-  outline element and its placement (S-F1, S-F3, S-F4), and the main-video pick (S-G4). A turned
-  outline is always drawn turned, with no upright-box fallback, because the toolkit cuts a card's
-  box to the picture before it works out the turn; a property test with a seeded generator shows
-  it stays inside the picture for boxes at each edge and corner. A held card has no outline. The
-  main video is picked again on trusted `playing` events and, at most once a second, on moves.
 - The shared hover host's settings core and switches (experimental, not part of the public API):
   `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
   the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
