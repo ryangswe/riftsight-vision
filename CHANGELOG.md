@@ -44,6 +44,12 @@ decision changes.
 
 ### Fixed
 
+- A resting mouse now gets at most one slow-start picture per rest. When the compute frame's
+  worker restarted under a pointer that had not moved, the frame became ready a second time and the
+  content script granted a second picture after the 10 seconds. It now grants once per rest, for a
+  frame connected before the rest and for a late one. A trusted move begins a new rest. The rest
+  of the one-picture rule is unchanged.
+
 - A card under a resting mouse is now named when the compute frame connects late. A page whose
   model loads slowly, such as a new tab, could miss the one picture a resting pointer is owed:
   the pointer had rested longer than the 10-second window when the frame connected, so the frame

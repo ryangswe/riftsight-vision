@@ -97,7 +97,7 @@ opens paused: they are made at the `playing` event when the viewer presses play.
 dispatches `playing` on a video that is already playing: nothing is made.
 
 Test: `idle-unload.test.ts:719`, `idle-unload.test.ts:729`, `idle-unload.test.ts:742`,
-`idle-unload.test.ts:756`, `capture-control.test.ts:1016`
+`idle-unload.test.ts:756`, `capture-control.test.ts:1043`
 
 ### S-A2 — Elsewhere, the opening trusted pointer over the picture makes the frames
 
@@ -227,7 +227,7 @@ events give none.
 Example: a page dispatches a synthetic `pointermove` over the video every 100 ms: every capture is
 refused with `NOT_POINTING`.
 
-Test: `capture-control.test.ts:465`
+Test: `capture-control.test.ts:492`
 
 ### S-B2 — A hover gives pictures for 10 s, then while a card shows and 5 s after
 
@@ -240,7 +240,7 @@ A frame that becomes ready after the 10 s gives one more picture (S-B13).
 Example: the pointer stops over the video at 0 s with no card: pictures are given until 10 s. It
 stops on a shown card that goes at 14 s: pictures are given until 19 s.
 
-Test: `capture-gate.test.ts:15`, `capture-gate.test.ts:26`, `capture-control.test.ts:498`
+Test: `capture-gate.test.ts:15`, `capture-gate.test.ts:26`, `capture-control.test.ts:525`
 
 ### S-B3 — Nothing is captured more than 60 s after the last trusted pointer event
 
@@ -249,7 +249,7 @@ A new trusted move starts it again.
 
 Example: a card stays shown under a resting pointer for 2 minutes: no picture is given after 60 s.
 
-Test: `capture-gate.test.ts:41`, `capture-control.test.ts:551`
+Test: `capture-gate.test.ts:41`, `capture-control.test.ts:578`
 
 ### S-B13 — A frame that becomes ready late gets one picture for a pointer that still rests
 
@@ -264,7 +264,9 @@ began, the first frame to connect during it gets its one picture, however late, 
 60 s: the content script tells it that the pointer rests, and since when, which is no new pointer
 activity (the rules for a moving pointer, S-B2, do not apply to it). A frame whose model is
 already loaded when it is told takes its picture then. A frame that replaces an earlier one gets
-none, so a page cannot remake the frame to get a picture each time.
+none, so a page cannot remake the frame to get a picture each time. A frame that becomes ready
+again in the same rest (its worker restarted) gets no second picture either: the content script
+grants one picture per rest, and a trusted move begins a new rest.
 The content script keeps the grant for the capture the frame asks for at once: an unspent grant
 lapses after 500 ms, or at a seek. A ready frame is granted its picture whenever the pointer is
 within the 60 s, also in the last moments of the 10 s, so a capture asked just after them is not
@@ -282,13 +284,14 @@ Test: `session-core.test.ts:2768`, `session-core.test.ts:2781`, `session-core.te
 `capture-control.test.ts:315`, `capture-control.test.ts:321`, `capture-control.test.ts:333`,
 `capture-control.test.ts:349`, `capture-control.test.ts:363`, `capture-control.test.ts:374`,
 `capture-control.test.ts:383`, `capture-control.test.ts:391`, `capture-control.test.ts:404`,
-`capture-control.test.ts:418`, `capture-control.test.ts:426`, `capture-control.test.ts:443`,
-`compute-frame.test.ts:788`, `capture-control.test.ts:1045`, `capture-control.test.ts:1069`,
-`capture-control.test.ts:1084`, `capture-control.test.ts:1095`, `capture-control.test.ts:1101`,
-`capture-control.test.ts:1109`, `capture-control.test.ts:1121`, `capture-control.test.ts:1133`,
+`capture-control.test.ts:418`, `capture-control.test.ts:426`, `capture-control.test.ts:443`, `capture-control.test.ts:455`,
+`capture-control.test.ts:473`, `capture-control.test.ts:1122`,
+`compute-frame.test.ts:788`, `capture-control.test.ts:1072`, `capture-control.test.ts:1096`,
+`capture-control.test.ts:1111`, `capture-control.test.ts:1142`, `capture-control.test.ts:1148`,
+`capture-control.test.ts:1156`, `capture-control.test.ts:1168`, `capture-control.test.ts:1180`,
 `session-core.test.ts:2831`, `session-core.test.ts:2847`, `compute-messages.test.ts:49`,
 `compute-frame.test.ts:802`, `compute-frame.test.ts:811`, `compute-frame.test.ts:824`,
-`compute-frame.test.ts:832`, `compute-frame.test.ts:841`, `capture-control.test.ts:1147`; end to
+`compute-frame.test.ts:832`, `compute-frame.test.ts:841`, `capture-control.test.ts:1194`; end to
 end: pending (real-browser test)
 
 ### S-B4 — A tap gives pictures for 10 s and no longer
@@ -298,7 +301,7 @@ inherits nothing. A canceled touch ends it.
 
 Example: a tap at 0 s on a card that stays shown: the last picture is given before 10 s.
 
-Test: `capture-control.test.ts:693`, `capture-control.test.ts:704`, `capture-control.test.ts:732`
+Test: `capture-control.test.ts:720`, `capture-control.test.ts:731`, `capture-control.test.ts:759`
 
 ### S-B5 — Before every capture, the last trusted point is checked against the picture now
 
@@ -307,7 +310,7 @@ A video that moved away under a resting pointer clears the gate and refuses the 
 
 Example: the page scrolls the player 400 px up under a resting mouse: the next capture is refused.
 
-Test: `capture-control.test.ts:511`
+Test: `capture-control.test.ts:538`
 
 ### S-B6 — Leaving, hiding the page or changing the video clears all authority
 
@@ -318,7 +321,7 @@ or another video (or none) clear the gate, the record of a card showing included
 Example: the viewer switches tabs while a card shows: the gate is cleared, and returning to the tab
 gives no picture until the pointer moves over the video.
 
-Test: `capture-control.test.ts:625`
+Test: `capture-control.test.ts:652`
 
 ### S-B7 — No picture is asked for before a pointer is over the video
 
@@ -328,7 +331,7 @@ was never hovered gives none.
 Example: a video plays for 10 minutes and the viewer never points at it: no `capture` request is
 made.
 
-Test: `capture-control.test.ts:457`, `session-core.test.ts:1788`
+Test: `capture-control.test.ts:484`, `session-core.test.ts:1788`
 
 ### S-B8 — A frame made at play holds no capture authority
 
@@ -359,7 +362,7 @@ pointer holds authority, and not otherwise, so a late card does not extend captu
 Example: the pointer leaves at 0 s and a `shown` card posted before the leave arrives at 0.05 s:
 no picture is given for the linger.
 
-Test: `capture-control.test.ts:596`, `capture-control.test.ts:650`
+Test: `capture-control.test.ts:623`, `capture-control.test.ts:677`
 
 ### S-B11 — Off means off
 
@@ -369,7 +372,7 @@ and a reply that arrives after off shows nothing.
 Example: the viewer switches hovers off while a look is in flight: the frames go at once, no card
 is drawn when the analysis would have answered, and moving over the video loads nothing.
 
-Test: `capture-control.test.ts:973`, `session-core.test.ts:1885`; in a product: pending (real-browser test)
+Test: `capture-control.test.ts:1000`, `session-core.test.ts:1885`; in a product: pending (real-browser test)
 
 ### S-B12 — A product's privacy page states the gate's timings as the code has them
 
@@ -598,7 +601,7 @@ capture.
 Example: a pointer sweeps across five unverified cards while a look is in flight: no second look
 starts until it answers or is given up on.
 
-Test: `session-core.test.ts:329`, `capture-control.test.ts:919`, `relook-playing.test.ts:331`
+Test: `session-core.test.ts:329`, `capture-control.test.ts:946`, `relook-playing.test.ts:331`
 
 ### S-C18 — Pointer-started looks are at least 250 ms apart
 
@@ -676,7 +679,7 @@ Test: `slow-clock.test.ts:273`, `slow-clock.test.ts:327`, `slow-clock.test.ts:34
 `budgeted-pacing.test.ts:176`, `budgeted-pacing.test.ts:188`, `budgeted-pacing.test.ts:207`,
 `budgeted-pacing.test.ts:217`, `budgeted-pacing.test.ts:227`, `budgeted-pacing.test.ts:237`,
 `budgeted-pacing.test.ts:244`, `budgeted-pacing.test.ts:250`, `compute-messages.test.ts:38`,
-`capture-control.test.ts:474`, `compute-frame.test.ts:308`
+`capture-control.test.ts:501`, `compute-frame.test.ts:308`
 
 ### S-P2 — Looks a viewer waits for are not slowed by pacing
 
@@ -965,7 +968,7 @@ to the frame.
 Example: a 1280 px player and a 300 px preview both play: the player is watched. A theater-mode
 switch makes no other video larger: nothing changes.
 
-Test: `capture-control.test.ts:670` (the switch); the pick: pending (real-browser test)
+Test: `capture-control.test.ts:697` (the switch); the pick: pending (real-browser test)
 
 ### S-G5 — After in-page navigation off an active page, a shrunk player is not captured
 
@@ -1042,7 +1045,7 @@ nothing is captured and the product hears a version problem.
 Example: the content script is at version 2 and a stale compute frame answers with version 1: no
 capture, and a version problem is reported.
 
-Test: `capture-control.test.ts:842`
+Test: `capture-control.test.ts:869`
 
 ### S-X3 — Pictures go to the extension's compute frame and nowhere else
 
@@ -1052,7 +1055,7 @@ a message the compute frame does not take is closed.
 Example: a page posts a message with an `ImageBitmap` to the compute frame from another origin: the
 bitmap is closed.
 
-Test: `compute-frame.test.ts:214`, `capture-control.test.ts:964`
+Test: `compute-frame.test.ts:214`, `capture-control.test.ts:991`
 
 ### S-X4 — A product vendors the runtime from one toolkit commit
 

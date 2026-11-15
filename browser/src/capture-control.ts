@@ -172,6 +172,10 @@ interface Authority {
   /** A compute frame had a handshake during this authority, or was connected when it began: a
    *  frame that connects after that replaces one, and a resting hover is not told to it. */
   framed: boolean;
+  /** A slow start's grant was given during this authority (a rest): a frame that becomes ready
+   *  again in the same rest (its worker restarted) is granted none. A trusted move makes a new
+   *  authority, so a new rest may be granted again. */
+  slowStartGiven?: boolean;
 }
 
 interface Handshake {
@@ -633,7 +637,8 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
         const was = frameState;
         frameState = message.state;
         if (message.state !== "ready") dropGrant();
-        else if (was !== "ready" && authority?.kind === "hover" && slowStartAllowed(gateState(), now(), options.limits)) {
+        else if (was !== "ready" && authority?.kind === "hover" && !authority.slowStartGiven && slowStartAllowed(gateState(), now(), options.limits)) {
+          authority.slowStartGiven = true;
           slowStartUntil = now() + SLOW_START_GRANT_MS;
         }
         options.onStatus?.(message);

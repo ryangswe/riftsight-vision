@@ -440,11 +440,38 @@ describe("a slow start: the frame becomes ready while a mouse rests over the pic
     expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
   });
 
-  it("a later load (loading, then ready) grants one picture again; a new trusted move drops a grant", async () => {
+  it("a frame that becomes ready again in the same rest (its worker restarted) is granted nothing, and its capture is refused", async () => {
+    const h = resting();
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    status(h, "loading");
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(false);
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("a new trusted move starts a new rest: a restart past the grace period is granted one picture again", async () => {
     const h = resting();
     status(h, "ready");
     await captureNow(h, 1);
     status(h, "loading");
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(false);
+    h.hover();
+    status(h, "loading");
+    h.advance(POINTER_GRACE_MS + 1);
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(true);
+    await captureNow(h, 3);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 3 });
+    await captureNow(h, 4);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 4, reason: NOT_POINTING });
+  });
+
+  it("a new trusted move drops a grant", async () => {
+    const h = resting();
     status(h, "ready");
     expect(h.control.captureAllowedNow()).toBe(true);
     h.hover();
@@ -1090,6 +1117,26 @@ describe("late frame: the compute frame connects after the grace period of a res
     expect(h.answer()).toMatchObject({ kind: "frame" });
     await captureNow(h, 2);
     expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+  });
+
+  it("a late frame whose worker restarts in the same rest is granted no second picture; a trusted move allows one again", async () => {
+    const h = late(700);
+    h.clear();
+    status(h, "ready");
+    await captureNow(h, 1);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 1 });
+    h.advance(POINTER_GRACE_MS);
+    status(h, "loading");
+    status(h, "ready");
+    expect(h.control.captureAllowedNow()).toBe(false);
+    await captureNow(h, 2);
+    expect(h.answer()).toMatchObject({ kind: "capture-failed", requestId: 2, reason: NOT_POINTING });
+    h.hover();
+    status(h, "loading");
+    h.advance(POINTER_GRACE_MS + 1);
+    status(h, "ready");
+    await captureNow(h, 3);
+    expect(h.answer()).toMatchObject({ kind: "frame", requestId: 3 });
   });
 
   it("a pointer that just moved is told without restedMs", () => {
