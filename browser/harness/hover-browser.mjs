@@ -384,7 +384,7 @@ async function extensionWorker(ext) {
   return target.worker();
 }
 
-/** Set a stored setting as the popup does (chrome.storage.local), from the extension's background.
+/** Set a stored setting as the popup does (the extension's local storage area), from the extension's background.
  *  If the worker stops between finding it and using it, the next one is tried once. */
 async function setStored(ext, key, value) {
   for (let attempt = 1; ; attempt += 1) {
