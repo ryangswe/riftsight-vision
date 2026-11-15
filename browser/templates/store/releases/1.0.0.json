@@ -6,5 +6,6 @@
     "approvalNotes": "1.0.0/amo-approval-notes.md"
   },
   "permissionsChanged": false,
-  "before": [{ "url": "https://cdn.example.org/data/details-1.json", "why": "the details file this version reads" }]
+  "before": [{ "url": "https://cdn.example.org/data/details-1.json", "why": "the details file this version reads" }],
+  "expect": [{ "url": "https://cdn.example.org/data/config.json", "file": "1.0.0/live-config.json", "why": "the live settings file" }]
 }

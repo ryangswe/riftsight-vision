@@ -211,6 +211,7 @@ A release file:
 | `firefox.approvalNotes` | a file with the notes to Mozilla's reviewers |
 | `permissionsChanged` | true when the permission surface changed since the previous release |
 | `before` | `[{url, sha256?, why?}]`: what must be live before upload |
+| `expect` | `[{url, file or sha256, when?, why?}]`: addresses the [daily status check](#the-daily-status-check) expects to answer 200 with the bytes of `file` (a path beside the release file) or with this sha256, such as the live settings file; `when: "published"` waits until the version is public |
 
 `lint-baseline.json` is `{"warnings": [{"code", "file", "why"}]}`, one entry per accepted
 warning of `web-ext lint --output json` (`why` is for the reader). Start it from the last release
@@ -262,6 +263,50 @@ To adopt it, copy the template's `release-assets` job and the extra `check` opti
 paths into `.github/workflows/store-release.yml`, and have the product's build write the load-unpacked
 package to `out/` (name it with `--load-unpacked-zip`) if it has one. A product's `release-assets`
 job keeps `contents: write` at the job, not at the workflow.
+
+## The daily status check
+
+`store-upload.mjs status` and the template [`browser/templates/store-status.yml`](../browser/templates/store-status.yml)
+tell the maintainer when what the stores show is not what the repository says. It needs no
+credential: the workflow runs daily with `contents: read`, in no environment, and can read the repository and the two public addresses, nothing else.
+
+```
+node store-upload.mjs status --config store/store.config.json --releases store/releases \
+  [--state-in FILE] [--state-out FILE] [--summary FILE]
+```
+
+It takes the newest release file in `--releases` (files are named for their version; the order is
+by number, so `1.10.0` follows `1.9.0`) and reads each configured store's public version:
+
+- **Chrome:** the extension update service, `https://clients2.google.com/service/update2/crx`, asked
+  for the item without an installed version and with a very high `prodversion`, so that the
+  item's minimum browser version cannot hide it. It is what a browser itself asks, and it needs no
+  key. A staged rollout can show part of the audience the older version, and an item that is
+  restricted to testers or one domain may not be listed at all.
+- **Firefox:** `https://addons.mozilla.org/api/v5/addons/addon/<addon>/`, the add-on's
+  `current_version`.
+
+| What it finds | Result |
+| --- | --- |
+| a store shows the newest release file's version | passes |
+| a store shows an older version | passes, with a note: the version is in review or has not been submitted. No credential can tell the two apart, so a version that stays in review for days appears in the note every day |
+| a store lists no public version, and the product has no earlier release file | passes, with a note (the release is in review) |
+| a store lists no public version, and earlier release files exist | fails |
+| a store shows a newer version than the newest release file | fails |
+| a store's version went back since the previous run | fails (needs `--state-in`) |
+| an `expect` address does not answer 200, or its bytes differ | fails |
+| a store cannot be read (three tries) | fails |
+
+A failed scheduled run emails the repository's maintainers, so each failure is a fault to look at,
+not a reminder. The template keeps the previous run's versions in the Actions cache (the highest
+version seen per store; a bad reading does not lower it). After a rollback you made on purpose,
+delete that cache entry (Actions, Caches), or the check stays red. Without a cache the check still
+runs and notes that a version that went back cannot be told.
+
+To adopt it, copy the template to `.github/workflows/store-status.yml`, pin its actions to full
+commits as the file does, and add `expect` entries to the release file for the files that must be
+live (for example the remote settings file, with `file` pointing at the repository's copy).
+Nothing in it is a store credential, and the template names none.
 
 ## Credentials
 

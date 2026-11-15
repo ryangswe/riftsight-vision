@@ -33,6 +33,14 @@ break the public surface; this file names each break and how to migrate.
   and `browser/templates/store-release.yml` has a `release-assets` job that attaches them with
   `contents: write` and no store access. The template's actions are now pinned to full commits.
   See [docs/store-uploads.md](docs/store-uploads.md).
+- `store-upload.mjs status` is a daily check that needs no credential: it compares the newest
+  release file's version with the version the Chrome Web Store's update service and the
+  addons.mozilla.org add-on API show the public, and with the release file's new optional
+  `expect` entries (addresses that must hold a repository file's bytes, such as a live settings
+  file). A version still in review passes with a note; a store that shows a newer version, a
+  version that went back since the previous run, an address that differs or a store that cannot be
+  read fails. `browser/templates/store-status.yml` runs it daily with `contents: read` and no
+  environment. See [docs/store-uploads.md](docs/store-uploads.md#the-daily-status-check).
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of

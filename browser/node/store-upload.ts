@@ -26,6 +26,15 @@
 //     packages the record names (each checked against its recorded hash) and the record's two
 //     files into --out-dir and writes SHA256SUMS. The Firefox source archive is never copied.
 //
+//   node store-upload.mjs status --config store/store.config.json --releases store/releases
+//        [--state-in FILE] [--state-out FILE] [--summary FILE]
+//
+//     The daily check, with no credentials: the newest release file's version against the version
+//     each store shows the public (see store-status.ts), and the release file's `expect`
+//     addresses. Exit 0 when nothing is wrong, "in review" included (it is noted); 1 on a store
+//     that shows a newer version, a version that went back since the previous run, an address
+//     whose bytes differ or a store that cannot be read.
+//
 //   node store-upload.mjs upload --config … --release … --targets chrome,firefox --hashes FILE
 //        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]
 //        [--env-file FILE]
@@ -70,6 +79,7 @@ import {
 } from "./store-checks.js";
 import { chromeDecision, type ChromeItem, chromePublish, chromeStatus, chromeUpload, StoreError } from "./store-chrome.js";
 import { readEnvFile, serviceAccountToken } from "./store-google.js";
+import { readState, runStatus, writeState } from "./store-status.js";
 import {
   type PackageFact,
   RECORD_SCHEMA,
@@ -94,6 +104,8 @@ export interface Deps {
   /** Origins of the store APIs (tests). */
   chromeBase?: string;
   amoBase?: string;
+  /** The update service's address (tests). */
+  chromeUpdateBase?: string;
   /** Google's token address (tests). */
   googleTokenUrl?: string;
 }
@@ -469,6 +481,7 @@ const USAGE = `usage:
        --workflow FILE [--workflow FILE…] [--lint REPORT [--lint-baseline FILE]]
        [--hashes-out FILE] [--summary FILE] [--load-unpacked-zip Z]
        [--record-out FILE.json --vendor-manifest FILE [--facts FILE] [--commit SHA] [--run-id ID]]
+  node store-upload.mjs status --config FILE --releases DIR [--state-in FILE] [--state-out FILE] [--summary FILE]
   node store-upload.mjs assets --record FILE.json --dir DIR --out-dir DIR
   node store-upload.mjs upload --config FILE --release FILE --targets chrome,firefox --hashes FILE
        [--chrome-zip Z] [--firefox-zip Z] [--firefox-source S] [--precheck-only] [--summary FILE]
@@ -510,6 +523,9 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
         commit: { type: "string" },
         "run-id": { type: "string" },
         record: { type: "string" },
+        releases: { type: "string" },
+        "state-in": { type: "string" },
+        "state-out": { type: "string" },
         dir: { type: "string" },
         "out-dir": { type: "string" },
         help: { type: "boolean", short: "h", default: false },
@@ -518,6 +534,18 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
     if (values.help || !command) {
       deps.log(USAGE);
       return command ? 0 : 2;
+    }
+    if (command === "status") {
+      if (values["env-file"]) throw new Usage("--env-file is for upload: status uses no credentials");
+      if (!values.config || !values.releases) throw new Usage("status needs --config and --releases");
+      summaryPath = values.summary;
+      const { state, note } = readState(values["state-in"]);
+      const res = await runStatus({ config: readStoreConfig(values.config), releasesDir: values.releases, state }, deps);
+      if (note) res.lines.splice(2, 0, `Note: ${note}`, "");
+      for (const line of res.lines) deps.log(line);
+      if (values.summary) appendFileSync(values.summary, `${res.lines.join("\n")}\n`);
+      if (values["state-out"]) writeState(values["state-out"], res.state);
+      return res.problems.length === 0 ? 0 : 1;
     }
     if (command === "assets") {
       if (!values.record || !values.dir || !values["out-dir"]) throw new Usage("assets needs --record, --dir and --out-dir");
