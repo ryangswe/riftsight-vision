@@ -11,9 +11,10 @@
 //   dist/host-content.js, dist/host-compute.js, dist/host-settings.js  the shared hover host, one
 //                        self-contained file per realm (src/host/*-entry.ts, experimental; not part
 //                        of the public API): same purity as the two entries above, and no splitting
-//   dist/node/verify-release.mjs, package-zip.mjs, store-upload.mjs  Node tools for an extension's release
+//   dist/node/verify-release.mjs, package-zip.mjs, store-upload.mjs, realm-check.mjs  Node tools for an extension's release
 //                        scripts (node/): check a release folder or URL with the runtime above,
-//                        and write the store or release-page zip; platform node, ONNX Runtime external
+//                        write the store or release-page zip, and count the realm marks in a
+//                        product build (one runtime per realm); platform node, ONNX Runtime external
 //   dist/ort-wasm-*      ONNX Runtime Web's WebAssembly files and their loaders, copied from
 //                        node_modules; the worker fetches the pair it needs from its own folder
 //   dist/opencv.mjs,     OpenCV.js for the geometric stage, its WebAssembly and its license
@@ -74,6 +75,7 @@ await build({
     "verify-release": join(root, "node/verify-release.ts"),
     "package-zip": join(root, "node/package-zip.ts"),
     "store-upload": join(root, "node/store-upload.ts"),
+    "realm-check": join(root, "node/realm-check.ts"),
   },
   outdir: join(dist, "node"),
   outExtension: { ".js": ".mjs" },

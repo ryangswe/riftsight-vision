@@ -80,7 +80,9 @@ break the public surface; this file names each break and how to migrate.
   `dist/host-settings.js`, with declaration shims, built beside the runtime without changing any
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
-  are frozen; its behavior is not written yet, so each function throws "not implemented yet".
+  are frozen. `productConfigError` checks a raw product config (types, required and unknown keys,
+  the tag by the messages' own rule, extension paths for the two frames, colors, booleans) and
+  names the field that is wrong.
 - The shared hover host's settings core and switches (experimental, not part of the public API):
   `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
   the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
@@ -99,6 +101,17 @@ break the public surface; this file names each break and how to migrate.
   [docs/hover-spec.md](docs/hover-spec.md) it carries out. `tests/test_hover_map.py` checks that
   every named file and symbol exists, every clause exists and every covered file is anchored. It
   checks names, not behavior.
+- Delivery checks for the shared hover host (experimental, not part of the public API): realm marks
+  and a clean-consumer type check. `browser/scripts/realm-marks.mjs` lists string literals that
+  say a module's code is in a built file; `test/realm-marks.test.ts` proves each occurs once in
+  every output that holds its module and nowhere else. `browser/node/realm-check.ts` counts the
+  marks in a product's built files and fails, naming the mark and the file, when one occurs twice
+  in a single file (a content script that bundles the capture entry beside the host's content
+  file, for example); a test builds that toy bundle. `test/host-types-consumer.test.ts` vendors the
+  host into an empty folder, type-checks an adapter and a compute entry that import only the
+  declaration shims under `strict`, and uses `@ts-expect-error` probes to show the types did not
+  collapse to `any`. The declarations reach `types/ort.d.ts`, so without `skipLibCheck` a product
+  that does not install `onnxruntime-web` sees one missing-module error there; the test pins that.
 
 ### Changed
 

@@ -1067,5 +1067,5 @@ Today: the toolkit's `npm run vendor` and `npm run vendor-check` (and the stand-
 write into the folder) do this; one product records the hashes of its vendored files with its own
 script and the other has no check, until each adopts the toolkit's tool.
 
-Test: `vendor.test.ts:461`, `vendor.test.ts:619`, `vendor.test.ts:796`
+Test: `vendor.test.ts:463`, `vendor.test.ts:621`, `vendor.test.ts:798`
 

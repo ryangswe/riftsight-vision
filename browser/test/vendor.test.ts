@@ -53,6 +53,7 @@ function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, ha
     "node/verify-release.mjs": `v ${tag}`,
     "node/package-zip.mjs": `p ${tag}`,
     "node/store-upload.mjs": `s ${tag}`,
+    "node/realm-check.mjs": `r ${tag}`,
     "THIRD-PARTY-NOTICES.txt": `notices ${tag}`,
     "cardvision.d.ts": `export * from "./types/index.js"; // ${tag}`,
     "compute-session.d.ts": `export * from "./types/compute-session.js"; // ${tag}`,
@@ -143,6 +144,7 @@ describe("vendoring a runtime", () => {
     const into = join(temp(), "v");
     const manifest = vendor(kit, into, COMMIT_A, { nodeTools: true, opencv: false, ortWasm: false });
     expect(Object.keys(manifest.files)).toContain("node/store-upload.mjs");
+    expect(Object.keys(manifest.files)).toContain("node/realm-check.mjs");
     expect(Object.keys(manifest.files).some((n) => n.startsWith("ort-wasm") || n.startsWith("opencv"))).toBe(false);
     expect(manifest.opencv).toBeNull();
     expect(manifest.ort.files).toHaveLength(2);
