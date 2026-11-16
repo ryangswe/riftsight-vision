@@ -68,6 +68,24 @@ def test_the_parts_of_a_run_collect_each_test_once():
     assert sorted(test for part in parts for test in part) == sorted(everything)
 
 
+def test_a_part_runs_its_longest_files_first_and_the_tests_of_a_file_in_their_own_order():
+    seconds = shards.load_seconds()
+    done = collect("--shard", "1/1", "labeler", "tests/test_shards.py")
+    assert done.returncode == 0, done.stdout + done.stderr
+    tests = [line for line in done.stdout.splitlines() if "::" in line]
+    files = [test.split("::")[0] for test in tests]
+    order = list(dict.fromkeys(files))
+    assert len(order) > 2
+    # Each file's tests together, the files from the longest down.
+    assert files == [name for name in order for _ in range(files.count(name))]
+    costs = [shards.cost(name, seconds) for name in order]
+    assert costs == sorted(costs, reverse=True) and costs[0] > costs[-1]
+    # Within a file, the order pytest collects.
+    whole = [line for line in collect("labeler", "tests/test_shards.py").stdout.splitlines() if "::" in line]
+    assert all([test for test in tests if test.startswith(name + "::")]
+               == [test for test in whole if test.startswith(name + "::")] for name in order)
+
+
 def test_a_shard_that_names_no_part_stops_the_run_before_any_test():
     done = collect("--shard", "3/2", "tests/test_shards.py")
     assert done.returncode == pytest.ExitCode.USAGE_ERROR
@@ -81,6 +99,8 @@ def test_the_tests_workflow_runs_every_part_of_every_version_and_names_each_chec
     text = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
     counts = re.findall(r"--shard \$\{\{ matrix\.part \}\}/(\d+)\n", text)
     assert len(counts) == 1
+    # Without it, pytest-xdist would hand out the files by their number of tests, not longest first.
+    assert re.search(r"--no-loadscope-reorder .*--shard \$\{\{ matrix\.part \}\}/", text)
     parts = int(counts[0])
     assert parts >= 2
     listed = ", ".join(str(part) for part in range(1, parts + 1))

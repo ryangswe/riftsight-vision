@@ -31,7 +31,8 @@ def _loopback(address) -> bool:
 
 def pytest_addoption(parser):
     parser.addoption("--shard", metavar="K/N", default=None,
-                     help="run part K of N: whole test files, the parts of about the same time (tests/shards.py)")
+                     help="run part K of N: whole test files, longest first, the parts of about the same time "
+                          "(tests/shards.py)")
 
 
 def pytest_configure(config):
@@ -44,7 +45,8 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """With ``--shard K/N``, keep the tests of the files in part K and deselect the others."""
+    """With ``--shard K/N``, keep the tests of the files in part K, longest file first, and
+    deselect the others."""
     spec = config.getoption("shard")
     if spec is None:
         return
@@ -53,8 +55,12 @@ def pytest_collection_modifyitems(config, items):
     def file_of(item) -> str:
         return item.path.relative_to(config.rootpath).as_posix()
 
-    mine = shards.deal({file_of(item) for item in items}, shards.load_seconds(), parts)[part - 1]
-    kept = [item for item in items if file_of(item) in mine]
+    seconds = shards.load_seconds()
+    mine = shards.deal({file_of(item) for item in items}, seconds, parts)[part - 1]
+    # The long files start first and the short ones fill in after them, so the workers finish at
+    # about the same time. The sort is stable: the tests of a file keep their order.
+    kept = sorted((item for item in items if file_of(item) in mine),
+                  key=lambda item: -shards.cost(file_of(item), seconds))
     others = [item for item in items if file_of(item) not in mine]
     if others:
         config.hook.pytest_deselected(items=others)

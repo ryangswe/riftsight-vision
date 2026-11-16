@@ -17,10 +17,12 @@
 #
 # Each Python version runs in two parts, on two runners at the same time: `--shard 1/2` and
 # `--shard 2/2` (tests/shards.py). The parts split the test files between them, so that
-# together they run every test once. The job named after the version, "Python 3.11" and so on,
-# passes only when both of its parts passed; those are the names the checks of a pull request
-# go by. The steps are written once, under the first version, and the other versions repeat them
-# (`steps: *steps`).
+# together they run every test once. Each part runs its longest files first, so that its last
+# files are short and the workers finish together; --no-loadscope-reorder keeps that order,
+# which pytest-xdist would otherwise change to the number of tests per file. The job named
+# after the version, "Python 3.11" and so on, passes only when both of its parts passed; those
+# are the names the checks of a pull request go by. The steps are written once, under the
+# first version, and the other versions repeat them (`steps: *steps`).
 #
 # After the tests, the first part of each version also runs the lint, with ruff at the version requirements-lint.txt pins
 # and the bug-finding rules in pyproject.toml.
@@ -73,7 +75,7 @@ jobs:
           python -m pip install --require-hashes -r requirements-lock.txt
           python -m pip install --no-deps -e .
       - name: Run the tests
-        run: python -m pytest -n auto --dist loadfile --durations=20 --shard ${{ matrix.part }}/2
+        run: python -m pytest -n auto --dist loadfile --no-loadscope-reorder --durations=20 --shard ${{ matrix.part }}/2
       - name: Install the pinned lint
         if: matrix.part == 1
         run: python -m pip install --require-hashes -r requirements-lint.txt
