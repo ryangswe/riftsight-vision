@@ -238,7 +238,7 @@ def test_art_can_come_from_a_url_prefix(full, toy, catalog, session):
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     except OSError:
         pytest.skip("cannot open a local socket here")
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     try:
         base_url = f"http://127.0.0.1:{server.server_address[1]}/"

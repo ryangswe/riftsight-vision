@@ -88,7 +88,7 @@ def served(directory: Path):
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     except OSError:
         pytest.skip("cannot open a local socket here")
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}/"
     finally:
