@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// The comparison the Browser runtime workflow makes between a pull request's build and its merge
-// base's (scripts/runtime-hashes.mjs). Fixtures only; no build, no network.
+// The comparison of the five runtime files between two builds (scripts/runtime-hashes.mjs).
+// Fixtures only; no build, no network.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

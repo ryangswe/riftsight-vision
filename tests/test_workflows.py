@@ -595,16 +595,6 @@ def test_publish_installs_the_uploaded_version_from_the_index_with_read_only_pow
 
 
 # ---------------------------------------------------------------------------------- browser.yml
-def test_the_runtime_hash_step_runs_only_for_pull_requests_into_the_hover_host_branch():
-    """The step proves that the host work leaves the five runtime files alone. A pull request
-    into main may change them on purpose, and a push has no merge base to compare with."""
-    steps = steps_of("browser.yml")
-    step = steps["Check that the five runtime files match the merge base's build"]
-    assert step["if"] == "github.event_name == 'pull_request' && startsWith(github.base_ref, 'standard-hover/t8')"
-    assert "node browser/scripts/runtime-hashes.mjs" in step["run"] and "git merge-base" in step["run"]
-    assert steps["Build"]["if"] == ""
-
-
 def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_and_no_secrets():
     """The job builds the fixture twice, runs the hover browser test and the rollback check on
     it in a pinned Chrome for Testing, and keeps the reports. It reads the repository and nothing else."""

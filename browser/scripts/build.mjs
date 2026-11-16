@@ -58,7 +58,7 @@ await build({
 });
 // The shared hover host: one self-contained file per realm. Each build() call bundles its entries
 // independently, so the outputs above do not change while no module in their import graphs does
-// (the Browser runtime workflow compares their hashes with the merge base's).
+// (scripts/runtime-hashes.mjs compares them between two builds).
 await build({
   ...shared,
   entryPoints: {
