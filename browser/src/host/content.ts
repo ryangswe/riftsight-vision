@@ -87,6 +87,7 @@ export function startHostContent(env: HostContentEnv): HostContent {
   let displayed: ShownCard | null = null;
   let hideTimer: unknown = null;
   let layoutFrame: number | null = null;
+  let layoutPending = false;
   let loadError: string | null = null;
 
   const pick = createVideoPick({ doc, now, onChange: (video) => follow(video) });
@@ -371,11 +372,15 @@ export function startHostContent(env: HostContentEnv): HostContent {
   /** The window was resized or scrolled, or the video's box changed: while a card is shown,
    *  place it and its outline again, at most once an animation frame. */
   function onLayout(): void {
-    if (stopped || displayed === null || layoutFrame !== null) return;
-    layoutFrame = win.requestAnimationFrame(() => {
+    if (stopped || displayed === null || layoutPending) return;
+    // Set before the call: a scheduler that runs the callback at once must find it set, then clear it.
+    layoutPending = true;
+    const handle = win.requestAnimationFrame(() => {
+      layoutPending = false;
       layoutFrame = null;
       if (displayed && followed) showCard(displayed);
     });
+    if (layoutPending) layoutFrame = handle;
   }
 
   /** A scroll that can move the video: the page's own, or a box holding the player. Others (a
@@ -407,6 +412,9 @@ export function startHostContent(env: HostContentEnv): HostContent {
     // Both frames there: nothing more to do (the control measures the picture itself; a second
     // measure per move would only cost the page a layout).
     if (lifecycle.phase === "live" && frames.compute && frames.view) return;
+    // Idle: the reducer leaves a move unchanged whatever it is over (the control makes the frames
+    // on the next move over the picture), so the measure would only cost the page a layout.
+    if (lifecycle.phase === "idle") return;
     const overPicture = video !== null && fractionIn(pictureOf(video), e.clientX, e.clientY) !== null;
     dispatch({ type: "pointer", trusted: true, overPicture }, undefined, factsWith(policy, video));
   };
@@ -494,6 +502,7 @@ export function startHostContent(env: HostContentEnv): HostContent {
       removeFrames();
       if (layoutFrame !== null) win.cancelAnimationFrame(layoutFrame);
       layoutFrame = null;
+      layoutPending = false;
       follow(null);
       pick.clear();
       stopListening();

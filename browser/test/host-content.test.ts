@@ -585,6 +585,19 @@ describe("the shown card and its outline", () => {
     r.doc.fire("scroll", { target: r.doc.createElement("div") });
     expect(r.win.frames.size).toBe(0);
   });
+
+  it("a scheduler that runs the callback at once still lets the second and third relayout through", async () => {
+    const r = await showing();
+    r.win.requestAnimationFrame = (fn: () => void): number => {
+      fn();
+      return 7;
+    };
+    const before = r.shows().length;
+    r.host.relayout();
+    r.host.relayout();
+    r.host.relayout();
+    expect(r.shows()).toHaveLength(before + 3);
+  });
 });
 
 // ---------------------------------------------------------------------- frames remade
@@ -703,6 +716,27 @@ describe("frames made again", () => {
     expect(r.names().at(-1)).toBe("detach");
     r.playing(); // a looping clip does not undo an idle removal (S-A6)
     expect(r.iframes()).toHaveLength(0);
+    r.move(700, 400);
+    expect(r.iframes()).toHaveLength(2);
+    expect(r.host.state).toBe("live");
+    expect(r.computeWindow()!.kinds().filter((k) => k === "hello")).toHaveLength(1);
+  });
+
+  it("idle: a move measures the picture once (the control's), not twice; the next move over it still makes the frames once", async () => {
+    const r = await showing();
+    r.shown(null);
+    r.advance(HIDE_DELAY_MS);
+    r.status("idle");
+    let measures = 0;
+    const measure = r.video.getBoundingClientRect.bind(r.video);
+    r.video.getBoundingClientRect = () => {
+      measures += 1;
+      return measure();
+    };
+    r.move(1400, 800); // off the picture
+    expect(measures).toBe(1);
+    expect(r.iframes()).toHaveLength(0);
+    measures = 0;
     r.move(700, 400);
     expect(r.iframes()).toHaveLength(2);
     expect(r.host.state).toBe("live");
