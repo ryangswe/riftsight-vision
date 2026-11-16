@@ -813,9 +813,25 @@ def test_the_run_step_reports_every_step_and_fails_when_one_fails(tmp_path):
     shown = summary.read_text(encoding="utf-8")
     assert done.returncode == 1 and (product / "ran.txt").exists()
     assert "example/product at 0123456789ab: 1 of 3 step(s) failed" in shown
-    assert "| `echo fine` | passed |" in shown and "| `exit 3` | failed (3) |" in shown
+    assert "| <code>echo fine</code> | passed |" in shown and "| <code>exit 3</code> | failed (3) |" in shown
     done = canary("run", str(product), STEPS=json.dumps(["true"]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(tmp_path / "ok.md"))
     assert done.returncode == 0
+
+
+@needs_node
+def test_a_step_is_written_into_the_summary_table_as_text(tmp_path):
+    """A backslash, a pipe, markup or a line break in a step's command cannot end its cell,
+    escape the next character or become HTML: each is written as an entity inside <code>."""
+    summary = tmp_path / "summary.md"
+    product = tmp_path / "product"
+    product.mkdir()
+    import json
+
+    step = "echo 'a\\|b <i>c</i> & `d`'\ntrue"
+    done = canary("run", str(product), STEPS=json.dumps([step]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(summary))
+    assert done.returncode == 0
+    row = next(line for line in summary.read_text(encoding="utf-8").splitlines() if line.startswith("| <code>"))
+    assert row == "| <code>echo &#39;a&#92;&#124;b &#60;i&#62;c&#60;/i&#62; &#38; &#96;d&#96;&#39; true</code> | passed |"
 
 
 def test_the_canary_skip_criteria_are_wired_through_the_marker():
