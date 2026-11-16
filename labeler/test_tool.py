@@ -71,7 +71,7 @@ class Base(unittest.TestCase):
         cls.sample.write_text(json.dumps({"assets": [{"assetId": "vidA", "frames": [{"t": 0, "name": "f00001.png"}, {"t": 1, "name": "f00002.png"}]}]}))
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
         cls.port = cls.server.server_address[1]
-        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        threading.Thread(target=cls.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
 
     @classmethod
     def tearDownClass(cls):
