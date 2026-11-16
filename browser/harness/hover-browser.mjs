@@ -613,6 +613,8 @@ try {
         behind = await openPage(browser);
         await video.seek(behind, 3, true);
         await page.bringToFront();
+        // Chrome may pause a video that goes behind: it plays on, behind the first tab, at switch-on.
+        await behind.evaluate(() => document.querySelector("video").play());
       }
       await setStored(ext, PRODUCT.keys.enabled, true);
       await page.bringToFront();
@@ -620,11 +622,15 @@ try {
       if (behind) {
         // Switched on, the tab in front loads at once; the tab behind waits for the front and loads then.
         const hidden = (await behind.evaluate(() => document.visibilityState)) === "hidden";
+        const behindPlaying = await behind.evaluate(() => {
+          const v = document.querySelector("video");
+          return !v.paused && !v.ended;
+        });
         await sleep(1500);
         const behindFrames = await extensionFrames(behind);
         await behind.bringToFront();
         const fronted = await until(async () => ((await extensionFrames(behind)).length === 2 ? true : null), 10_000);
-        record("on-while-playing-loads", back === true && hidden && behindFrames.length === 0 && fronted === true, { front: back === true, hidden, behindFrames, behindAtFront: Boolean(fronted) });
+        record("on-while-playing-loads", back === true && hidden && behindPlaying && behindFrames.length === 0 && fronted === true, { front: back === true, hidden, behindPlaying, behindFrames, behindAtFront: Boolean(fronted) });
         await behind.close();
         await page.bringToFront();
       }

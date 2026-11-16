@@ -22,6 +22,11 @@ break the public surface; this file names each break and how to migrate.
   any content-security-policy violation in any page, frame or worker, counts refused `postMessage`
   calls, reports the time from the compute page's load to the first message from the page, and takes
   an `unsupported` list in a product module: a check its stand-in cannot support, with the reason.
+  Two of its checks are stricter. `frames-at-play` (S-A1) removes both frames as a page script
+  would, makes up `playing` events on the playing video and expects no frames, then plays for real
+  and expects them back (S-A10). `on-while-playing-loads` (S-A7) has a second tab playing behind the
+  first when hovers are switched on, and expects no frames there until it comes to the front, then
+  both. A product's run may fail either check where its build does not yet follow these clauses.
 - The shared hover host's content realm (experimental, not part of the public API):
   `startHostContent` in `browser/src/host/content.ts`, with the view frame handle in
   `browser/src/host/view.ts`. It follows the main video, wires the capture control, makes and
