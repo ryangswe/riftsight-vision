@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "paths": {
+      "@cardvision/host-content": ["../dist/host-content.d.ts"],
+      "@cardvision/host-compute": ["../dist/host-compute.d.ts"],
+      "@cardvision/host-settings": ["../dist/host-settings.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

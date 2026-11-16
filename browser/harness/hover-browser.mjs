@@ -35,8 +35,17 @@
 // table in clauses.mjs. An expected failure is listed in the product module with the old value,
 // the intended value and what removes it, and, where it fails only under a timing condition, that
 // condition (it must pass when the condition does not hold).
-// A setup failure, a timeout, a crash, a missing NetLog or a network violation is never an
-// expected failure. A listed check that passes is an unexpected pass and fails the run, so the
+// A check the product's stand-in cannot support is listed in the module's `unsupported` with the
+// reason: it is recorded as `unsupported`, not run as a check, and the run's output and report.json
+// give the reason. It has no unexpected-pass signal, so the list is reviewed with the
+// stand-in; a part of it that the stand-in can run is run as a diagnostic under `counts`. A setup
+// failure, a timeout, a crash, a missing NetLog, a network violation or a content-security-policy
+// violation is never an expected failure or an unsupported check.
+// `frames-at-play` covers two clauses: S-A1 (the frames at play) and, in its made-up `playing` step,
+// S-A10 (frames the page removed come back at a real play). A product that expects only the second
+// to fail lists it with a `when` that leaves the first covered, for example
+// `when: (d) => d.atPlay && d.beforePlay.length === 0`, so that a failure of S-A1 is not hidden.
+// A listed expected failure that passes is an unexpected pass and fails the run, so the
 // list is reviewed. Without --only, every check must have run.
 
 import { execFileSync } from "node:child_process";
@@ -49,6 +58,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "./clauses.mjs";
+import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
 import { productProblems, SLOTS } from "./product-shape.mjs";
 import { startServer } from "./serve.mjs";
@@ -86,7 +96,8 @@ const distDir = values.dist ?? (PRODUCT.dist ? fileURLToPath(PRODUCT.dist) : nul
 if (!distDir) usage("missing --dist (the product module names no default build folder)");
 const only = values.only ? new Set(values.only.split(",")) : null;
 if (only) for (const id of only) if (!CHECKS.includes(id)) usage(`--only: no check ${id}`);
-const want = (id) => !only || only.has(id);
+const unsupported = PRODUCT.unsupported ?? {};
+const want = (id) => (!only || only.has(id)) && !(id in unsupported);
 if (!values["dist-idle"] && IDLE_CHECKS.some(want)) usage("--dist-idle is needed for the idle checks (or leave them out with --only)");
 const repoRoot = fileURLToPath(PRODUCT.root);
 if (!relative(repoRoot, resolve(values.art)).startsWith("..")) usage("--art must be outside the product's repository: card art is never committed");
@@ -213,10 +224,16 @@ async function launch(dist, profile, netlog) {
     defaultViewport: { width: 1360, height: 900 },
   });
   browsers.add(browser);
+  watchConsole(browser, { policy: policyViolations, origin: originMismatches });
   chromeVersion = await browser.version();
   const sw = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().startsWith("chrome-extension://"), { timeout: 20_000 });
   return { browser, ext: { browser, origin: sw.url().split("/").slice(0, 3).join("/") } };
 }
+
+/** Browser messages about a content-security-policy violation (any page, frame or worker; one fails
+ *  the run) and about a postMessage refused for its target origin (reported), from console-watch.mjs. */
+const policyViolations = [];
+const originMismatches = [];
 
 /** Open the test page with the clip paused at the start. */
 async function openPage(browser) {
@@ -412,6 +429,12 @@ function record(id, ok, detail) {
   log(`check ${outcome}`, { id, clause, ...detail });
 }
 
+for (const [id, reason] of Object.entries(unsupported)) {
+  if (only && !only.has(id)) continue;
+  results.push({ id, clause: CLAUSES[id], outcome: "unsupported", detail: { reason } });
+  log("check unsupported", { id, clause: CLAUSES[id], reason });
+}
+
 const clipPath = renderClip();
 const server = await startServer({ video: clipPath, port: 0 });
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
@@ -449,9 +472,43 @@ try {
       log("compute", { state: ready?.state ?? null, backend: ready?.backend ?? null });
       if (!ready) throw new Error("setup: the compute frame never became ready");
       counts.backend = ready.backend;
+      // The compute page's own times (epoch ms), when its debug record has them: its load event, and
+      // the first message from the page (the content script's hello).
+      if (Number.isFinite(ready.loadedAt) && Number.isFinite(ready.helloAt)) counts.helloMinusLoadMs = Math.round(ready.helloAt - ready.loadedAt);
       await sleep(3000);
       const analyzedBeforePointer = (await computeDebug(page))?.analyzed ?? -1;
-      if (want("frames-at-play")) record("frames-at-play", beforePlay.length === 0 && atPlay === true, { beforePlay, atPlay: Boolean(atPlay) });
+      // A page script removes both frames and then makes up `playing` events on the playing video:
+      // nothing is made (S-A1). A real `playing` (a pause and a play) makes them again (S-A10).
+      let fakePlay = null;
+      if (want("frames-at-play") && atPlay) {
+        // Early in the clip, so that its loop cannot make a real `playing` inside the window below;
+        // any real `playing` there is a setup error.
+        await video.seek(page, 1, true);
+        await sleep(800);
+        await page.evaluate(() => {
+          window.__realPlays = 0;
+          document.addEventListener("playing", (e) => (window.__realPlays += e.isTrusted ? 1 : 0), true);
+        });
+        await page.evaluate((names) => {
+          for (const f of document.querySelectorAll("iframe")) if (names.includes(f.src.split("/").at(-1))) f.remove();
+        }, Object.values(PRODUCT.frames));
+        await page.evaluate(() => {
+          const v = document.querySelector("video");
+          for (let i = 0; i < 3; i += 1) v.dispatchEvent(new Event("playing"));
+        });
+        await sleep(1500);
+        const afterFake = await extensionFrames(page);
+        if ((await page.evaluate(() => window.__realPlays)) > 0) throw new Error("setup: a real `playing` event came inside the made-up one's window");
+        await page.evaluate(async () => {
+          const v = document.querySelector("video");
+          v.pause();
+          await v.play();
+        });
+        const remade = await until(async () => ((await extensionFrames(page)).length === 2 ? true : null), 10_000);
+        if (remade) await until(async () => ((await computeDebug(page))?.state === "ready" ? true : null), 60_000, 250);
+        fakePlay = { afterFake, remade: Boolean(remade) };
+      }
+      if (want("frames-at-play")) record("frames-at-play", beforePlay.length === 0 && atPlay === true && fakePlay?.afterFake.length === 0 && fakePlay.remade, { beforePlay, atPlay: Boolean(atPlay), fakePlay });
       if (want("no-capture-before-pointer")) record("no-capture-before-pointer", analyzedBeforePointer === 0, { analyzedBeforePointer });
 
       // A named card's picture, and its outline.
@@ -545,10 +602,37 @@ try {
       const framesOff = await extensionFrames(page);
       const fetchedOff = standIn.requests.slice(reqBefore).filter((r) => r.path !== settingsUrl.pathname);
       if (want("off-means-off")) record("off-means-off", gone === true && framesOff.length === 0 && fetchedOff.length === 0, { framesOff, fetchedOff });
+      // A second tab plays the same page while hovers are off, then goes behind the first (S-A7).
+      let behind = null;
+      if (want("on-while-playing-loads")) {
+        behind = await openPage(browser);
+        await video.seek(behind, 3, true);
+        await page.bringToFront();
+        // Chrome may pause a video that goes behind: it plays on, behind the first tab, at switch-on.
+        await behind.evaluate(() => document.querySelector("video").play());
+      }
       await setStored(ext, PRODUCT.keys.enabled, true);
       await page.bringToFront();
       const back = await until(async () => ((await extensionFrames(page)).length === 2 ? true : null), 5000);
-      if (want("on-while-playing-loads")) record("on-while-playing-loads", back === true, {});
+      if (behind) {
+        // Switched on, the tab in front loads at once; the tab behind waits for the front and loads then.
+        // The tab behind must really be hidden and its video really playing, or the check proves
+        // nothing: a setup that is not so is a setup error, never part of the result.
+        const hidden = (await behind.evaluate(() => document.visibilityState)) === "hidden";
+        if (!hidden) throw new Error("setup: the second tab is not hidden at switch-on");
+        const behindPlaying = await behind.evaluate(() => {
+          const v = document.querySelector("video");
+          return !v.paused && !v.ended;
+        });
+        if (!behindPlaying) throw new Error("setup: the video in the second tab is not playing at switch-on");
+        await sleep(1500);
+        const behindFrames = await extensionFrames(behind);
+        await behind.bringToFront();
+        const fronted = await until(async () => ((await extensionFrames(behind)).length === 2 ? true : null), 10_000);
+        record("on-while-playing-loads", back === true && behindFrames.length === 0 && fronted === true, { front: back === true, hidden, behindPlaying, behindFrames, behindAtFront: Boolean(fronted) });
+        await behind.close();
+        await page.bringToFront();
+      }
 
       // A second tab of the same page while the first plays on: one pointer move over its paused
       // video, then the pointer rests, and the card is named.
@@ -705,13 +789,17 @@ function finish() {
   counts.hosts = hostsSeen;
   const missing = only ? [] : CHECKS.filter((id) => !results.some((r) => r.id === id));
   const failed = results.filter((r) => r.outcome === "fail" || r.outcome === "unexpected-pass");
+  counts.originMismatches = originMismatches.length;
   const manifest = JSON.parse(readFileSync(join(resolve(distDir), "manifest.json"), "utf-8"));
   const report = {
     product: PRODUCT.name,
-    passed: !fatal && violations.length === 0 && failed.length === 0 && missing.length === 0 && results.length > 0,
+    passed: !fatal && violations.length === 0 && policyViolations.length === 0 && failed.length === 0 && missing.length === 0 && results.length > 0,
     fatal,
     missing,
     violations,
+    policyViolations,
+    originMismatches,
+    unsupported: Object.entries(unsupported).filter(([id]) => !only || only.has(id)).map(([id, reason]) => ({ id, clause: CLAUSES[id], reason })),
     exemptChromeOwn: exempt,
     results,
     counts,
@@ -726,8 +814,9 @@ function finish() {
     durationMs: Date.now() - startedAt,
   };
   writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2));
-  console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}`).join("\n")}`);
+  console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}${r.outcome === "unsupported" ? ` (${r.detail.reason})` : ""}`).join("\n")}`);
   if (missing.length) console.log(`missing (never ran): ${missing.join(", ")}`);
+  console.log(`policy: ${policyViolations.length} content-security-policy violation(s); ${originMismatches.length} refused postMessage(s)`);
   console.log(`network: ${violations.length} violation(s), ${exempt.length} of Chrome's own exempt; hosts ${JSON.stringify(hostsSeen)}`);
   console.log(`counts: ${JSON.stringify(counts)}`);
   console.log(`${report.passed ? "PASS" : "FAIL"} in ${(report.durationMs / 1000).toFixed(0)} s on ${chromeVersion}; report ${join(out, "report.json")}`);

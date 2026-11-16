@@ -29,6 +29,16 @@ export function productProblems(product, checkIds) {
   if (!isObject(p.expectedFail)) problems.push("expectedFail is not an object");
   else for (const id of Object.keys(p.expectedFail)) if (!checkIds.includes(id)) problems.push(`expectedFail names no check ${id}`);
   if (!(p.root instanceof URL)) problems.push("root is not a URL (the product's repository root: --art must be outside it)");
+  if (p.unsupported !== undefined) {
+    if (!isObject(p.unsupported)) problems.push("unsupported is not an object");
+    else {
+      for (const [id, reason] of Object.entries(p.unsupported)) {
+        if (!checkIds.includes(id)) problems.push(`unsupported names no check ${id}`);
+        else if (!isString(reason)) problems.push(`unsupported ${id} has no reason`);
+        else if (isObject(p.expectedFail) && id in p.expectedFail) problems.push(`${id} is both unsupported and an expected failure`);
+      }
+    }
+  }
   if (p.dist !== undefined && !(p.dist instanceof URL)) problems.push("dist is not a URL");
   return problems;
 }

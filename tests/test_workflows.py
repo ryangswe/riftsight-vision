@@ -605,6 +605,23 @@ def test_the_runtime_hash_step_runs_only_for_pull_requests_into_the_hover_host_b
     assert steps["Build"]["if"] == ""
 
 
+def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_and_no_secrets():
+    """The job builds the fixture twice, runs the hover browser test and the rollback check on
+    it in a pinned Chrome for Testing, and keeps the reports. It reads the repository and nothing else."""
+    text = (WORKFLOWS / "browser.yml").read_text(encoding="utf-8")
+    job = text[text.index("\n  host-browser:"):]
+    assert re.search(r"^permissions:\n  contents: read\n", text, re.M) and "secrets." not in text and "pull_request_target" not in text
+    assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)
+    assert "persist-credentials: false" in job
+    assert "puppeteer-core@25.17.0" in job and "chrome@157.0.8103.78" in job and "@puppeteer/browsers@3.2.7" in job
+    assert "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in job and "apt-get install -y -qq ffmpeg" in job
+    assert job.count("node scripts/build-fixture.mjs") == 2 and "--idle-unload-ms" in job
+    assert "node harness/hover-browser.mjs --product fixture-extension/product.mjs" in job
+    assert "node harness/rollback-check.mjs --product fixture-extension/product.mjs" in job
+    assert "if: always()" in job and "actions/upload-artifact@" in job
+    assert "if: ${{ !cancelled() && steps.fixture-build.outcome == 'success' && steps.chrome-install.outcome == 'success' }}" in job and "--version 0.0.2" in job
+
+
 # ------------------------------------------------------------------------------ canary.yml
 CANARY = ROOT / "browser" / "scripts" / "canary.mjs"
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="the canary helper is a Node script")

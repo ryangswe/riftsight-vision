@@ -59,6 +59,14 @@ describe("the product module", () => {
     expect(productProblems({ ...example, config: "file.json" }, CHECKS)).toEqual(["config is not a URL (the product's config file)"]);
     expect(productProblems(null, CHECKS)).toEqual(["the module's default export is not an object"]);
   });
+
+  it("takes unsupported checks only with a reason, for a check that exists and is not also an expected failure", () => {
+    expect(productProblems({ ...example, unsupported: { "cached-reload": "no picture request can be made" } }, CHECKS)).toEqual([]);
+    expect(productProblems({ ...example, unsupported: { "no-such-check": "x" } }, CHECKS)).toEqual(["unsupported names no check no-such-check"]);
+    expect(productProblems({ ...example, unsupported: { "cached-reload": "" } }, CHECKS)).toEqual(["unsupported cached-reload has no reason"]);
+    expect(productProblems({ ...example, unsupported: "cached-reload" }, CHECKS)).toEqual(["unsupported is not an object"]);
+    expect(productProblems({ ...example, expectedFail: { "cached-reload": {} }, unsupported: { "cached-reload": "x" } }, CHECKS)).toEqual(["cached-reload is both unsupported and an expected failure"]);
+  });
 });
 
 describe("the clip's layer order", () => {

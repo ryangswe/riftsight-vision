@@ -50,6 +50,14 @@ export default {
     D: { x: 152, y: 262, from: 8 },
   },
   /** Checks expected to fail on this product's code, each until the change named fixes it:
-   *  { condition, old, intended, clearedBy } and an optional `when(detail, ok)` that limits it. */
+   *  { condition, old, intended, clearedBy } and an optional `when(detail, ok)` that limits it.
+   *  `frames-at-play` checks S-A1 and, in its made-up `playing` step, S-A10: a product that expects
+   *  only the S-A10 part to fail narrows it, e.g. `when: (d) => d.atPlay && d.beforePlay.length === 0`,
+   *  so that a failure of S-A1 is not hidden. */
   expectedFail: {},
+  /** Optional. Checks this product's stand-in cannot support, each with the reason: `{ "cached-reload":
+   *  "why" }`. They are not run as checks; the run's output and report.json list each with its
+   *  reason. An unsupported check has no unexpected-pass signal, so keep the list short and reviewed.
+   *  A setup failure is never unsupported. */
+  unsupported: {},
 };
