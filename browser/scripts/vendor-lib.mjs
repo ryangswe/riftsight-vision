@@ -50,7 +50,7 @@ export const HOST_SHIMS = ["host-content.d.ts", "host-compute.d.ts", "host-setti
 /** Where the harness sources are in a checkout, and where they go in the vendored folder. */
 export const HARNESS_SOURCE = ["browser", "harness"];
 export const HARNESS_DIR = "harness/";
-export const NODE_TOOLS = ["node/verify-release.mjs", "node/package-zip.mjs", "node/store-upload.mjs", "node/realm-check.mjs"];
+export const NODE_TOOLS = ["node/verify-release.mjs", "node/package-zip.mjs", "node/store-upload.mjs", "node/realm-check.mjs", "node/release-decide.mjs"];
 /** Every vendored folder lists these. */
 export const REQUIRED = ["cardvision.js", "worker.js", "compute-session.js", "page-capture.js", "remote-release.js", ...TYPE_SHIMS, "types/index.d.ts", CHECKER, ...LICENSE_FILES];
 /** What a vendored folder lists when its options say `host`. */

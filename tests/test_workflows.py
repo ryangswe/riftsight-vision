@@ -595,16 +595,6 @@ def test_publish_installs_the_uploaded_version_from_the_index_with_read_only_pow
 
 
 # ---------------------------------------------------------------------------------- browser.yml
-def test_the_runtime_hash_step_runs_only_for_pull_requests_into_the_hover_host_branch():
-    """The step proves that the host work leaves the five runtime files alone. A pull request
-    into main may change them on purpose, and a push has no merge base to compare with."""
-    steps = steps_of("browser.yml")
-    step = steps["Check that the five runtime files match the merge base's build"]
-    assert step["if"] == "github.event_name == 'pull_request' && startsWith(github.base_ref, 'standard-hover/t8')"
-    assert "node browser/scripts/runtime-hashes.mjs" in step["run"] and "git merge-base" in step["run"]
-    assert steps["Build"]["if"] == ""
-
-
 def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_and_no_secrets():
     """The job builds the fixture twice, runs the hover browser test and the rollback check on
     it in a pinned Chrome for Testing, and keeps the reports. It reads the repository and nothing else."""
@@ -614,6 +604,8 @@ def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_
     assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)
     assert "persist-credentials: false" in job
     assert "puppeteer-core@25.17.0" in job and "chrome@157.0.8103.78" in job and "@puppeteer/browsers@3.2.7" in job
+    # The install pipes into tee, so a failed download must fail this step, not a later one.
+    assert "set -euo pipefail" in job
     assert "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in job and "apt-get install -y -qq ffmpeg" in job
     assert job.count("node scripts/build-fixture.mjs") == 2 and "--idle-unload-ms" in job
     assert "node harness/hover-browser.mjs --product fixture-extension/product.mjs" in job

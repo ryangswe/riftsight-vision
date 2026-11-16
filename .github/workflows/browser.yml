@@ -28,8 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0 # the merge base's build below needs the history
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -50,28 +48,11 @@ jobs:
       - name: Build
         working-directory: browser
         run: npm run build
-      - name: Check that the five runtime files match the merge base's build
-        if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'standard-hover/t8')
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          # Only for pull requests into the hover host's work branch, where the host is built
-          # beside the runtime and never into it: build the pull request head and its merge base in
-          # two folders and compare the runtime files byte for byte. A change to main may move them.
-          mb=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
-          for side in head base; do
-            sha=$HEAD_SHA; [ "$side" = base ] && sha=$mb
-            git clone --quiet --no-checkout . "$RUNNER_TEMP/$side"
-            git -C "$RUNNER_TEMP/$side" checkout --quiet --detach "$sha"
-            (cd "$RUNNER_TEMP/$side/browser" && npm ci && node scripts/build.mjs)
-          done
-          node browser/scripts/runtime-hashes.mjs "$RUNNER_TEMP/base/browser/dist" "$RUNNER_TEMP/head/browser/dist"
-      - name: Run the built Node tools' tests (they need dist/)
+      - name: Run the tests that need the build (dist/)
         working-directory: browser
         env:
           CARDVISION_REQUIRE_BROWSER: "1"
-        run: npx vitest run test/verify-release.test.ts test/package-zip.test.ts test/bundle-purity.test.ts
+        run: npx vitest run test/verify-release.test.ts test/package-zip.test.ts test/bundle-purity.test.ts test/host-types-consumer.test.ts test/realm-marks.test.ts
       - name: Install the Python package's base lock
         run: |
           python -m pip install --require-hashes -r requirements-lock.txt
@@ -117,7 +98,7 @@ jobs:
       - name: Install Chrome for Testing, puppeteer-core and ffmpeg
         id: chrome-install
         run: |
-          set -eu
+          set -euo pipefail
           npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
           # Pinned, so a new Chrome release never changes a run on its own: move both pins together.
           npx --yes @puppeteer/browsers@3.2.7 install chrome@157.0.8103.78 --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"

@@ -11,125 +11,176 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
-- Documentation for the shared hover host: a guide for product authors in
-  [docs/extension-session.md](docs/extension-session.md#the-shared-hover-host) (the three files, the
-  view adapter, what the host owns, the realm check, the fixture and the harness), the host's files
-  in [docs/hover-map.md](docs/hover-map.md#1d-the-shared-hover-host), its experimental entry in
-  [docs/stability.md](docs/stability.md#experimental), and the host's tests as the `Test:` lines of
-  the clauses S-A2, S-A7, S-A8, S-A10, S-F1, S-F3, S-G1 to S-G5 and S-H1 to S-H3. S-A10 now says
-  that only the missing frame is made again, and that a card on show also makes the tooltip frame
-  again when it is shown or placed again (a new card, a scroll, a resize, a full-screen change or
-  the product's `relayout()`), also on an event the page dispatches; and S-H1 that a write applies
-  only when the state it reads as differs from the state in effect: removing a value that reads as
-  on changes nothing, and removing a stored `false` turns the switch on. Both state what the host
-  does.
-- A toy fixture extension for the shared hover host (`browser/fixture-extension/`, built by
-  `browser/scripts/build-fixture.mjs` against the built host files), the "Host browser test" job in
-  `.github/workflows/browser.yml`, and `browser/harness/rollback-check.mjs` (its two builds must
-  differ in manifest version, and each session first checks which one is running). The fixture is an
-  unpacked Manifest V3 extension with the strict extension-page policy, a small view adapter and a
-  view frame that measures itself; recognition is simulated by the toy release's stand-in models and
-  its art is the toy game's colored shapes. The job runs the hover browser test on it in a pinned
-  Chrome for Testing, then the rollback check (one build, then another on the same profile: frames at
-  play, the card's picture, the viewer's switches kept). The hover browser test now also fails on
-  any content-security-policy violation in any page, frame or worker (`harness/console-watch.mjs`),
-  counts refused `postMessage` calls, reports the time from the compute page's load to the first
-  message from the page, and takes an `unsupported` list in a product module: a check its stand-in
-  cannot support, listed with its reason in the run's output and in `report.json`. A product that
-  expects only the S-A10 part of `frames-at-play` to fail narrows its `expectedFail` with `when`.
-  Two of its checks are stricter. `frames-at-play` (S-A1) removes both frames as a page script
-  would, makes up `playing` events on the playing video and expects no frames, then plays for real
-  and expects them back (S-A10). `on-while-playing-loads` (S-A7) has a second tab playing behind the
-  first when hovers are switched on, and expects no frames there until it comes to the front, then
-  both. A product's run may fail either check where its build does not yet follow these clauses.
-- The shared hover host's content realm (experimental, not part of the public API):
-  `startHostContent` in `browser/src/host/content.ts`, with the view frame handle in
-  `browser/src/host/view.ts`. It follows the main video, wires the capture control, makes and
-  removes the two frames as the lifecycle reducer says, and shows the card through the product's
-  view adapter, which gets only a handle that places the view frame and posts to it, the layout,
-  the shown card and the data of messages already checked. Every trusted `playing` picks the main
-  video again; a pointer off an active page stops following it, and the next pointer back on one
-  picks at once. Any write of the switch is applied when it differs from the state in effect, and
-  a change during the start-up read wins ([docs/hover-spec.md](docs/hover-spec.md), S-H1). After
-  full screen or a view frame the page removed, the card on show is shown in the new frame at
-  once. Nothing calls it yet.
-- The shared hover host's compute realm (experimental, in `browser/src/host/compute.ts`):
-  `startHostCompute` starts the compute frame with the standard options of
-  [docs/hover-spec.md](docs/hover-spec.md) (`STANDARD_PRESET`, and `GEOMETRIC_OPTIONS` for a product
-  whose releases can carry a geometric stage). It checks the embedding page's origin before it asks
-  for the load request, takes the hold from the keep-card switch (the reading hold when the value
-  cannot be read), refuses a load request with geometric fields when the product has no such stage
-  and a shorter idle unload outside a development build, and owns the driver tick and the stop on
-  page hide. Nothing calls it yet.
+- A shared hover host, in `browser/src/host/`: the code a product's extension needs around the
+  runtime to show hovers on YouTube and Twitch, so a product supplies a config and a view adapter
+  instead. It is experimental and not part of the public API
+  ([docs/stability.md](docs/stability.md#experimental)); its types are frozen, and no product
+  calls it yet. Its parts:
+  - Build and packaging: three self-contained files, `dist/host-content.js`, `dist/host-compute.js`
+    and `dist/host-settings.js`, with declaration shims, built beside the runtime without changing
+    any of its five files. `npm run vendor -- --host` vendors them; the option is recorded in the
+    manifest's options and checked. `productConfigError` checks a raw product config (types,
+    required and unknown keys, the tag by the messages' own rule, extension paths for the two
+    frames, colors, booleans) and names the field that is wrong.
+  - The lifecycle, `browser/src/host/lifecycle.ts`: a pure reducer that decides when the two frames
+    are made and removed, from the switch, a trusted `playing`, a trusted pointer over the picture,
+    the tab coming to the front, the capture control's idle removal and make, and keep-card flips.
+    It holds the rules of S-A1, S-A2, S-A6 to S-A8, S-A10, S-B11, S-G5, S-H1 and S-H3 of
+    [docs/hover-spec.md](docs/hover-spec.md): a switch-on, the start-up read included, is a fresh
+    start; a hidden tab owes its load until it comes to the front with the main video playing; a
+    flip during the start-up read wins.
+  - The content realm: `startHostContent` in `browser/src/host/content.ts`, with the view frame
+    handle in `browser/src/host/view.ts`. It follows the main video, wires the capture control,
+    makes and removes the two frames as the lifecycle reducer says, and shows the card through the
+    product's view adapter, which gets only a handle that places the view frame and posts to it,
+    the layout, the shown card and the data of messages already checked. Every trusted `playing`
+    picks the main video again; a pointer off an active page stops following it, and the next
+    pointer back on one picks at once. Any write of the switch is applied when it differs from the
+    state in effect, and a change during the start-up read wins (S-H1). A frame the page removed is
+    made again, alone (S-A10); after full screen or a view frame the page removed, the card on
+    show is shown in the new frame at once.
+  - The compute realm: `startHostCompute` in `browser/src/host/compute.ts` starts the compute frame
+    with the standard options of [docs/hover-spec.md](docs/hover-spec.md) (`STANDARD_PRESET`, and
+    `GEOMETRIC_OPTIONS` for a product whose releases can carry a geometric stage). It checks the
+    embedding page's origin before it asks for the load request, takes the hold from the keep-card
+    switch (the reading hold when the value cannot be read), refuses a load request with geometric
+    fields when the product has no such stage and a shorter idle unload outside a development
+    build, and owns the driver tick and the stop on page hide.
+  - Settings and switches: `createSettingsCore` reads the settings in effect and refreshes them at
+    most once an hour, keeping the last good copy; `createSwitches` reads the on switch and the
+    keep-card switch, calls back for real flips only, and lets a flip that arrives during the
+    start-up read win over the read's answer (S-H1). The stored key names and value shapes are
+    pinned by a test.
+  - Site policy: `pagePolicy` says whether hovers run on a page and whether its video loads at play
+    or at the earliest pointer, and `allowedParentOrigin` says which parents may frame the compute
+    page. One route table covers YouTube and Twitch as [S-G1 to S-G3](docs/hover-spec.md) set
+    them, with the seven Twitch side pages and one shared reserved list. Its test reads the address
+    tables and examples out of the spec, so a spec edit that breaks a row fails the test.
+  - Outline and video pick: the outline element and its placement (S-F1, S-F3, S-F4), and the
+    main-video pick (S-G4). A turned outline is always drawn turned, with no upright-box fallback,
+    because the toolkit cuts a card's box to the picture before it works out the turn; a property
+    test with a seeded generator shows it stays inside the picture for boxes at each edge and
+    corner. A held card has no outline. The main video is picked again on trusted `playing` events
+    and, at most once a second, on moves.
+  - Delivery checks: realm marks and a clean-consumer type check. `browser/scripts/realm-marks.mjs`
+    lists string literals that say a module's code is in a built file; `test/realm-marks.test.ts`
+    proves each occurs once in every output that holds its module and nowhere else.
+    `node/realm-check.mjs` (built from `browser/node/realm-check.ts`, vendored with
+    `--node-tools`) counts the marks in a product's built files and fails, naming the mark and the
+    file, when one occurs twice in a single file (a content script that bundles the capture entry
+    beside the host's content file, for example); a test builds that toy bundle.
+    `test/host-types-consumer.test.ts` vendors the host into an empty folder, type-checks an
+    adapter and a compute entry that import only the declaration shims under `strict`, and uses
+    `@ts-expect-error` probes to show the types did not collapse to `any`. The declarations reach
+    `types/ort.d.ts`, so without `skipLibCheck` a product that does not install `onnxruntime-web`
+    sees one missing-module error there; the test pins that.
+  - A toy fixture extension, `browser/fixture-extension/` (built by
+    `browser/scripts/build-fixture.mjs` against the built host files): an unpacked Manifest V3
+    extension with the strict extension-page policy, a small view adapter and a view frame that
+    measures itself; recognition is simulated by the toy release's stand-in models and its art is
+    the toy game's colored shapes. The "Host browser test" job in
+    `.github/workflows/browser.yml` runs the hover browser test on it in a pinned Chrome for
+    Testing, then `browser/harness/rollback-check.mjs` (one build, then another on the same
+    profile: frames at play, the card's picture, the viewer's switches kept; the two builds must
+    differ in manifest version, and each session first checks which one is running).
+  - Documentation: a guide for product authors in
+    [docs/extension-session.md](docs/extension-session.md#the-shared-hover-host) (the three files,
+    the view adapter, what the host owns, the realm check, the fixture and the harness), the
+    host's files in [docs/hover-map.md](docs/hover-map.md#1d-the-shared-hover-host), and the
+    host's tests as the `Test:` lines of the clauses S-A2, S-A7, S-A8, S-A10, S-F1, S-F3, S-G1 to
+    S-G5 and S-H1 to S-H3. S-A10 says that only the missing frame is made again, and that a card on
+    show also makes the tooltip frame again when it is shown or placed again (a new card, a
+    scroll, a resize, a full-screen change or the product's `relayout()`), also on an event the
+    page dispatches; S-H1 that a write applies only when the state it reads as differs from the
+    state in effect: removing a value that reads as on changes nothing, and removing a stored
+    `false` turns the switch on. Both state what the host does.
+- The browser test harness for hover behavior, `browser/harness/` (vendored with `npm run vendor
+  -- --harness`, an option recorded in the manifest and checked): the shared test, its check list
+  with the hover-spec clause of each check, the NetLog network scope and a local video page. What
+  is specific to one product is a module given with `--product <file>`;
+  `browser/harness/example/product.mjs` shows its fields, including an `unsupported` list (a check
+  its stand-in cannot support, listed with its reason in the run's output and in `report.json`)
+  and `expectedFail`, which `when` narrows (to the S-A10 part of `frames-at-play`, say). The test
+  fails on any content-security-policy violation in any page, frame or worker
+  (`harness/console-watch.mjs`), counts refused `postMessage` calls and reports the time from the
+  compute page's load to the first message from the page. `frames-at-play` (S-A1) removes both
+  frames as a page script would, makes up `playing` events on the playing video and expects no
+  frames, then plays for real and expects them back (S-A10). `on-while-playing-loads` (S-A7) has a
+  second tab playing behind the first when hovers are switched on, and expects no frames there
+  until it comes to the front, then both. A product's run may fail either check where its build
+  does not yet follow these clauses. `test/hover-harness.test.ts` pins the check list and its
+  clauses.
 - An advisory downstream check, `.github/workflows/canary.yml` ("Downstream canary"), with its helper
   `browser/scripts/canary.mjs`. For each product listed in the repository variable
   `CANARY_TARGETS` (repository, pinned commit, vendor folder, the product's own check commands) it
-  builds the runtime of the pull request's merge commit (or of `main` on a push), vendors it into the product with the options the
-  product's manifest records, and runs the product's checks. It is not a required check, reads no
-  secret, and is a neutral skip when the variable is empty. A passing run saves a marker in the
-  Actions cache, so a re-run of the same files and products is skipped and cites the earlier run.
-- The browser test harness for hover behavior, `browser/harness/` (vendored with `npm run vendor
-  -- --harness`): the shared test, its check list with the hover-spec clause of each check, the
-  NetLog network scope and a local video page. What is specific to one product is a module given
-  with `--product <file>`; `browser/harness/example/product.mjs` shows its fields.
-  `test/hover-harness.test.ts` pins the check list and its clauses.
-- The shared hover host's lifecycle (experimental, not part of the public API):
-  `browser/src/host/lifecycle.ts`, a pure reducer that decides when the two frames are made and
-  removed, from the switch, a trusted `playing`, a trusted pointer over the picture, the tab
-  coming to the front, the capture control's idle removal and make, and keep-card flips. It holds
-  the rules of S-A1, S-A2, S-A6 to S-A8, S-A10, S-B11, S-G5, S-H1 and S-H3 of
-  [docs/hover-spec.md](docs/hover-spec.md): a switch-on, the start-up read included, is a fresh
-  start; a hidden tab owes its load until it comes to the front with the main video playing; a
-  flip during the start-up read wins. Nothing calls it yet.
-- The shared hover host's outline and video pick (experimental, in `browser/src/host/`): the
-  outline element and its placement (S-F1, S-F3, S-F4), and the main-video pick (S-G4). A turned
-  outline is always drawn turned, with no upright-box fallback, because the toolkit cuts a card's
-  box to the picture before it works out the turn; a property test with a seeded generator shows
-  it stays inside the picture for boxes at each edge and corner. A held card has no outline. The
-  main video is picked again on trusted `playing` events and, at most once a second, on moves.
-- Build and packaging for a shared hover host (experimental, not part of the public API): three
-  new self-contained files, `dist/host-content.js`, `dist/host-compute.js` and
-  `dist/host-settings.js`, with declaration shims, built beside the runtime without changing any
-  of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
-  browser test harness; both are recorded in the manifest's options and checked. The host's types
-  are frozen. `productConfigError` checks a raw product config (types, required and unknown keys,
-  the tag by the messages' own rule, extension paths for the two frames, colors, booleans) and
-  names the field that is wrong.
-- The shared hover host's settings core and switches (experimental, not part of the public API):
-  `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
-  the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
-  real flips only, and lets a flip that arrives during the start-up read win over the read's answer
-  ([docs/hover-spec.md](docs/hover-spec.md), S-H1). The stored key names and value shapes are
-  pinned by a test.
-- The shared hover host's site policy (experimental, not part of the public API):
-  `pagePolicy` says whether hovers run on a page and whether its video loads at play or at the
-  earliest pointer, and `allowedParentOrigin` says which parents may frame the compute page. One
-  route table covers YouTube and Twitch as [S-G1 to S-G3](docs/hover-spec.md) set them, with the
-  seven Twitch side pages and one shared reserved list. Its test reads the address tables and
-  examples out of the spec, so a spec edit that breaks a row fails the test.
+  builds the runtime of the pull request's merge commit (or of `main` on a push), vendors it into
+  the product with the options the product's manifest records, and runs the product's checks. It is
+  not a required check, reads no secret, and is a neutral skip when the variable is empty. A
+  passing run saves a marker in the Actions cache, so a re-run of the same files and products is
+  skipped and cites the earlier run.
+- `browser/templates/extension-release.yml` releases an extension when its version is merged: on a
+  push to the main branch, when the version in `package.json` has no tag, `store/releases/<version>.json`
+  exists and the changelog has a dated section for it (`## [1.2.0] - 2026-11-13`), the workflow
+  creates the tag and the GitHub release (the section is the notes) and starts `store-release.yml`
+  on the tag with `upload` set, which still waits for the `store` environment's approval. A
+  pre-release version with a release file is refused, since store versions are numeric, and so is
+  a version lower than the newest final tag. A re-run does only what is missing, and the tags are
+  read with the workflow's token, so a private repository works. The decision is the new Node tool
+  `node/release-decide.mjs`, vendored with `--node-tools`. `store-release.yml`'s `check` step also
+  scans `.github/workflows/extension-release.yml` when the file exists; a product that copied the
+  template earlier updates that step (see
+  [docs/store-uploads.md](docs/store-uploads.md#release-on-merge)).
+- `store-upload.mjs check` writes a release record, `--record-out FILE.json`, as JSON and Markdown
+  (`FILE.md`): versions, package hashes, a digest of each package's unpacked files, the vendored
+  toolkit's commit (`--vendor-manifest`), the permission surface, the Firefox lint counts, the
+  commit's check runs (`--ci-results`), the bundled model release and a product's own facts
+  (`--facts`). `--runtimes` checks the model release against the version's row of the product's
+  runtime table. It refuses a record whose text names a credential, a denied word or a path on a
+  machine. `--load-unpacked-zip` adds a package for people who load the extension unpacked. A new
+  `assets` command collects the packages, the record and `SHA256SUMS` for a GitHub release, never
+  the Firefox source archive. `browser/templates/store-release.yml` has a `release-assets` job
+  that runs on a tag push, or on a dispatch that ticks `attach` (the merge workflow's dispatch
+  does), with `contents: write`, no store access and a per-tag concurrency group. It lists the
+  release's assets and refuses to replace them when it cannot, or when a `SHA256SUMS` already there
+  differs; `SHA256SUMS` goes up first. The template's actions are now pinned to full commits.
+  `check` also refuses a workflow in which a job that names an environment has no permissions of
+  its own, or write permission could reach it, or whose jobs it cannot read. See
+  [docs/store-uploads.md](docs/store-uploads.md).
+- `store-upload.mjs status` is a daily check that needs no credential: it compares the newest
+  release file's version with the version the Chrome Web Store's update service and the
+  addons.mozilla.org add-on API show the public, and with the release file's new optional
+  `expect` entries (addresses that must hold a repository file's bytes, such as a live settings
+  file). A version still in review passes with a note, as does an add-on waiting for its initial
+  review once the previous run's versions are read. It fails on a store that shows a newer version,
+  a version that went back since the previous run, a version that was public and now is not (a
+  takedown), an address that differs, or a store that cannot be read. A 401 or 403 from the add-on
+  API counts as no public version, a 429 or a server error is retried after 30 seconds and then 2
+  minutes, and each read times out after 20 seconds. `browser/templates/store-status.yml` runs it
+  daily with `contents: read` and no environment. See
+  [docs/store-uploads.md](docs/store-uploads.md#the-daily-status-check).
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
   [docs/hover-spec.md](docs/hover-spec.md) it carries out. `tests/test_hover_map.py` checks that
   every named file and symbol exists, every clause exists and every covered file is anchored. It
-  checks names, not behavior.
-- Delivery checks for the shared hover host (experimental, not part of the public API): realm marks
-  and a clean-consumer type check. `browser/scripts/realm-marks.mjs` lists string literals that
-  say a module's code is in a built file; `test/realm-marks.test.ts` proves each occurs once in
-  every output that holds its module and nowhere else. `browser/node/realm-check.ts` counts the
-  marks in a product's built files and fails, naming the mark and the file, when one occurs twice
-  in a single file (a content script that bundles the capture entry beside the host's content
-  file, for example); a test builds that toy bundle. `test/host-types-consumer.test.ts` vendors the
-  host into an empty folder, type-checks an adapter and a compute entry that import only the
-  declaration shims under `strict`, and uses `@ts-expect-error` probes to show the types did not
-  collapse to `any`. The declarations reach `types/ort.d.ts`, so without `skipLibCheck` a product
-  that does not install `onnxruntime-web` sees one missing-module error there; the test pins that.
+  checks names, not behavior. The overview of the frames is laid out top to bottom, the card-shown
+  diagram is split into the fresh card, the shown hold and the reading hold, and "How to read it"
+  says how the diagrams are drawn, so they read well on GitHub.
 
 ### Changed
 
-- [docs/hover-map.md](docs/hover-map.md): the diagrams read better on GitHub. The overview of the
-  frames is laid out top to bottom, the card-shown diagram is split into the fresh card, the shown
-  hold and the reading hold, and "How to read it" says how the diagrams are drawn.
+- `tests/release_prepare.py` also sets `CITATION.cff`: its `version` and its `date-released`, to
+  the date of the version commit. It refuses a `CITATION.cff` with no `date-released` line.
+
+### Fixed
+
+- A resting mouse now gets at most one slow-start picture per rest. When the compute frame's
+  worker restarted under a pointer that had not moved, the frame became ready a second time and the
+  content script granted a second picture after the 10 seconds. A rest now gets one picture after
+  the 10 seconds because of a grant, for a frame connected before the rest, one that was ready
+  inside the 10 seconds and a late one. It is counted when the picture is delivered: a grant that
+  lapses unspent or is dropped by a seek, or a capture that takes no picture, does not use it up.
+  A trusted move begins a new rest. The rest of the one-picture rule is unchanged.
 
 ## [0.14.1] - 2026-11-14
 

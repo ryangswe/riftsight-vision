@@ -4,8 +4,8 @@
 //   node scripts/runtime-hashes.mjs BASE_DIST HEAD_DIST
 //
 // The files are cardvision.js, worker.js, compute-session.js, page-capture.js and
-// remote-release.js, with their license texts. The Browser runtime workflow builds a pull request
-// and its merge base and runs this, so a change that moves the runtime shows up in review.
+// remote-release.js, with their license texts. Build the two commits to compare (a change and its
+// merge base, say) in two folders and run this, so a change that moves the runtime shows up in review.
 // Exit 0: identical. Exit 1: a file differs or is missing from one side. Exit 2: usage.
 
 import { existsSync, readFileSync } from "node:fs";

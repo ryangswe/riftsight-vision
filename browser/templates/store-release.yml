@@ -9,17 +9,27 @@
 # `upload` runs in the `store` environment, whose required reviewer approves it on that page; only
 # then does it get store access. It checks both stores before uploading anything.
 #
-# Pushing the tag runs both jobs. "Run workflow" on the tag (Actions page, "Use workflow from":
-# the tag) runs the build alone, or both with `upload` ticked; with `precheck_only` ticked too, the
-# upload job signs in and reads both stores but uploads nothing. A tag push never sets it, and a
-# run from a branch is refused. If
+# Pushing the tag runs all three jobs. "Run workflow" on the tag (Actions page, "Use workflow from":
+# the tag) runs the build alone, or the build and the upload with `upload` ticked, and the assets
+# job only with `attach` ticked; with `precheck_only` ticked too, the upload job signs in and reads
+# both stores but uploads nothing. A tag push never sets `precheck_only`, and a run from a branch
+# is refused. If
 # one store failed after the other succeeded, re-run the failed job: the store that already has
 # the version is skipped.
 #
-# Replace the step marked PRODUCT with the product's own commands. Pin every `uses:` to a
-# commit when copying. Release tags are TAG_PREFIX followed by the version (v1.2.0); a product
+# A third job, `release-assets`, has `contents: write` and no store access and no environment: it
+# attaches the packages, SHA256SUMS and the release record to the tag's GitHub release (never the
+# source archive). It runs on a tag push, or on a dispatch with `attach` ticked (the merge workflow
+# dispatches with it, since a tag made with a workflow's token starts no push run). A dispatch
+# without `attach` never attaches, so a re-run of the build on an attached tag stays green: the
+# zips are not byte-for-byte reproducible. Create the release first; if it does not exist yet,
+# re-run that job after.
+#
+# Replace the step marked PRODUCT with the product's own commands. Every `uses:` is pinned to a
+# full commit; keep it so when updating. Release tags are TAG_PREFIX followed by the version (v1.2.0); a product
 # whose tags look different (extension-v1.2.0) sets TAG_PREFIX and the `tags:` pattern to match.
-# This file must name no CDN credential or pointer tool: `check` refuses it.
+# This file must name no CDN credential or pointer tool: `check` refuses it. Releasing when the
+# version is merged (tag, release and the dispatch of this workflow) is extension-release.yml.
 
 name: Store release
 
@@ -36,6 +46,10 @@ on:
         description: "With upload: sign in and read both stores, upload nothing"
         type: boolean
         default: false
+      attach:
+        description: "Also run the release-assets job (a tag push always does; a dispatch does not unless ticked)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -49,16 +63,20 @@ jobs:
   build:
     name: Build and check (no store access)
     runs-on: ubuntu-latest
+    # Read-only; `checks: read` lets the record list the commit's check runs.
+    permissions:
+      contents: read
+      checks: read
     steps:
       - name: Only from a release tag
         if: github.ref_type != 'tag'
         run: |
           echo "Run this workflow from a release tag, not from ${GITHUB_REF}." >&2
           exit 1
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - run: npm ci
@@ -92,23 +110,43 @@ jobs:
             echo "PREVIOUS=--previous-permissions out/previous-permissions.json" >> "$GITHUB_ENV"
           fi
 
+      # The commit's other check runs, for the release record. A failure here leaves them out.
+      - name: The commit's check runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --paginate --jq '.check_runs[]' > out/ci.jsonl; then
+            echo "CI_RESULTS=--ci-results out/ci.jsonl" >> "$GITHUB_ENV"
+          else
+            echo "::warning::could not read the commit's check runs; the release record leaves them out"
+          fi
+
       - name: Check the release
         run: |
           version="${TAG#"$TAG_PREFIX"}"
           source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
+          # The release-on-merge workflow, when the product has adopted it, is scanned too.
+          RELEASE_WORKFLOW=""; [ -f .github/workflows/extension-release.yml ] && RELEASE_WORKFLOW="--workflow .github/workflows/extension-release.yml"
+          # Optional: the product's own facts, and the runtime table its model release is checked against.
+          facts=""; [ -f store/record-facts.json ] && facts="--facts store/record-facts.json"
+          runtimes=""; [ -f cdn/RUNTIMES.json ] && runtimes="--runtimes cdn/RUNTIMES.json"
           node "$STORE_TOOL" check --config store/store.config.json --release "store/releases/$version.json" \
             --tag "$TAG" --tag-prefix "$TAG_PREFIX" --permissions store/permissions.json $PREVIOUS \
             --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \
-            --workflow .github/workflows/store-release.yml \
+            --workflow .github/workflows/store-release.yml $RELEASE_WORKFLOW \
             --lint out/lint.json --lint-baseline store/lint-baseline.json \
+            --record-out out/record.json --vendor-manifest vendor/cardvision-browser/cardvision-vendor.json \
+            $facts $runtimes $CI_RESULTS --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
             --hashes-out out/hashes.json --summary "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: store-packages
           path: |
             out/*.zip
             out/hashes.json
+            out/record.json
+            out/record.md
           retention-days: 30
           if-no-files-found: error
 
@@ -132,8 +170,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: store-packages
           path: out
@@ -142,7 +180,7 @@ jobs:
       # Workload Identity Federation. Option B: replace the two lines after `with:` by
       # `credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}`.
       - id: google
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.CWS_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
@@ -167,3 +205,58 @@ jobs:
             --targets chrome,firefox --hashes out/hashes.json \
             --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \
             $precheck --summary "$GITHUB_STEP_SUMMARY"
+
+  # No store access: no environment, no identity token, no secret but the run's own GITHUB_TOKEN.
+  release-assets:
+    name: Attach to the release (no store access)
+    needs: build
+    if: github.event_name == 'push' || inputs.attach
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One attach per tag at a time, so two runs never replace each other's assets.
+    concurrency:
+      group: release-assets-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: store-packages
+          path: out
+
+      - name: Collect the release assets
+        run: |
+          node "$STORE_TOOL" assets --record out/record.json --dir out --out-dir release-assets
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Assets already on the release stay unless this run's bytes are identical: a changed
+          # SHA256SUMS means another build, and replacing its assets is refused. Every failure to
+          # find out stops the job (nothing is replaced on a guess).
+          if ! assets=$(gh release view "$TAG" --json assets --jq '.assets[].name'); then
+            echo "Could not list the release's assets. Not replacing anything." >&2
+            exit 1
+          fi
+          if printf '%s\n' "$assets" | grep -qx SHA256SUMS; then
+            if ! gh release download "$TAG" --pattern SHA256SUMS --output existing-sums; then
+              echo "Could not read the release's SHA256SUMS. Not replacing anything." >&2
+              exit 1
+            fi
+            if ! cmp -s existing-sums release-assets/SHA256SUMS; then
+              echo "The release already has different assets (SHA256SUMS differs). Not replacing them." >&2
+              exit 1
+            fi
+          fi
+          # SHA256SUMS first, so a partial upload leaves the guard above in place.
+          gh release upload "$TAG" release-assets/SHA256SUMS --clobber
+          files=()
+          for f in release-assets/*; do [ "$f" = release-assets/SHA256SUMS ] || files+=("$f"); done
+          gh release upload "$TAG" "${files[@]}" --clobber

@@ -672,6 +672,45 @@ describe("frames made again", () => {
     expect(r.view()!.isConnected).toBe(true);
   });
 
+  // A page script can make these events. They only place a card on show again, and placing it
+  // makes the view frame again when the page removed it: never the compute frame.
+  it.each([
+    ["scroll", (r: Stand) => r.doc.fire("scroll", { isTrusted: false, target: r.doc })],
+    ["resize", (r: Stand) => r.win.fire("resize", { isTrusted: false })],
+  ])("after the page removed the view frame, an untrusted %s makes it again and shows the card: detach, attach, show", async (_type, fire) => {
+    const r = await showing();
+    const compute = r.compute();
+    const oldView = r.view();
+    oldView!.remove();
+    const at = r.calls.length;
+    fire(r);
+    r.win.runFrames();
+    expect(r.names().slice(at)).toEqual(["detach", "attach", "show"]);
+    expect((r.calls[at + 2] as Extract<Call, { name: "show" }>).card).toEqual(CARD);
+    expect(r.view()).not.toBe(oldView);
+    expect(r.view()!.isConnected).toBe(true);
+    expect(r.compute()).toBe(compute);
+    expect(r.computeWindow()!.kinds().filter((k) => k === "hello")).toHaveLength(1);
+  });
+
+  it("an untrusted fullscreenchange makes the view frame again with no card on show, and never the compute frame", async () => {
+    const r = await showing();
+    r.move(1400, 800); // off the picture
+    r.shown(null);
+    r.advance(HIDE_DELAY_MS);
+    expect(r.names().at(-1)).toBe("hide");
+    const compute = r.compute();
+    const oldView = r.view();
+    const at = r.calls.length;
+    r.doc.fire("fullscreenchange", { isTrusted: false });
+    r.win.runFrames();
+    expect(r.names().slice(at)).toEqual(["attach"]);
+    expect(r.view()).not.toBe(oldView);
+    expect(oldView!.isConnected).toBe(false);
+    expect(r.compute()).toBe(compute);
+    expect(r.computeWindow()!.kinds().filter((k) => k === "hello")).toHaveLength(1);
+  });
+
   it("a view frame removed while the compute frame is loaded but not ready is made again with no second hello", async () => {
     const r = await stand({ paused: true });
     r.move();

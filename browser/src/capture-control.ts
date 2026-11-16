@@ -172,6 +172,10 @@ interface Authority {
   /** A compute frame had a handshake during this authority, or was connected when it began: a
    *  frame that connects after that replaces one, and a resting hover is not told to it. */
   framed: boolean;
+  /** A picture was taken after the grace period because of a slow start's grant during this
+   *  authority (a rest): a frame that becomes ready again in the same rest (its worker restarted)
+   *  is granted none. A trusted move makes a new authority, so a new rest may be granted again. */
+  slowStartGiven?: boolean;
 }
 
 interface Handshake {
@@ -588,6 +592,9 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
     slowStartUntil = -Infinity;
     const dropsBefore = slowStartCleared;
     if (!allowed) return refuse(NOT_POINTING);
+    // The rest's one picture after the grace period, whatever opened it, is counted when it is
+    // delivered (below): a grab that fails takes no picture and leaves the rest its one.
+    const rest = granted && authority && !captureAllowed(gateState(), now(), options.limits) ? authority : null;
     const begun = { watch, source: watch?.source, handshake, resets };
     captureInFlight = true;
     let grab: Grab;
@@ -611,6 +618,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
       if (granted && grab.retry && slowStartCleared === dropsBefore) slowStartUntil = now() + SLOW_START_RETRY_MS;
       return refuse(grab.reason, grab.retry);
     }
+    if (rest) rest.slowStartGiven = true;
     postWithTransfer(connectedFrame(), protocol.tag({ kind: "frame", requestId, bitmap: grab.bitmap, mediaTime: grab.mediaTime }), frameOrigin, grab.bitmap);
   }
 
@@ -633,7 +641,7 @@ export function createCaptureControl(options: CaptureControlOptions): CaptureCon
         const was = frameState;
         frameState = message.state;
         if (message.state !== "ready") dropGrant();
-        else if (was !== "ready" && authority?.kind === "hover" && slowStartAllowed(gateState(), now(), options.limits)) {
+        else if (was !== "ready" && authority?.kind === "hover" && !authority.slowStartGiven && slowStartAllowed(gateState(), now(), options.limits)) {
           slowStartUntil = now() + SLOW_START_GRANT_MS;
         }
         options.onStatus?.(message);

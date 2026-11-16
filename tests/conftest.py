@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import shards
 import toy_game
 from helpers import EMBEDDING_WIDTH
 
@@ -26,6 +27,38 @@ def _loopback(address) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def pytest_addoption(parser):
+    parser.addoption("--shard", metavar="K/N", default=None,
+                     help="run part K of N: whole test files, the parts of about the same time (tests/shards.py)")
+
+
+def pytest_configure(config):
+    spec = config.getoption("shard")
+    if spec is not None:
+        try:
+            shards.parse(spec)
+        except ValueError as error:
+            raise pytest.UsageError(str(error)) from None
+
+
+def pytest_collection_modifyitems(config, items):
+    """With ``--shard K/N``, keep the tests of the files in part K and deselect the others."""
+    spec = config.getoption("shard")
+    if spec is None:
+        return
+    part, parts = shards.parse(spec)
+
+    def file_of(item) -> str:
+        return item.path.relative_to(config.rootpath).as_posix()
+
+    mine = shards.deal({file_of(item) for item in items}, shards.load_seconds(), parts)[part - 1]
+    kept = [item for item in items if file_of(item) in mine]
+    others = [item for item in items if file_of(item) not in mine]
+    if others:
+        config.hook.pytest_deselected(items=others)
+    items[:] = kept
 
 
 @pytest.fixture(autouse=True)

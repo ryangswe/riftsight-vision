@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The daily store status check: copy this file to .github/workflows/store-status.yml in the
+# extension's repository. See the toolkit's docs/store-uploads.md, "The daily status check".
+#
+# It reads two public addresses (the Chrome Web Store's extension update service and the
+# addons.mozilla.org add-on API) and the addresses the newest release file lists under `expect`. It
+# needs no credential, has no environment and can only read the repository. It is red when a store
+# shows a version newer than the newest release file, when a store's version went back since the
+# previous run, when a store that listed a public version lists none (a takedown), when an expected
+# address differs, or when a store cannot be read. With no saved state from a previous run, a store
+# that lists no public version while earlier release files exist is red too. A version that is
+# older than the newest release file passes with a note (in review, or not submitted yet).
+#
+# The previous run's versions are kept in the Actions cache, so "went back" can be told. The state
+# is saved even when the run is red, so one red day does not repeat for want of state. After a
+# deliberate rollback, delete that cache entry (Actions, Caches).
+#
+# Every `uses:` is pinned to a full commit; keep it so when updating. This file must name no CDN
+# credential or pointer tool.
+
+name: Store status
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  STORE_TOOL: vendor/cardvision-browser/node/store-upload.mjs
+
+jobs:
+  status:
+    name: Compare the stores with the newest release file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .store-status
+          key: store-status-${{ github.run_id }}
+          restore-keys: store-status-
+      - name: Compare
+        run: |
+          mkdir -p .store-status
+          node "$STORE_TOOL" status --config store/store.config.json --releases store/releases \
+            --state-in .store-status/state.json --state-out .store-status/state.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+      # Saved whatever the result: the high-water mark rises only on real reads, so a takedown or a
+      # version that went back stays red the next day.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always()
+        with:
+          path: .store-status
+          key: store-status-${{ github.run_id }}
