@@ -425,7 +425,8 @@ export async function runUpload(a: UploadArgs, deps: Deps, report: (line: string
     if (sha256(b) !== want) throw new StoreError(`the ${what} ${basename(path)} is not the one the build job checked`);
     bytes.set(path, b);
   }
-  const notes = readNotes(a.release, release);
+  // The Firefox notes are read, and their limits checked, only when Firefox is a target.
+  const notes = a.targets.includes("firefox") ? readNotes(a.release, release) : {};
 
   let chrome: ChromeItem | null = null;
   let amo: AmoAddon | null = null;

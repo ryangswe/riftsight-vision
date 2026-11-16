@@ -72,7 +72,8 @@ break the public surface; this file names each break and how to migrate.
   (3000 characters, counted as code points, without the license comment). Before, the limit was
   met only after the Chrome package was submitted and the Firefox version existed, and the
   notes then could not be set, nor could a re-run set them. `check` and the upload's prechecks
-  name the file, its length and the limit, before anything is uploaded.
+  name the file, its length and the limit, before anything is uploaded. An upload to Chrome alone
+  does not read the Firefox notes.
 
 ## [0.14.1] - 2026-11-14
 

@@ -559,6 +559,16 @@ describe("notes to reviewers: the addons.mozilla.org length limit", () => {
     expect(stores.calls).toEqual([]);
     expect(log2.join("\n")).toMatch(/amo-approval-notes\.md is 3001 characters/);
   });
+
+  it("an upload to Chrome alone neither reads nor checks the Firefox notes", async () => {
+    const dir = await checked();
+    writeNotes(dir, "a".repeat(3001));
+    const stores = fakeStores();
+    const log: string[] = [];
+    expect(await main(uploadArgv(dir, ["--targets", "chrome"]), deps(stores.fetchFn, {}, log)), log.join("\n")).toBe(0);
+    expect(stores.calls.some((c) => c.url.endsWith(":publish"))).toBe(true);
+    expect(stores.calls.some((c) => c.url.startsWith("https://amo.test"))).toBe(false);
+  });
 });
 
 describe("upload (the approved job)", () => {
