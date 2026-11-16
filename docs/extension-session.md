@@ -796,3 +796,96 @@ checked message (a `hello`) has arrived from that origin.
 `frame.release` says which release is in effect (`source`, `id`, `reason`, `table`), and
 `frame.core?.status()` (no core while a release is chosen) gives the same fields as
 `createSession`'s `status()`.
+
+## The shared hover host
+
+**Experimental** ([stability.md](stability.md#experimental)). A product can take the parts of an
+extension that are the same in every product from the shared hover host, and keep only what is its
+own. The product vendors the host with `npm run vendor -- --host` ([browser/README.md](../browser/README.md#vendoring-the-runtime-and-checking-it):
+the host files come from the same commit as the runtime). The rules it follows are the clauses of
+the [hover spec](hover-spec.md); [hover-map.md](hover-map.md#1d-the-shared-hover-host) draws it.
+
+### The three files
+
+Each realm of an extension loads one self-contained file, and calls one entry:
+
+| File | Realm | What the product calls |
+| --- | --- | --- |
+| `host-content.js` | The content script, in the video's page | `startHostContent(env)`, with the product config, the page's `window` and `document`, `extensionUrl`, the storage and its change events, and the product's view adapter. It returns `relayout()` (the adapter's own inputs changed), `state` and `stop()`. `pagePolicy` is exported for a product that needs the page check elsewhere. |
+| `host-compute.js` | The compute frame, an extension page in the iframe | `startHostCompute(env)`, with the product config, the frame's `window`, the storage, `loadRequest` (which release to load), `createWorker`, and optional release hooks and read-only observers. It returns `null` for a page that is not framed by an allowed site, and otherwise the frame and `stop()`. |
+| `host-settings.js` | The background, the view frame and the popup (no DOM, so it runs in a service worker) | `createSettingsCore` (the stored settings file, its refresh and the last good copy), `createSwitches` (the two switches), `pagePolicy`, `allowedParentOrigin`, `productConfigError` and the update-notice helpers. |
+
+A product config (`ProductConfig`) is data the product writes once: the message tag and name, the
+sites it serves, a development flag, its two frame pages, the outline's colors and its
+capabilities (whether its releases can carry a geometric stage). `productConfigError` returns what
+is wrong with a raw config, and null when it is valid; a product's test can run it on the config it
+ships. A product without the geometric stage capability is refused a load request that carries a
+geometric field; the check covers the first `loadRequest` only, and a release the product's own
+release hooks choose later is the product's to keep consistent with its config.
+
+### The view adapter
+
+The product writes the one part that draws: a `ViewAdapter`. The host makes the view frame (the
+extension page that shows the card), keeps its visibility, stacking and pointer-events, mounts it
+where it is drawn (inside the full-screen element in full screen), and checks every message from
+it. The adapter gets:
+
+- a handle, `ViewFrame`, with two methods: `place(box)` sizes and places the frame (the exact width
+  and height given, at once, also before the frame has loaded), and `post(message)` posts to it at
+  the extension's origin (false while it has no window);
+- `attach(frame)` when a new view frame exists (first made, made again, moved for full screen,
+  removed by the page and made again) and `detach()` when it is gone. The host sets no initial size:
+  call `place()` in `attach()`;
+- `message(data)` for each message the host has checked (trusted, from the view frame's window, at
+  the extension's origin), and `true` when readiness or the measured size changed;
+- `show(card, layout)`, with the shown card and a `ViewLayout` (the picture's box, the card's box,
+  the other cards' boxes, the viewport, the player's top and whether the frame is on show), and
+  `hide()`. `show` returns true once the frame has measured itself for this card; the host shows
+  the frame and the outline only then.
+
+The adapter never gets the page's DOM, the video or the compute frame.
+
+### What the host owns, and what the product keeps
+
+The host owns the lifecycle (when the frames are made, removed and made again: S-A1 to S-A10), the
+main video (S-G4), the site rules (S-G1 to S-G3), the two switches, on and keep-card (S-H1 to
+S-H3), the outline (S-F1 to S-F4), the hello to a new compute frame, the standard compute options
+and the origin check of the compute frame. The product keeps what is its own: the view frame's page
+and look, its settings schema and the settings it fetches, which release to load (`loadRequest` and
+the release hooks), its popup and the store's wording ([What stays yours](#what-stays-yours)). A
+card the product's observer receives (`observe.onShown`) is the one that will be posted: an
+observer reads it and does not modify it.
+
+### The realm check
+
+An extension holds one runtime per realm. A content script that bundles the capture control beside
+`host-content.js` would run it twice. `node/realm-check.mjs` (vendored with `--node-tools`) counts
+the runtime modules' marks in a product's built files:
+
+```
+node vendor/cardvision-browser/node/realm-check.mjs build/
+```
+
+It exits 1 and names the file and the mark when one file holds a module's code twice, 2 for bad
+arguments or when there is nothing to check, and 0 otherwise. Two files that each hold a module
+once pass.
+
+### The fixture and the harness
+
+`browser/fixture-extension/` is a toy extension on the host's three files, with a small view adapter
+and simulated recognition; it is the host's own end-to-end test and a worked example of a view
+adapter. The hover browser test (`browser/harness/hover-browser.mjs`) runs a product's unpacked
+extension in Chrome for Testing; give it the product's module with `--product <file>`. The module
+can mark two kinds of difference without hiding a failure:
+
+- `expectedFail`: a check that fails on this product's code today, with the change that will fix
+  it. An optional `when(detail, ok)` limits it to the part of the check that is expected to fail
+  (for example only the S-A10 step of `frames-at-play`), so another failure of the same check is
+  still reported. A check that passes while listed is reported.
+- `unsupported`: a check the product's stand-in cannot support, with the reason. It is not run, and
+  the run's output and `report.json` list it with the reason.
+
+`harness/rollback-check.mjs` runs one build and then another on one profile, to check that an
+update to another version keeps the viewer's switches. The options, the check list and how to run
+both are in [browser/README.md](../browser/README.md#vendoring-the-runtime-and-checking-it) (the
+harness paragraphs); they are not repeated here.

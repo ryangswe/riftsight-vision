@@ -11,6 +11,15 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Documentation for the shared hover host: a guide for product authors in
+  [docs/extension-session.md](docs/extension-session.md#the-shared-hover-host) (the three files, the
+  view adapter, what the host owns, the realm check, the fixture and the harness), the host's files
+  in [docs/hover-map.md](docs/hover-map.md#1d-the-shared-hover-host), its experimental entry in
+  [docs/stability.md](docs/stability.md#experimental), and the host's tests as the `Test:` lines of
+  the clauses S-A2, S-A7, S-A8, S-A10, S-F1, S-F3, S-G1 to S-G5 and S-H1 to S-H3. S-A10 now says
+  that a card on show also makes the tooltip frame again whenever it is shown or placed again, and
+  S-H1 that removing a value that reads as on is not a flip while removing a stored `false` turns the
+  switch on; both state what the host does.
 - A toy fixture extension for the shared hover host (`browser/fixture-extension/`, built by
   `browser/scripts/build-fixture.mjs` against the built host files), the "Host browser test" job in
   `.github/workflows/browser.yml`, and `browser/harness/rollback-check.mjs` (its two builds must
