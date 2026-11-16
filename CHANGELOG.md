@@ -22,6 +22,14 @@ break the public surface; this file names each break and how to migrate.
   a change during the start-up read wins ([docs/hover-spec.md](docs/hover-spec.md), S-H1). After
   full screen or a view frame the page removed, the card on show is shown in the new frame at
   once. Nothing calls it yet.
+- The shared hover host's compute realm (experimental, in `browser/src/host/compute.ts`):
+  `startHostCompute` starts the compute frame with the standard options of
+  [docs/hover-spec.md](docs/hover-spec.md) (`STANDARD_PRESET`, and `GEOMETRIC_OPTIONS` for a product
+  whose releases can carry a geometric stage). It checks the embedding page's origin before it asks
+  for the load request, takes the hold from the keep-card switch (the reading hold when the value
+  cannot be read), refuses a load request with geometric fields when the product has no such stage
+  and a shorter idle unload outside a development build, and owns the driver tick and the stop on
+  page hide. Nothing calls it yet.
 - An advisory downstream check, `.github/workflows/canary.yml` ("Downstream canary"), with its helper
   `browser/scripts/canary.mjs`. For each product listed in the repository variable
   `CANARY_TARGETS` (repository, pinned commit, vendor folder, the product's own check commands) it
