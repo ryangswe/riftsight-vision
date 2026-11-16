@@ -15,7 +15,14 @@
 # setup a file shares between its tests runs once.
 # The 20 slowest test phases are listed at the end, so that their times on the runner can be seen.
 #
-# After the tests, each job also runs the lint, with ruff at the version requirements-lint.txt pins
+# Each Python version runs in two parts, on two runners at the same time: `--shard 1/2` and
+# `--shard 2/2` (tests/shards.py). The parts split the test files between them, so that
+# together they run every test once. The job named after the version, "Python 3.11" and so on,
+# passes only when both of its parts passed; those are the names the checks of a pull request
+# go by. The steps are written once, under the first version, and the other versions repeat them
+# (`steps: *steps`).
+#
+# After the tests, the first part of each version also runs the lint, with ruff at the version requirements-lint.txt pins
 # and the bug-finding rules in pyproject.toml.
 name: Tests
 
@@ -28,14 +35,15 @@ permissions:
   contents: read
 
 jobs:
-  tests:
-    name: Python ${{ matrix.python }}
+  tests-3-11:
+    name: Python ${{ matrix.python }}, part ${{ matrix.part }} of 2
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
-    steps:
+        python: ["3.11"]
+        part: [1, 2]
+    steps: &steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -65,8 +73,63 @@ jobs:
           python -m pip install --require-hashes -r requirements-lock.txt
           python -m pip install --no-deps -e .
       - name: Run the tests
-        run: python -m pytest -n auto --dist loadfile --durations=20
+        run: python -m pytest -n auto --dist loadfile --durations=20 --shard ${{ matrix.part }}/2
       - name: Install the pinned lint
+        if: matrix.part == 1
         run: python -m pip install --require-hashes -r requirements-lint.txt
       - name: Lint for bug patterns
+        if: matrix.part == 1
         run: python -m ruff check .
+
+  tests-3-12:
+    name: Python ${{ matrix.python }}, part ${{ matrix.part }} of 2
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12"]
+        part: [1, 2]
+    steps: *steps
+
+  tests-3-13:
+    name: Python ${{ matrix.python }}, part ${{ matrix.part }} of 2
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13"]
+        part: [1, 2]
+    steps: *steps
+
+  python-3-11:
+    name: Python 3.11
+    needs: tests-3-11
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Both parts passed
+        env:
+          PARTS: ${{ needs.tests-3-11.result }}
+        run: test "$PARTS" = success
+
+  python-3-12:
+    name: Python 3.12
+    needs: tests-3-12
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Both parts passed
+        env:
+          PARTS: ${{ needs.tests-3-12.result }}
+        run: test "$PARTS" = success
+
+  python-3-13:
+    name: Python 3.13
+    needs: tests-3-13
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Both parts passed
+        env:
+          PARTS: ${{ needs.tests-3-13.result }}
+        run: test "$PARTS" = success
