@@ -11,6 +11,17 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- The shared hover host's content realm (experimental, not part of the public API):
+  `startHostContent` in `browser/src/host/content.ts`, with the view frame handle in
+  `browser/src/host/view.ts`. It follows the main video, wires the capture control, makes and
+  removes the two frames as the lifecycle reducer says, and shows the card through the product's
+  view adapter, which gets only a handle that places the view frame and posts to it, the layout,
+  the shown card and the data of messages already checked. Every trusted `playing` picks the main
+  video again; a pointer off an active page stops following it, and the next pointer back on one
+  picks at once. Any write of the switch is applied when it differs from the state in effect, and
+  a change during the start-up read wins ([docs/hover-spec.md](docs/hover-spec.md), S-H1). After
+  full screen or a view frame the page removed, the card on show is shown in the new frame at
+  once. Nothing calls it yet.
 - The shared hover host's compute realm (experimental, in `browser/src/host/compute.ts`):
   `startHostCompute` starts the compute frame with the standard options of
   [docs/hover-spec.md](docs/hover-spec.md) (`STANDARD_PRESET`, and `GEOMETRIC_OPTIONS` for a product
