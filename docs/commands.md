@@ -309,3 +309,8 @@ those too. One more is skipped, the comparison with the browser runtime, until `
 run in `browser/`. On a machine without the `ffmpeg` program, the tests that need it are
 skipped as well: one test of `tests/test_data_extract.py`, in its four cases, and the tests of
 `tests/test_data_frame_times.py` that read a recording of variable frame rate, in 38 cases.
+
+CI also runs each Python version in two parts, on two runners at the same time, with
+`--shard 1/2` and `--shard 2/2`. Each part runs whole test files, and the two parts together run
+every test once. `tests/shards.py` says how the parts are chosen and how to measure again the
+seconds per file that balance them.
