@@ -491,7 +491,29 @@ try {
       if (Number.isFinite(ready.loadedAt) && Number.isFinite(ready.helloAt)) counts.helloMinusLoadMs = Math.round(ready.helloAt - ready.loadedAt);
       await sleep(3000);
       const analyzedBeforePointer = (await computeDebug(page))?.analyzed ?? -1;
-      if (want("frames-at-play")) record("frames-at-play", beforePlay.length === 0 && atPlay === true, { beforePlay, atPlay: Boolean(atPlay) });
+      // A page script removes both frames and then makes up `playing` events on the playing video:
+      // nothing is made (S-A1). A real `playing` (a pause and a play) makes them again (S-A10).
+      let fakePlay = null;
+      if (want("frames-at-play") && atPlay) {
+        await page.evaluate((names) => {
+          for (const f of document.querySelectorAll("iframe")) if (names.includes(f.src.split("/").at(-1))) f.remove();
+        }, Object.values(PRODUCT.frames));
+        await page.evaluate(() => {
+          const v = document.querySelector("video");
+          for (let i = 0; i < 3; i += 1) v.dispatchEvent(new Event("playing"));
+        });
+        await sleep(1500);
+        const afterFake = await extensionFrames(page);
+        await page.evaluate(async () => {
+          const v = document.querySelector("video");
+          v.pause();
+          await v.play();
+        });
+        const remade = await until(async () => ((await extensionFrames(page)).length === 2 ? true : null), 10_000);
+        if (remade) await until(async () => ((await computeDebug(page))?.state === "ready" ? true : null), 60_000, 250);
+        fakePlay = { afterFake, remade: Boolean(remade) };
+      }
+      if (want("frames-at-play")) record("frames-at-play", beforePlay.length === 0 && atPlay === true && fakePlay?.afterFake.length === 0 && fakePlay.remade, { beforePlay, atPlay: Boolean(atPlay), fakePlay });
       if (want("no-capture-before-pointer")) record("no-capture-before-pointer", analyzedBeforePointer === 0, { analyzedBeforePointer });
 
       // A named card's picture, and its outline.
@@ -585,10 +607,27 @@ try {
       const framesOff = await extensionFrames(page);
       const fetchedOff = standIn.requests.slice(reqBefore).filter((r) => r.path !== settingsUrl.pathname);
       if (want("off-means-off")) record("off-means-off", gone === true && framesOff.length === 0 && fetchedOff.length === 0, { framesOff, fetchedOff });
+      // A second tab plays the same page while hovers are off, then goes behind the first (S-A7).
+      let behind = null;
+      if (want("on-while-playing-loads")) {
+        behind = await openPage(browser);
+        await video.seek(behind, 3, true);
+        await page.bringToFront();
+      }
       await setStored(ext, PRODUCT.keys.enabled, true);
       await page.bringToFront();
       const back = await until(async () => ((await extensionFrames(page)).length === 2 ? true : null), 5000);
-      if (want("on-while-playing-loads")) record("on-while-playing-loads", back === true, {});
+      if (behind) {
+        // Switched on, the tab in front loads at once; the tab behind waits for the front and loads then.
+        const hidden = (await behind.evaluate(() => document.visibilityState)) === "hidden";
+        await sleep(1500);
+        const behindFrames = await extensionFrames(behind);
+        await behind.bringToFront();
+        const fronted = await until(async () => ((await extensionFrames(behind)).length === 2 ? true : null), 10_000);
+        record("on-while-playing-loads", back === true && hidden && behindFrames.length === 0 && fronted === true, { front: back === true, hidden, behindFrames, behindAtFront: Boolean(fronted) });
+        await behind.close();
+        await page.bringToFront();
+      }
 
       // A second tab of the same page while the first plays on: one pointer move over its paused
       // video, then the pointer rests, and the card is named.
