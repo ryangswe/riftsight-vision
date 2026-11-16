@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Toy card</title>
+<style>
+  html, body { margin: 0; background: transparent; }
+  #box { display: inline-block; padding: 6px; background: #1b1530; color: #fff; font: 14px/1.3 system-ui, sans-serif; }
+  #art img { display: block; width: 168px; height: 235px; }
+  #art.loading img { opacity: 0.4; }
+  #pill { padding: 6px 10px; }
+</style>
+</head>
+<body>
+<div id="box">
+  <div id="art" class="loading" hidden><img id="img" alt=""></div>
+  <div id="pill" hidden></div>
+</div>
+<script type="module" src="view.js"></script>
+</body>
+</html>

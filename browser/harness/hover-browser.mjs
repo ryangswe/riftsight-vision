@@ -35,8 +35,11 @@
 // table in clauses.mjs. An expected failure is listed in the product module with the old value,
 // the intended value and what removes it, and, where it fails only under a timing condition, that
 // condition (it must pass when the condition does not hold).
-// A setup failure, a timeout, a crash, a missing NetLog or a network violation is never an
-// expected failure. A listed check that passes is an unexpected pass and fails the run, so the
+// A check the product's stand-in cannot support is listed in the module's `unsupported` with the
+// reason: it is not run, and the report says "unsupported" and why. A setup failure, a timeout, a
+// crash, a missing NetLog, a network violation or a content-security-policy violation is never an
+// expected failure or an unsupported check.
+// A listed expected failure that passes is an unexpected pass and fails the run, so the
 // list is reviewed. Without --only, every check must have run.
 
 import { execFileSync } from "node:child_process";
@@ -86,7 +89,8 @@ const distDir = values.dist ?? (PRODUCT.dist ? fileURLToPath(PRODUCT.dist) : nul
 if (!distDir) usage("missing --dist (the product module names no default build folder)");
 const only = values.only ? new Set(values.only.split(",")) : null;
 if (only) for (const id of only) if (!CHECKS.includes(id)) usage(`--only: no check ${id}`);
-const want = (id) => !only || only.has(id);
+const unsupported = PRODUCT.unsupported ?? {};
+const want = (id) => (!only || only.has(id)) && !(id in unsupported);
 if (!values["dist-idle"] && IDLE_CHECKS.some(want)) usage("--dist-idle is needed for the idle checks (or leave them out with --only)");
 const repoRoot = fileURLToPath(PRODUCT.root);
 if (!relative(repoRoot, resolve(values.art)).startsWith("..")) usage("--art must be outside the product's repository: card art is never committed");
@@ -213,9 +217,36 @@ async function launch(dist, profile, netlog) {
     defaultViewport: { width: 1360, height: 900 },
   });
   browsers.add(browser);
+  watchConsole(browser);
   chromeVersion = await browser.version();
   const sw = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().startsWith("chrome-extension://"), { timeout: 20_000 });
   return { browser, ext: { browser, origin: sw.url().split("/").slice(0, 3).join("/") } };
+}
+
+/** Every browser message about a content-security-policy violation, and every refused postMessage
+ *  (a target origin that is not the recipient's), from any page, frame or worker of the browser. The
+ *  Log domain of each target replays what it held before this attached, so a violation at load is
+ *  not missed. A violation of any extension page's policy fails the run (design: real loading under
+ *  the manifest and its CSP). */
+const policyViolations = [];
+const originMismatches = [];
+function watchConsole(browser) {
+  const attached = new Set();
+  const attach = async (target) => {
+    if (attached.has(target) || target.type() === "browser") return;
+    attached.add(target);
+    const session = await target.createCDPSession();
+    session.on("Log.entryAdded", ({ entry }) => {
+      const text = String(entry.text ?? "");
+      const where = { target: target.type(), url: String(entry.url ?? target.url()).slice(0, 200) };
+      if (/content security policy|refused to (load|connect|execute|create|frame|apply|run)|violates the following/i.test(text)) policyViolations.push({ text: text.slice(0, 300), ...where });
+      else if (/target origin|does not match the recipient window's origin/i.test(text)) originMismatches.push({ text: text.slice(0, 300), ...where });
+    });
+    await session.send("Log.enable");
+  };
+  const safely = (target) => void attach(target).catch(() => attached.delete(target));
+  browser.on("targetcreated", safely);
+  for (const target of browser.targets()) safely(target);
 }
 
 /** Open the test page with the clip paused at the start. */
@@ -412,6 +443,12 @@ function record(id, ok, detail) {
   log(`check ${outcome}`, { id, clause, ...detail });
 }
 
+for (const [id, reason] of Object.entries(unsupported)) {
+  if (only && !only.has(id)) continue;
+  results.push({ id, clause: CLAUSES[id], outcome: "unsupported", detail: { reason } });
+  log("check unsupported", { id, clause: CLAUSES[id], reason });
+}
+
 const clipPath = renderClip();
 const server = await startServer({ video: clipPath, port: 0 });
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
@@ -449,6 +486,9 @@ try {
       log("compute", { state: ready?.state ?? null, backend: ready?.backend ?? null });
       if (!ready) throw new Error("setup: the compute frame never became ready");
       counts.backend = ready.backend;
+      // The compute page's own times (epoch ms), when its debug record has them: its load event, and
+      // the first message from the page (the content script's hello).
+      if (Number.isFinite(ready.loadedAt) && Number.isFinite(ready.helloAt)) counts.helloMinusLoadMs = Math.round(ready.helloAt - ready.loadedAt);
       await sleep(3000);
       const analyzedBeforePointer = (await computeDebug(page))?.analyzed ?? -1;
       if (want("frames-at-play")) record("frames-at-play", beforePlay.length === 0 && atPlay === true, { beforePlay, atPlay: Boolean(atPlay) });
@@ -595,7 +635,7 @@ try {
       }
 
       // The cached reload: the page closed and opened again in a new tab, the same card again.
-      {
+      if (!("cached-reload" in unsupported)) {
         await page.close();
         page = null;
         const before = standIn.requests.length;
@@ -705,13 +745,16 @@ function finish() {
   counts.hosts = hostsSeen;
   const missing = only ? [] : CHECKS.filter((id) => !results.some((r) => r.id === id));
   const failed = results.filter((r) => r.outcome === "fail" || r.outcome === "unexpected-pass");
+  counts.originMismatches = originMismatches.length;
   const manifest = JSON.parse(readFileSync(join(resolve(distDir), "manifest.json"), "utf-8"));
   const report = {
     product: PRODUCT.name,
-    passed: !fatal && violations.length === 0 && failed.length === 0 && missing.length === 0 && results.length > 0,
+    passed: !fatal && violations.length === 0 && policyViolations.length === 0 && failed.length === 0 && missing.length === 0 && results.length > 0,
     fatal,
     missing,
     violations,
+    policyViolations,
+    originMismatches,
     exemptChromeOwn: exempt,
     results,
     counts,
@@ -728,6 +771,7 @@ function finish() {
   writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2));
   console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}`).join("\n")}`);
   if (missing.length) console.log(`missing (never ran): ${missing.join(", ")}`);
+  console.log(`policy: ${policyViolations.length} content-security-policy violation(s); ${originMismatches.length} refused postMessage(s)`);
   console.log(`network: ${violations.length} violation(s), ${exempt.length} of Chrome's own exempt; hosts ${JSON.stringify(hostsSeen)}`);
   console.log(`counts: ${JSON.stringify(counts)}`);
   console.log(`${report.passed ? "PASS" : "FAIL"} in ${(report.durationMs / 1000).toFixed(0)} s on ${chromeVersion}; report ${join(out, "report.json")}`);

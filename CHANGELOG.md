@@ -11,6 +11,17 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- A toy fixture extension for the shared hover host (`browser/fixture-extension/`, built by
+  `browser/scripts/build-fixture.mjs` against the built host files), the "Host browser test" job in
+  `.github/workflows/browser.yml`, and `browser/harness/rollback-check.mjs`. The fixture is an
+  unpacked Manifest V3 extension with the strict extension-page policy, a small view adapter and a
+  view frame that measures itself; recognition is simulated by the toy release's stand-in models and
+  its art is the toy game's colored shapes. The job runs the hover browser test on it in a pinned
+  Chrome for Testing, then the rollback check (one build, then another on the same profile: frames at
+  play, the card's picture, the viewer's switches kept). The hover browser test now also fails on
+  any content-security-policy violation in any page, frame or worker, counts refused `postMessage`
+  calls, reports the time from the compute page's load to the first message from the page, and takes
+  an `unsupported` list in a product module: a check its stand-in cannot support, with the reason.
 - The shared hover host's content realm (experimental, not part of the public API):
   `startHostContent` in `browser/src/host/content.ts`, with the view frame handle in
   `browser/src/host/view.ts`. It follows the main video, wires the capture control, makes and
