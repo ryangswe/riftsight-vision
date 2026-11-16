@@ -9,6 +9,10 @@ Files are dealt out longest first, each to the part with the least time so far, 
 in ``shard_seconds.json`` beside this file. A file that is not listed there counts as one
 second. The seconds only balance the parts: a stale or missing entry never leaves a test out.
 
+A part then runs its longest files first, so that its last files are short and the workers
+finish together. pytest-xdist hands out files by their number of tests unless it is given
+``--no-loadscope-reorder``, as the Tests workflow does.
+
 To measure the seconds again, from the repository's root:
 
     python -m pytest -p no:cacheprovider --junitxml=run.xml
@@ -40,16 +44,18 @@ def parse(spec: str) -> tuple[int, int]:
 def deal(files: Iterable[str], seconds: Mapping[str, float], parts: int) -> list[set[str]]:
     """The files of each of ``parts`` parts. Every file is in exactly one part, and the result
     depends only on the set of files and the seconds, not on their order."""
-    def cost(name: str) -> float:
-        return seconds.get(name, UNLISTED_SECONDS)
-
     dealt: list[set[str]] = [set() for _ in range(parts)]
     load = [0.0] * parts
-    for name in sorted(set(files), key=lambda name: (-cost(name), name)):
+    for name in sorted(set(files), key=lambda name: (-cost(name, seconds), name)):
         part = min(range(parts), key=lambda part: (load[part], part))
         dealt[part].add(name)
-        load[part] += cost(name)
+        load[part] += cost(name, seconds)
     return dealt
+
+
+def cost(name: str, seconds: Mapping[str, float]) -> float:
+    """The recorded seconds of a test file, or ``UNLISTED_SECONDS``."""
+    return seconds.get(name, UNLISTED_SECONDS)
 
 
 def load_seconds(path: Path = SECONDS_FILE) -> dict[str, float]:

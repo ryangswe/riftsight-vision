@@ -311,6 +311,6 @@ skipped as well: one test of `tests/test_data_extract.py`, in its four cases, an
 `tests/test_data_frame_times.py` that read a recording of variable frame rate, in 38 cases.
 
 CI also runs each Python version in two parts, on two runners at the same time, with
-`--shard 1/2` and `--shard 2/2`. Each part runs whole test files, and the two parts together run
-every test once. `tests/shards.py` says how the parts are chosen and how to measure again the
-seconds per file that balance them.
+`--shard 1/2` and `--shard 2/2`. Each part runs whole test files, its longest files first, and
+the two parts together run every test once. `tests/shards.py` says how the parts are chosen and
+how to measure again the seconds per file that balance them.
