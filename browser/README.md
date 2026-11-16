@@ -67,6 +67,8 @@ too. `npm run build` bundles with esbuild into `dist/`, which is not kept in the
 | `dist/worker.js` | The analysis worker a session starts |
 | `dist/compute-session.js`, `dist/page-capture.js` | The two halves of a session for a browser extension (experimental, not part of the public API): see "For an extension" below. No ONNX Runtime, WebAssembly or OpenCV inside |
 | `dist/remote-release.js` | Remote releases for a browser extension (experimental, not part of the public API): [docs/remote-releases.md](../docs/remote-releases.md) |
+| `dist/host-content.js`, `dist/host-compute.js`, `dist/host-settings.js` | The shared hover host for a browser extension (experimental, not part of the public API), one self-contained file per realm, with `*.d.ts` declarations: [docs/extension-session.md](../docs/extension-session.md#the-shared-hover-host). A product vendors them with `--host` |
+| `dist/node/realm-check.mjs` | Fails when a built file holds a runtime module's code twice (experimental); vendored with `--node-tools` |
 | `dist/ort-wasm-*` | ONNX Runtime Web's WebAssembly files and their loaders, copied from `node_modules` |
 | `dist/opencv.mjs`, `dist/opencv_js.wasm`, `dist/opencv.mjs.LEGAL.txt` | OpenCV.js for the geometric stage and its licenses, copied from `vendor/opencv/` when it has been built; the worker imports it only when a stage is asked for |
 | `dist/demo/` | The demo page, the scoring page beside it (`score.html`), and their style sheets |
@@ -1086,7 +1088,7 @@ and the entry files `cardvision.d.ts`, `compute-session.d.ts`, `page-capture.d.t
 worker loads; OpenCV.js and its license text, after checking them against `opencv.lock.json`;
 `LICENSE`, `NOTICE` and `THIRD-PARTY-NOTICES.txt`; `hover-spec.json` from `docs/` when the commit
 has one; and `cardvision-vendor-check.mjs`. `--no-opencv` and `--no-ort-wasm` leave a group out, and
-`--node-tools` adds `node/*.mjs`.
+`--node-tools` adds `node/*.mjs`, `node/realm-check.mjs` included.
 
 Two more options add files. `--host` adds the shared hover host (experimental, not part of the
 public API): `host-content.js`, `host-compute.js` and `host-settings.js`, one self-contained file
@@ -1110,7 +1112,10 @@ content-security-policy violation that Chrome logs in a page, frame or worker, a
 `node harness/hover-browser.mjs --product <file> --chrome <Chrome for Testing> --release <release
 folder> --art <folder outside the product's repository> --dist <build> [--dist-idle <build>]`;
 The local video page in `harness/serve.mjs` has the same video element and styles as the products' manual page, with neutral text. `ffmpeg` and `openssl` must be on the PATH and `puppeteer-core` installed beside it
-(`PUPPETEER_CORE_DIR`). `harness/rollback-check.mjs` runs one build and then another in the same
+(`PUPPETEER_CORE_DIR`). A product module must have `expectedFail` (`{}` when empty), the checks that fail on its code until a named change
+fixes them (an optional `when` limits one to the part expected to fail). The guide to the host,
+the harness and these fields is [docs/extension-session.md](../docs/extension-session.md#the-shared-hover-host).
+`harness/rollback-check.mjs` runs one build and then another in the same
 folder on one browser profile (`--a`, `--b`; their manifest versions must differ) and checks that
 the frames come at play, the card's picture shows and the viewer's switches stay. The toy fixture
 extension, `fixture-extension/` (built by `scripts/build-fixture.mjs` into a folder given with

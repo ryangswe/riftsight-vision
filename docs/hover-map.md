@@ -166,6 +166,53 @@ stateDiagram-v2
 | Restart once, then off | `browser/src/worker-session.ts#restartOnBundled`, `browser/src/worker-session.ts#onWorkerError`, `browser/src/worker-session.ts#onReply`, `browser/src/worker-session.ts#turnOff` | S-A9 |
 | Geometric stage on the earliest pointer | `browser/src/worker-session.ts#sendStage`, `browser/src/worker-session.ts#splitStage`, `browser/src/worker-host.ts#laterStage` | S-A3 |
 
+### 1d. The shared hover host
+
+A product can take the frames' parts from the shared hover host (experimental) in place of its own
+code: three files, one per realm. The content file starts in the video's page and holds the
+lifecycle, the main video, the frames and the outline; the compute file starts in the hidden compute
+frame; the settings file is for the background, the view frame and the popup. The product
+keeps its view adapter, its look and its settings schema ([extension-session.md](extension-session.md#the-shared-hover-host)).
+The decisions of 1c are one pure step here: it takes an event and the facts the page shows and
+answers with the next phase and the effects to run.
+
+```mermaid
+flowchart TD
+  CFG["Product config (checked by productConfigError, run by the product)"]
+  SW["Two switches: on and keep-card"]
+  POL["Site policy: active page, load at play or at a hover"]
+  VP["Main video pick"]
+  LC["Lifecycle step: event and facts to phase and effects"]
+  CT["Content realm: frames, hello, card, hide delay"]
+  OL["Outline"]
+  AD["Product view adapter"]
+  HC["Compute realm: standard preset, origin gate, hold"]
+  CFG --> CT
+  CFG --> HC
+  SW --> CT
+  SW --> HC
+  POL --> LC
+  VP --> LC
+  LC --> CT
+  CT --> OL
+  CT --> AD
+  CT -->|"frames and messages of 1a"| HC
+```
+
+| Element | Anchors | Spec |
+| --- | --- | --- |
+| The three entries, one per realm | `browser/src/host/content-entry.ts`, `browser/src/host/compute-entry.ts`, `browser/src/host/settings-entry.ts` | S-A1 |
+| Product config and its check | `browser/src/host/config.ts#ProductConfig`, `browser/src/host/config.ts#productConfigError` | S-G1 |
+| Content realm: frames, hello, card and hide delay | `browser/src/host/content.ts#startHostContent`, `browser/src/host/content.ts#makeView`, `browser/src/host/content.ts#showCard`, `browser/src/host/content.ts#showAgain`, `browser/src/host/content.ts#updateCard`, `browser/src/host/content.ts#onLayout` | S-A10, S-A6, S-W4 |
+| The lifecycle step | `browser/src/host/lifecycle.ts#lifecycleStep`, `browser/src/host/lifecycle.ts#LifecycleState`, `browser/src/host/lifecycle.ts#LifecycleFacts`, `browser/src/host/lifecycle.ts#LifecycleEffect` | S-A1, S-A2, S-A6, S-A7, S-A8, S-A10, S-B11, S-H3 |
+| Which pages are active, and when they load | `browser/src/host/site-policy.ts#pagePolicy`, `browser/src/host/site-policy.ts#allowedParentOrigin`, `browser/src/host/site-policy.ts#ROUTES` | S-G1, S-G2, S-G3 |
+| The main video | `browser/src/host/video-pick.ts#pickMainVideo`, `browser/src/host/video-pick.ts#createVideoPick`, `browser/src/host/video-pick.ts#pictureOf` | S-G4, S-G5 |
+| The two switches | `browser/src/host/switches.ts#createSwitches`, `browser/src/host/switches.ts#ENABLED_KEY`, `browser/src/host/switches.ts#KEEP_CARD_KEY` | S-H1, S-H2, S-H3 |
+| Settings storage and refresh | `browser/src/host/settings-core.ts#createSettingsCore`, `browser/src/host/settings-core.ts#SettingsCore` | S-H1 |
+| The view adapter and its frame handle | `browser/src/host/view.ts#ViewAdapter`, `browser/src/host/view.ts#ViewFrame`, `browser/src/host/view.ts#ViewLayout`, `browser/src/host/view.ts#createViewFrame`, `browser/src/host/view.ts#viewFrameHandle`, `browser/src/host/view.ts#fromViewFrame` | S-A10, S-W1 |
+| The outline | `browser/src/host/outline.ts#outlineRect`, `browser/src/host/outline.ts#outlinePlace`, `browser/src/host/outline.ts#CardOutline` | S-F1, S-F3, S-F4 |
+| Compute realm: origin gate, preset and hold | `browser/src/host/compute.ts#startHostCompute`, `browser/src/host/compute.ts#STANDARD_PRESET`, `browser/src/host/compute.ts#GEOMETRIC_OPTIONS` | S-A3, S-H2 |
+
 ## Layer 2: the decision points
 
 ### 2a. May a picture be taken?
@@ -552,9 +599,9 @@ sequenceDiagram
 ## Coverage
 
 These files are the map's coverage. Each must carry at least one anchor above, and a change to
-one of them updates this page in the same pull request. Not covered: how a picture is turned into
+one of them updates this page in the same pull request. The shared hover host's files under `browser/src/host/` are covered too. Not covered: how a picture is turned into
 a card name (detector, recognizer, accept rule, geometric stage, layout fitting), how a release
-is chosen and loaded, and the product's own tooltip and settings.
+is chosen and loaded, and a product's own tooltip, look and settings schema.
 
 - `browser/src/cadence.ts`
 - `browser/src/capture-control.ts`
@@ -576,3 +623,16 @@ is chosen and loaded, and the product's own tooltip and settings.
 - `browser/src/worker-host.ts`
 - `browser/src/worker-session.ts`
 - `browser/src/worker.ts`
+- `browser/src/host/config.ts`
+- `browser/src/host/content.ts`
+- `browser/src/host/compute.ts`
+- `browser/src/host/view.ts`
+- `browser/src/host/settings-core.ts`
+- `browser/src/host/switches.ts`
+- `browser/src/host/site-policy.ts`
+- `browser/src/host/lifecycle.ts`
+- `browser/src/host/outline.ts`
+- `browser/src/host/video-pick.ts`
+- `browser/src/host/content-entry.ts`
+- `browser/src/host/compute-entry.ts`
+- `browser/src/host/settings-entry.ts`

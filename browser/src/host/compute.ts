@@ -27,8 +27,8 @@ export interface HostComputeEnv {
   /** Called once, after the origin check passes; never for a page that gives null. */
   loadRequest: () => LoadRequest | Promise<LoadRequest>;
   release?: Pick<ComputeFrameEnv, "chooseRelease" | "recordSkip" | "onDecision" | "onGeometricStatus">;
-  /** Read-only observers; they cannot change what is posted. Called synchronously, before each
-   *  shown card is posted, as startComputeFrame does. */
+  /** Read-only observers. `onShown` is called synchronously, before each shown card is posted, and
+   *  receives the card that will be posted: it must not modify it. */
   observe?: Pick<ComputeFrameEnv, "onShown" | "onAnalysis">;
   now?: () => number;
   /** Development builds only (config.dev): a shorter idle unload. Refused otherwise. */

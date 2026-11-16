@@ -51,10 +51,24 @@
       "group": "A",
       "title": "Elsewhere, the opening trusted pointer over the picture makes the frames",
       "status": "current",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 79,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 817,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 749,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-A3",
@@ -157,20 +171,63 @@
       "group": "A",
       "title": "Turning hovers back on while the video plays loads at once in the tab in front",
       "status": "changes in a product release",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 179,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 192,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 202,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 212,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 222,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 245,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-A8",
       "group": "A",
       "title": "A background tab waits for the front before it loads",
       "status": "changes in a product release",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 79,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 305,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 804,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-A9",
@@ -194,12 +251,41 @@
     {
       "id": "S-A10",
       "group": "A",
-      "title": "A frame the page deletes is made again at the next trusted play or pointer move",
+      "title": "A frame the page deletes is made again at the next trusted play or pointer move, or when a card on show is placed again",
       "status": "changes in a product release",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 79,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 641,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 655,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 664,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 675,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 685,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-B1",
@@ -1751,10 +1837,49 @@
       "group": "F",
       "title": "The outline is the shown card's box on the picture, shown with the tooltip",
       "status": "current",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-outline.test.ts",
+          "line": 83,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 87,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 93,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 100,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 104,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 121,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 214,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 528,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-F2",
@@ -1785,10 +1910,24 @@
       "group": "F",
       "title": "A turned outline is always turned, and never reaches past the picture",
       "status": "changes in a product release",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-outline.test.ts",
+          "line": 158,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 165,
+          "target": false
+        },
+        {
+          "file": "host-outline-inside.test.ts",
+          "line": 47,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-F4",
@@ -1811,30 +1950,77 @@
       "group": "G",
       "title": "Hovers run on watch, live and embed pages on YouTube, and on Twitch",
       "status": "changes in a product release",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 126,
+          "target": false
+        },
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 135,
+          "target": false
+        },
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 145,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 787,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-G2",
       "group": "G",
       "title": "On YouTube, watch and live pages load at play; embeds wait for a hover",
       "status": "current",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 149,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-G3",
       "group": "G",
       "title": "On Twitch, channel, video and clip pages load at play; seven side pages wait for a hover",
       "status": "changes in a product release",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 54,
+          "target": false
+        },
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 62,
+          "target": false
+        },
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 70,
+          "target": false
+        },
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 83,
+          "target": false
+        },
+        {
+          "file": "host-site-policy.test.ts",
+          "line": 159,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-G4",
@@ -1846,51 +2032,200 @@
           "file": "capture-control.test.ts",
           "line": 670,
           "target": false
+        },
+        {
+          "file": "host-video-pick.test.ts",
+          "line": 41,
+          "target": false
+        },
+        {
+          "file": "host-video-pick.test.ts",
+          "line": 49,
+          "target": false
+        },
+        {
+          "file": "host-video-pick.test.ts",
+          "line": 55,
+          "target": false
+        },
+        {
+          "file": "host-video-pick.test.ts",
+          "line": 92,
+          "target": false
+        },
+        {
+          "file": "host-video-pick.test.ts",
+          "line": 139,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 839,
+          "target": false
         }
       ],
-      "pending": [
-        "real-browser test"
-      ]
+      "pending": []
     },
     {
       "id": "S-G5",
       "group": "G",
       "title": "After in-page navigation off an active page, a shrunk player is not captured",
       "status": "changes in a product release",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 79,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 787,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 870,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-H1",
       "group": "H",
       "title": "One switch turns hovers on and off, at once, in every tab",
       "status": "current",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-switches.test.ts",
+          "line": 19,
+          "target": false
+        },
+        {
+          "file": "host-switches.test.ts",
+          "line": 25,
+          "target": false
+        },
+        {
+          "file": "host-switches.test.ts",
+          "line": 30,
+          "target": false
+        },
+        {
+          "file": "host-switches.test.ts",
+          "line": 61,
+          "target": false
+        },
+        {
+          "file": "host-switches.test.ts",
+          "line": 120,
+          "target": false
+        },
+        {
+          "file": "host-switches.test.ts",
+          "line": 130,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 926,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 937,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 956,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-H2",
       "group": "H",
       "title": "Keep-card picks the hold: on by default",
       "status": "current",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-compute.test.ts",
+          "line": 164,
+          "target": false
+        },
+        {
+          "file": "host-compute.test.ts",
+          "line": 176,
+          "target": false
+        },
+        {
+          "file": "host-switches.test.ts",
+          "line": 19,
+          "target": false
+        },
+        {
+          "file": "host-switches.test.ts",
+          "line": 25,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-H3",
       "group": "H",
       "title": "A keep-card change remakes the compute frame: now in front, later behind",
       "status": "current",
-      "tests": [],
-      "pending": [
-        "real-browser test"
-      ]
+      "tests": [
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 79,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 338,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 351,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 361,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 371,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 384,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 405,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
+          "line": 416,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 696,
+          "target": false
+        }
+      ],
+      "pending": []
     },
     {
       "id": "S-X1",
