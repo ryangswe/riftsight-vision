@@ -22,7 +22,7 @@ const USAGE =
   "  --commit SHA      the toolkit commit; must be HEAD of this checkout (default)\n" +
   "  --no-opencv       leave OpenCV.js out (no geometric stage)\n" +
   "  --no-ort-wasm     leave ONNX Runtime's WebAssembly files out; the manifest still names the version and files to ship\n" +
-  "  --node-tools      add node/verify-release.mjs, node/package-zip.mjs, node/store-upload.mjs\n" +
+  "  --node-tools      add node/verify-release.mjs, node/package-zip.mjs, node/store-upload.mjs, node/realm-check.mjs\n" +
   "  --host            add the shared hover host (experimental): host-content.js, host-compute.js, host-settings.js and their declarations\n" +
   "  --harness         add the browser test harness (browser/harness/*.mjs) as harness/*.mjs\n" +
   "  --unmanaged RULE  what the product owns in FOLDER: a folder (\"notes/\") or one exact file name (\"README.md\"); repeatable\n" +
