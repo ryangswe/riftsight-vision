@@ -55,7 +55,7 @@ function canonical(value: unknown): string {
 export function createSettingsCore<S>(schema: SettingsSchema<S>, storage: KeyValueStorage): SettingsCore<S> {
   const defaults = (): S => {
     const { settings } = schema.validate(schema.defaultRaw);
-    if (!settings) throw new Error("the bundled default settings are not valid");
+    if (!settings) throw new Error("createSettingsCore: the schema's default settings do not validate");
     return settings;
   };
 

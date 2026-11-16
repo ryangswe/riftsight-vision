@@ -5,7 +5,7 @@
 // naming the mark and the file. The outputs are built here with the pinned esbuild and the same
 // options as scripts/build.mjs, in memory or in a temp folder; no dist/ and no network.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,9 +91,9 @@ describe("realm marks", () => {
     });
   }
 
-  it("marks the capture control in both the capture entry and the host's content file, and neither of the others", () => {
+  it("marks the capture control in both the capture entry and the host's content file, and in neither of the others", () => {
     const holders = (id: string): string[] => Object.entries(outputs).filter(([, output]) => countMark(output.text, marks.find((mark) => mark.id === id)?.text ?? "\0") > 0).map(([name]) => name);
-    expect(holders("capture-control.ts:NOT_POINTING").sort()).toEqual(["host-content.js", "page-capture.js"]);
+    expect(holders("capture-control.ts:CAPTURE_PENDING_REASON").sort()).toEqual(["host-content.js", "page-capture.js"]);
   });
 });
 
@@ -129,18 +129,25 @@ describe("realm check", () => {
     const parts = join(dir, "parts");
     const product = join(dir, "product");
     mkdirSync(parts);
-    mkdirSync(product);
+    mkdirSync(join(product, "sub"), { recursive: true });
+    mkdirSync(join(dir, "ignored", "node_modules"), { recursive: true });
     await build({ ...shared, entryPoints: { "page-capture": entries["page-capture"] as string, "host-content": entries["host-content"] as string }, outdir: parts });
     // The toy content script: imports both built files, as a product that kept its own capture would.
     writeFileSync(join(dir, "content.js"), `import * as capture from "./parts/page-capture.js";\nimport * as host from "./parts/host-content.js";\nglobalThis.toy = [capture, host];\n`);
-    await build({ ...shared, entryPoints: { content: join(dir, "content.js") }, outdir: product, absWorkingDir: dir });
-    const bundled = readFileSync(join(product, "content.js"), "utf-8");
-    expect(realmFindings("content.js", bundled)).toEqual([{ file: "content.js", id: "capture-control.ts:NOT_POINTING", count: 2 }]);
-    const result = run(await buildCheck(dir), product);
+    await build({ ...shared, entryPoints: { content: join(dir, "content.js") }, outdir: join(product, "sub"), absWorkingDir: dir });
+    const bundled = readFileSync(join(product, "sub", "content.js"), "utf-8");
+    expect(realmFindings("content.js", bundled)).toEqual([{ file: "content.js", id: "capture-control.ts:CAPTURE_PENDING_REASON", count: 2 }]);
+    const tool = await buildCheck(dir);
+    // A duplicate under node_modules is not walked.
+    copyFileSync(join(product, "sub", "content.js"), join(dir, "ignored", "node_modules", "x.js"));
+    const ignored = run(tool, join(dir, "ignored"));
+    expect(ignored.status, "only node_modules held a duplicate, so nothing is read").toBe(2);
+    const result = run(tool, product);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("content.js");
-    expect(result.stderr).toContain("capture-control.ts:NOT_POINTING");
+    expect(result.stderr).toContain(join("sub", "content.js"));
+    expect(result.stderr).toContain("capture-control.ts:CAPTURE_PENDING_REASON");
     expect(result.stderr).toContain("occurs 2 times");
+    expect(result.stderr).toContain("may hold that module's code twice");
   }, 60_000);
 
   it("exits 2 on no arguments and on a path that is not there", async () => {
@@ -150,6 +157,73 @@ describe("realm check", () => {
     expect(missing.status).toBe(2);
     expect(missing.stderr).toContain("cannot read");
   }, 60_000);
+
+  it("ignores node_modules when a duplicate sits beside real files", async () => {
+    const dir = temp();
+    mkdirSync(join(dir, "node_modules"));
+    await build({ ...shared, entryPoints: { "page-capture": entries["page-capture"] as string, "host-content": entries["host-content"] as string }, outdir: join(dir, "p") });
+    writeFileSync(join(dir, "node_modules", "x.js"), readFileSync(join(dir, "p", "page-capture.js"), "utf-8") + readFileSync(join(dir, "p", "host-content.js"), "utf-8"));
+    copyFileSync(join(dir, "p", "host-content.js"), join(dir, "host-content.js"));
+    const result = run(await buildCheck(dir), dir);
+    expect(result.status, result.stderr).toBe(0);
+  }, 60_000);
+
+  it("exits 2 when it read nothing: an empty folder, only .html files, a folder named like a script", async () => {
+    const dir = temp();
+    const tool = await buildCheck(dir);
+    mkdirSync(join(dir, "empty"));
+    mkdirSync(join(dir, "pages"));
+    writeFileSync(join(dir, "pages", "index.html"), "<p>no script</p>");
+    mkdirSync(join(dir, "x.js"));
+    for (const target of ["empty", "pages", "x.js"]) {
+      const result = run(tool, join(dir, target));
+      expect(result.status, target).toBe(2);
+      expect(result.stderr, target).toContain("no .js or .mjs file to check");
+    }
+  }, 60_000);
+
+  it("exits 2 naming a file it cannot read (a link to nothing)", async () => {
+    const dir = temp();
+    const tool = await buildCheck(dir);
+    mkdirSync(join(dir, "p"));
+    writeFileSync(join(dir, "p", "ok.js"), "export {};\n");
+    symlinkSync(join(dir, "p", "gone.js"), join(dir, "p", "dangling.js"));
+    const result = run(tool, join(dir, "p"));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("cannot read");
+    expect(result.stderr).toContain("dangling.js");
+    expect(result.stderr).not.toContain("at ");
+  }, 60_000);
+
+  it("says in how many files each mark was found", async () => {
+    const dir = temp();
+    await build({ ...shared, entryPoints: { "page-capture": entries["page-capture"] as string, "host-content": entries["host-content"] as string }, outdir: join(dir, "p") });
+    const result = run(await buildCheck(dir), join(dir, "p"));
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("capture-control.ts:CAPTURE_PENDING_REASON in 2");
+    expect(result.stdout).toContain("settings-core.ts:DEFAULTS_INVALID in 0");
+  }, 60_000);
+
+  // Values a product writes in its own code: documented reasons, message kinds and storage keys. A
+  // product that bundles its own copy of one beside a built runtime file must pass.
+  it("passes a product that bundles its own copy of a public value beside each built file", async () => {
+    const dir = temp();
+    const parts = join(dir, "parts");
+    mkdirSync(parts);
+    await build({ ...shared, entryPoints: Object.fromEntries(Object.entries(entries).filter(([name]) => name.startsWith("host-") || name === "compute-session" || name === "page-capture")), outdir: parts });
+    const publicValues = ["worker-restarted", "settings.lastGood", "not pointing at the video", "the bundled default settings are not valid", "update.dismissed", "capture-failed", "analysis-failed", "enabled", "keepCard"];
+    const tool = await buildCheck(dir);
+    for (const name of ["compute-session", "host-compute", "host-settings", "host-content", "page-capture"]) {
+      const out = join(dir, `product-${name}`);
+      mkdirSync(out);
+      writeFileSync(join(dir, `${name}-entry.js`), `import * as runtime from "./parts/${name}.js";\nglobalThis.product = [runtime, ${JSON.stringify(publicValues)}];\nif (globalThis.product[1][0] !== "worker-restarted") console.log("worker-restarted", "settings.lastGood");\n`);
+      await build({ ...shared, entryPoints: { bundle: join(dir, `${name}-entry.js`) }, outdir: out, absWorkingDir: dir });
+      const bundled = readFileSync(join(out, "bundle.js"), "utf-8");
+      expect(bundled, name).toContain("worker-restarted");
+      const result = run(tool, out);
+      expect(result.status, `${name}: ${result.stderr}`).toBe(0);
+    }
+  }, 120_000);
 
   it("a built copy of the check holds no mark verbatim, so it never counts itself", async () => {
     const tool = readFileSync(await buildCheck(temp()), "utf-8");

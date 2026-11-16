@@ -6,16 +6,19 @@
 //
 //   node realm-check.mjs FILE_OR_DIR...
 //
+// It counts per file: two runtimes loaded as two separate files in one realm pass.
+//
 // A folder is searched for .js and .mjs files, without entering node_modules. Exit code 0: no
 // file holds a mark twice; 1: at least one does (each is named with its mark and count); 2: bad
-// arguments or an unreadable path.
+// arguments, an unreadable path or file, or no .js or .mjs file to check (a check that read nothing
+// proves nothing).
 
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // @ts-expect-error: a plain .mjs script without declarations
-import { countMarks } from "../scripts/realm-marks.mjs";
+import { countMarks, REALM_MARKS } from "../scripts/realm-marks.mjs";
 
 /** One mark found more than once in one file. */
 export interface RealmFinding {
@@ -54,6 +57,7 @@ function main(argv: string[]): number {
     return 2;
   }
   const findings: RealmFinding[] = [];
+  const holders = new Map<string, number>();
   let checked = 0;
   for (const arg of argv) {
     let files: string[];
@@ -64,15 +68,28 @@ function main(argv: string[]): number {
       return 2;
     }
     for (const file of files) {
+      let source: string;
+      try {
+        source = readFileSync(file, "utf-8");
+      } catch (error) {
+        console.error(`cannot read ${file}: ${(error as Error).message}`);
+        return 2;
+      }
       checked += 1;
-      findings.push(...realmFindings(file, readFileSync(file, "utf-8")));
+      for (const found of countMarks(source) as { id: string; count: number }[]) holders.set(found.id, (holders.get(found.id) ?? 0) + 1);
+      findings.push(...realmFindings(file, source));
     }
   }
   for (const finding of findings) {
-    console.error(`${finding.file}: the realm mark ${finding.id} occurs ${finding.count} times; one runtime per realm allows once, so this file holds that module's code twice`);
+    console.error(`${finding.file}: the realm mark ${finding.id} occurs ${finding.count} times; one runtime per realm allows once, so this file may hold that module's code twice`);
   }
+  if (checked === 0) {
+    console.error("no .js or .mjs file to check: nothing was read");
+    return 2;
+  }
+  const held = (REALM_MARKS as { id: string }[]).map((mark) => `${mark.id} in ${holders.get(mark.id) ?? 0}`).join(", ");
   if (findings.length > 0) return 1;
-  console.log(`realm check: ${checked} file${checked === 1 ? "" : "s"}, no realm mark twice in one file`);
+  console.log(`realm check: ${checked} file${checked === 1 ? "" : "s"}, no realm mark twice in one file (files holding each mark: ${held})`);
   return 0;
 }
 

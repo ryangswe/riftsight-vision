@@ -7,11 +7,12 @@
 // proves, on the toolkit's own build, that each mark occurs once in every output that holds its
 // module and nowhere else.
 //
-// Pick a mark that sits in code the module always keeps (an exported constant, an error text
-// that a used function throws), is long enough to occur nowhere else, and is not a name the
-// minifier could shorten. Add the module's file (relative to browser/) and the constant or
-// function the text belongs to; give the text base64-encoded (`btoa(text)`), and keep the text
-// out of the id and the comments of this file.
+// Pick a mark that sits in code the module always keeps (an error text that a function the
+// module always runs throws), long enough to occur nowhere else, and a text no product has reason
+// to write: never a documented reason, a message kind or a storage key, which a product's own
+// code repeats (a product that bundles its own copy of one beside the runtime would fail the
+// check). Name the module's file (relative to browser/); give the text base64-encoded
+// (`btoa(text)`), and keep the text out of the id and the comments of this file.
 
 /** @typedef {{ id: string, module: string, text: string }} RealmMark */
 
@@ -22,12 +23,12 @@ const mark = (id, module, encoded) => ({ id, module, text: atob(encoded) });
 
 /** @type {readonly RealmMark[]} */
 export const REALM_MARKS = [
-  // The capture control: the content realm's side of a frame capture.
-  mark("capture-control.ts:NOT_POINTING", "src/capture-control.ts", "bm90IHBvaW50aW5nIGF0IHRoZSB2aWRlbw=="),
-  // The session core: the compute realm's state machine (the reason it reports after a worker restart).
-  mark("session-core.ts:WORKER_RESTART_REASON", "src/session-core.ts", "d29ya2VyLXJlc3RhcnRlZA=="),
-  // The settings core: the settings and background realm's stored values.
-  mark("settings-core.ts:LAST_GOOD_KEY", "src/host/settings-core.ts", "c2V0dGluZ3MubGFzdEdvb2Q="),
+  // The capture control: the text of the reason a second capture request is refused with (a text no product writes).
+  mark("capture-control.ts:CAPTURE_PENDING_REASON", "src/capture-control.ts", "YSBjYXB0dXJlIGlzIGFscmVhZHkgcGVuZGluZw=="),
+  // The compute frame: the text of the error a bad instance id throws, in the function that starts the frame.
+  mark("compute-frame.ts:INSTANCE_REFUSAL", "src/compute-frame.ts", "c3RhcnRDb21wdXRlRnJhbWU6IG5vdCBhbiBpbnN0YW5jZSBpZA=="),
+  // The settings core: the text of the error invalid bundled defaults throw, in the function that makes the core.
+  mark("settings-core.ts:DEFAULTS_INVALID", "src/host/settings-core.ts", "Y3JlYXRlU2V0dGluZ3NDb3JlOiB0aGUgc2NoZW1hJ3MgZGVmYXVsdCBzZXR0aW5ncyBkbyBub3QgdmFsaWRhdGU="),
 ];
 
 /** How many times `text` occurs in `source` (overlaps are not counted). */
