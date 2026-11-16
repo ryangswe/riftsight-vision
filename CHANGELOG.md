@@ -56,17 +56,14 @@ break the public surface; this file names each break and how to migrate.
   box to the picture before it works out the turn; a property test with a seeded generator shows
   it stays inside the picture for boxes at each edge and corner. A held card has no outline. The
   main video is picked again on trusted `playing` events and, at most once a second, on moves.
-- Three fixes to the shared hover host (experimental): `productConfigError` now checks a raw
-  product config (types, required and unknown keys, the tag by the messages' own rule, extension
-  paths for the two frames, colors, booleans) and names the field that is wrong; a relayout still
-  goes through when the page's animation-frame scheduler runs the callback at once; and in the
-  idle phase a pointer move no longer measures the picture a second time.
 - Build and packaging for a shared hover host (experimental, not part of the public API): three
   new self-contained files, `dist/host-content.js`, `dist/host-compute.js` and
   `dist/host-settings.js`, with declaration shims, built beside the runtime without changing any
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
-  are frozen.
+  are frozen. `productConfigError` checks a raw product config (types, required and unknown keys,
+  the tag by the messages' own rule, extension paths for the two frames, colors, booleans) and
+  names the field that is wrong.
 - The shared hover host's settings core and switches (experimental, not part of the public API):
   `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
   the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
