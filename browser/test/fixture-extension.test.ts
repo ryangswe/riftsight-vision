@@ -3,7 +3,9 @@
 // browser test relies on, and its product module has the shape the hover browser test takes. The
 // browser run itself is the "Host browser test" job; this test starts no browser and reaches no network.
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -63,13 +65,33 @@ describe("the fixture build command", () => {
     expect(noOut.stderr).toContain("--out FOLDER");
   });
 
-  it("refuses an output folder that holds the toolkit's own files, and a version that is not three numbers", () => {
-    const own = run("--release-dir", "x", "--art-dir", "y", "--out", here("../fixture-extension"));
-    expect(own.status).toBe(2);
-    expect(own.stderr).toContain("holds the toolkit's own files");
+  it("refuses an output folder inside the checkout or above it, and a version that is not three numbers", () => {
+    for (const inside of [here("../fixture-extension"), here("../src"), here("../../docs/new-folder"), here("../../..")]) {
+      const own = run("--release-dir", "x", "--art-dir", "y", "--out", inside);
+      expect(own.status).toBe(2);
+      expect(own.stderr).toContain("inside this checkout or holds it");
+    }
     const bad = run("--release-dir", "x", "--art-dir", "y", "--out", "z", "--version", "2");
     expect(bad.status).toBe(2);
     expect(bad.stderr).toContain("--version");
+  });
+
+  it("refuses a folder outside the checkout that is not empty and is not an earlier build of the fixture", () => {
+    const other = mkdtempSync(join(tmpdir(), "fixture-out-"));
+    try {
+      writeFileSync(join(other, "notes.txt"), "keep me");
+      const refused = run("--release-dir", "x", "--art-dir", "y", "--out", other);
+      expect(refused.status).toBe(2);
+      expect(refused.stderr).toContain("is not an earlier build of this fixture");
+      expect(existsSync(join(other, "notes.txt"))).toBe(true);
+      // An earlier build of the fixture passes the folder check (and then stops on the missing release).
+      writeFileSync(join(other, "manifest.json"), JSON.stringify({ name: "Toy hover host fixture" }));
+      const earlier = run("--release-dir", join(other, "no-release"), "--art-dir", "y", "--out", other);
+      expect(earlier.status).toBe(2);
+      expect(earlier.stderr).not.toContain("--out");
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 
   it("refuses an idle time that is not a positive whole number", () => {

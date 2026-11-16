@@ -38,8 +38,20 @@ if (values.version !== undefined && !/^\d+\.\d+\.\d+$/.test(values.version)) fai
 const idleUnloadMs = values["idle-unload-ms"] === undefined ? null : Number(values["idle-unload-ms"]);
 if (idleUnloadMs !== null && !(Number.isInteger(idleUnloadMs) && idleUnloadMs > 0)) fail(`--idle-unload-ms is a positive whole number of milliseconds (got "${values["idle-unload-ms"]}")`);
 const out = resolve(values.out);
-// --out is removed before the build writes it: never the toolkit's own folders or a folder above them.
-if ([root, fixture, dist].some((own) => own === out || own.startsWith(`${out}/`))) fail(`--out ${out} holds the toolkit's own files: give a folder of its own`);
+// --out is removed before the build writes it, so it must be outside this checkout (and not hold it),
+// and either new, empty, or an earlier build of this fixture (its manifest names the fixture).
+const checkout = resolve(root, "..");
+if (out === checkout || out.startsWith(`${checkout}/`) || checkout.startsWith(`${out}/`)) fail(`--out ${out} is inside this checkout or holds it: give a folder outside it`);
+if (existsSync(out) && readdirSync(out).length > 0) {
+  const fixtureName = JSON.parse(readFileSync(join(fixture, "manifest.json"), "utf-8")).name;
+  let builtName;
+  try {
+    builtName = JSON.parse(readFileSync(join(out, "manifest.json"), "utf-8")).name;
+  } catch {
+    builtName = undefined;
+  }
+  if (builtName !== fixtureName) fail(`--out ${out} is not empty and is not an earlier build of this fixture: give a new or empty folder`);
+}
 const releaseDir = resolve(values["release-dir"]);
 const artDir = resolve(values["art-dir"]);
 

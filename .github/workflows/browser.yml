@@ -108,12 +108,14 @@ jobs:
           python -m pip install --no-deps -e .
           python tests/test_browser_fixtures.py --demo "$RUNNER_TEMP/toy"
       - name: Type-check the fixture against the built host files, and build it twice
+        id: fixture-build
         working-directory: browser
         run: |
           npx tsc --noEmit -p fixture-extension
           node scripts/build-fixture.mjs --release-dir "$RUNNER_TEMP/toy/release" --art-dir "$RUNNER_TEMP/toy/art" --out "$RUNNER_TEMP/fixture-main" --version 0.0.1
           node scripts/build-fixture.mjs --release-dir "$RUNNER_TEMP/toy/release" --art-dir "$RUNNER_TEMP/toy/art" --idle-unload-ms 6000 --version 0.0.2 --out "$RUNNER_TEMP/fixture-idle"
       - name: Install Chrome for Testing, puppeteer-core and ffmpeg
+        id: chrome-install
         run: |
           set -eu
           npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
@@ -132,7 +134,8 @@ jobs:
             --release "$RUNNER_TEMP/toy/release" --art "$RUNNER_TEMP/toy/art" \
             --dist "$RUNNER_TEMP/fixture-main" --dist-idle "$RUNNER_TEMP/fixture-idle" --out "$RUNNER_TEMP/host-browser"
       - name: Run the rollback check (the main build, then the idle build, on one profile)
-        if: ${{ !cancelled() }}
+        # Also after a failed hover test, but never without the two builds and Chrome.
+        if: ${{ !cancelled() && steps.fixture-build.outcome == 'success' && steps.chrome-install.outcome == 'success' }}
         working-directory: browser
         env:
           PUPPETEER_CORE_DIR: ${{ runner.temp }}/pcore
