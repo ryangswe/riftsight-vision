@@ -801,7 +801,7 @@ checked message (a `hello`) has arrived from that origin.
 
 **Experimental** ([stability.md](stability.md#experimental)). A product can take the parts of an
 extension that are the same in every product from the shared hover host, and keep only what is its
-own. The product vendors the host with `npm run vendor -- --host` ([browser/README.md](../browser/README.md#vendoring-the-runtime-and-checking-it):
+own. The product vendors the host with `npm run vendor -- --into <folder> --host` ([browser/README.md](../browser/README.md#vendoring-the-runtime-and-checking-it):
 the host files come from the same commit as the runtime). The rules it follows are the clauses of
 the [hover spec](hover-spec.md); [hover-map.md](hover-map.md#1d-the-shared-hover-host) draws it.
 
@@ -812,7 +812,7 @@ Each realm of an extension loads one self-contained file, and calls one entry:
 | File | Realm | What the product calls |
 | --- | --- | --- |
 | `host-content.js` | The content script, in the video's page | `startHostContent(env)`, with the product config, the page's `window` and `document`, `extensionUrl`, the storage and its change events, and the product's view adapter. It returns `relayout()` (the adapter's own inputs changed), `state` and `stop()`. `pagePolicy` is exported for a product that needs the page check elsewhere. |
-| `host-compute.js` | The compute frame, an extension page in the iframe | `startHostCompute(env)`, with the product config, the frame's `window`, the storage, `loadRequest` (which release to load), `createWorker`, and optional release hooks and read-only observers. It returns `null` for a page that is not framed by an allowed site, and otherwise the frame and `stop()`. |
+| `host-compute.js` | The compute frame, an extension page in the iframe | `startHostCompute(env)`, with the product config, the frame's `window`, the storage, `loadRequest` (which release to load), `createWorker`, and optional release hooks and read-only observers. It resolves to `null` when the origin check fails (the page is not framed by an allowed site) and when the compute frame refuses to start, and otherwise to the frame and `stop()`. |
 | `host-settings.js` | The background, the view frame and the popup (no DOM, so it runs in a service worker) | `createSettingsCore` (the stored settings file, its refresh and the last good copy), `createSwitches` (the two switches), `pagePolicy`, `allowedParentOrigin`, `productConfigError` and the update-notice helpers. |
 
 A product config (`ProductConfig`) is data the product writes once: the message tag and name, the
@@ -820,8 +820,8 @@ sites it serves, a development flag, its two frame pages, the outline's colors a
 capabilities (whether its releases can carry a geometric stage). `productConfigError` returns what
 is wrong with a raw config, and null when it is valid; a product's test can run it on the config it
 ships. A product without the geometric stage capability is refused a load request that carries a
-geometric field; the check covers the first `loadRequest` only, and a release the product's own
-release hooks choose later is the product's to keep consistent with its config.
+geometric field; the check covers what `loadRequest` returns (it is called once); a release that `chooseRelease`
+picks later is not checked against the capability.
 
 ### The view adapter
 
@@ -881,7 +881,7 @@ can mark two kinds of difference without hiding a failure:
 - `expectedFail`: a check that fails on this product's code today, with the change that will fix
   it. An optional `when(detail, ok)` limits it to the part of the check that is expected to fail
   (for example only the S-A10 step of `frames-at-play`), so another failure of the same check is
-  still reported. A check that passes while listed is reported.
+  still reported. A listed check that passes is an unexpected pass and fails the run.
 - `unsupported`: a check the product's stand-in cannot support, with the reason. It is not run, and
   the run's output and `report.json` list it with the reason.
 

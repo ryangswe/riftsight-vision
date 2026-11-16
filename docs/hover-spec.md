@@ -107,8 +107,8 @@ the earliest trusted pointer move or tap over the main video's picture.
 Example: an embedded player plays muted on its own: nothing loads. The viewer moves the mouse over
 its picture: both frames are made, and the model loads.
 
-Test: `host-lifecycle.test.ts:79` (the S-A2 rows), `host-content.test.ts:641`; harness check
-fake-pointer-ignored
+Test: `host-lifecycle.test.ts:79` (the S-A2 rows), `host-content.test.ts:817`,
+`host-content.test.ts:749`; harness check fake-pointer-ignored
 
 ### S-A3 — The geometric stage loads at the earliest pointer, not at play
 
@@ -188,7 +188,8 @@ tab in front.
 Today: both products make the frames in a background tab when its video plays, as a visible tab
 does (S-A1), and take no picture until the tab is shown.
 
-Test: `host-lifecycle.test.ts:305`, `host-content.test.ts:804`
+Test: `host-lifecycle.test.ts:79` (the S-A8 rows), `host-lifecycle.test.ts:305`,
+`host-content.test.ts:804`
 
 ### S-A9 — A worker that stops is restarted once; a second stop turns recognition off
 
@@ -201,21 +202,25 @@ hovers work again. A second crash leaves the status `failed`.
 
 Test: `compute-frame.test.ts:336`, `session-core.test.ts:2240`
 
-### S-A10 — A frame the page deletes is made again at the next trusted play or pointer move
+### S-A10 — A frame the page deletes is made again at the next trusted play or pointer move, or when a card on show is placed again
 
-When a page script removes the compute frame or the tooltip frame, both are made again at the next
-trusted play on a load-at-play page (S-A1), or the next trusted pointer move over the picture, as
-after an idle unload (S-A6). A card on show also makes the tooltip frame again when it is shown or
-placed again (a new card, a size message, a scroll, a resize or a card-size change), so a viewer
-who is pointing at a card is never left without it. Nothing is made again on a timer, and a play
+When a page script removes the compute frame or the tooltip frame, the missing frame is made again
+at the next trusted play on a load-at-play page (S-A1), or the next trusted pointer move over the
+picture, as after an idle unload (S-A6). Only the frame that is missing is made. While a card is on
+show, the tooltip frame is also made again when the card is shown or placed again (a new card, a
+scroll, a resize, a full-screen change or the product's `relayout()`), so the card comes back
+without waiting for a pointer move. The page can cause that last case too: a scroll or resize event
+that a page script dispatches makes the tooltip frame again while a card is on show, and a
+full-screen change event that a page script dispatches makes it again with or without a card on
+show. The compute frame is never made again this way. Nothing is made again on a timer, and a play
 or pointer event that the page made (not trusted) makes nothing.
 
 Status: changes in a product release.
 
 Example: a page deletes the hover frames while the viewer watches: nothing happens until the viewer
 moves the mouse over the picture, and then both frames are made and connect. A page deletes only
-the tooltip frame while a card is on show: the frame is made again at the next time the card is
-shown or placed, and the card appears in it.
+the tooltip frame while a card is on show: the frame is made again when the card is next shown or
+placed (the viewer scrolls, say), and the card appears in it.
 
 Today: the toolkit makes frames again after an idle unload and at no other time. The products check at some events
 whether their frames are still in the page, and the two do not make them again at the same moments.
@@ -853,8 +858,8 @@ Example: a card's box reaches 10 % past the right edge: the outline stops at the
 off the picture: no outline.
 
 Test: `host-outline.test.ts:83`, `host-outline.test.ts:87`, `host-outline.test.ts:93`,
-`host-outline.test.ts:100`, `host-outline.test.ts:104`, `host-outline.test.ts:121`; harness check
-outline-shows
+`host-outline.test.ts:100`, `host-outline.test.ts:104`, `host-outline.test.ts:121`, `host-outline.test.ts:214`,
+`host-content.test.ts:528`; harness check outline-shows
 
 ### S-F2 — A turned card is hovered and outlined along its own edges
 
@@ -1006,8 +1011,8 @@ Test: `host-lifecycle.test.ts:79` (the S-G5 rows), `host-content.test.ts:787`,
 
 Hovers are on unless the viewer switches them off; a missing or unreadable value reads as on. Off
 applies at once in every tab (S-B11); on applies as S-A7. There is no switch per channel or per
-video. A change is a flip only when the state it reads as differs: removing a value that reads as
-on is not a flip, and removing a stored false turns the switch on.
+video. A write applies only when the state it reads as differs from the state in effect: removing
+a value that reads as on changes nothing, and removing a stored false turns the switch on.
 
 Example: the viewer switches off with three tabs open: the frames go in all three.
 

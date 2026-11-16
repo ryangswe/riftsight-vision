@@ -171,14 +171,14 @@ stateDiagram-v2
 A product can take the frames' parts from the shared hover host (experimental) in place of its own
 code: three files, one per realm. The content file starts in the video's page and holds the
 lifecycle, the main video, the frames and the outline; the compute file starts in the hidden compute
-frame; the settings file is for the product's settings page and its background script. The product
+frame; the settings file is for the background, the view frame and the popup. The product
 keeps its view adapter, its look and its settings schema ([extension-session.md](extension-session.md#the-shared-hover-host)).
 The decisions of 1c are one pure step here: it takes an event and the facts the page shows and
 answers with the next phase and the effects to run.
 
 ```mermaid
 flowchart TD
-  CFG["Product config, checked at start"]
+  CFG["Product config (checked by productConfigError, run by the product)"]
   SW["Two switches: on and keep-card"]
   POL["Site policy: active page, load at play or at a hover"]
   VP["Main video pick"]

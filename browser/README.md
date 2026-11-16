@@ -1112,7 +1112,7 @@ content-security-policy violation that Chrome logs in a page, frame or worker, a
 `node harness/hover-browser.mjs --product <file> --chrome <Chrome for Testing> --release <release
 folder> --art <folder outside the product's repository> --dist <build> [--dist-idle <build>]`;
 The local video page in `harness/serve.mjs` has the same video element and styles as the products' manual page, with neutral text. `ffmpeg` and `openssl` must be on the PATH and `puppeteer-core` installed beside it
-(`PUPPETEER_CORE_DIR`). A product module may also list `expectedFail`, checks that fail on its code until a named change
+(`PUPPETEER_CORE_DIR`). A product module must have `expectedFail` (`{}` when empty), the checks that fail on its code until a named change
 fixes them (an optional `when` limits one to the part expected to fail). The guide to the host,
 the harness and these fields is [docs/extension-session.md](../docs/extension-session.md#the-shared-hover-host).
 `harness/rollback-check.mjs` runs one build and then another in the same

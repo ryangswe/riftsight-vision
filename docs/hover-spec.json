@@ -59,7 +59,12 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 641,
+          "line": 817,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 749,
           "target": false
         }
       ],
@@ -208,6 +213,11 @@
       "tests": [
         {
           "file": "host-lifecycle.test.ts",
+          "line": 79,
+          "target": false
+        },
+        {
+          "file": "host-lifecycle.test.ts",
           "line": 305,
           "target": false
         },
@@ -241,7 +251,7 @@
     {
       "id": "S-A10",
       "group": "A",
-      "title": "A frame the page deletes is made again at the next trusted play or pointer move",
+      "title": "A frame the page deletes is made again at the next trusted play or pointer move, or when a card on show is placed again",
       "status": "changes in a product release",
       "tests": [
         {
@@ -1856,6 +1866,16 @@
         {
           "file": "host-outline.test.ts",
           "line": 121,
+          "target": false
+        },
+        {
+          "file": "host-outline.test.ts",
+          "line": 214,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 528,
           "target": false
         }
       ],
