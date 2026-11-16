@@ -10,18 +10,24 @@
 // Pick a mark that sits in code the module always keeps (an exported constant, an error text
 // that a used function throws), is long enough to occur nowhere else, and is not a name the
 // minifier could shorten. Add the module's file (relative to browser/) and the constant or
-// function the text belongs to; the text is the literal as it appears in the source.
+// function the text belongs to; give the text base64-encoded (`btoa(text)`), and keep the text
+// out of the id and the comments of this file.
 
 /** @typedef {{ id: string, module: string, text: string }} RealmMark */
+
+// A mark's text is stored encoded (base64) and decoded when the list is made, so a built copy of
+// the check, which holds this list, never holds a mark verbatim and does not count itself when
+// it is pointed at a folder that holds it. An id never contains its text, for the same reason.
+const mark = (id, module, encoded) => ({ id, module, text: atob(encoded) });
 
 /** @type {readonly RealmMark[]} */
 export const REALM_MARKS = [
   // The capture control: the content realm's side of a frame capture.
-  { id: "capture-control.ts:NOT_POINTING", module: "src/capture-control.ts", text: "not pointing at the video" },
+  mark("capture-control.ts:NOT_POINTING", "src/capture-control.ts", "bm90IHBvaW50aW5nIGF0IHRoZSB2aWRlbw=="),
   // The session core: the compute realm's state machine (the reason it reports after a worker restart).
-  { id: "session-core.ts:worker-restarted", module: "src/session-core.ts", text: "worker-restarted" },
+  mark("session-core.ts:WORKER_RESTART_REASON", "src/session-core.ts", "d29ya2VyLXJlc3RhcnRlZA=="),
   // The settings core: the settings and background realm's stored values.
-  { id: "settings-core.ts:LAST_GOOD_KEY", module: "src/host/settings-core.ts", text: "settings.lastGood" },
+  mark("settings-core.ts:LAST_GOOD_KEY", "src/host/settings-core.ts", "c2V0dGluZ3MubGFzdEdvb2Q="),
 ];
 
 /** How many times `text` occurs in `source` (overlaps are not counted). */

@@ -5,7 +5,7 @@
 // naming the mark and the file. The outputs are built here with the pinned esbuild and the same
 // options as scripts/build.mjs, in memory or in a temp folder; no dist/ and no network.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -150,4 +150,42 @@ describe("realm check", () => {
     expect(missing.status).toBe(2);
     expect(missing.stderr).toContain("cannot read");
   }, 60_000);
+
+  it("a built copy of the check holds no mark verbatim, so it never counts itself", async () => {
+    const tool = readFileSync(await buildCheck(temp()), "utf-8");
+    for (const mark of marks) {
+      expect(tool, mark.id).not.toContain(mark.text);
+      expect(countMark(tool, mark.text), mark.id).toBe(0);
+    }
+  }, 60_000);
+
+  it("a copy of the check inside a scanned folder does not change the result", async () => {
+    const dir = temp();
+    const product = join(dir, "product");
+    mkdirSync(join(product, "node"), { recursive: true });
+    await build({ ...shared, entryPoints: { "page-capture": entries["page-capture"] as string, "host-content": entries["host-content"] as string }, outdir: product });
+    const tool = await buildCheck(dir);
+    const before = run(tool, product);
+    copyFileSync(tool, join(product, "node", "realm-check.mjs"));
+    copyFileSync(tool, join(product, "realm-check-copy.js"));
+    const after = run(tool, product);
+    expect(before.status, before.stderr).toBe(0);
+    expect(after.status, after.stderr).toBe(0);
+    expect(after.stderr).toBe("");
+  }, 60_000);
+});
+
+// The toolkit's own build, with its Node tools: the built check over all of dist/ passes.
+const builtDist = existsSync(join(root, "dist", "node", "realm-check.mjs")) && existsSync(join(root, "dist", "host-content.js"));
+describe("the built realm check over the toolkit's dist/", () => {
+  if (!builtDist && process.env.CARDVISION_REQUIRE_BROWSER !== "1") {
+    it.skip("needs a current dist/ (run npm run build)", () => {});
+    return;
+  }
+  it("exits 0 over the whole of dist/, its own file included", () => {
+    expect(builtDist).toBe(true);
+    const result = spawnSync(process.execPath, [join(root, "dist", "node", "realm-check.mjs"), join(root, "dist")], { encoding: "utf-8" });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
 });
