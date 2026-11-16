@@ -59,12 +59,12 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 817,
+          "line": 856,
           "target": false
         },
         {
           "file": "host-content.test.ts",
-          "line": 749,
+          "line": 788,
           "target": false
         }
       ],
@@ -223,7 +223,7 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 804,
+          "line": 843,
           "target": false
         }
       ],
@@ -276,12 +276,27 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 675,
+          "line": 677,
           "target": false
         },
         {
           "file": "host-content.test.ts",
-          "line": 685,
+          "line": 696,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 605,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 714,
+          "target": false
+        },
+        {
+          "file": "host-content.test.ts",
+          "line": 724,
           "target": false
         }
       ],
@@ -2013,7 +2028,7 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 787,
+          "line": 826,
           "target": false
         }
       ],
@@ -2105,7 +2120,7 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 839,
+          "line": 878,
           "target": false
         }
       ],
@@ -2124,12 +2139,12 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 787,
+          "line": 826,
           "target": false
         },
         {
           "file": "host-content.test.ts",
-          "line": 870,
+          "line": 909,
           "target": false
         }
       ],
@@ -2173,17 +2188,17 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 926,
+          "line": 965,
           "target": false
         },
         {
           "file": "host-content.test.ts",
-          "line": 937,
+          "line": 976,
           "target": false
         },
         {
           "file": "host-content.test.ts",
-          "line": 956,
+          "line": 995,
           "target": false
         }
       ],
@@ -2266,7 +2281,7 @@
         },
         {
           "file": "host-content.test.ts",
-          "line": 696,
+          "line": 735,
           "target": false
         }
       ],

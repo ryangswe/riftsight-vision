@@ -107,8 +107,8 @@ the earliest trusted pointer move or tap over the main video's picture.
 Example: an embedded player plays muted on its own: nothing loads. The viewer moves the mouse over
 its picture: both frames are made, and the model loads.
 
-Test: `host-lifecycle.test.ts:79` (the S-A2 rows), `host-content.test.ts:817`,
-`host-content.test.ts:749`; harness check fake-pointer-ignored
+Test: `host-lifecycle.test.ts:79` (the S-A2 rows), `host-content.test.ts:856`,
+`host-content.test.ts:788`; harness check fake-pointer-ignored
 
 ### S-A3 — The geometric stage loads at the earliest pointer, not at play
 
@@ -189,7 +189,7 @@ Today: both products make the frames in a background tab when its video plays, a
 does (S-A1), and take no picture until the tab is shown.
 
 Test: `host-lifecycle.test.ts:79` (the S-A8 rows), `host-lifecycle.test.ts:305`,
-`host-content.test.ts:804`
+`host-content.test.ts:843`
 
 ### S-A9 — A worker that stops is restarted once; a second stop turns recognition off
 
@@ -226,8 +226,10 @@ Today: the toolkit makes frames again after an idle unload and at no other time.
 whether their frames are still in the page, and the two do not make them again at the same moments.
 
 Test: `host-lifecycle.test.ts:79` (the S-A10 rows), `host-content.test.ts:641`,
-`host-content.test.ts:655`, `host-content.test.ts:664`, `host-content.test.ts:675`,
-`host-content.test.ts:685`; harness check frames-at-play (its made-up and real play steps)
+`host-content.test.ts:655`, `host-content.test.ts:664`, `host-content.test.ts:677` (an untrusted
+scroll and resize), `host-content.test.ts:696` (an untrusted full-screen change),
+`host-content.test.ts:605` (full screen), `host-content.test.ts:714`, `host-content.test.ts:724`;
+harness check frames-at-play (its made-up and real play steps)
 
 ## B. Capture authority and privacy
 
@@ -927,7 +929,7 @@ Today: one product checks the page at each event and at each capture; the other 
 pointer move and not at a capture.
 
 Test: `host-site-policy.test.ts:126`, `host-site-policy.test.ts:135`,
-`host-site-policy.test.ts:145`; at each capture: `host-content.test.ts:787`
+`host-site-policy.test.ts:145`; at each capture: `host-content.test.ts:826`
 
 ### S-G2 — On YouTube, watch and live pages load at play; embeds wait for a hover
 
@@ -995,7 +997,7 @@ switch makes no other video larger: nothing changes.
 
 Test: `capture-control.test.ts:775` (the switch), `host-video-pick.test.ts:41`,
 `host-video-pick.test.ts:49`, `host-video-pick.test.ts:55`, `host-video-pick.test.ts:92`,
-`host-video-pick.test.ts:139`, `host-content.test.ts:839`
+`host-video-pick.test.ts:139`, `host-content.test.ts:878`
 
 ### S-G5 — After in-page navigation off an active page, a shrunk player is not captured
 
@@ -1011,8 +1013,8 @@ moving or resting over it takes no picture.
 Today: one product checks the page at each event and at each capture; the other checks it at a
 pointer move and not at a capture.
 
-Test: `host-lifecycle.test.ts:79` (the S-G5 rows), `host-content.test.ts:787`,
-`host-content.test.ts:870`
+Test: `host-lifecycle.test.ts:79` (the S-G5 rows), `host-content.test.ts:826`,
+`host-content.test.ts:909`
 
 ## H. Settings
 
@@ -1027,7 +1029,7 @@ Example: the viewer switches off with three tabs open: the frames go in all thre
 
 Test: `host-switches.test.ts:19`, `host-switches.test.ts:25`, `host-switches.test.ts:30`,
 `host-switches.test.ts:61`, `host-switches.test.ts:120`, `host-switches.test.ts:130`,
-`host-content.test.ts:926`, `host-content.test.ts:937`, `host-content.test.ts:956`
+`host-content.test.ts:965`, `host-content.test.ts:976`, `host-content.test.ts:995`
 
 ### S-H2 — Keep-card picks the hold: on by default
 
@@ -1052,7 +1054,7 @@ made again at once, the other two when each is brought to the front.
 Test: `host-lifecycle.test.ts:79` (the S-H3 rows), `host-lifecycle.test.ts:338`,
 `host-lifecycle.test.ts:351`, `host-lifecycle.test.ts:361`, `host-lifecycle.test.ts:371`,
 `host-lifecycle.test.ts:384`, `host-lifecycle.test.ts:405`, `host-lifecycle.test.ts:416`,
-`host-content.test.ts:696`
+`host-content.test.ts:735`
 
 ## X. Invariants
 
