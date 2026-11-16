@@ -5,8 +5,9 @@
 import { createSettingsCore } from "@cardvision/host-settings";
 
 import { SCHEMA } from "./settings.js";
+import { STORE } from "./store.js";
 
-const core = createSettingsCore(SCHEMA, chrome.storage.local);
+const core = createSettingsCore(SCHEMA, STORE);
 
 function refresh(force: boolean): void {
   void core

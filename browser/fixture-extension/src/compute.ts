@@ -7,6 +7,7 @@ import { createSettingsCore, type HostCompute, startHostCompute, type WorkerLike
 
 import { CONFIG } from "./config.js";
 import { SCHEMA } from "./settings.js";
+import { STORE } from "./store.js";
 
 /** A development build only: the idle unload in ms, from the build (`--idle-unload-ms`), or null. */
 declare const __IDLE_UNLOAD_MS__: number | null;
@@ -54,12 +55,12 @@ window.__toyDebug = () => {
   };
 };
 
-const settings = createSettingsCore(SCHEMA, chrome.storage.local);
+const settings = createSettingsCore(SCHEMA, STORE);
 
 host = await startHostCompute({
   config: CONFIG,
   win: window,
-  storage: chrome.storage.local,
+  storage: STORE,
   createWorker: () => new Worker(chrome.runtime.getURL("runtime/worker.js"), { type: "module" }) as unknown as WorkerLike,
   loadRequest: async () => {
     settingsOrigin = (await settings.read()).origin;
