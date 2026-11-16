@@ -65,7 +65,7 @@ export function start(win: Window, doc: Document): HostContent {
 }
 
 const delay: number = HIDE_DELAY_MS;
-const route: string | null = pagePolicy(new URL("https://www.youtube.com/watch?v=x"), config) === null ? null : "route";
+const route: string | null = pagePolicy(new URL("https://www.youtube.com/embed/clip"), config) === null ? null : "route";
 export { delay, route };
 
 // The types are real, not any: each of these must be an error.
