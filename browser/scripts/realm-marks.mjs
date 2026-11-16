@@ -23,7 +23,12 @@ const mark = (id, module, encoded) => ({ id, module, text: atob(encoded) });
 
 /** @type {readonly RealmMark[]} */
 export const REALM_MARKS = [
-  // The capture control: the text of the reason a second capture request is refused with (a text no product writes).
+  // The capture control: the text of the reason a second capture request is refused with. The one
+  // exception to the rule above: it is a documented refusal reason, kept because the capture
+  // control's runtime file must not change and every text it holds is such a reason. A bundle
+  // beside the host's content file should not import that constant from the page-capture file
+  // (doing so keeps a second copy of the text and fails the check). Move the mark to an internal
+  // text when that runtime file next changes for another reason.
   mark("capture-control.ts:CAPTURE_PENDING_REASON", "src/capture-control.ts", "YSBjYXB0dXJlIGlzIGFscmVhZHkgcGVuZGluZw=="),
   // The compute frame: the text of the error a bad instance id throws, in the function that starts the frame.
   mark("compute-frame.ts:INSTANCE_REFUSAL", "src/compute-frame.ts", "c3RhcnRDb21wdXRlRnJhbWU6IG5vdCBhbiBpbnN0YW5jZSBpZA=="),
