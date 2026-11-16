@@ -15,6 +15,7 @@ import { amoJwt } from "../node/store-amo.js";
 import { chromeDecision } from "../node/store-chrome.js";
 import { CWS_SCOPE, GOOGLE_TOKEN_URL, serviceAccountToken } from "../node/store-google.js";
 import {
+  AMO_APPROVAL_NOTES_LIMIT,
   DENY_PATTERNS,
   denyFindings,
   deniedEnvNames,
@@ -516,6 +517,47 @@ describe("check (the build job)", () => {
     writeFileSync(join(dir, "store/releases/1.0.0.json"), JSON.stringify({ ...release, permissionsChanged: true }));
     expect(await main(checkArgv(dir, ["--previous-permissions", join(dir, "previous.json")]), deps(fakeStores().fetchFn))).toBe(0);
     expect(await main(checkArgv(dir, ["--previous-permissions", join(dir, "store/permissions.json")]), deps(fakeStores().fetchFn))).toBe(1);
+  });
+});
+
+describe("notes to reviewers: the addons.mozilla.org length limit", () => {
+  const LICENSE = "<!-- SPDX-License-Identifier: Apache-2.0 -->\n\n";
+  const writeNotes = (dir: string, body: string) => writeFileSync(join(dir, "store/releases/1.0.0/amo-approval-notes.md"), `${LICENSE}${body}\n`);
+
+  it("the limit is 3000 characters", () => {
+    expect(AMO_APPROVAL_NOTES_LIMIT).toBe(3000);
+  });
+
+  it("notes of exactly 3000 characters pass check and upload; the license comment is not counted", async () => {
+    const dir = workspace();
+    writeNotes(dir, "a".repeat(3000));
+    const log: string[] = [];
+    expect(await main(checkArgv(dir), deps(fakeStores().fetchFn, {}, log)), log.join("\n")).toBe(0);
+    const log2: string[] = [];
+    expect(await main(uploadArgv(dir), deps(fakeStores().fetchFn, {}, log2)), log2.join("\n")).toBe(0);
+  });
+
+  it("a non-BMP character counts as one: 3000 of them pass, and 3001 are refused", async () => {
+    const dir = workspace();
+    writeNotes(dir, "\u{1F0A1}".repeat(3000));
+    expect(await main(checkArgv(dir), deps(fakeStores().fetchFn))).toBe(0);
+    writeNotes(dir, "\u{1F0A1}".repeat(3001));
+    const log: string[] = [];
+    expect(await main(checkArgv(dir), deps(fakeStores().fetchFn, {}, log))).toBe(1);
+    expect(log.join("\n")).toMatch(/1\.0\.0\/amo-approval-notes\.md is 3001 characters; addons\.mozilla\.org accepts at most 3000/);
+  });
+
+  it("notes of 3001 characters are refused by check, and by the upload before any call", async () => {
+    const dir = await checked();
+    writeNotes(dir, "a".repeat(3001));
+    const log: string[] = [];
+    expect(await main(checkArgv(dir), deps(fakeStores().fetchFn, {}, log))).toBe(1);
+    expect(log.join("\n")).toMatch(/amo-approval-notes\.md is 3001 characters; addons\.mozilla\.org accepts at most 3000/);
+    const stores = fakeStores();
+    const log2: string[] = [];
+    expect(await main(uploadArgv(dir), deps(stores.fetchFn, {}, log2))).toBe(1);
+    expect(stores.calls).toEqual([]);
+    expect(log2.join("\n")).toMatch(/amo-approval-notes\.md is 3001 characters/);
   });
 });
 
