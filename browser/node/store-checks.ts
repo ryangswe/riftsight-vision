@@ -49,6 +49,9 @@ export interface ReleaseFile {
   permissionsChanged?: boolean;
   /** Addresses that must answer 200 (and match a sha256 when given) before upload. */
   before?: Array<{ url: string; sha256?: string; why?: string }>;
+  /** Addresses the daily status check expects to hold the bytes of a file beside this release file
+   *  (`file`) or a sha256; `when: "published"` checks only once the version is public. */
+  expect?: Array<{ url: string; file?: string; sha256?: string; when?: "always" | "published"; why?: string }>;
 }
 
 function fail(message: string): never {
@@ -96,7 +99,7 @@ export function readStoreConfig(path: string): StoreConfig {
 export function readReleaseFile(path: string): ReleaseFile {
   const o = readJson(path);
   if (!isObj(o)) fail(`${path}: must be an object`);
-  onlyKeys(o, ["version", "chrome", "firefox", "permissionsChanged", "before"], path);
+  onlyKeys(o, ["version", "chrome", "firefox", "permissionsChanged", "before", "expect"], path);
   if (!isStr(o.version)) fail(`${path}: version is required`);
   const out: ReleaseFile = { version: o.version };
   if (o.chrome !== undefined) {
@@ -133,6 +136,18 @@ export function readReleaseFile(path: string): ReleaseFile {
       onlyKeys(b, ["url", "sha256", "why"], `${path} before[${i}]`);
       if (b.sha256 !== undefined && !(isStr(b.sha256) && /^[0-9a-f]{64}$/.test(b.sha256))) fail(`${path}: before[${i}].sha256 must be 64 hex`);
       return { url: b.url, ...(b.sha256 ? { sha256: b.sha256 as string } : {}), ...(isStr(b.why) ? { why: b.why } : {}) };
+    });
+  }
+  if (o.expect !== undefined) {
+    if (!Array.isArray(o.expect)) fail(`${path}: expect must be a list`);
+    out.expect = o.expect.map((b, i) => {
+      if (!isObj(b) || !isStr(b.url) || !/^https:\/\//.test(b.url)) fail(`${path}: expect[${i}] needs an https url`);
+      onlyKeys(b, ["url", "file", "sha256", "when", "why"], `${path} expect[${i}]`);
+      if ((b.file === undefined) === (b.sha256 === undefined)) fail(`${path}: expect[${i}] needs exactly one of file and sha256`);
+      if (b.file !== undefined && (!isStr(b.file) || b.file.startsWith("/") || b.file.split("/").includes(".."))) fail(`${path}: expect[${i}].file is a path beside the release file`);
+      if (b.sha256 !== undefined && !(isStr(b.sha256) && /^[0-9a-f]{64}$/.test(b.sha256))) fail(`${path}: expect[${i}].sha256 must be 64 hex`);
+      if (b.when !== undefined && b.when !== "always" && b.when !== "published") fail(`${path}: expect[${i}].when is "always" or "published"`);
+      return { url: b.url, ...(b.file ? { file: b.file as string } : {}), ...(b.sha256 ? { sha256: b.sha256 as string } : {}), ...(b.when ? { when: b.when as "always" | "published" } : {}), ...(isStr(b.why) ? { why: b.why } : {}) };
     });
   }
   return out;

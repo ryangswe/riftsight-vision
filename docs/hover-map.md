@@ -554,7 +554,7 @@ sequenceDiagram
     CF-->>CC: ready, status
     CC->>CF: pointer with restedMs
     CF->>SC: pointerRested
-    Note over CC: the hello's status opens a grant. A frame that replaces one is told nothing.
+    Note over CC: the hello's status opens a grant; one picture per rest is spent. A frame that replaces one is told nothing.
     Note over SC: model loaded: the look is asked now; else at the load's end
   else the frame was there at the move
     CC->>CF: pointer
@@ -589,7 +589,7 @@ sequenceDiagram
 | The first frame is told the rest | `browser/src/capture-control.ts#sendPointer`, `browser/src/capture-control.ts#onReady`, `browser/src/capture-control.ts#Authority` | S-B13 |
 | A remade frame is told nothing | `browser/src/capture-control.ts#onReady`, `browser/src/capture-control.ts#Authority` | S-B13 |
 | The frame takes the rest | `browser/src/compute-frame.ts#deliver`, `browser/src/session-core.ts#SessionCore.pointerRested`, `browser/src/frame-scheduler.ts#FrameScheduler.pointerRestedSince` | S-B13 |
-| Ready opens a grant | `browser/src/capture-control.ts#onMessage`, `browser/src/capture-gate.ts#slowStartAllowed`, `browser/src/capture-control.ts#SLOW_START_GRANT_MS` | S-B13 |
+| Ready opens a grant, one picture per rest | `browser/src/capture-control.ts#onMessage`, `browser/src/capture-control.ts#captureFor`, `browser/src/capture-control.ts#Authority`, `browser/src/capture-gate.ts#slowStartAllowed`, `browser/src/capture-control.ts#SLOW_START_GRANT_MS` | S-B13 |
 | Status before request | `browser/src/session-core.ts#SessionCore.fromWorker` | S-B13, S-C6 |
 | The core asks one look | `browser/src/session-core.ts#SessionCore.lookOnLoad`, `browser/src/session-core.ts#SessionCore.slowStartEligible` | S-B13 |
 | The grant is spent | `browser/src/capture-control.ts#captureFor`, `browser/src/capture-control.ts#captureAllowedNow` | S-B13 |

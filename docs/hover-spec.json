@@ -40,7 +40,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1016,
+          "line": 1121,
           "target": false
         }
       ],
@@ -295,7 +295,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 465,
+          "line": 570,
           "target": false
         }
       ],
@@ -319,7 +319,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 498,
+          "line": 603,
           "target": false
         }
       ],
@@ -338,7 +338,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 551,
+          "line": 656,
           "target": false
         }
       ],
@@ -412,47 +412,92 @@
         },
         {
           "file": "capture-control.test.ts",
+          "line": 364,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 378,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 389,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 398,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 406,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 419,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 433,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 441,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 458,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 470,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 488,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 508,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 517,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 526,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 536,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
+          "line": 547,
+          "target": false
+        },
+        {
+          "file": "capture-control.test.ts",
           "line": 349,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 363,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 374,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 383,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 391,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 404,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 418,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 426,
-          "target": false
-        },
-        {
-          "file": "capture-control.test.ts",
-          "line": 443,
+          "line": 1200,
           "target": false
         },
         {
@@ -462,42 +507,42 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1045,
+          "line": 1150,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1069,
+          "line": 1174,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1084,
+          "line": 1189,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1095,
+          "line": 1220,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1101,
+          "line": 1226,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1109,
+          "line": 1234,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1121,
+          "line": 1246,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1133,
+          "line": 1258,
           "target": false
         },
         {
@@ -542,7 +587,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 1147,
+          "line": 1272,
           "target": false
         }
       ],
@@ -558,17 +603,17 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 693,
+          "line": 798,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 704,
+          "line": 809,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 732,
+          "line": 837,
           "target": false
         }
       ],
@@ -582,7 +627,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 511,
+          "line": 616,
           "target": false
         }
       ],
@@ -596,7 +641,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 625,
+          "line": 730,
           "target": false
         }
       ],
@@ -610,7 +655,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 457,
+          "line": 562,
           "target": false
         },
         {
@@ -677,12 +722,12 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 596,
+          "line": 701,
           "target": false
         },
         {
           "file": "capture-control.test.ts",
-          "line": 650,
+          "line": 755,
           "target": false
         }
       ],
@@ -696,7 +741,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 973,
+          "line": 1078,
           "target": false
         },
         {
@@ -1311,7 +1356,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 919,
+          "line": 1024,
           "target": false
         },
         {
@@ -1483,7 +1528,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 474,
+          "line": 579,
           "target": false
         },
         {
@@ -2030,7 +2075,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 670,
+          "line": 775,
           "target": false
         },
         {
@@ -2251,7 +2296,7 @@
       "tests": [
         {
           "file": "capture-control.test.ts",
-          "line": 842,
+          "line": 947,
           "target": false
         }
       ],
@@ -2270,7 +2315,7 @@
         },
         {
           "file": "capture-control.test.ts",
-          "line": 964,
+          "line": 1069,
           "target": false
         }
       ],
@@ -2284,17 +2329,17 @@
       "tests": [
         {
           "file": "vendor.test.ts",
-          "line": 463,
+          "line": 465,
           "target": false
         },
         {
           "file": "vendor.test.ts",
-          "line": 621,
+          "line": 623,
           "target": false
         },
         {
           "file": "vendor.test.ts",
-          "line": 798,
+          "line": 800,
           "target": false
         }
       ],

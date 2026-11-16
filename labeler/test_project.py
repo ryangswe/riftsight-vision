@@ -728,7 +728,8 @@ class Server(Toy):
         serve.HUB.start_dir, serve.HUB.project, serve.HUB.flags, serve.HUB.args, serve.HUB.command = self.start, None, {}, None, None
         self.server = _TestServer(("127.0.0.1", 0), serve.Handler)
         self.port = self.server.server_address[1]
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        # shutdown() returns at the server's next poll: half a second by default, in every test here.
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(self.stop)
 
     def stop(self):

@@ -11,7 +11,7 @@
 //   dist/host-content.js, dist/host-compute.js, dist/host-settings.js  the shared hover host, one
 //                        self-contained file per realm (src/host/*-entry.ts, experimental; not part
 //                        of the public API): same purity as the two entries above, and no splitting
-//   dist/node/verify-release.mjs, package-zip.mjs, store-upload.mjs, realm-check.mjs  Node tools for an extension's release
+//   dist/node/verify-release.mjs, package-zip.mjs, store-upload.mjs, realm-check.mjs, release-decide.mjs  Node tools for an extension's release
 //                        scripts (node/): check a release folder or URL with the runtime above,
 //                        write the store or release-page zip, and count the realm marks in a
 //                        product build (one runtime per realm); platform node, ONNX Runtime external
@@ -76,6 +76,7 @@ await build({
     "package-zip": join(root, "node/package-zip.ts"),
     "store-upload": join(root, "node/store-upload.ts"),
     "realm-check": join(root, "node/realm-check.ts"),
+    "release-decide": join(root, "node/release-decide.ts"),
   },
   outdir: join(dist, "node"),
   outExtension: { ".js": ".mjs" },

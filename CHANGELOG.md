@@ -107,6 +107,46 @@ break the public surface; this file names each break and how to migrate.
   route table covers YouTube and Twitch as [S-G1 to S-G3](docs/hover-spec.md) set them, with the
   seven Twitch side pages and one shared reserved list. Its test reads the address tables and
   examples out of the spec, so a spec edit that breaks a row fails the test.
+- `browser/templates/extension-release.yml` releases an extension when its version is merged: on a
+  push to the main branch, when the version in `package.json` has no tag, `store/releases/<version>.json`
+  exists and the changelog has a dated section for it (`## [1.2.0] - 2026-11-13`), the workflow
+  creates the tag and the GitHub release (the section is the notes) and starts `store-release.yml`
+  on the tag with `upload` set, which still waits for the `store` environment's approval. A
+  pre-release version with a release file is refused, since store versions are numeric, and so is
+  a version lower than the newest final tag. A re-run does only what is missing, and the tags are
+  read with the workflow's token, so a private repository works. The decision is the new Node tool
+  `node/release-decide.mjs`, vendored with `--node-tools`. `store-release.yml`'s `check` step also
+  scans `.github/workflows/extension-release.yml` when the file exists; a product that copied the
+  template earlier updates that step (see
+  [docs/store-uploads.md](docs/store-uploads.md#release-on-merge)).
+- `store-upload.mjs check` writes a release record, `--record-out FILE.json`, as JSON and Markdown
+  (`FILE.md`): versions, package hashes, a digest of each package's unpacked files, the vendored
+  toolkit's commit (`--vendor-manifest`), the permission surface, the Firefox lint counts, the
+  commit's check runs (`--ci-results`), the bundled model release and a product's own facts
+  (`--facts`). `--runtimes` checks the model release against the version's row of the product's
+  runtime table. It refuses a record whose text names a credential, a denied word or a path on a
+  machine. `--load-unpacked-zip` adds a package for people who load the extension unpacked. A new
+  `assets` command collects the packages, the record and `SHA256SUMS` for a GitHub release, never
+  the Firefox source archive. `browser/templates/store-release.yml` has a `release-assets` job
+  that runs on a tag push, or on a dispatch that ticks `attach` (the merge workflow's dispatch
+  does), with `contents: write`, no store access and a per-tag concurrency group. It lists the
+  release's assets and refuses to replace them when it cannot, or when a `SHA256SUMS` already there
+  differs; `SHA256SUMS` goes up first. The template's actions are now pinned to full commits.
+  `check` also refuses a workflow in which a job that names an environment has no permissions of
+  its own, or write permission could reach it, or whose jobs it cannot read. See
+  [docs/store-uploads.md](docs/store-uploads.md).
+- `store-upload.mjs status` is a daily check that needs no credential: it compares the newest
+  release file's version with the version the Chrome Web Store's update service and the
+  addons.mozilla.org add-on API show the public, and with the release file's new optional
+  `expect` entries (addresses that must hold a repository file's bytes, such as a live settings
+  file). A version still in review passes with a note, as does an add-on waiting for its initial
+  review once the previous run's versions are read. It fails on a store that shows a newer version,
+  a version that went back since the previous run, a version that was public and now is not (a
+  takedown), an address that differs, or a store that cannot be read. A 401 or 403 from the add-on
+  API counts as no public version, a 429 or a server error is retried after 30 seconds and then 2
+  minutes, and each read times out after 20 seconds. `browser/templates/store-status.yml` runs it
+  daily with `contents: read` and no environment. See
+  [docs/store-uploads.md](docs/store-uploads.md#the-daily-status-check).
 - [docs/hover-map.md](docs/hover-map.md) maps the browser runtime's hover path in three layers:
   the frames and their messages, the decision points (may a picture be taken, is a look asked for,
   what is shown) and two flows as sequence diagrams. Each element names its code and the clauses of
@@ -130,6 +170,8 @@ break the public surface; this file names each break and how to migrate.
 - [docs/hover-map.md](docs/hover-map.md): the diagrams read better on GitHub. The overview of the
   frames is laid out top to bottom, the card-shown diagram is split into the fresh card, the shown
   hold and the reading hold, and "How to read it" says how the diagrams are drawn.
+- `tests/release_prepare.py` also sets `CITATION.cff`: its `version` and its `date-released`, to
+  the date of the version commit. It refuses a `CITATION.cff` with no `date-released` line.
 
 ## [0.14.1] - 2026-11-14
 
@@ -150,6 +192,14 @@ page makes again during the same rest still gets none. Changes that may need act
 decision changes.
 
 ### Fixed
+
+- A resting mouse now gets at most one slow-start picture per rest. When the compute frame's
+  worker restarted under a pointer that had not moved, the frame became ready a second time and the
+  content script granted a second picture after the 10 seconds. A rest now gets one picture after
+  the 10 seconds because of a grant, for a frame connected before the rest, one that was ready
+  inside the 10 seconds and a late one. It is counted when the picture is delivered: a grant that
+  lapses unspent or is dropped by a seek, or a capture that takes no picture, does not use it up.
+  A trusted move begins a new rest. The rest of the one-picture rule is unchanged.
 
 - A card under a resting mouse is now named when the compute frame connects late. A page whose
   model loads slowly, such as a new tab, could miss the one picture a resting pointer is owed:
