@@ -619,6 +619,7 @@ def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_
     assert "node harness/hover-browser.mjs --product fixture-extension/product.mjs" in job
     assert "node harness/rollback-check.mjs --product fixture-extension/product.mjs" in job
     assert "if: always()" in job and "actions/upload-artifact@" in job
+    assert "if: ${{ !cancelled() }}" in job and "--version 0.0.2" in job
 
 
 # ------------------------------------------------------------------------------ canary.yml

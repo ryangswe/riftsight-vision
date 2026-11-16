@@ -1102,11 +1102,20 @@ leaves 127.0.0.1 and the stand-in settings host. `harness/hover-browser.mjs` hol
 part and its check list (`clauses.mjs`, each check with its [hover spec](../docs/hover-spec.md)
 clause). What is specific to one product goes in a module given with `--product <file>`; the
 fields and a neutral example are in `browser/harness/example/product.mjs`, and
-`harness/product-shape.mjs` checks the shape before a run. Run it with
+`harness/product-shape.mjs` checks the shape before a run. A module may also list `unsupported`
+checks, each with the reason its stand-in cannot support it: they are not run as checks, and the
+run's output and `report.json` list them with the reason. Every run also fails on any
+content-security-policy violation that Chrome logs in a page, frame or worker, and counts
+`postMessage` calls refused for their target origin (`harness/console-watch.mjs`). Run it with
 `node harness/hover-browser.mjs --product <file> --chrome <Chrome for Testing> --release <release
 folder> --art <folder outside the product's repository> --dist <build> [--dist-idle <build>]`;
 The local video page in `harness/serve.mjs` has the same video element and styles as the products' manual page, with neutral text. `ffmpeg` and `openssl` must be on the PATH and `puppeteer-core` installed beside it
-(`PUPPETEER_CORE_DIR`). `test/hover-harness.test.ts` pins the check list and runs the command
+(`PUPPETEER_CORE_DIR`). `harness/rollback-check.mjs` runs one build and then another in the same
+folder on one browser profile (`--a`, `--b`; their manifest versions must differ) and checks that
+the frames come at play, the card's picture shows and the viewer's switches stay. The toy fixture
+extension, `fixture-extension/` (built by `scripts/build-fixture.mjs` into a folder given with
+`--out`, against the built host files), is a stand-in whose recognition is simulated; the browser
+workflow's "Host browser test" job runs both on it. `test/hover-harness.test.ts` pins the check list and runs the command
 as far as its argument checks, without a browser.
 
 `cardvision-vendor.json` records the toolkit version, the commit, the options, the ONNX Runtime pin

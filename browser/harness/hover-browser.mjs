@@ -36,9 +36,15 @@
 // the intended value and what removes it, and, where it fails only under a timing condition, that
 // condition (it must pass when the condition does not hold).
 // A check the product's stand-in cannot support is listed in the module's `unsupported` with the
-// reason: it is not run, and the report says "unsupported" and why. A setup failure, a timeout, a
-// crash, a missing NetLog, a network violation or a content-security-policy violation is never an
-// expected failure or an unsupported check.
+// reason: it is recorded as `unsupported`, not run as a check, and the run's output and report.json
+// give the reason. It has no unexpected-pass signal, so the list is reviewed with the
+// stand-in; a part of it that the stand-in can run is run as a diagnostic under `counts`. A setup
+// failure, a timeout, a crash, a missing NetLog, a network violation or a content-security-policy
+// violation is never an expected failure or an unsupported check.
+// `frames-at-play` covers two clauses: S-A1 (the frames at play) and, in its made-up `playing` step,
+// S-A10 (frames the page removed come back at a real play). A product that expects only the second
+// to fail lists it with a `when` that leaves the first covered, for example
+// `when: (d) => d.atPlay && d.beforePlay.length === 0`, so that a failure of S-A1 is not hidden.
 // A listed expected failure that passes is an unexpected pass and fails the run, so the
 // list is reviewed. Without --only, every check must have run.
 
@@ -52,6 +58,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "./clauses.mjs";
+import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
 import { productProblems, SLOTS } from "./product-shape.mjs";
 import { startServer } from "./serve.mjs";
@@ -217,37 +224,16 @@ async function launch(dist, profile, netlog) {
     defaultViewport: { width: 1360, height: 900 },
   });
   browsers.add(browser);
-  watchConsole(browser);
+  watchConsole(browser, { policy: policyViolations, origin: originMismatches });
   chromeVersion = await browser.version();
   const sw = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().startsWith("chrome-extension://"), { timeout: 20_000 });
   return { browser, ext: { browser, origin: sw.url().split("/").slice(0, 3).join("/") } };
 }
 
-/** Every browser message about a content-security-policy violation, and every refused postMessage
- *  (a target origin that is not the recipient's), from any page, frame or worker of the browser. The
- *  Log domain of each target replays what it held before this attached, so a violation at load is
- *  not missed. A violation of any extension page's policy fails the run (design: real loading under
- *  the manifest and its CSP). */
+/** Browser messages about a content-security-policy violation (any page, frame or worker; one fails
+ *  the run) and about a postMessage refused for its target origin (reported), from console-watch.mjs. */
 const policyViolations = [];
 const originMismatches = [];
-function watchConsole(browser) {
-  const attached = new Set();
-  const attach = async (target) => {
-    if (attached.has(target) || target.type() === "browser") return;
-    attached.add(target);
-    const session = await target.createCDPSession();
-    session.on("Log.entryAdded", ({ entry }) => {
-      const text = String(entry.text ?? "");
-      const where = { target: target.type(), url: String(entry.url ?? target.url()).slice(0, 200) };
-      if (/content security policy|refused to (load|connect|execute|create|frame|apply|run)|violates the following/i.test(text)) policyViolations.push({ text: text.slice(0, 300), ...where });
-      else if (/target origin|does not match the recipient window's origin/i.test(text)) originMismatches.push({ text: text.slice(0, 300), ...where });
-    });
-    await session.send("Log.enable");
-  };
-  const safely = (target) => void attach(target).catch(() => attached.delete(target));
-  browser.on("targetcreated", safely);
-  for (const target of browser.targets()) safely(target);
-}
 
 /** Open the test page with the clip paused at the start. */
 async function openPage(browser) {
@@ -495,6 +481,14 @@ try {
       // nothing is made (S-A1). A real `playing` (a pause and a play) makes them again (S-A10).
       let fakePlay = null;
       if (want("frames-at-play") && atPlay) {
+        // Early in the clip, so that its loop cannot make a real `playing` inside the window below;
+        // any real `playing` there is a setup error.
+        await video.seek(page, 1, true);
+        await sleep(800);
+        await page.evaluate(() => {
+          window.__realPlays = 0;
+          document.addEventListener("playing", (e) => (window.__realPlays += e.isTrusted ? 1 : 0), true);
+        });
         await page.evaluate((names) => {
           for (const f of document.querySelectorAll("iframe")) if (names.includes(f.src.split("/").at(-1))) f.remove();
         }, Object.values(PRODUCT.frames));
@@ -504,6 +498,7 @@ try {
         });
         await sleep(1500);
         const afterFake = await extensionFrames(page);
+        if ((await page.evaluate(() => window.__realPlays)) > 0) throw new Error("setup: a real `playing` event came inside the made-up one's window");
         await page.evaluate(async () => {
           const v = document.querySelector("video");
           v.pause();
@@ -621,16 +616,20 @@ try {
       const back = await until(async () => ((await extensionFrames(page)).length === 2 ? true : null), 5000);
       if (behind) {
         // Switched on, the tab in front loads at once; the tab behind waits for the front and loads then.
+        // The tab behind must really be hidden and its video really playing, or the check proves
+        // nothing: a setup that is not so is a setup error, never part of the result.
         const hidden = (await behind.evaluate(() => document.visibilityState)) === "hidden";
+        if (!hidden) throw new Error("setup: the second tab is not hidden at switch-on");
         const behindPlaying = await behind.evaluate(() => {
           const v = document.querySelector("video");
           return !v.paused && !v.ended;
         });
+        if (!behindPlaying) throw new Error("setup: the video in the second tab is not playing at switch-on");
         await sleep(1500);
         const behindFrames = await extensionFrames(behind);
         await behind.bringToFront();
         const fronted = await until(async () => ((await extensionFrames(behind)).length === 2 ? true : null), 10_000);
-        record("on-while-playing-loads", back === true && hidden && behindPlaying && behindFrames.length === 0 && fronted === true, { front: back === true, hidden, behindPlaying, behindFrames, behindAtFront: Boolean(fronted) });
+        record("on-while-playing-loads", back === true && behindFrames.length === 0 && fronted === true, { front: back === true, hidden, behindPlaying, behindFrames, behindAtFront: Boolean(fronted) });
         await behind.close();
         await page.bringToFront();
       }
@@ -680,7 +679,7 @@ try {
       }
 
       // The cached reload: the page closed and opened again in a new tab, the same card again.
-      if (!("cached-reload" in unsupported)) {
+      {
         await page.close();
         page = null;
         const before = standIn.requests.length;
@@ -800,6 +799,7 @@ function finish() {
     violations,
     policyViolations,
     originMismatches,
+    unsupported: Object.entries(unsupported).filter(([id]) => !only || only.has(id)).map(([id, reason]) => ({ id, clause: CLAUSES[id], reason })),
     exemptChromeOwn: exempt,
     results,
     counts,
@@ -814,7 +814,7 @@ function finish() {
     durationMs: Date.now() - startedAt,
   };
   writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2));
-  console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}`).join("\n")}`);
+  console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}${r.outcome === "unsupported" ? ` (${r.detail.reason})` : ""}`).join("\n")}`);
   if (missing.length) console.log(`missing (never ran): ${missing.join(", ")}`);
   console.log(`policy: ${policyViolations.length} content-security-policy violation(s); ${originMismatches.length} refused postMessage(s)`);
   console.log(`network: ${violations.length} violation(s), ${exempt.length} of Chrome's own exempt; hosts ${JSON.stringify(hostsSeen)}`);

@@ -11,9 +11,9 @@ export default {
   /** The settings address in config.json is served by the harness's local stand-in. */
   config: new URL("./config.json", import.meta.url),
   settingsUrl: (config) => config.settingsUrl,
-  /** The repository's root: --art must be outside it. The default build is the main one. */
+  /** The repository's root: --art must be outside it. The builds are given with --dist and
+   *  --dist-idle (scripts/build-fixture.mjs writes them to a folder outside the checkout). */
   root: new URL("../../", import.meta.url),
-  dist: new URL("./build/main", import.meta.url),
   /** The compute page's debug global (src/compute.ts). */
   debugGlobal: "__toyDebug",
   outlineSelector: '[data-toy="outline"]',
@@ -43,6 +43,6 @@ export default {
   /** Checks this stand-in cannot support, each with the reason. They are not run, and the product
    *  suites cover them. */
   unsupported: {
-    "cached-reload": "the fixture's card pictures ship inside the extension, so no request for one can reach the settings host; the check's \"no picture request\" half would pass without testing anything",
+    "cached-reload": "the fixture's card pictures ship inside the extension, so no request for one can reach the settings host and the \"no picture request\" half would pass without testing anything; the reopen half (the card named again in a new tab) still runs, and its result is in the report's counts.cachedReload",
   },
 };

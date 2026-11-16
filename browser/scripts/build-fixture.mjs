@@ -2,8 +2,8 @@
 // Build the toy fixture extension (fixture-extension/) into an unpacked folder, against the BUILT
 // host files in dist/ (run `npm run build` first):
 //
-//   node scripts/build-fixture.mjs --release-dir DEMO/release --art-dir DEMO/art [--out FOLDER]
-//        [--idle-unload-ms N]
+//   node scripts/build-fixture.mjs --release-dir DEMO/release --art-dir DEMO/art --out FOLDER
+//        [--idle-unload-ms N] [--version X.Y.Z]
 //
 // DEMO is the folder `python tests/test_browser_fixtures.py --demo DEMO` writes (README, "Write the
 // toy release"); it holds the toy release and the toy game's card pictures. The fixture imports
@@ -11,9 +11,12 @@
 // background as ES modules. The analysis worker and ONNX Runtime's WebAssembly files are copied to
 // runtime/, the release to release/ and the pictures to art/. With --idle-unload-ms the compute page
 // unloads after that many idle milliseconds, for the harness's idle checks (a second build).
+// --version sets the manifest's version (default 0.0.1): the rollback check needs its two builds to
+// differ in it. --out is required and is removed and written again: give a folder outside the
+// checkout, so that no build output lands in the tree.
 
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -24,16 +27,19 @@ const dist = join(root, "dist");
 const fixture = join(root, "fixture-extension");
 
 const { values } = parseArgs({
-  options: { "release-dir": { type: "string" }, "art-dir": { type: "string" }, out: { type: "string" }, "idle-unload-ms": { type: "string" } },
+  options: { "release-dir": { type: "string" }, "art-dir": { type: "string" }, out: { type: "string" }, "idle-unload-ms": { type: "string" }, version: { type: "string" } },
 });
 const fail = (message) => {
   console.error(`build-fixture: ${message}`);
   process.exit(2);
 };
-if (!values["release-dir"] || !values["art-dir"]) fail("usage: node scripts/build-fixture.mjs --release-dir DEMO/release --art-dir DEMO/art [--out FOLDER] [--idle-unload-ms N]");
+if (!values["release-dir"] || !values["art-dir"] || !values.out) fail("usage: node scripts/build-fixture.mjs --release-dir DEMO/release --art-dir DEMO/art --out FOLDER [--idle-unload-ms N] [--version X.Y.Z]");
+if (values.version !== undefined && !/^\d+\.\d+\.\d+$/.test(values.version)) fail(`--version is three whole numbers with dots (got "${values.version}")`);
 const idleUnloadMs = values["idle-unload-ms"] === undefined ? null : Number(values["idle-unload-ms"]);
 if (idleUnloadMs !== null && !(Number.isInteger(idleUnloadMs) && idleUnloadMs > 0)) fail(`--idle-unload-ms is a positive whole number of milliseconds (got "${values["idle-unload-ms"]}")`);
-const out = resolve(values.out ?? join(fixture, "build", idleUnloadMs === null ? "main" : "idle"));
+const out = resolve(values.out);
+// --out is removed before the build writes it: never the toolkit's own folders or a folder above them.
+if ([root, fixture, dist].some((own) => own === out || own.startsWith(`${out}/`))) fail(`--out ${out} holds the toolkit's own files: give a folder of its own`);
 const releaseDir = resolve(values["release-dir"]);
 const artDir = resolve(values["art-dir"]);
 
@@ -69,6 +75,7 @@ const src = (name) => join(fixture, "src", name);
 await build({ ...shared, format: "iife", entryPoints: { content: src("content.ts") }, outdir: out });
 await build({ ...shared, format: "esm", entryPoints: { compute: src("compute.ts"), view: src("view.ts"), background: src("background.ts") }, outdir: out });
 
+if (values.version !== undefined) manifest.version = values.version;
 writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 for (const page of ["compute.html", "view.html", "wake.html"]) copyFileSync(join(fixture, page), join(out, page));
 

@@ -17,6 +17,8 @@
 // What it does. The extension folder and the profile stay the same for both builds (an unpacked
 // extension's id comes from its folder, and the stored choices live under that id); only the
 // folder's contents change.
+// The two builds must differ in their manifest's version: each session first reads the version the
+// extension runs (`chrome.runtime.getManifest()`), so that a run that never loaded B cannot pass.
 //   build A: the video plays and the two frames appear; the pointer rests on a card and its
 //            picture shows; the viewer turns hovers off and the held-card choice off, and the frames go.
 //   build B: the stored choices are the ones A left (hovers off, held card off, the last good
@@ -34,6 +36,7 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
+import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
 import { productProblems, SLOTS } from "./product-shape.mjs";
 import { CHECKS } from "./clauses.mjs";
@@ -55,6 +58,11 @@ if (problems.length > 0) usage(`--product ${values.product}: ${problems.join("; 
 for (const flag of ["chrome", "release", "art", "a", "b"]) if (!values[flag]) usage(`missing --${flag}`);
 for (const flag of ["a", "b"]) if (!existsSync(join(resolve(values[flag]), "manifest.json"))) usage(`--${flag}: no manifest.json in ${values[flag]}`);
 if (!relative(fileURLToPath(PRODUCT.root), resolve(values.art)).startsWith("..")) usage("--art must be outside the product's repository: card art is never committed");
+
+const manifestVersion = (build) => JSON.parse(readFileSync(join(resolve(build), "manifest.json"), "utf-8")).version;
+const versionA = manifestVersion(values.a);
+const versionB = manifestVersion(values.b);
+if (versionA === versionB) usage(`--a and --b have the same manifest version (${versionA}): give build B another version, or the check cannot tell which build is running`);
 
 const { clip: CLIP, places: PLACES } = PRODUCT;
 const puppeteerDir = process.env.PUPPETEER_CORE_DIR;
@@ -123,27 +131,9 @@ function startStandIn() {
 
 // ------------------------------------------------------------------ the browser
 const browsers = new Set();
+/** Browser messages about a content-security-policy violation (fails the run) and a refused postMessage. */
 const policyViolations = [];
 const originMismatches = [];
-/** Every browser message about a content-security-policy violation or a refused postMessage, from any page, frame or worker. */
-function watchConsole(browser) {
-  const attached = new Set();
-  const attach = async (target) => {
-    if (attached.has(target) || target.type() === "browser") return;
-    attached.add(target);
-    const session = await target.createCDPSession();
-    session.on("Log.entryAdded", ({ entry }) => {
-      const text = String(entry.text ?? "");
-      const where = { target: target.type(), url: String(entry.url ?? target.url()).slice(0, 200) };
-      if (/content security policy|refused to (load|connect|execute|create|frame|apply|run)|violates the following/i.test(text)) policyViolations.push({ text: text.slice(0, 300), ...where });
-      else if (/target origin|does not match the recipient window's origin/i.test(text)) originMismatches.push({ text: text.slice(0, 300), ...where });
-    });
-    await session.send("Log.enable");
-  };
-  const safely = (target) => void attach(target).catch(() => attached.delete(target));
-  browser.on("targetcreated", safely);
-  for (const target of browser.targets()) safely(target);
-}
 
 const clipPath = renderClip();
 const server = await startServer({ video: clipPath, port: 0 });
@@ -180,7 +170,7 @@ async function session(name, build, body) {
     defaultViewport: { width: 1360, height: 900 },
   });
   browsers.add(browser);
-  watchConsole(browser);
+  watchConsole(browser, { policy: policyViolations, origin: originMismatches });
   try {
     const sw = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().startsWith("chrome-extension://"), { timeout: 20_000 });
     // The worker is let settle: an extension whose files changed since the profile's last run is
@@ -285,11 +275,13 @@ async function inWorker(ext, fn, arg) {
       return await (await worker(ext)).evaluate(fn, arg);
     } catch (error) {
       last = error;
+      log("worker-retry", { error: String(error?.message ?? error) });
       await sleep(700);
     }
   }
   throw last;
 }
+const runningVersion = (ext) => inWorker(ext, () => chrome.runtime.getManifest().version);
 const storageRead = (ext, keys) => inWorker(ext, (k) => chrome.storage.local.get(k), keys);
 async function storageWrite(ext, items) {
   await inWorker(ext, (i) => chrome.storage.local.set(i), items);
@@ -303,7 +295,7 @@ const check = (id, ok, detail = {}) => {
   log(ok ? "pass" : "FAIL", { id, ...detail });
 };
 /** The checks the two sessions make below. */
-const CHECK_COUNT = 10;
+const CHECK_COUNT = 12;
 const LAST_GOOD = "settings.lastGood";
 let fatal = null;
 let finished = false;
@@ -315,6 +307,7 @@ const watchdog = setTimeout(() => {
 
 try {
   await session("a", values.a, async (ext) => {
+    check("a-is-a", (await runningVersion(ext)) === versionA, { want: versionA });
     const page = await openPage(ext.browser);
     await play(page, 1);
     check("a-frames-at-play", await framesUp(page, 10_000));
@@ -331,6 +324,7 @@ try {
   });
 
   await session("b", values.b, async (ext) => {
+    check("b-is-b", (await runningVersion(ext)) === versionB, { want: versionB });
     const kept = await storageRead(ext, [PRODUCT.keys.enabled, PRODUCT.keys.keepCard, LAST_GOOD]);
     check("b-switches-kept", kept[PRODUCT.keys.enabled] === false && kept[PRODUCT.keys.keepCard] === false, { enabled: kept[PRODUCT.keys.enabled], keepCard: kept[PRODUCT.keys.keepCard] });
     check("b-settings-kept", Boolean(kept[LAST_GOOD]));
@@ -360,6 +354,7 @@ function finish() {
   server.close();
   standIn.server.close();
   let violations = [];
+  let exempt = [];
   let hosts = {};
   try {
     const all = [];
@@ -369,16 +364,17 @@ function finish() {
       if (!requests.some((r) => r.urls.some((u) => u.startsWith(pageUrl)))) throw new Error(`${file} holds no request to the test page: the NetLog is not trustworthy`);
       all.push(...requests);
     }
-    ({ violations, hosts } = classify(all, { standInHost: cdnHost }));
+    ({ violations, exempt, hosts } = classify(all, { standInHost: cdnHost }));
+    if (!(cdnHost in hosts)) throw new Error(`no request reached ${cdnHost} in the NetLogs: the network scope cannot be checked`);
   } catch (error) {
     fatal ??= `network scope: ${error?.message ?? error}`;
     log("fatal", { error: fatal });
   }
   const failed = results.filter((r) => !r.ok);
   const passed = !fatal && failed.length === 0 && results.length === CHECK_COUNT && violations.length === 0 && policyViolations.length === 0;
-  const report = { product: PRODUCT.name, passed, fatal, results, violations, policyViolations, originMismatches, hosts, a: resolve(values.a), b: resolve(values.b), durationMs: Date.now() - startedAt };
+  const report = { product: PRODUCT.name, passed, fatal, results, violations, exemptChromeOwn: exempt, policyViolations, originMismatches, hosts, a: resolve(values.a), b: resolve(values.b), durationMs: Date.now() - startedAt };
   writeFileSync(join(out, "rollback-report.json"), JSON.stringify(report, null, 2));
-  console.log(`\npolicy: ${policyViolations.length} content-security-policy violation(s); network: ${violations.length} violation(s); hosts ${JSON.stringify(hosts)}`);
+  console.log(`\npolicy: ${policyViolations.length} content-security-policy violation(s); network: ${violations.length} violation(s), ${exempt.length} of Chrome's own exempt; hosts ${JSON.stringify(hosts)}`);
   console.log(`${passed ? "PASS" : "FAIL"}: ${results.filter((r) => r.ok).length} of ${results.length} checks (${CHECK_COUNT} expected) in ${((Date.now() - startedAt) / 1000).toFixed(0)} s; report ${join(out, "rollback-report.json")}`);
   process.exit(passed ? 0 : 1);
 }

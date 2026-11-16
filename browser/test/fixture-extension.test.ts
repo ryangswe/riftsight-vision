@@ -40,6 +40,7 @@ describe("the fixture extension's product module", () => {
   it("names a reason for every check it does not support", () => {
     expect(Object.keys(product.unsupported)).toEqual(["cached-reload"]);
     for (const reason of Object.values(product.unsupported)) expect(String(reason).length).toBeGreaterThan(20);
+    expect(product.unsupported["cached-reload"]).toContain("reopen half");
   });
 
   it("puts card D exactly over card A, and the cards on the toy table's boxes", () => {
@@ -53,14 +54,26 @@ describe("the fixture extension's product module", () => {
 describe("the fixture build command", () => {
   const run = (...args: string[]) => spawnSync(process.execPath, [here("../scripts/build-fixture.mjs"), ...args], { encoding: "utf-8", timeout: 30_000 });
 
-  it("needs the release and the card pictures", () => {
+  it("needs the release, the card pictures and an output folder", () => {
     const none = run();
     expect(none.status).toBe(2);
     expect(none.stderr).toContain("--release-dir");
+    const noOut = run("--release-dir", "x", "--art-dir", "y");
+    expect(noOut.status).toBe(2);
+    expect(noOut.stderr).toContain("--out FOLDER");
+  });
+
+  it("refuses an output folder that holds the toolkit's own files, and a version that is not three numbers", () => {
+    const own = run("--release-dir", "x", "--art-dir", "y", "--out", here("../fixture-extension"));
+    expect(own.status).toBe(2);
+    expect(own.stderr).toContain("holds the toolkit's own files");
+    const bad = run("--release-dir", "x", "--art-dir", "y", "--out", "z", "--version", "2");
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toContain("--version");
   });
 
   it("refuses an idle time that is not a positive whole number", () => {
-    const bad = run("--release-dir", "x", "--art-dir", "y", "--idle-unload-ms", "0");
+    const bad = run("--release-dir", "x", "--art-dir", "y", "--out", "z", "--idle-unload-ms", "0");
     expect(bad.status).toBe(2);
     expect(bad.stderr).toContain("positive whole number");
   });

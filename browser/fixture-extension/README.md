@@ -15,10 +15,12 @@ Build and run it from `browser/`, after `npm run build` and with the toy release
 `python tests/test_browser_fixtures.py --demo "$WORK/toy"` (see `browser/README.md`):
 
 ```
-node scripts/build-fixture.mjs --release-dir "$WORK/toy/release" --art-dir "$WORK/toy/art"
-node scripts/build-fixture.mjs --release-dir "$WORK/toy/release" --art-dir "$WORK/toy/art" --idle-unload-ms 6000
+node scripts/build-fixture.mjs --release-dir "$WORK/toy/release" --art-dir "$WORK/toy/art" --out "$WORK/fixture-main" --version 0.0.1
+node scripts/build-fixture.mjs --release-dir "$WORK/toy/release" --art-dir "$WORK/toy/art" --out "$WORK/fixture-idle" --version 0.0.2 --idle-unload-ms 6000
 node harness/hover-browser.mjs --product fixture-extension/product.mjs --chrome <Chrome for Testing> \
-  --release "$WORK/toy/release" --art "$WORK/toy/art" --dist-idle fixture-extension/build/idle
+  --release "$WORK/toy/release" --art "$WORK/toy/art" --dist "$WORK/fixture-main" --dist-idle "$WORK/fixture-idle"
+node harness/rollback-check.mjs --product fixture-extension/product.mjs --chrome <Chrome for Testing> \
+  --release "$WORK/toy/release" --art "$WORK/toy/art" --a "$WORK/fixture-main" --b "$WORK/fixture-idle"
 ```
 
 `product.mjs` is the harness's product module: the clip puts the toy cards on the detector's boxes,

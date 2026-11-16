@@ -13,15 +13,18 @@ break the public surface; this file names each break and how to migrate.
 
 - A toy fixture extension for the shared hover host (`browser/fixture-extension/`, built by
   `browser/scripts/build-fixture.mjs` against the built host files), the "Host browser test" job in
-  `.github/workflows/browser.yml`, and `browser/harness/rollback-check.mjs`. The fixture is an
+  `.github/workflows/browser.yml`, and `browser/harness/rollback-check.mjs` (its two builds must
+  differ in manifest version, and each session first checks which one is running). The fixture is an
   unpacked Manifest V3 extension with the strict extension-page policy, a small view adapter and a
   view frame that measures itself; recognition is simulated by the toy release's stand-in models and
   its art is the toy game's colored shapes. The job runs the hover browser test on it in a pinned
   Chrome for Testing, then the rollback check (one build, then another on the same profile: frames at
   play, the card's picture, the viewer's switches kept). The hover browser test now also fails on
-  any content-security-policy violation in any page, frame or worker, counts refused `postMessage`
-  calls, reports the time from the compute page's load to the first message from the page, and takes
-  an `unsupported` list in a product module: a check its stand-in cannot support, with the reason.
+  any content-security-policy violation in any page, frame or worker (`harness/console-watch.mjs`),
+  counts refused `postMessage` calls, reports the time from the compute page's load to the first
+  message from the page, and takes an `unsupported` list in a product module: a check its stand-in
+  cannot support, listed with its reason in the run's output and in `report.json`. A product that
+  expects only the S-A10 part of `frames-at-play` to fail narrows its `expectedFail` with `when`.
   Two of its checks are stricter. `frames-at-play` (S-A1) removes both frames as a page script
   would, makes up `playing` events on the playing video and expects no frames, then plays for real
   and expects them back (S-A10). `on-while-playing-loads` (S-A7) has a second tab playing behind the
@@ -56,8 +59,8 @@ break the public surface; this file names each break and how to migrate.
 - The browser test harness for hover behavior, `browser/harness/` (vendored with `npm run vendor
   -- --harness`): the shared test, its check list with the hover-spec clause of each check, the
   NetLog network scope and a local video page. What is specific to one product is a module given
-  with `--product <file>`; `browser/harness/example/product.mjs` shows its fields. The checks and
-  their clauses are those both products already ran; `test/hover-harness.test.ts` pins them.
+  with `--product <file>`; `browser/harness/example/product.mjs` shows its fields.
+  `test/hover-harness.test.ts` pins the check list and its clauses.
 - The shared hover host's lifecycle (experimental, not part of the public API):
   `browser/src/host/lifecycle.ts`, a pure reducer that decides when the two frames are made and
   removed, from the switch, a trusted `playing`, a trusted pointer over the picture, the tab
