@@ -604,6 +604,8 @@ def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_
     assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)
     assert "persist-credentials: false" in job
     assert "puppeteer-core@25.17.0" in job and "chrome@157.0.8103.78" in job and "@puppeteer/browsers@3.2.7" in job
+    # The install pipes into tee, so a failed download must fail this step, not a later one.
+    assert "set -euo pipefail" in job
     assert "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in job and "apt-get install -y -qq ffmpeg" in job
     assert job.count("node scripts/build-fixture.mjs") == 2 and "--idle-unload-ms" in job
     assert "node harness/hover-browser.mjs --product fixture-extension/product.mjs" in job

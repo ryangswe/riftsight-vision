@@ -48,11 +48,11 @@ jobs:
       - name: Build
         working-directory: browser
         run: npm run build
-      - name: Run the built Node tools' tests (they need dist/)
+      - name: Run the tests that need the build (dist/)
         working-directory: browser
         env:
           CARDVISION_REQUIRE_BROWSER: "1"
-        run: npx vitest run test/verify-release.test.ts test/package-zip.test.ts test/bundle-purity.test.ts
+        run: npx vitest run test/verify-release.test.ts test/package-zip.test.ts test/bundle-purity.test.ts test/host-types-consumer.test.ts test/realm-marks.test.ts
       - name: Install the Python package's base lock
         run: |
           python -m pip install --require-hashes -r requirements-lock.txt
@@ -98,7 +98,7 @@ jobs:
       - name: Install Chrome for Testing, puppeteer-core and ffmpeg
         id: chrome-install
         run: |
-          set -eu
+          set -euo pipefail
           npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
           # Pinned, so a new Chrome release never changes a run on its own: move both pins together.
           npx --yes @puppeteer/browsers@3.2.7 install chrome@157.0.8103.78 --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
