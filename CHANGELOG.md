@@ -61,7 +61,9 @@ break the public surface; this file names each break and how to migrate.
   `dist/host-settings.js`, with declaration shims, built beside the runtime without changing any
   of its five files. `npm run vendor` takes `--host` to vendor them and `--harness` to vendor the
   browser test harness; both are recorded in the manifest's options and checked. The host's types
-  are frozen; its behavior is not written yet, so each function throws "not implemented yet".
+  are frozen. `productConfigError` checks a raw product config (types, required and unknown keys,
+  the tag by the messages' own rule, extension paths for the two frames, colors, booleans) and
+  names the field that is wrong.
 - The shared hover host's settings core and switches (experimental, not part of the public API):
   `createSettingsCore` reads the settings in effect and refreshes them at most once an hour, keeping
   the last good copy; `createSwitches` reads the on switch and the keep-card switch, calls back for
