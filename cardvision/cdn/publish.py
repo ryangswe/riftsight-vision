@@ -30,10 +30,10 @@ import re
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from cardvision.cdn.art import Plan, catalog_art_paths, execute, make_plan, print_plan, read_live_index, scan_images
+from cardvision.cdn.art import Plan, catalog_art_paths, catalog_card_ids, execute, make_plan, print_plan, read_live_index, scan_images
 from cardvision.cdn import config as _config
 from cardvision.cdn.config import CONFIG_KEY, CdnConfig, Refused
-from cardvision.cdn.derived import derived_switch_problem, plan_derived, read_live_derived
+from cardvision.cdn.derived import derived_switch_problem, plan_derived, read_live_derived, uses_derived
 from cardvision.cdn.geo import check_release_geometric
 from cardvision.cdn.node import NodeCheck, node_check
 from cardvision.cdn.release import (
@@ -386,6 +386,12 @@ def publish_release(product: CdnConfig, args, t: Target, s3=None, verify_live=No
     if problem:
         raise Refused(problem + "; nothing written")
     s3 = s3 or r2_client(t)
+    catalog_arg = getattr(args, "catalog", None)
+    if catalog_arg and not uses_derived(product, config, t.public_base):
+        raise Refused("--catalog on publish-release only checks a settings file (--config) that points at a derived set")
+    problem = derived_gate(product, catalog_arg, t.public_base, config, None, s3, t.bucket)
+    if problem:
+        raise Refused(problem + "; nothing written")
     files = lr.pinned + lr.legal + ([lr.geometric] if lr.geometric else []) + [lr.doc_file]
     todo, there = remote_state(s3, t.bucket, files, args.fix_metadata)
     index = read_release_index(product, s3, t.bucket)
@@ -444,8 +450,9 @@ def build_inputs(product: CdnConfig, args, public_base: Optional[str]):
     if not args.catalog:
         return [], 0, 0, config, data_files
     if not args.images:
-        if config is None or not product.derived:
-            raise Refused("--catalog needs --images")
+        if not uses_derived(product, config, public_base):
+            raise Refused("--catalog needs --images (without --images it only checks a settings file that points at "
+                          "a derived set)")
         # a settings publish checked against the catalog alone (a derived set it points at must be complete)
         paths, artless = catalog_art_paths(json.loads(Path(args.catalog).read_text()))
         return [], artless, sum(len(v) for v in paths.values()), config, data_files
@@ -454,15 +461,24 @@ def build_inputs(product: CdnConfig, args, public_base: Optional[str]):
     return files, artless, sum(len(v) for v in paths.values()), config, data_files
 
 
-def derived_gate(product: CdnConfig, args, public_base: str, config: Optional[bytes], files: Sequence,
+def index_exists(s3, bucket: str, key: str) -> bool:
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+    except Exception as e:  # botocore's 404; anything else is a real error
+        if getattr(e, "response", {}).get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return False
+        raise
+    return True
+
+
+def derived_gate(product: CdnConfig, catalog: Optional[str], public_base: str, config: Optional[bytes],
                  plan: Optional[Plan], s3, bucket: str) -> Optional[str]:
     """A settings file that points at a derived set is published only when the set lists every
-    catalog card with art at its current spec: counting what this run uploads, otherwise what is live."""
-    if config is None or not product.derived:
+    catalog card with art at its current spec: counting what this run uploads, otherwise what is live.
+    A template under a set that is no longer configured but still live is refused too."""
+    if config is None:
         return None
-    card_ids = None
-    if args.catalog:
-        card_ids = {c for ids in catalog_art_paths(json.loads(Path(args.catalog).read_text()))[0].values() for c in ids}
+    card_ids = catalog_card_ids(catalog) if catalog else None
     planned = {dp.spec.name: dp for dp in (plan.derived if plan and plan.derived else [])}
 
     def listed(spec):
@@ -471,7 +487,8 @@ def derived_gate(product: CdnConfig, args, public_base: str, config: Optional[by
         idx = read_live_derived(product, spec, s3, bucket)
         return (idx.get("specHash"), set(idx.get("files", {}))) if idx else (None, set())
 
-    return derived_switch_problem(product, config, public_base, card_ids, listed)
+    return derived_switch_problem(product, config, public_base, card_ids, listed,
+                                  folder_live=lambda key: index_exists(s3, bucket, key))
 
 
 def plan_offline(product: CdnConfig, args) -> int:
@@ -527,7 +544,7 @@ def plan_or_publish(product: CdnConfig, args, t: Target, s3=None, get: Optional[
     if plan:
         plan.derived = plan_derived(product, files, lambda spec: read_live_derived(product, spec, s3, t.bucket))
     if args.command == "publish":  # a dry run checks it too
-        problem = derived_gate(product, args, t.public_base, config, files, plan, s3, t.bucket)
+        problem = derived_gate(product, args.catalog, t.public_base, config, plan, s3, t.bucket)
         if problem:
             raise Refused(problem + "; nothing written")
     print(f"target: bucket {t.bucket}, served at {t.public_base}")

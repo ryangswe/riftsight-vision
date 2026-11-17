@@ -22,6 +22,7 @@ from pathlib import PurePosixPath
 from typing import Callable, Optional
 
 from cardvision.cdn.config import CONFIG_CACHE, CONFIG_KEY, CONTENT_TYPES, PAGE_CACHE, CdnConfig, Refused
+from cardvision.cdn.derived import template_uses
 from cardvision.cdn.geo import GEO_CACHE, GeoFile, geo_binding_problems, geo_cover_problem, geo_index_key
 from cardvision.cdn.node import NodeCheck, node_check
 from cardvision.cdn.release import LEGAL_TYPES, RELEASE_CACHE, pinned_content_type, pinned_refs
@@ -86,8 +87,45 @@ def nel_problem(h: dict) -> Optional[str]:
     return f"sends {' and '.join(n.upper() if n == 'nel' else 'Report-To' for n in found)} (turn off Network Error Logging for the zone)" if found else None
 
 
-def verify(product: CdnConfig, public_base: str, samples: int, get: Optional[Get] = None) -> int:
-    """config.json, the data files it names, the pages, the art index and `samples` images."""
+def live_derived_problems(product: CdnConfig, cfg: dict, public_base: str, bust: str, get: Get,
+                          card_ids: Optional[set]) -> list[str]:
+    """What is wrong with the derived sets the live settings point at (the same rule as publishing)."""
+    use = template_uses(product, cfg, public_base)
+    problems = list(use.problems)
+    for folder in use.folders:
+        key = f"{product.art_prefix}{folder}/index.json"
+        if get(f"{public_base}/{key}?{bust}")[0] == 200:
+            problems.append(f"config: points under {product.art_prefix}{folder}/, a derived set that is still live but no "
+                            "longer configured in cdn.config.json (art.derived)")
+    for spec in use.sets:
+        key = spec.index_key(product.art_prefix)
+        status, _, body = get(f"{public_base}/{key}?{bust}")
+        try:
+            idx = json.loads(body) if status == 200 else None
+            files = idx["files"] if idx else None
+        except (ValueError, KeyError, TypeError):
+            idx, files = None, None
+        if idx is None or not isinstance(files, dict):
+            problems.append(f"config: points at the derived set {product.art_prefix}{spec.name}/, whose index {key} is "
+                            f"missing or unreadable (HTTP {status})")
+        elif idx.get("specHash") != spec.spec_hash:
+            problems.append(f"config: points at the derived set {product.art_prefix}{spec.name}/, made at another spec "
+                            "than cdn.config.json's; publish the set again")
+        elif card_ids is None:
+            print(f"note {key}: the settings point at this set; completeness not checked (give --catalog)")
+        else:
+            missing = [c for c in sorted(card_ids) if spec.key(product.art_prefix, c) not in files]
+            if missing:
+                problems.append(f"config: points at the derived set {product.art_prefix}{spec.name}/, which lacks "
+                                f"{len(missing)} of {len(card_ids)} catalog card(s) (for example {', '.join(missing[:3])})")
+    return problems
+
+
+def verify(product: CdnConfig, public_base: str, samples: int, get: Optional[Get] = None,
+           card_ids: Optional[set] = None) -> int:
+    """config.json, the data files it names, the pages, the art index and `samples` images. A derived
+    set the live settings point at must exist at the current spec; with `card_ids` (the catalog's cards
+    with art) it must list every one."""
     get = get or product_get(product)
     bad = 0
 
@@ -133,6 +171,8 @@ def verify(product: CdnConfig, public_base: str, samples: int, get: Optional[Get
         if not errs:
             cfg = json.loads(body)
             print(f"ok   config.json: namesOnly={cfg['namesOnly']}, primary={'on' if cfg['primary'] else 'off'}, {len(cfg['fallbacks'])} fallback(s)")
+            for problem in live_derived_problems(product, cfg, public_base, bust, get, card_ids):
+                fail(problem)
             for kind in product.data_files:
                 named = cfg.get(kind.name)
                 if not named:

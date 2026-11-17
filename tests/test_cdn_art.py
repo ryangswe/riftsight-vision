@@ -539,3 +539,68 @@ def test_the_switch_rule_on_its_own(tmp_path):
     assert "no index" in derived_switch_problem(p, cfg, BASE, cards, lambda s: (None, set()))
     as_fallback = json.dumps(GOOD_HERE | {"fallbacks": [{"id": "t", "template": BASE + "/art/tooltip/{cardId}.webp"}]}).encode()
     assert "lacks" in derived_switch_problem(p, as_fallback, BASE, cards, lambda s: (spec.spec_hash, set()))
+
+
+def test_the_icc_profile_is_kept():
+    from PIL import ImageCms
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    src = encode(gradient(300, 420), "PNG", icc_profile=profile)
+    assert Image.open(io.BytesIO(src)).info["icc_profile"] == profile
+    assert webp_of(derive_webp(src, 200, 75)).info.get("icc_profile") == profile
+    assert "icc_profile" not in webp_of(derive_webp(encode(gradient(300, 420), "PNG"), 200, 75)).info
+
+
+def test_32_bit_integer_sources_are_refused_too():
+    with pytest.raises(ValueError, match="16-bit images are not supported"):
+        derive_webp(encode(Image.new("I", (200, 280), 30000), "TIFF"), 100, 75)
+
+
+def test_16_bit_sources_are_refused_and_count_as_failed_files(tmp_path):
+    src = encode(Image.new("I;16", (200, 280), 30000), "PNG")
+    with pytest.raises(ValueError, match="16-bit images are not supported in derived sets; save the source as 8-bit"):
+        derive_webp(src, 100, 75)
+    root = tmp_path / "pictures"
+    root.mkdir()
+    (root / "AB-001.png").write_bytes(src)
+    files = scan_images({"AB-001.png": ["AB-001"]}, root, 5 * 1024 * 1024)
+    s3 = FakeS3()
+    _, failed = run(derived_product(tmp_path), files, s3, config=b"{}")
+    assert failed == 1 and CONFIG_KEY not in s3.put_keys
+
+
+def live_settings_store(tmp_path, template):
+    """A published set and a live config.json whose primary is `template`."""
+    root, catalog = card_images(tmp_path, {"AB-001": (800, 1120), "AB-002": (700, 980)})
+    p = derived_product(tmp_path)
+    s3 = FakeS3()
+    run(p, scan(root, catalog), s3)
+    cfg = GOOD_HERE | {"primary": {"id": "t", "template": template}, "fallbacks": [{"id": "f", "template": BASE + "/art/{art}"}]}
+    store = {CONFIG_KEY: (200, {"content-type": "application/json", "cache-control": CONFIG_CACHE, "access-control-allow-origin": "*"},
+                          json.dumps(cfg).encode()),
+             INDEX_KEY: (200, {}, s3.objects[INDEX_KEY]["Body"])}
+    for key, o in s3.objects.items():
+        if key.startswith("art/tooltip/"):
+            store[key] = (200, {"content-type": o["ContentType"] or "application/json", "cache-control": ART_CACHE}, o["Body"])
+    return p, store, {c["id"] for c in catalog}
+
+
+def test_verify_fails_when_the_live_settings_point_at_a_missing_stale_or_incomplete_set(tmp_path, capsys):
+    p, store, ids = live_settings_store(tmp_path, BASE + "/art/tooltip/{cardId}.webp")
+    get = store_get(store)
+    assert verify(p, BASE, 0, get=get) == 0
+    assert "completeness not checked" in capsys.readouterr().out
+    assert verify(p, BASE, 0, get=get, card_ids=ids) == 0
+    assert verify(p, BASE, 0, get=get, card_ids=ids | {"AB-003"}) == 1, "incomplete"
+    idx = json.loads(store[TOOLTIP_INDEX][2])
+    stale = {**idx, "specHash": "0" * 64}
+    good = store[TOOLTIP_INDEX]
+    store[TOOLTIP_INDEX] = (200, good[1], json.dumps(stale).encode())
+    assert verify(p, BASE, 0, get=get) == 1, "stale"
+    del store[TOOLTIP_INDEX]
+    assert verify(p, BASE, 0, get=get) == 1, "missing"
+    store[TOOLTIP_INDEX] = good
+    other = derived_product(tmp_path, {**TOOLTIP, "name": "other"})
+    assert verify(other, BASE, 0, get=get) == 1, "a set that is no longer configured but live"
+    capsys.readouterr()
+    p2, store2, _ = live_settings_store(tmp_path / "again", BASE + "/art/tooltip/{cardId}.png") if (tmp_path / "again").mkdir() is None else (None, None, None)
+    assert verify(p2, BASE, 0, get=store_get(store2)) == 1, "not exactly the set's pattern"

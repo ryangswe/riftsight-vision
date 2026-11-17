@@ -47,6 +47,12 @@ def catalog_art_paths(catalog: object) -> tuple[dict[str, list[str]], int]:
     return paths, artless
 
 
+def catalog_card_ids(path) -> set[str]:
+    """The ids of the catalog's cards that have art."""
+    paths, _ = catalog_art_paths(json.loads(Path(path).read_text()))
+    return {c for ids in paths.values() for c in ids}
+
+
 def check_art_path(art: object, card_id: str) -> None:
     if not isinstance(art, str) or not art:
         raise Refused(f"catalog: {card_id} art is not a non-empty string")

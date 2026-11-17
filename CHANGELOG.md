@@ -16,8 +16,9 @@ break the public surface; this file names each break and how to migrate.
   one from the same `--images`, uploads it as `art/<name>/<cardId>.webp` with an index of its own,
   and redoes only the cards whose source or set changed. A settings file may point `primary` at a
   set only when the set lists every catalog card, so a product can show the smaller picture and
-  keep the full one as the fallback. `plan`, `publish --dry-run` and `verify` cover the sets, and
-  `art/index.json` is unchanged. See [docs/cdn.md](docs/cdn.md#derived-art-sets).
+  keep the full one as the fallback; `publish-release --config` takes `--catalog` for the same check,
+  and `verify` fails when the live settings point at a missing, stale or incomplete set. `plan` and
+  `publish --dry-run` cover the sets, and `art/index.json` is unchanged. See [docs/cdn.md](docs/cdn.md#derived-art-sets).
 
 ## [0.15.0rc1] - 2026-11-16
 

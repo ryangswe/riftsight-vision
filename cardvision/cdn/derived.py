@@ -21,11 +21,16 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import urllib.parse
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 from cardvision.cdn import config as _config
 from cardvision.cdn.config import INDEX_CACHE, CdnConfig, DerivedSet, Refused
+
+
+# 16- and 32-bit integer (and float) pixels: converting them to 8 bits would clip or wash them out.
+WIDE_MODES = {"I", "F", "I;16", "I;16L", "I;16B", "I;16N"}
 
 
 def check_card_id(card_id: str) -> Optional[str]:
@@ -46,6 +51,9 @@ def derive_webp(data: bytes, width: Optional[int], quality: int) -> bytes:
     from PIL import Image, ImageOps
 
     with Image.open(io.BytesIO(data)) as opened:
+        if opened.mode in WIDE_MODES:
+            raise ValueError("16-bit images are not supported in derived sets; save the source as 8-bit")
+        icc = opened.info.get("icc_profile")
         img = ImageOps.exif_transpose(opened)  # first frame of an animation; a copy
         img.load()
         has_alpha = img.mode in ("RGBA", "LA", "PA", "RGBa", "La") or "transparency" in img.info
@@ -54,7 +62,7 @@ def derive_webp(data: bytes, width: Optional[int], quality: int) -> bytes:
             height = max(1, round(img.height * width / img.width))
             img = img.resize((width, height), Image.Resampling.LANCZOS)
         out = io.BytesIO()
-        img.save(out, "WEBP", quality=quality, method=6)
+        img.save(out, "WEBP", quality=quality, method=6, **({"icc_profile": icc} if icc else {}))
         return out.getvalue()
 
 
@@ -172,24 +180,96 @@ def write_derived_index(product: CdnConfig, plan: DerivedPlan, landed: dict, s3,
     return len(idx["files"])
 
 
-def sets_in_config(product: CdnConfig, cfg: dict, public_base: str) -> list[DerivedSet]:
-    """The derived sets that `primary` or a fallback points under."""
+@dataclass
+class TemplateUse:
+    sets: list           # the configured derived sets a template is under (each template valid)
+    folders: list        # other folders under the art prefix (checked for a set that is still live)
+    problems: list       # templates under a set that are not exactly its file pattern
+
+
+def _origin_and_segments(url: str) -> tuple[tuple, list[str], str]:
+    """(scheme, host, port) with the default port dropped, the path's segments with dot segments
+    resolved and percent escapes decoded, and the query or fragment (empty when none)."""
+    sp = urllib.parse.urlsplit(url)
+    scheme = sp.scheme.lower()
+    try:
+        port = sp.port
+    except ValueError:
+        port = -1
+    if port == {"https": 443, "http": 80}.get(scheme):
+        port = None
+    segs: list[str] = []
+    for seg in urllib.parse.unquote(sp.path).replace("\\", "/").split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if segs:
+                segs.pop()
+        else:
+            segs.append(seg)
+    return (scheme, (sp.hostname or "").lower(), port), segs, sp.query + sp.fragment
+
+
+def template_uses(product: CdnConfig, cfg: dict, public_base: str) -> TemplateUse:
+    """Where `primary` and the fallbacks point: any template on the public host under
+    `<art prefix><name>/` uses that set, and must be exactly `<base>/<art prefix><name>/{cardId}.<format>`."""
     templates = []
     for src in [cfg.get("primary"), *(cfg.get("fallbacks") or [])]:
         if isinstance(src, dict) and isinstance(src.get("template"), str):
             templates.append(src["template"])
-    base = public_base.rstrip("/") + "/" + product.art_prefix
-    return [s for s in product.derived if any(t.startswith(f"{base}{s.name}/") for t in templates)]
+    base_origin, base_segs, _ = _origin_and_segments(public_base)
+    prefix = base_segs + [x for x in product.art_prefix.split("/") if x]
+    out = TemplateUse([], [], [])
+    by_name = {s.name: s for s in product.derived}
+    for tpl in templates:
+        origin, segs, extra = _origin_and_segments(tpl)
+        if origin != base_origin or segs[:len(prefix)] != prefix or len(segs) <= len(prefix) + 1:
+            continue
+        folder = segs[len(prefix)]
+        spec = by_name.get(folder)
+        if spec is None:
+            if "{" not in folder and folder not in out.folders:
+                out.folders.append(folder)
+            continue
+        want = f"{public_base.rstrip('/')}/{product.art_prefix}{folder}/{{cardId}}.{spec.format}"
+        if segs != prefix + [folder, f"{{cardId}}.{spec.format}"] or extra:
+            out.problems.append(f"config: {tpl} is under the derived set {product.art_prefix}{folder}/ but is not exactly "
+                                f"{want} (no other placeholder, extension, query or fragment)")
+        elif spec not in out.sets:
+            out.sets.append(spec)
+    return out
+
+
+def sets_in_config(product: CdnConfig, cfg: dict, public_base: str) -> list[DerivedSet]:
+    """The derived sets that `primary` or a fallback points under (valid templates only)."""
+    return template_uses(product, cfg, public_base).sets
+
+
+def uses_derived(product: CdnConfig, cfg_bytes: Optional[bytes], public_base: Optional[str]) -> bool:
+    """Whether a settings file points at a derived set, rightly or wrongly."""
+    if cfg_bytes is None or not public_base or not product.derived:
+        return False
+    use = template_uses(product, json.loads(cfg_bytes), public_base)
+    return bool(use.sets or use.problems)
 
 
 def derived_switch_problem(product: CdnConfig, cfg_bytes: Optional[bytes], public_base: str,
-                           card_ids: Optional[set], listed: Callable[[DerivedSet], tuple[Optional[str], set]]) -> Optional[str]:
+                           card_ids: Optional[set], listed: Callable[[DerivedSet], tuple[Optional[str], set]],
+                           folder_live: Optional[Callable[[str], bool]] = None) -> Optional[str]:
     """Why a settings file may not be published, or None. When `primary` or a fallback points
     under a derived set, every catalog card with art must be listed by that set at its current
-    specHash. `card_ids` is None when no catalog was given; `listed(spec)` is (specHash, keys)."""
+    specHash. `card_ids` is None when no catalog was given; `listed(spec)` is (specHash, keys);
+    `folder_live(index key)` says whether a set that is no longer configured still has an index."""
     if cfg_bytes is None:
         return None
-    used = sets_in_config(product, json.loads(cfg_bytes), public_base)
+    use = template_uses(product, json.loads(cfg_bytes), public_base)
+    if use.problems:
+        return use.problems[0]
+    for folder in use.folders:
+        if folder_live is not None and folder_live(f"{product.art_prefix}{folder}/index.json"):
+            return (f"config: points under {product.art_prefix}{folder}/, a derived set that is still live but no longer "
+                    "configured in cdn.config.json (art.derived); configure it again or point the template elsewhere")
+    used = use.sets
     if not used:
         return None
     names = ", ".join(s.name for s in used)
