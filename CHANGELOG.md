@@ -9,6 +9,15 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-17
+
+The shared hover host, the hover test harness, release on merge with release records and a
+daily store status check, and the map of the hover path, as release candidate 0.15.0rc1 built them
+(listed below), unchanged. Coming from 0.14.x, read that candidate's "Changes that may need
+action". New in this release: **derived art sets**, below, which change nothing for a product that
+does not list one. No model, release document or recognizer decision changes, and the contract's
+`PROTOCOL_VERSION` stays 2.
+
 ### Added
 
 - `cardvision cdn publish` can make smaller copies of a product's card pictures. A product lists
@@ -689,7 +698,7 @@ A card update with no new cards can now be published on the replay verdict alone
 browser runtime can pace its analysis from the time analyses take on the computer it runs on.
 A new harness in `browser/` measures how long a viewer waits for the right name, which is how
 the pacing was judged. Nothing in the public surface breaks: both new options are off unless
-asked for, and the contract's `PROTOCOL_VERSION` stays 1. No model, release document or
+asked for, and the contract's `PROTOCOL_VERSION` stays 2. No model, release document or
 recognizer decision changes.
 
 ### Added
@@ -730,7 +739,7 @@ recognizer decision changes.
 0.10.0's outlines of tilted cards reached the hit test but not the shown card, so a caller could
 only draw the upright box around a turned hover area. This release adds the outline to the shown
 card. Nothing in the public surface breaks: the new fields are optional, and the contract's
-`PROTOCOL_VERSION` stays 1. No model, release document or recognizer decision changes.
+`PROTOCOL_VERSION` stays 2. No model, release document or recognizer decision changes.
 
 ### Fixed
 
@@ -750,7 +759,7 @@ pointer, and it keeps the release index; the browser runtime gives **outlines of
 and store uploads run from the **account holder's own machine**. It is release candidate
 0.10.0rc1, listed below it, unchanged. A product published a card update with that candidate,
 with no regression. The one break, and how to migrate, are under 0.10.0rc1's Changed. No model,
-release document or recognizer decision changes, and the contract's `PROTOCOL_VERSION` stays 1.
+release document or recognizer decision changes, and the contract's `PROTOCOL_VERSION` stays 2.
 
 ### Changed
 
@@ -764,7 +773,7 @@ with how to migrate). Also in this release: outlines of tilted cards, store uplo
 account holder's own machine, two fixes (the release index, and a bundled release that fails to
 load), and project practices (bug-pattern lint in CI, Python 3.13, hash-pinned installs, pinned
 workflow steps). No model, release document or recognizer decision changes, and the contract's
-`PROTOCOL_VERSION` stays 1.
+`PROTOCOL_VERSION` stays 2.
 
 ### Added
 
@@ -847,7 +856,7 @@ workflow steps). No model, release document or recognizer decision changes, and 
 A dry run of store uploads on a real extension release found two gaps; the release now passes as
 it is, its Chrome zip's folder and its tag names unchanged. Experimental, as in 0.9.0.
 Nothing else changes: no model, release document, layout or recognizer decision, and the
-contract's `PROTOCOL_VERSION` stays 1.
+contract's `PROTOCOL_VERSION` stays 2.
 
 ### Changed
 
@@ -875,7 +884,7 @@ where the board sits in the picture, when the placement can be trusted, the aspe
 pooled correction, and a placement that returns after a stretch without card faces only when the
 picture confirms it ([browser/README.md](browser/README.md#layout-registration)). New in this
 release: **store uploads from a workflow**, below. No model, release document or recognizer
-decision changes, and the contract's `PROTOCOL_VERSION` stays 1.
+decision changes, and the contract's `PROTOCOL_VERSION` stays 2.
 
 ### Added
 
@@ -895,7 +904,7 @@ Layout registration brings a placement back after a stretch without card faces o
 picture shows it is still right. While no faces show, the picture can change unobserved (a
 break screen, a rescale); 0.9.0rc3 then redrew the placement on the first analysis with faces,
 whatever it found, until a later fit contradicted it. No model, release document or recognizer
-decision changes, and the contract's `PROTOCOL_VERSION` stays 1.
+decision changes, and the contract's `PROTOCOL_VERSION` stays 2.
 
 ### Changed
 
@@ -942,7 +951,7 @@ placement whose far edge is far off ([browser/README.md](browser/README.md#layou
 A layout without an `aspect`, or an analysis without the frame's, behaves exactly as in
 0.9.0rc1. The recording reader also checks a scene's true region against its solves. Nothing
 else changes: no model, release document or recognizer decision, and the contract's
-`PROTOCOL_VERSION` stays 1.
+`PROTOCOL_VERSION` stays 2.
 
 ### Added
 
@@ -976,7 +985,7 @@ from another source: it finds where that board sits in the picture from the card
 recognizer names, decides when the placement can be trusted, and keeps deciding as frames
 arrive ([browser/README.md](browser/README.md#layout-registration)). Nothing changes for a
 product that does not use it: no model, release document or recognizer decision changes, and
-the contract's `PROTOCOL_VERSION` stays 1.
+the contract's `PROTOCOL_VERSION` stays 2.
 
 ### Added
 
@@ -1021,7 +1030,7 @@ A release may turn on the **tilted retry**, which gives a face crop that is stil
 second look along its card's estimated tilt. It is release candidate 0.8.0rc1, listed below it,
 unchanged. One paragraph of documentation is added: how to choose the release block's
 `budgetMs` from the retry's measured time ([docs/how-it-works.md](docs/how-it-works.md#the-tilted-retry)).
-Nothing in the public surface breaks. The contract's `PROTOCOL_VERSION` stays 1. The released
+Nothing in the public surface breaks. The contract's `PROTOCOL_VERSION` stays 2. The released
 models are unchanged: release `201478a00d6ef6ba`, which does not turn the retry on.
 
 ### Added
@@ -1036,7 +1045,7 @@ turned looks (and after the geometric stage, if any) gets its card's tilt estima
 crop's edges, and three straightened rectangles of the frame get one look each. It is off
 unless a release document has the new optional `tiltedRetry` block, so a release without it
 behaves exactly as before. The accept rule is unchanged, and no model or weight changes. The
-contract's `PROTOCOL_VERSION` stays 1. The released models are unchanged: release
+contract's `PROTOCOL_VERSION` stays 2. The released models are unchanged: release
 `201478a00d6ef6ba`, which does not turn the retry on.
 
 ### Added
@@ -1083,7 +1092,7 @@ slow on some machine without a patched build. It is release candidate 0.7.0rc2, 
 it, which split reading the files from fetching them and the providers that failed from the one
 that worked; that candidate built on 0.7.0rc1. One sentence of documentation is added: the
 load's total also holds the short steps between its parts. Nothing in the public surface breaks.
-The contract's `PROTOCOL_VERSION` stays 1. The released models are unchanged: release
+The contract's `PROTOCOL_VERSION` stays 2. The released models are unchanged: release
 `201478a00d6ef6ba`.
 
 ### Added
@@ -1994,7 +2003,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.15.0rc1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.1...v0.15.0
 [0.15.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.1...v0.15.0rc1
 [0.14.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0
