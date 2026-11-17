@@ -256,7 +256,7 @@ describe("templates/store-check.yml", () => {
     expect(pins(text).length).toBeGreaterThan(0);
     for (const u of pins(text)) expect(release).toContain(u);
     for (const u of pins(text)) expect(u).toMatch(/@[0-9a-f]{40}$/);
-    expect(stepBody("Check the packages and the release")).toMatch(/check --pull-request "\$STORE_CHECK_MODE"/);
+    expect(stepBody("Check the packages and the release")).toMatch(/node "\$STORE_TOOL" check \$pr --config/); // which flags: the test below
   });
 
   it("decides release or released from the tag and the pull request's own changes", () => {
@@ -339,6 +339,33 @@ describe("templates/store-check.yml", () => {
     expect(failed?.status).toBe(1);
     expect(failed?.stdout).toContain("::error::git diff against the pull request's base failed (exit 128)");
     expect(readFileSync(env, "utf-8")).not.toMatch(/STORE_CHECK_MODE=/);
+  });
+
+  it("passes --pull-request, or runs the tag's own checks when a release pull request must wait for its before addresses", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-check-step-"));
+    dirs.push(dir);
+    // A stand-in for the tool that prints its arguments.
+    writeFileSync(join(dir, "tool.mjs"), "console.log(process.argv.slice(2).join(' '));\n");
+    const run = (mode: string, before: string): string =>
+      // As GitHub runs a step: bash -e -o pipefail.
+      execFileSync("bash", ["-eo", "pipefail", "-c", stepBody("Check the packages and the release")], {
+        cwd: dir,
+        env: { PATH: process.env.PATH, TAG: "v1.0.0", TAG_PREFIX: "v", STORE_TOOL: join(dir, "tool.mjs"), STORE_CHECK_MODE: mode, BEFORE_ON_PULL_REQUEST: before, GITHUB_STEP_SUMMARY: join(dir, "summary.md") },
+        encoding: "utf-8",
+      });
+    expect(run("release", "warn")).toMatch(/^check --pull-request release --config /);
+    expect(run("released", "warn")).toMatch(/^check --pull-request released --config /);
+    expect(run("release", "fail")).toMatch(/^check --config /);
+    expect(run("released", "fail")).toMatch(/^check --pull-request released --config /);
+    let bad: { status?: number; stdout?: string } | undefined;
+    try {
+      run("release", "maybe");
+    } catch (error) {
+      bad = error as { status?: number; stdout?: string };
+    }
+    expect(bad?.status).toBe(1);
+    expect(bad?.stdout).toContain("::error::BEFORE_ON_PULL_REQUEST is warn or fail, not 'maybe'");
+    expect(text).toMatch(/^ {2}BEFORE_ON_PULL_REQUEST: warn$/m);
   });
 
   it("compares with the tag's own permissions when released, and with the release before it otherwise", () => {
