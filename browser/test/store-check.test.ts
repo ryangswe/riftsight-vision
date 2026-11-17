@@ -322,8 +322,23 @@ describe("templates/store-check.yml", () => {
     expect(rows({ "1.0.0": { ortWeb: "1.29.0" }, "1.0.1": { ortWeb: "1.30.0" } })).toBe("released"); // the next row only
     expect(rows({ "1.0.0": { ortWeb: "1.30.0" } })).toBe("release"); // this version's row
     expect(change("store/releases/1.0.1.json")).toBe("released");
-    // A base the clone does not have is an error, not "changed".
-    expect(() => mode("0".repeat(40))).toThrow(/git diff against the pull request's base failed/);
+    // A base the clone does not have is an error, not "changed": the step fails and picks no mode.
+    const env = join(envDir, "github-env");
+    writeFileSync(env, "");
+    let failed: { status?: number; stdout?: string } | undefined;
+    try {
+      execFileSync("bash", ["-c", stepBody("The would-be tag, and whether this pull request is its release")], {
+        cwd: repo,
+        env: { PATH: process.env.PATH, TAG_PREFIX: "v", BASE_SHA: "0".repeat(40), GITHUB_ENV: env },
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch (error) {
+      failed = error as { status?: number; stdout?: string };
+    }
+    expect(failed?.status).toBe(1);
+    expect(failed?.stdout).toContain("::error::git diff against the pull request's base failed (exit 128)");
+    expect(readFileSync(env, "utf-8")).not.toMatch(/STORE_CHECK_MODE=/);
   });
 
   it("compares with the tag's own permissions when released, and with the release before it otherwise", () => {
