@@ -25,8 +25,9 @@
 # first version, and the other versions repeat them (`steps: *steps`).
 #
 # Each part keeps its JUnit report for a week. On a push to main, a last job compares the
-# parts' times with tests/shard_seconds.json and opens, updates or closes the issue "Test parts
-# are out of balance" (tests/shards.py says when); it is the only job that may write issues.
+# parts' times, the median over that run and the four before it on main, with
+# tests/shard_seconds.json and opens, updates or closes the issue "Test parts are out of
+# balance" (tests/shards.py says when); it is the only job that may write issues.
 #
 # After the tests, the first part of each version also runs the lint, with ruff at the version requirements-lint.txt pins
 # and the bug-finding rules in pyproject.toml.
@@ -152,6 +153,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       issues: write
     steps:
@@ -163,11 +165,25 @@ jobs:
         with:
           pattern: junit-*
           path: junit
+      # One run's times vary too much to judge by, so the check takes the median over this run and
+      # the four before it on main. Reports are kept for a week; a run without them is skipped.
+      - name: Download the reports of the four runs on main before this one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tests.yml --branch main --event push \
+                   --status success --limit 4 --json databaseId --jq '.[].databaseId')
+          for run in $runs; do
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "earlier/$run" \
+              || echo "Run $run has no test reports left."
+          done
       - name: Compare the parts' times with the recorded seconds
         id: compare
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python tests/shards.py check junit --parts 3 --run-url "$RUN_URL" --body balance.md >> "$GITHUB_OUTPUT"
+        run: >-
+          python tests/shards.py check junit --earlier earlier --parts 3 --run-url "$RUN_URL" --body balance.md
+          >> "$GITHUB_OUTPUT"
       - name: Open, update or close the issue
         env:
           GH_TOKEN: ${{ github.token }}
