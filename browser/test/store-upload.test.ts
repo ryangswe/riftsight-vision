@@ -567,7 +567,7 @@ describe("notes to reviewers: the addons.mozilla.org length limit", () => {
     const log: string[] = [];
     expect(await main(uploadArgv(dir, ["--targets", "chrome"]), deps(stores.fetchFn, {}, log)), log.join("\n")).toBe(0);
     expect(stores.calls.some((c) => c.url.endsWith(":publish"))).toBe(true);
-    expect(stores.calls.some((c) => c.url.startsWith("https://amo.test"))).toBe(false);
+    expect(stores.calls.some((c) => new URL(c.url).host === "amo.test")).toBe(false);
   });
 });
 
