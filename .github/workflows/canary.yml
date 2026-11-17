@@ -10,9 +10,10 @@
 #
 # It is advisory: not a required check, so a red run is information for the reviewer, not a block.
 #
-# CANARY_TARGETS is a JSON list of { repo, sha, vendorDir, steps, chrome? }; see
-# browser/scripts/canary.mjs. The workflow names no product. An empty variable, as on a fork, is
-# a neutral skip, shown in the job summary.
+# CANARY_TARGETS is a JSON list of { repo, sha, vendorDir, steps, chrome? }: see
+# browser/scripts/canary.mjs, and RELEASING.md ("The downstream canary") for how to set it. The
+# workflow names no product. An empty variable, as on a fork, is a neutral skip, shown in the job
+# summary.
 #
 # A passing run saves a marker in the Actions cache, keyed by a hash of browser/**,
 # docs/hover-spec.*, this workflow and the targets. A later run with the same key (a re-run, or a version pull
