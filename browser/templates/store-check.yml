@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The store release's build and checks on every pull request, before any tag: copy this file to
+# .github/workflows/store-check.yml beside store-release.yml. See the toolkit's
+# docs/store-uploads.md, "Checking a pull request". Red means something must be fixed before the
+# next upload; a warning is something the next version pull request must deal with.
+#
+# How much it checks depends on whether package.json's version is already released (its tag
+# exists), so that a pull request after a release is not red for what describes that release:
+#
+# - `release`: the version is not tagged yet (the version pull request, or a change that will ship
+#   in it), or the pull request changes that version's release file, its notes folder or its row
+#   in cdn/RUNTIMES.json (a fix before tagging again). Everything the tag's build job checks, except
+#   that a "before upload" address that is not live yet is a warning: it is published after the
+#   merge. The tag's build job checks it again, and the upload refuses while it is not live.
+# - `released`: the tag exists and the pull request changes none of those. This commit will never
+#   ship as that version: the packages are still built, linted and checked against
+#   store/permissions.json, but only the version is read from the release file, and a permission
+#   change since the tag or a runtime row that no longer matches is a warning for the next version.
+#
+# Replace the step marked PRODUCT with the same commands as store-release.yml's. A product's own
+# release gates that compare this commit with the released version (its runtime row, say) can read
+# STORE_CHECK_MODE and warn instead of failing when it is `released`. Every `uses:` is pinned to a
+# full commit. This workflow has no store access and must name no store or CDN credential:
+# `check` refuses a denied name.
+
+name: Store check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  TAG_PREFIX: v
+  STORE_TOOL: vendor/cardvision-browser/node/store-upload.mjs
+
+jobs:
+  store-check:
+    name: Store packages and check (no store access)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+
+      - name: The would-be tag, and whether this pull request is its release
+        env:
+          # The pull request's own changes: the merge commit (HEAD) against its base.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="${TAG_PREFIX}$version"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          if ! git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            mode=release
+            echo "$tag is not tagged yet: the release checks."
+          else
+            # 0: unchanged, 1: changed; anything else is a git error, which fails the step.
+            changed=0
+            git diff --quiet "$BASE_SHA" HEAD -- "store/releases/$version.json" "store/releases/$version" || changed=$?
+            # Of cdn/RUNTIMES.json only this version's row counts: adding the next one changes nothing here.
+            row() {
+              git show "$1:cdn/RUNTIMES.json" 2>/dev/null | node -e '
+                let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+                  try { console.log(JSON.stringify(JSON.parse(s)[process.argv[1]] ?? null)); } catch { console.log(s === "" ? "null" : "unreadable"); }
+                });' "$version"
+            }
+            if [ "$changed" = 0 ] && [ "$(row "$BASE_SHA")" != "$(row HEAD)" ]; then changed=1; fi
+            case "$changed" in
+              0) mode=released
+                 echo "$tag is released: the packages are checked; what describes $tag is not." ;;
+              1) mode=release
+                 echo "$tag exists, but this pull request changes its release file, notes or its row in cdn/RUNTIMES.json: the release checks." ;;
+              *) echo "::error::git diff against the pull request's base failed (exit $changed)"
+                 exit 1 ;;
+            esac
+          fi
+          echo "STORE_CHECK_MODE=$mode" >> "$GITHUB_ENV"
+
+      # PRODUCT: the same build as store-release.yml's, into out/ (chrome.zip, firefox.zip, and
+      # firefox-source.zip when the add-on's code is minified or generated).
+      - name: Build the store packages
+        run: npm run store:build
+
+      - name: Lint the Firefox package
+        run: |
+          mkdir -p out/firefox && unzip -q -o out/firefox.zip -d out/firefox
+          npx --yes web-ext@10.8.0 lint --source-dir out/firefox --output json > out/lint.json || true
+
+      # `release`: the release before this version, as in store-release.yml. `released`: the
+      # tag's own permissions, so that a change since the release is a warning for the next one.
+      - name: The permissions to compare with
+        run: |
+          set -euo pipefail
+          if [ "$STORE_CHECK_MODE" = released ]; then
+            prev="$TAG"
+          else
+            # The newest earlier release tag (pre-release tags such as v1.0.0-rc1 are left out).
+            prev=$(git tag --list "${TAG_PREFIX}*" --sort=-v:refname --merged HEAD | while read -r t; do
+              case "${t#"$TAG_PREFIX"}" in (*-*) continue ;; esac
+              if [ "$t" != "$TAG" ]; then echo "$t"; break; fi
+            done || true)
+          fi
+          if [ -n "$prev" ] && git cat-file -e "$prev:store/permissions.json" 2>/dev/null; then
+            git show "$prev:store/permissions.json" > out/previous-permissions.json
+            echo "PREVIOUS=--previous-permissions out/previous-permissions.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check the packages and the release
+        run: |
+          version="${TAG#"$TAG_PREFIX"}"
+          source=""; [ -f out/firefox-source.zip ] && source="--firefox-source out/firefox-source.zip"
+          workflows="--workflow .github/workflows/store-release.yml --workflow .github/workflows/store-check.yml"
+          [ -f .github/workflows/extension-release.yml ] && workflows="$workflows --workflow .github/workflows/extension-release.yml"
+          facts=""; [ -f store/record-facts.json ] && facts="--facts store/record-facts.json"
+          runtimes=""; [ -f cdn/RUNTIMES.json ] && runtimes="--runtimes cdn/RUNTIMES.json"
+          node "$STORE_TOOL" check --pull-request "$STORE_CHECK_MODE" --config store/store.config.json \
+            --release "store/releases/$version.json" --tag "$TAG" --tag-prefix "$TAG_PREFIX" \
+            --permissions store/permissions.json $PREVIOUS \
+            --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source $workflows \
+            --lint out/lint.json --lint-baseline store/lint-baseline.json \
+            --record-out out/record.json --vendor-manifest vendor/cardvision-browser/cardvision-vendor.json \
+            $facts $runtimes --summary "$GITHUB_STEP_SUMMARY"

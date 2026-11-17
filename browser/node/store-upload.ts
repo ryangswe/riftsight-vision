@@ -8,6 +8,7 @@
 //        [--lint REPORT [--lint-baseline FILE]] [--hashes-out FILE] [--summary FILE]
 //        [--load-unpacked-zip Z] [--record-out FILE.json --vendor-manifest FILE [--facts FILE]
 //        [--commit SHA] [--run-id ID] [--ci-results FILE] [--runtimes FILE]]
+//        [--pull-request release|released]
 //
 //     The build job's last step, with no store access: the files agree with each other and with
 //     the tag, the permission surface is the one committed (and a change is acknowledged), the
@@ -22,6 +23,15 @@
 //     refuses a record whose text names a credential or a local path. It also refuses a workflow
 //     in which a job names an environment without its own permissions, or write permission sits
 //     beside an environment (see workflowGuardProblems in store-record.ts).
+//
+//     --pull-request runs it on a pull request, before any tag (templates/store-check.yml).
+//     `release`, when the pull request is the version's release or changes it: everything is
+//     checked, but a "before upload" address that is not live yet is a warning. `released`, when
+//     the version is already tagged: only the version is read from the release file, the packages
+//     are checked against the committed permissions, and a permission change since the tag
+//     (--previous-permissions given the tag's file) or a runtime row that no longer matches is a
+//     warning for the next version. Warnings never fail the run; in a workflow they are printed
+//     as ::warning commands.
 //
 //   node store-upload.mjs assets --record FILE.json --dir DIR --out-dir DIR
 //
@@ -187,15 +197,52 @@ export interface CheckArgs {
   ciResults?: string;
   /** The product's cdn/RUNTIMES.json: the record's model release must be the version's row. */
   runtimes?: string;
+  /**
+   * A pull request's check (`--pull-request`), not a tag's. `release`: the pull request is the
+   * release or changes it (the version is not tagged yet, or the pull request changes its release
+   * file, notes or runtime row); everything is checked, but a `before` address that is not live
+   * yet is a warning, since it is published after the merge. `released`: the version is already
+   * tagged and this commit will never ship as it; only the version is read from the release file,
+   * and what describes the release (notes, `before`, `permissionsChanged`, the runtime row) is not
+   * checked. A permission change since the release (`previousPermissions`, the tag's file) and a
+   * runtime row that no longer matches are warnings for the next version.
+   */
+  pullRequest?: "release" | "released";
+}
+
+/** The release file of a version already released: only its version is read (see `pullRequest`). */
+function releasedVersion(path: string): ReleaseFile {
+  let o: unknown;
+  try {
+    o = JSON.parse(readFileSync(path, "utf-8"));
+  } catch (error) {
+    throw new StoreError(`${path}: ${(error as Error).message}`);
+  }
+  const version = (o as { version?: unknown } | null)?.version;
+  if (typeof version !== "string" || version === "") throw new StoreError(`${path}: version is required`);
+  return { version };
 }
 
 /** Everything the build job verifies. Returns the problems (empty: pass) and the summary. */
-export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: string[]; summary: string[]; hashes: Record<string, string> }> {
+export async function runCheck(
+  a: CheckArgs,
+  deps: Deps,
+): Promise<{ problems: string[]; warnings: string[]; summary: string[]; hashes: Record<string, string> }> {
   const problems: string[] = [];
+  const warnings: string[] = [];
   const summary: string[] = [];
   const config: StoreConfig = readStoreConfig(a.config);
-  const release: ReleaseFile = readReleaseFile(a.release);
-  summary.push(`## Store release ${release.version}`, "");
+  const released = a.pullRequest === "released";
+  const release: ReleaseFile = released ? releasedVersion(a.release) : readReleaseFile(a.release);
+  if (!a.pullRequest) summary.push(`## Store release ${release.version}`, "");
+  else if (released) {
+    summary.push(
+      `## Store check: ${a.tag} is already released`,
+      "",
+      "This pull request will not ship as that version, so what describes the release (notes, before-upload addresses, permissionsChanged, the runtime row) is not checked. The packages are checked against the committed permissions; a difference from the release is a warning for the next version.",
+      "",
+    );
+  } else summary.push(`## Store check: ${release.version}, a pull request before its tag`, "");
 
   if (a.tag !== `${a.tagPrefix}${release.version}`) problems.push(`the tag ${a.tag} is not ${a.tagPrefix}${release.version}`);
 
@@ -232,7 +279,9 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     }
     if (previous) {
       const diff = previous[target] ? surfaceChanges(previous[target]!, surface) : [];
-      if (diff.length > 0) {
+      if (diff.length > 0 && released) {
+        warnings.push(`${target}: the permissions changed since ${a.tag} (${diff.join("; ")}): the next version's release file sets permissionsChanged`);
+      } else if (diff.length > 0) {
         changed = true;
         summary.push(`**${target} permission change:** ${diff.join("; ")}`, "");
       }
@@ -279,9 +328,9 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     }
   }
   if (!previous && (a.chromeZip || a.firefoxZip)) {
-    summary.push("", "No previous release's permissions: not compared.");
+    summary.push("", released ? `No permissions of ${a.tag}: not compared.` : "No previous release's permissions: not compared.");
   }
-  if (previous) {
+  if (previous && !released) {
     if (changed && !release.permissionsChanged) problems.push("the permissions changed: set permissionsChanged in the release file once the store justifications are updated");
     if (!changed && release.permissionsChanged) problems.push("permissionsChanged is set but nothing changed since the previous release");
   }
@@ -294,16 +343,22 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
         : "Chrome: upload only. Paste the listing text in the dashboard, then submit.",
     );
   }
-  try {
-    const notes = readNotes(a.release, release);
-    for (const [locale, text] of Object.entries(notes.releaseNotes ?? {})) summary.push("", `Firefox release notes (${locale}):`, "", ...text.split("\n").map((l) => `> ${l}`));
-    if (notes.approvalNotes) summary.push("", "Firefox notes to reviewers:", "", ...notes.approvalNotes.split("\n").map((l) => `> ${l}`));
-  } catch (error) {
-    problems.push((error as Error).message);
-  }
+  if (!released) {
+    try {
+      const notes = readNotes(a.release, release);
+      for (const [locale, text] of Object.entries(notes.releaseNotes ?? {})) summary.push("", `Firefox release notes (${locale}):`, "", ...text.split("\n").map((l) => `> ${l}`));
+      if (notes.approvalNotes) summary.push("", "Firefox notes to reviewers:", "", ...notes.approvalNotes.split("\n").map((l) => `> ${l}`));
+    } catch (error) {
+      problems.push((error as Error).message);
+    }
 
-  for (const p of await beforeProblems(release, deps.fetchFn)) problems.push(`before upload: ${p}`);
-  if ((release.before ?? []).length > 0) summary.push("", `Before upload: ${(release.before ?? []).length} address(es) checked.`);
+    // On a pull request, an address that is not live yet is published after the merge: the tag's
+    // build job checks it again (bytes included), and the upload refuses while it is not live.
+    const notLive = await beforeProblems(release, deps.fetchFn);
+    if (a.pullRequest) for (const p of notLive) warnings.push(`before upload (checked again on the tag): ${p}`);
+    else for (const p of notLive) problems.push(`before upload: ${p}`);
+    if ((release.before ?? []).length > 0) summary.push("", `Before upload: ${(release.before ?? []).length} address(es) checked.`);
+  }
 
   if ((a.ciResults || a.runtimes) && !a.recordOut) throw new Usage("--ci-results and --runtimes go with --record-out");
   if (a.recordOut) {
@@ -332,14 +387,18 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
       facts: Object.fromEntries(Object.entries(productFacts).filter(([k]) => k !== "modelRelease")),
     };
     if (a.runtimes) {
+      // On a released version the row describes that release: a difference is for the next one.
+      const rowProblems: string[] = [];
       try {
         const row = readRuntimesRow(a.runtimes, release.version);
-        if (record.modelRelease === null) problems.push(`the record names no model release: set modelRelease in the facts file (${basename(a.runtimes)} says ${row.releaseId})`);
-        else if (record.modelRelease !== row.releaseId) problems.push(`the bundled model release ${record.modelRelease} is not ${row.releaseId}, the row of ${release.version} in ${basename(a.runtimes)}`);
-        if (row.ortWeb && record.ort && row.ortWeb !== record.ort) problems.push(`the vendored ONNX Runtime ${record.ort} is not ${row.ortWeb}, the row of ${release.version} in ${basename(a.runtimes)}`);
+        if (record.modelRelease === null) rowProblems.push(`the record names no model release: set modelRelease in the facts file (${basename(a.runtimes)} says ${row.releaseId})`);
+        else if (record.modelRelease !== row.releaseId) rowProblems.push(`the bundled model release ${record.modelRelease} is not ${row.releaseId}, the row of ${release.version} in ${basename(a.runtimes)}`);
+        if (row.ortWeb && record.ort && row.ortWeb !== record.ort) rowProblems.push(`the vendored ONNX Runtime ${record.ort} is not ${row.ortWeb}, the row of ${release.version} in ${basename(a.runtimes)}`);
       } catch (error) {
-        problems.push((error as Error).message);
+        rowProblems.push((error as Error).message);
       }
+      if (released) for (const p of rowProblems) warnings.push(`${p} (${a.tag} is released: the next version's row)`);
+      else problems.push(...rowProblems);
     }
     const json = recordJson(record);
     const markdown = recordMarkdown(record);
@@ -352,8 +411,15 @@ export async function runCheck(a: CheckArgs, deps: Deps): Promise<{ problems: st
     }
   }
   if (a.hashesOut) writeFileSync(a.hashesOut, `${JSON.stringify(hashes, null, 2)}\n`);
+  if (warnings.length > 0) summary.push("", `**${warnings.length} warning(s):**`, ...warnings.map((w) => `- ${w}`));
   summary.push("", problems.length === 0 ? "**All checks passed.**" : `**${problems.length} problem(s):**`, ...problems.map((p) => `- ${p}`));
-  return { problems, summary, hashes };
+  return { problems, warnings, summary, hashes };
+}
+
+/** A warning line: a GitHub workflow command in a workflow (%, CR and LF escaped), plain text elsewhere. */
+export function warningLine(text: string, env: Record<string, string | undefined>): string {
+  if (env.GITHUB_ACTIONS !== "true") return `warning: ${text}`;
+  return `::warning title=Store check::${text.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -521,7 +587,7 @@ const USAGE = `usage:
        --workflow FILE [--workflow FILE…] [--lint REPORT [--lint-baseline FILE]]
        [--hashes-out FILE] [--summary FILE] [--load-unpacked-zip Z]
        [--record-out FILE.json --vendor-manifest FILE [--facts FILE] [--commit SHA] [--run-id ID]
-       [--ci-results FILE] [--runtimes FILE]]
+       [--ci-results FILE] [--runtimes FILE]] [--pull-request release|released]
   node store-upload.mjs status --config FILE --releases DIR [--state-in FILE] [--state-out FILE] [--summary FILE]
   node store-upload.mjs assets --record FILE.json --dir DIR --out-dir DIR
   node store-upload.mjs upload --config FILE --release FILE --targets chrome,firefox --hashes FILE
@@ -565,6 +631,7 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
         "run-id": { type: "string" },
         "ci-results": { type: "string" },
         runtimes: { type: "string" },
+        "pull-request": { type: "string" },
         record: { type: "string" },
         releases: { type: "string" },
         "state-in": { type: "string" },
@@ -603,6 +670,10 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
     if (command === "check") {
       if (values["env-file"]) throw new Usage("--env-file is for upload: check uses no credentials");
       if (!values.tag || !values.permissions || !values.workflow?.length) throw new Usage("check needs --tag, --permissions and --workflow");
+      const pullRequest = values["pull-request"];
+      if (pullRequest !== undefined && pullRequest !== "release" && pullRequest !== "released") {
+        throw new Usage(`--pull-request is "release" or "released", not "${pullRequest}"`);
+      }
       const res = await runCheck(
         {
           config: values.config,
@@ -626,9 +697,11 @@ export async function main(argv: string[], deps: Deps = DEFAULT_DEPS): Promise<n
           runId: values["run-id"],
           ciResults: values["ci-results"],
           runtimes: values.runtimes,
+          pullRequest,
         },
         deps,
       );
+      for (const w of res.warnings) deps.log(warningLine(w, deps.env));
       for (const line of res.summary) deps.log(line);
       writeSummary(res.summary);
       return res.problems.length === 0 ? 0 : 1;
