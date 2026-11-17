@@ -66,6 +66,15 @@ break the public surface; this file names each break and how to migrate.
 - `tests/release_prepare.py` also sets `CITATION.cff`: its `version` and its `date-released`, to
   the date of the version commit. It refuses a `CITATION.cff` with no `date-released` line.
 
+### Fixed
+
+- The store-upload tool now refuses notes to reviewers longer than addons.mozilla.org accepts
+  (3000 characters, counted as code points, without the license comment). Before, the limit was
+  met only after the Chrome package was submitted and the Firefox version existed, and the
+  notes then could not be set, nor could a re-run set them. `check` and the upload's prechecks
+  name the file, its length and the limit, before anything is uploaded. An upload to Chrome alone
+  does not read the Firefox notes.
+
 ## [0.14.1] - 2026-11-14
 
 A patch release with one fix to the browser runtime's slow start: a resting mouse's card is

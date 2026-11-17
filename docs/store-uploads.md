@@ -213,7 +213,7 @@ A release file:
 | `chrome.submit` | `auto`: submit for review after the upload. `upload-only`: the Chrome listing text changes (the API cannot set "What's new" or the test instructions), so the account holder pastes it in the dashboard and submits |
 | `chrome.publish` | `default`: live once review passes; use it unless the account holder said otherwise before that release's process started. `staged`: published by hand after approval |
 | `firefox.releaseNotes` | locale → a notes file, beside the release file (a leading `<!-- SPDX-License-Identifier: … -->` line is left out) |
-| `firefox.approvalNotes` | a file with the notes to Mozilla's reviewers |
+| `firefox.approvalNotes` | a file with the notes to Mozilla's reviewers, at most 3000 characters (code points, counted without the license comment); a longer file is refused by `check` and, when Firefox is a target, by the upload's prechecks, before anything is uploaded |
 | `permissionsChanged` | true when the permission surface changed since the previous release |
 | `before` | `[{url, sha256?, why?}]`: what must be live before upload |
 | `expect` | `[{url, file or sha256, when?, why?}]`: addresses the [daily status check](#the-daily-status-check) expects to answer 200 with the bytes of `file` (a path beside the release file) or with this sha256, such as the live settings file; `when: "published"` waits until the version is public |
