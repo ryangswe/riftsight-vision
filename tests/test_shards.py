@@ -4,7 +4,10 @@ the Tests workflow runs every part of every Python version."""
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -119,3 +122,134 @@ def test_the_tests_workflow_runs_every_part_of_every_version_and_names_each_chec
     # The steps are written once and repeated for every other version.
     assert text.count("    steps: &steps\n") == 1 and text.count("    steps: *steps\n") == len(VERSIONS) - 1
     assert len(re.findall(r'^        python: \["[\d.]+"\]$', text, flags=re.MULTILINE)) == len(VERSIONS)
+
+
+# ------------------------------------------------------------------------------- balance check
+def write_report(path: Path, seconds: dict[str, float]) -> None:
+    """A ``--junitxml`` report in which each file's tests take ``seconds`` in all."""
+    cases = "".join(f'<testcase classname="{name[:-3].replace("/", ".")}" name="test_{half}" time="{total / 2}"/>'
+                    for name, total in seconds.items() for half in ("a", "b"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f'<?xml version="1.0"?><testsuites><testsuite name="pytest">{cases}</testsuite></testsuites>',
+                    encoding="utf-8")
+
+
+def test_the_reports_of_a_run_give_each_file_its_median_over_the_python_versions(tmp_path):
+    for version, slow in (("3.11", 10.0), ("3.12", 12.0), ("3.13", 30.0)):
+        write_report(tmp_path / f"junit-{version}-part-1" / "junit.xml", {"tests/test_a.py": slow})
+        write_report(tmp_path / f"junit-{version}-part-2" / "junit.xml", {"tests/test_b.py": 2.0, "labeler/test_c.py": 1.0})
+    assert shards.seconds_from_reports(tmp_path) == {"labeler/test_c.py": 1.0, "tests/test_a.py": 12.0, "tests/test_b.py": 2.0}
+    with pytest.raises(ValueError, match="no reports"):
+        shards.seconds_from_reports(tmp_path / "empty")
+
+
+def test_stale_seconds_open_the_issue_and_balanced_parts_close_it():
+    files = {f"tests/test_{number}.py": 10.0 for number in range(9)}
+    # One file has become five times slower than its recorded seconds, and a new one is listed nowhere.
+    measured = {**files, "tests/test_0.py": 50.0, "tests/test_new.py": 30.0}
+    stale = shards.compare(measured, files, 3)
+    assert stale["state"] == "open" and stale["gain"] >= shards.OPEN_GAIN
+    assert sum(stale["now"]) == sum(stale["new"]) == sum(measured.values())
+    assert stale["unlisted"] == ["tests/test_new.py"] and stale["gone"] == []
+    balanced = shards.compare(measured, measured, 3)
+    assert balanced["state"] == "close" and balanced["gain"] == 0
+    # A gain between the two limits keeps an open issue up to date and opens none.
+    assert shards.CLOSE_GAIN < shards.OPEN_GAIN
+    # Two files dealt into the same part have each become a little slower: 36 s against 33 s.
+    middle = shards.compare({**files, "tests/test_0.py": 13.0, "tests/test_3.py": 13.0}, files, 3)
+    assert shards.CLOSE_GAIN <= middle["gain"] < shards.OPEN_GAIN and middle["state"] == "keep"
+
+
+def test_the_issue_holds_the_new_seconds_as_shard_seconds_json_is_written():
+    # The recorded seconds put the two slow files in one part, and test_b.py has none.
+    measured = {"tests/test_a.py": 40.0, "tests/test_b.py": 40.0, "tests/test_c.py": 2.5}
+    stale = shards.compare(measured, {"tests/test_a.py": 10.0, "tests/test_c.py": 20.0}, 2)
+    assert stale["state"] == "open"
+    body = shards.issue_body(stale, measured, "https://example.invalid/run/1")
+    block = body.split("```json\n", 1)[1].split("```", 1)[0]
+    assert block == shards.json_text(measured) and json.loads(block) == measured
+    assert "(https://example.invalid/run/1) are out of balance." in body and "`tests/test_b.py`" in body
+    balanced = shards.issue_body(shards.compare(measured, measured, 2), measured, "https://example.invalid/run/1")
+    assert "(https://example.invalid/run/1) are balanced." in balanced and "out of balance" not in balanced.split("\n")[0]
+
+
+def test_the_check_command_writes_the_issue_and_prints_its_state(tmp_path):
+    """On the seconds recorded in the repository the parts are balanced, so the state is close."""
+    recorded = shards.load_seconds()
+    names = sorted(recorded)
+    for part in (1, 2, 3):
+        write_report(tmp_path / "junit" / f"junit-3.12-part-{part}" / "junit.xml",
+                     {name: recorded[name] for name in names[part - 1::3]})
+    done = subprocess.run([sys.executable, "tests/shards.py", "check", str(tmp_path / "junit"), "--parts", "3",
+                           "--run-url", "https://example.invalid/run/2", "--body", str(tmp_path / "balance.md")],
+                          cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout == "state=close\n"
+    assert "https://example.invalid/run/2" in (tmp_path / "balance.md").read_text(encoding="utf-8")
+
+
+ISSUE_STEP = "Open, update or close the issue"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+@pytest.mark.parametrize(("state", "existing", "expected"), [
+    ("open", "", ["issue list", "issue create --repo example/toolkit --title Test parts are out of balance --body-file balance.md"]),
+    ("open", "7", ["issue list", "issue edit 7 --repo example/toolkit --body-file balance.md"]),
+    ("keep", "", ["issue list"]),
+    ("keep", "7", ["issue list", "issue edit 7 --repo example/toolkit --body-file balance.md"]),
+    ("close", "", ["issue list"]),
+    ("close", "7", ["issue list", "issue close 7 --repo example/toolkit --comment The parts are balanced again: https://example.invalid/run/3"]),
+])
+def test_the_issue_step_opens_updates_or_closes_the_one_issue(state, existing, expected, tmp_path):
+    """The step's own script, with a stand-in ``gh`` that records its calls and finds the open
+    issue number ``existing``, if any."""
+    from test_workflows import run_step, steps_of
+
+    bin_folder = tmp_path / "bin"
+    bin_folder.mkdir()
+    (bin_folder / "gh").write_text('#!/bin/bash\necho "$*" >> "$CALLS"\n'
+                                   '[ "$1 $2" = "issue list" ] && printf "%s" "$EXISTING"\nexit 0\n', encoding="utf-8")
+    (bin_folder / "gh").chmod(0o755)
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "tests").symlink_to(ROOT / "tests")
+    (work / "balance.md").write_text("the text\n", encoding="utf-8")
+    calls, summary = tmp_path / "calls", tmp_path / "summary"
+    environment = {**os.environ, "PATH": f"{bin_folder}{os.pathsep}{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}",
+                   "CALLS": str(calls), "EXISTING": existing, "STATE": state, "GITHUB_REPOSITORY": "example/toolkit",
+                   "RUN_URL": "https://example.invalid/run/3", "GITHUB_STEP_SUMMARY": str(summary), "GH_TOKEN": "unused"}
+    done = run_step(steps_of("tests.yml")[ISSUE_STEP]["run"], work, environment)
+    assert done.returncode == 0, done.stderr
+    made = calls.read_text(encoding="utf-8").splitlines()
+    assert [made[0][:10]] + made[1:] == expected
+    assert summary.read_text(encoding="utf-8") == f"Balance: {state}\nthe text\n"
+
+
+def test_an_unknown_state_fails_the_issue_step(tmp_path):
+    from test_workflows import run_step, steps_of
+
+    bin_folder = tmp_path / "bin"
+    bin_folder.mkdir()
+    (bin_folder / "gh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+    (bin_folder / "gh").chmod(0o755)
+    (tmp_path / "tests").symlink_to(ROOT / "tests")
+    environment = {**os.environ, "PATH": f"{bin_folder}{os.pathsep}{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}",
+                   "STATE": "", "GITHUB_REPOSITORY": "example/toolkit", "RUN_URL": "u", "GITHUB_STEP_SUMMARY": str(tmp_path / "s")}
+    done = run_step(steps_of("tests.yml")[ISSUE_STEP]["run"], tmp_path, environment)
+    assert done.returncode == 1 and "unknown state" in done.stdout
+
+
+@pytest.mark.maintainer
+def test_only_the_balance_job_may_write_issues_and_it_runs_on_pushes_to_main_after_every_part():
+    text = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    assert "\npermissions:\n  contents: read\n" in text and text.count("issues: write") == 1
+    job = text.split("\n  balance:\n", 1)[1]
+    assert job.startswith("    name: Test parts balance\n    needs: [tests-3-11, tests-3-12, tests-3-13]\n"
+                          "    if: github.event_name == 'push' && github.ref == 'refs/heads/main'\n"
+                          "    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n      issues: write\n")
+    assert "        with:\n          pattern: junit-*\n          path: junit\n" in job
+    assert 'python tests/shards.py check junit --parts 3 --run-url "$RUN_URL" --body balance.md >> "$GITHUB_OUTPUT"' in job
+    # Each part keeps its report under the name the check reads, for a week.
+    assert "--junitxml=junit.xml --shard ${{ matrix.part }}/3\n" in text
+    assert ("          name: junit-${{ matrix.python }}-part-${{ matrix.part }}\n          path: junit.xml\n"
+            "          retention-days: 7\n") in text

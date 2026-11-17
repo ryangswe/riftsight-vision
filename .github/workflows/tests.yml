@@ -24,6 +24,10 @@
 # passed; those are the names the checks of a pull request go by. The steps are written once, under the
 # first version, and the other versions repeat them (`steps: *steps`).
 #
+# Each part keeps its JUnit report for a week. On a push to main, a last job compares the
+# parts' times with tests/shard_seconds.json and opens, updates or closes the issue "Test parts
+# are out of balance" (tests/shards.py says when); it is the only job that may write issues.
+#
 # After the tests, the first part of each version also runs the lint, with ruff at the version requirements-lint.txt pins
 # and the bug-finding rules in pyproject.toml.
 name: Tests
@@ -75,7 +79,13 @@ jobs:
           python -m pip install --require-hashes -r requirements-lock.txt
           python -m pip install --no-deps -e .
       - name: Run the tests
-        run: python -m pytest -n auto --dist loadfile --no-loadscope-reorder --durations=20 --shard ${{ matrix.part }}/3
+        run: python -m pytest -n auto --dist loadfile --no-loadscope-reorder --durations=20 --junitxml=junit.xml --shard ${{ matrix.part }}/3
+      - name: Keep the test times for the balance check
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-${{ matrix.python }}-part-${{ matrix.part }}
+          path: junit.xml
+          retention-days: 7
       - name: Install the pinned lint
         if: matrix.part == 1
         run: python -m pip install --require-hashes -r requirements-lint.txt
@@ -135,3 +145,50 @@ jobs:
         env:
           PARTS: ${{ needs.tests-3-13.result }}
         run: test "$PARTS" = success
+
+  balance:
+    name: Test parts balance
+    needs: [tests-3-11, tests-3-12, tests-3-13]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: junit-*
+          path: junit
+      - name: Compare the parts' times with the recorded seconds
+        id: compare
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python tests/shards.py check junit --parts 3 --run-url "$RUN_URL" --body balance.md >> "$GITHUB_OUTPUT"
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE: ${{ steps.compare.outputs.state }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title=$(python -c 'import sys; sys.path.insert(0, "tests"); import shards; print(shards.ISSUE_TITLE)')
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" \
+                     --json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          case "$STATE" in
+            open)
+              if [ -n "$number" ]; then gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file balance.md
+              else gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file balance.md; fi ;;
+            keep)
+              if [ -n "$number" ]; then gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file balance.md; fi ;;
+            close)
+              if [ -n "$number" ]; then
+                gh issue close "$number" --repo "$GITHUB_REPOSITORY" --comment "The parts are balanced again: $RUN_URL"
+              fi ;;
+            *)
+              echo "unknown state: $STATE"; exit 1 ;;
+          esac
+          echo "Balance: $STATE" >> "$GITHUB_STEP_SUMMARY"
+          cat balance.md >> "$GITHUB_STEP_SUMMARY"
