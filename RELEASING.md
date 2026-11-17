@@ -99,6 +99,8 @@ product commit:
 - A product can be listed more than once, for example its released code and the commit it is
   about to release. The summary tells the jobs apart by commit.
 - An empty variable, or `[]`, makes the job a neutral skip.
+- Each step runs with `CARDVISION_CANARY=1` set. A product can use it to skip a check that cannot
+  pass on a build it did not vendor itself, such as a test that its docs link the vendored commit.
 
 To change it, write the list to a file, check it, then set it from a checkout of this
 repository:

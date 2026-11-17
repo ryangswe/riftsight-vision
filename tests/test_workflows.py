@@ -808,12 +808,14 @@ def test_the_run_step_reports_every_step_and_fails_when_one_fails(tmp_path):
     product.mkdir()
     import json
 
-    steps = json.dumps(["echo fine", "exit 3", "echo still runs > ran.txt"])
+    steps = json.dumps(["echo fine", "exit 3", "echo still runs > ran.txt", 'test "$CARDVISION_CANARY" = 1'])
     done = canary("run", str(product), STEPS=steps, TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(summary))
     shown = summary.read_text(encoding="utf-8")
     assert done.returncode == 1 and (product / "ran.txt").exists()
-    assert "example/product at 0123456789ab: 1 of 3 step(s) failed" in shown
+    assert "example/product at 0123456789ab: 1 of 4 step(s) failed" in shown
     assert "| <code>echo fine</code> | passed |" in shown and "| <code>exit 3</code> | failed (3) |" in shown
+    # Each step can tell it runs in the canary.
+    assert "| <code>test &#34;$CARDVISION_CANARY&#34; = 1</code> | passed |" in shown
     done = canary("run", str(product), STEPS=json.dumps(["true"]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(tmp_path / "ok.md"))
     assert done.returncode == 0
 

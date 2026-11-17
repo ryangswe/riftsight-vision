@@ -10,7 +10,8 @@
 //   node scripts/canary.mjs vendor TOOLKIT_ROOT PRODUCT_ROOT VENDOR_DIR
 //                                                 vendor this checkout's build into the product with the options
 //                                                 its own manifest records
-//   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each
+//   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each;
+//                                                 each step sees CARDVISION_CANARY=1
 //
 // CANARY_TARGETS is a JSON list of { repo, sha, vendorDir, steps, chrome? }: the product's
 // repository ("account/name"), the full commit to try, the folder it vendors the runtime into, the
@@ -170,7 +171,7 @@ function run(product) {
   const rows = [];
   for (const step of steps) {
     console.log(`::group::${step}`);
-    const done = spawnSync("bash", ["-e", "-c", step], { cwd: product, stdio: "inherit" });
+    const done = spawnSync("bash", ["-e", "-c", step], { cwd: product, stdio: "inherit", env: { ...process.env, CARDVISION_CANARY: "1" } });
     console.log("::endgroup::");
     rows.push([step, done.status === 0 ? "passed" : `failed (${done.status ?? done.signal})`]);
   }
