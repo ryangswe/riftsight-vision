@@ -160,7 +160,13 @@ modes, so that a pull request after a release is not red for what describes that
 | `released` | the tag exists and the pull request changes none of those files | Only `version` is read from the release file; its notes, `before`, `permissionsChanged` and store settings are not checked. The packages are still built, linted and checked against `store/permissions.json`. A permission change since the tag (`--previous-permissions` is given the tag's file) and a runtime row that no longer matches (`--runtimes`) are warnings for the next version pull request. |
 
 Warnings never fail the run. In a workflow they are `::warning` lines on the run page and are
-listed in its summary. The template sets `STORE_CHECK_MODE` for later steps, so a product's own
+listed in its summary. A product whose version pull request releases it on merge
+(`extension-release.yml`), and whose "before upload" addresses can be live before that merge, sets
+the template's `BEFORE_ON_PULL_REQUEST` to `fail` and makes this job ("Store packages and check (no
+store access)") a required status check: in `release` mode the pull request then runs the tag's own
+checks and cannot be merged until every address is live (re-run the job once it is). Without the
+required check, a red pull request can still be merged and tagged. With `warn`, the default, an address published after the merge fails the tag's build job
+until it is live, and that job is run again then. The template sets `STORE_CHECK_MODE` for later steps, so a product's own
 release gates that compare the commit with the released version (a runtime-row check in its build
 script, say) can warn instead of failing when it is `released`.
 

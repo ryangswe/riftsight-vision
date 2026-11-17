@@ -20,6 +20,9 @@ break the public surface; this file names each break and how to migrate.
   permissions, and a permission change since the tag or a runtime row that no longer matches is a
   warning for the next version. A pull request after a release is no longer red for what describes
   that release. See [docs/store-uploads.md](docs/store-uploads.md#checking-a-pull-request).
+  The template's `BEFORE_ON_PULL_REQUEST: fail`, with the job as a required status check, keeps a
+  version pull request from merging until its "before upload" addresses are live, for a product
+  whose merge makes the release tag.
 
 ## [0.15.0] - 2026-11-17
 

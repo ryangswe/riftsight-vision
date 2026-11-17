@@ -39,6 +39,13 @@ concurrency:
 env:
   TAG_PREFIX: v
   STORE_TOOL: vendor/cardvision-browser/node/store-upload.mjs
+  # In `release` mode, a "before upload" address that is not live yet: `warn` (the default) or
+  # `fail`. Choose `fail` when merging the version pull request releases it (extension-release.yml
+  # tags the merge) and the address can be live before that merge, and make this job a required
+  # status check: the pull request then cannot be merged until the address is live (re-run the job
+  # once it is), so the tag is not made too early. Keep `warn` when the address is published after
+  # the merge: the tag's build job fails until it is live, and is run again then.
+  BEFORE_ON_PULL_REQUEST: warn
 
 jobs:
   store-check:
@@ -127,7 +134,13 @@ jobs:
           [ -f .github/workflows/extension-release.yml ] && workflows="$workflows --workflow .github/workflows/extension-release.yml"
           facts=""; [ -f store/record-facts.json ] && facts="--facts store/record-facts.json"
           runtimes=""; [ -f cdn/RUNTIMES.json ] && runtimes="--runtimes cdn/RUNTIMES.json"
-          node "$STORE_TOOL" check --pull-request "$STORE_CHECK_MODE" --config store/store.config.json \
+          case "$BEFORE_ON_PULL_REQUEST" in
+            warn) pr="--pull-request $STORE_CHECK_MODE" ;;
+            # The release's own checks, before addresses included, as the tag's build job runs them.
+            fail) pr="--pull-request $STORE_CHECK_MODE"; [ "$STORE_CHECK_MODE" = release ] && pr="" ;;
+            *) echo "::error::BEFORE_ON_PULL_REQUEST is warn or fail, not '$BEFORE_ON_PULL_REQUEST'"; exit 1 ;;
+          esac
+          node "$STORE_TOOL" check $pr --config store/store.config.json \
             --release "store/releases/$version.json" --tag "$TAG" --tag-prefix "$TAG_PREFIX" \
             --permissions store/permissions.json $PREVIOUS \
             --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source $workflows \
