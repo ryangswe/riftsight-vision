@@ -128,6 +128,7 @@ out would turn a check off silently. The tool refuses a file that lacks one; an 
 | `userAgent` | `<product>-cdn-verify/1`, sent with every HTTPS check |
 | `art.prefix`, `art.indexKey` | `art/`, `art/index.json` |
 | `art.cacheControl`, `art.maxImageBytes` | `public, max-age=86400`, `5242880` |
+| `art.derived` | none; [smaller pictures made from the art](#derived-art-sets) |
 | `settings.placeholders` | `["{art}", "{file}", "{cardId}", "{printedId}"]`; a product that adds `{sourceFile}` may not use it in `primary` |
 | `settings.corsOrigin` | `https://www.youtube.com`, the origin `verify` asks CORS for |
 | `releases.legalDir` | `release-legal` |
@@ -200,6 +201,78 @@ cardvision cdn verify --env-file .env
 - A replaced image reaches viewers within a day (`max-age=86400`), or at once after a cache
   purge.
 
+### Derived art sets
+
+A tooltip needs a smaller picture than the full art. List one or more sets in `art.derived` and
+`publish` makes and uploads them from the same `--images`, so that a product can serve, for
+example, 640 px wide WebP and keep the full art as the fallback:
+
+```json
+"art": {"derived": [{"name": "tooltip", "width": 640, "format": "webp", "quality": 75}]}
+```
+
+| Field | Rule |
+| --- | --- |
+| `name` | `[a-z][a-z0-9-]*`, unique; the set's folder under the art prefix |
+| `width` | 64 to 4096, or `null` to keep each source's own size and only re-encode |
+| `format` | `"webp"`, the only one: it keeps the alpha channel that a card's rounded corners may use |
+| `quality` | 1 to 100 |
+
+- **Keys.** One file per catalog card with art, `art/tooltip/<cardId>.webp`, so a settings
+  template can use `{cardId}`: `https://cdn.example.org/art/tooltip/{cardId}.webp`. Cards that
+  share art each get a file. A card id that is not a clean file name (a `/`, a space, `?`, `#`,
+  `%`, `\`) refuses the run, as does a card with two different art paths and an art path inside
+  a set's folder. These checks apply only when `art.derived` lists a set: a product without one
+  publishes such a catalog as before.
+- **Deriving.** The source is read as an image, turned upright by its EXIF orientation,
+  converted to RGB (RGBA when it has alpha, a palette image with transparency included), made at
+  most `width` wide with LANCZOS and the same proportions, and never enlarged. It is encoded with
+  `quality` and `method=6`, and keeps the source's ICC profile. A 16-bit or 32-bit integer source
+  cannot be derived ("save the source as 8-bit") and counts as a failed file. The same source and spec give the same bytes with one Pillow version.
+  A derived file must be smaller than `art.maxImageBytes`; one that cannot be made or is too big
+  counts as a failed upload.
+- **What counts as changed.** Each set has its own index, `art/tooltip/index.json`, which
+  records each file's `sha256`, `bytes`, `contentType`, `cardId` and `sourceSha256`, and the set's
+  `spec` and `specHash`. A file is made again when its source's sha256 differs, or for every
+  file when the spec does; a spec change lists only the files that land at the new spec. The
+  derived bytes themselves are never compared, so a Pillow update re-uploads nothing.
+  `art/index.json` is unchanged. A card that loses its art or leaves the catalog keeps its file:
+  nothing is deleted.
+- **Order.** Full images, then each set's files, then `art/index.json` and each set's index
+  (each lists only what landed), then data files, the page and `config.json` last. A failed file
+  stays out of its index and holds back `config.json`; a re-run retries it. `plan`,
+  `plan --offline` and `publish --dry-run` list each set's new, to-redo and unchanged files; the
+  files are made when they are uploaded, so the plan does not know their sizes.
+- **Switching is safe only on a complete set.** A tooltip stops asking a source that fails a few
+  times in a row, so a partial set would send viewers to the full art. Every publish of
+  `config.json` (`publish`, `publish --config` alone, and `publish-release --config`) is refused
+  when `primary` or a fallback template is on the public host under `<art prefix>/<name>/` and
+  that set's index does not list every catalog card with art at the current spec. The check needs
+  `--catalog` (`publish` may leave out `--images` for a settings-only publish; `publish-release`
+  takes `--catalog` only for this check) and runs before any write, a dry run included. In a run
+  that also uploads the set, it counts what the run uploads. Cards without art have no file; a
+  tooltip asks for it and gets a miss before it falls back.
+  - A template under a set must be exactly `https://<host>/<art prefix><name>/{cardId}.webp`: no
+    other placeholder, extension, query or fragment. Host case, a default port, dot segments, doubled
+    slashes and percent escapes are normalized before the comparison, so a different spelling of the
+    address is gated the same way. The check knows only the configured public address: a template on
+    another address that serves the same bucket is not checked, so point settings at the public one.
+  - A template under `<art prefix>X/` where `X/index.json` is on the bucket but `X` is no longer in
+    `art.derived` is refused: the set is still live but no longer configured.
+  - `--catalog` without `--images` is accepted only for a settings file that points at a derived
+    set; otherwise it is refused (`--catalog needs --images`).
+- **`verify`** reads each set's index and checks `--samples` of the files it lists (SHA-256,
+  content type, caching). A set not yet published is a note. When the live `config.json` points at
+  a derived set, `verify` fails if the set's index is missing, unreadable or made at another spec,
+  or the set is no longer configured; with `--catalog` it also fails when a card is missing, and
+  without it prints that completeness was not checked.
+
+```
+cardvision cdn publish --env-file .env --catalog catalog.json --images IMAGES            # make and upload the sets
+cardvision cdn publish --env-file .env --catalog catalog.json --config config.json   # switch: refused unless complete
+cardvision cdn verify --env-file .env --catalog catalog.json                     # also checks a set the live settings use
+```
+
 ### verify
 
 `verify` reads what is served: `config.json` against the contract, its content type,
@@ -262,6 +335,10 @@ path as before.
 cardvision cdn publish-release --env-file .env --release RELEASE_DIR --min-version 1.2.0 --config cdn/config.json --set-pointer \
     --verdict-r UPDATE/replay/VERDICT-R.json --verdict-n UPDATE/newcard/VERDICT-N.json --dry-run
 ```
+
+When the settings file points at a derived set, add `--catalog catalog.json`: the run is refused
+before any write unless the live set lists every card with art ([derived art sets](#derived-art-sets)).
+Without such a set, `--catalog` is refused.
 
 `RELEASE_DIR` is a release folder named after its id (`cardvision build-release`). Every check
 runs first, a dry run included:

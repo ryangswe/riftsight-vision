@@ -6,8 +6,8 @@ pages, settings file and remote releases on its own Cloudflare R2 bucket.
 
     cardvision cdn plan    --catalog C --images DIR [--data-file F] [--page F] [--config F] [--offline]
     cardvision cdn publish --catalog C --images DIR [--data-file F] [--page F] [--config F] [--dry-run]
-    cardvision cdn publish --config F                    # config.json only
-    cardvision cdn verify  [--samples N]
+    cardvision cdn publish --config F [--catalog C]      # config.json only; --catalog when it points at a derived set
+    cardvision cdn verify  [--samples N] [--catalog C]   # --catalog: also check a derived set live settings point at is complete
     cardvision cdn publish-geo --dir PACKED --expect-sha256 SHA [--dry-run] [--fix-metadata]
     cardvision cdn verify-geo  --dir PACKED --expect-sha256 SHA
     cardvision cdn publish-geo --series --dir PACKED --folder HEX16 --manifest manifest-HEX16.json
@@ -15,7 +15,7 @@ pages, settings file and remote releases on its own Cloudflare R2 bucket.
     cardvision cdn verify-geo  --series --dir PACKED --folder HEX16 --manifest manifest-HEX16.json --expect-sha256 SHA
     cardvision cdn publish-release --release DIR --min-version X [--max-version Y] [--legal DIR]
                    [--geometric FILE --geo-manifest-sha256 SHA] [--data-file F]
-                   [--config F [--set-pointer]] [--verdict-r F --verdict-n F | --no-refresh-gate REASON]
+                   [--config F [--set-pointer] [--catalog C]] [--verdict-r F --verdict-n F | --no-refresh-gate REASON]
                    [--sessions] [--fix-metadata] [--dry-run]
     cardvision cdn verify-release-live [--candidate ID | --config-url U] [--expect-id ID] [--sessions]
 
@@ -56,7 +56,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cdn-config", type=Path, metavar="FILE",
                         help="the product's cdn.config.json (default: cdn/cdn.config.json under the current folder)")
     parser.add_argument("--env-file", help="read <envPrefix>_* entries from this file")
-    parser.add_argument("--catalog", help="catalog JSON (entries with an id and an `art` path or null)")
+    parser.add_argument("--catalog", help="catalog JSON (entries with an id and an `art` path or null); verify and publish-release: check that a derived set the settings point at lists every card")
     parser.add_argument("--images", help="directory the `art` paths are relative to")
     parser.add_argument("--config", help="config.json to publish; uploaded last")
     parser.add_argument("--data-file", dest="data_files", action="append", metavar="FILE",
@@ -120,7 +120,12 @@ def run(args: argparse.Namespace) -> int:
         if args.env_file:
             load_env_file(product, Path(args.env_file))
         if args.action == "verify":
-            return 1 if verify(product, target_from_env(product, need_secrets=False).public_base, args.samples) else 0
+            ids = None
+            if args.catalog:
+                from cardvision.cdn.art import catalog_card_ids
+                ids = catalog_card_ids(args.catalog)
+            return 1 if verify(product, target_from_env(product, need_secrets=False).public_base, args.samples,
+                               card_ids=ids) else 0
         if args.action == "verify-release-live":
             base = target_from_env(product, need_secrets=False).public_base
             return 1 if verify_release_live(product, base, candidate=args.candidate, expect_id=args.expect_id,
