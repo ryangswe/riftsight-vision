@@ -128,6 +128,7 @@ out would turn a check off silently. The tool refuses a file that lacks one; an 
 | `userAgent` | `<product>-cdn-verify/1`, sent with every HTTPS check |
 | `art.prefix`, `art.indexKey` | `art/`, `art/index.json` |
 | `art.cacheControl`, `art.maxImageBytes` | `public, max-age=86400`, `5242880` |
+| `art.derived` | none; [smaller pictures made from the art](#derived-art-sets) |
 | `settings.placeholders` | `["{art}", "{file}", "{cardId}", "{printedId}"]`; a product that adds `{sourceFile}` may not use it in `primary` |
 | `settings.corsOrigin` | `https://www.youtube.com`, the origin `verify` asks CORS for |
 | `releases.legalDir` | `release-legal` |
@@ -199,6 +200,60 @@ cardvision cdn verify --env-file .env
   `namesOnly: true` or `primary: null`.
 - A replaced image reaches viewers within a day (`max-age=86400`), or at once after a cache
   purge.
+
+### Derived art sets
+
+A tooltip needs a smaller picture than the full art. List one or more sets in `art.derived` and
+`publish` makes and uploads them from the same `--images`, so that a product can serve, for
+example, 640 px wide WebP and keep the full art as the fallback:
+
+```json
+"art": {"derived": [{"name": "tooltip", "width": 640, "format": "webp", "quality": 75}]}
+```
+
+| Field | Rule |
+| --- | --- |
+| `name` | `[a-z][a-z0-9-]*`, unique; the set's folder under the art prefix |
+| `width` | 64 to 4096, or `null` to keep each source's own size and only re-encode |
+| `format` | `"webp"`, the only one: it keeps the alpha channel that a card's rounded corners may use |
+| `quality` | 1 to 100 |
+
+- **Keys.** One file per catalog card with art, `art/tooltip/<cardId>.webp`, so a settings
+  template can use `{cardId}`: `https://cdn.example.org/art/tooltip/{cardId}.webp`. Cards that
+  share art each get a file. A card id that is not a clean file name (a `/`, a space, `?`, `#`,
+  `%`, `\`) refuses the run, and so does an art path inside a set's folder.
+- **Deriving.** The source is read as an image, turned upright by its EXIF orientation,
+  converted to RGB (RGBA when it has alpha, a palette image with transparency included), made at
+  most `width` wide with LANCZOS and the same proportions, and never enlarged. It is encoded with
+  `quality` and `method=6`. The same source and spec give the same bytes with one Pillow version.
+  A derived file must be smaller than `art.maxImageBytes`; one that cannot be made or is too big
+  counts as a failed upload.
+- **What counts as changed.** Each set has its own index, `art/tooltip/index.json`, which
+  records each file's `sha256`, `bytes`, `contentType`, `cardId` and `sourceSha256`, and the set's
+  `spec` and `specHash`. A file is made again when its source's sha256 differs, or for every
+  file when the spec does; a spec change lists only the files that land at the new spec. The
+  derived bytes themselves are never compared, so a Pillow update re-uploads nothing.
+  `art/index.json` is unchanged. A card that loses its art or leaves the catalog keeps its file:
+  nothing is deleted.
+- **Order.** Full images, then each set's files, then `art/index.json` and each set's index
+  (each lists only what landed), then data files, the page and `config.json` last. A failed file
+  stays out of its index and holds back `config.json`; a re-run retries it. `plan`,
+  `plan --offline` and `publish --dry-run` list each set's new, to-redo and unchanged files; the
+  files are made when they are uploaded, so the plan does not know their sizes.
+- **Switching is safe only on a complete set.** A tooltip stops asking a source that fails a few
+  times in a row, so a partial set would send viewers to the full art. Every publish of
+  `config.json`, `publish --config` alone included, is refused when `primary` or a fallback
+  template is under `<art prefix>/<name>/` and that set's index does not list every catalog card
+  with art at the current spec. The check needs `--catalog` (without `--images` for a settings-only
+  publish); in a run that also uploads the set, it counts what the run uploads. Cards without
+  art have no file; a tooltip asks for it and gets a miss before it falls back.
+- **`verify`** reads each set's index and checks `--samples` of the files it lists (SHA-256,
+  content type, caching). A set not yet published is a note.
+
+```
+cardvision cdn publish --env-file .env --catalog catalog.json --images IMAGES            # make and upload the sets
+cardvision cdn publish --env-file .env --catalog catalog.json --config config.json   # switch: refused unless complete
+```
 
 ### verify
 

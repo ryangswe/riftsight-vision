@@ -188,6 +188,41 @@ def verify(product: CdnConfig, public_base: str, samples: int, get: Optional[Get
             fail(f"{path}: {nel_problem(h)}")
         else:
             print(f"ok   {path}")
+    for spec in product.derived:
+        derived_key = spec.index_key(product.art_prefix)
+        d_status, _, d_body = get(f"{public_base}/{derived_key}?{bust}")
+        if d_status == 404:
+            print(f"note {derived_key}: not on the CDN (publish the set with --catalog and --images)")
+            continue
+        if d_status != 200:
+            fail(f"{derived_key}: HTTP {d_status}")
+            continue
+        try:
+            d_idx = json.loads(d_body)
+            d_files = d_idx["files"]
+            if not isinstance(d_files, dict):
+                raise TypeError
+        except (ValueError, KeyError, TypeError):
+            fail(f"{derived_key}: not a derived index")
+            continue
+        print(f"ok   {derived_key}: {len(d_files)} files")
+        if d_idx.get("specHash") != spec.spec_hash:
+            print(f"note {derived_key}: made at another spec than cdn.config.json's (publish the set again)")
+        for key in random.sample(sorted(d_files), min(samples, len(d_files))):
+            url = f"{public_base}/{urllib.parse.quote(key)}?{bust}"
+            status, h, data = get(url)
+            if status != 200:
+                fail(f"{key}: HTTP {status}")
+            elif hashlib.sha256(data).hexdigest() != d_files[key].get("sha256"):
+                fail(f"{key}: sha256 differs from the index")
+            elif h.get("content-type") != d_files[key].get("contentType", spec.content_type):
+                fail(f"{key}: content-type {h.get('content-type')!r}, want {d_files[key].get('contentType', spec.content_type)}")
+            elif h.get("cache-control") != product.art_cache:
+                fail(f"{key}: cache-control {h.get('cache-control')!r}, want {product.art_cache!r}")
+            elif nel_problem(h):
+                fail(f"{key}: {nel_problem(h)}")
+            else:
+                print(f"ok   {key}")
     print("verify: " + ("all checks passed" if not bad else f"{bad} failure(s)"))
     return bad
 

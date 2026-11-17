@@ -12,7 +12,8 @@ that publishes, read once and checked before anything else runs.
       "userAgent": "examplegame-cdn-verify/1",   optional
       "forbiddenWords": ["otherproject"],        another project's names: never in a bucket, a base or a template
       "art": {"prefix": "art/", "indexKey": "art/index.json", "cacheControl": "public, max-age=86400",
-              "maxImageBytes": 5242880},
+              "maxImageBytes": 5242880,
+              "derived": [{"name": "tooltip", "width": 640, "format": "webp", "quality": 75}]},
       "settings": {"placeholders": ["{art}", "{file}", "{cardId}", "{printedId}"],
                    "corsOrigin": "https://www.youtube.com", "obsoleteCardLink": false},
       "dataFiles": {"details": {"prefix": "data/", "namePattern": "details-<sha8>.json", "schemaVersion": 1,
@@ -34,6 +35,14 @@ the default shown. An unknown key is refused: a misspelled switch must not silen
 default. Nothing can weaken a check: ``primary`` is always on ``<public base>/<art prefix>``, and a
 release document is read up to 262144 bytes, the extension's limit.
 
+``art.derived`` (default none) lists smaller pictures made from the catalog's art at publish time,
+one set per entry: ``name`` (``[a-z][a-z0-9-]*``, unique), ``width`` (64 to 4096, or ``null`` to
+keep each source's own size and only re-encode; a narrower source is never enlarged), ``format``
+(``"webp"``, the only one: it keeps the alpha channel) and ``quality`` (1 to 100). A set is one
+file per card with art, ``<art prefix><name>/<cardId>.webp``, and its own index at
+``<art prefix><name>/index.json``. The product's settings choose whether to use it: a template
+such as ``https://cdn.example.com/art/tooltip/{cardId}.webp`` with the full art as a fallback.
+
 ``dataFiles`` are content-addressed JSON files that ``config.json`` names by ``{path, sha256}``
 under the data file's own key (``"details"`` above). A config may name one only if the same run
 publishes it or it is already live with exactly those bytes. ``pages`` are plain HTML pages served
@@ -48,6 +57,7 @@ that takes no such option).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -103,6 +113,40 @@ class DataFileKind:
     cache_control: str = IMMUTABLE_CACHE
 
 
+DERIVED_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+DERIVED_KEYS = {"name", "width", "format", "quality"}
+DERIVED_FORMATS = {"webp": "image/webp"}
+DERIVED_MIN_WIDTH, DERIVED_MAX_WIDTH = 64, 4096
+
+
+@dataclass(frozen=True)
+class DerivedSet:
+    """One smaller set of the catalog's pictures (``art.derived``)."""
+    name: str
+    width: Optional[int]   # None: each source's own size
+    format: str
+    quality: int
+
+    @property
+    def spec(self) -> dict:
+        return {"name": self.name, "width": self.width, "format": self.format, "quality": self.quality}
+
+    @property
+    def spec_hash(self) -> str:
+        """Changes when the name, width, format or quality does, so that the whole set is made again."""
+        return hashlib.sha256(json.dumps(self.spec, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    @property
+    def content_type(self) -> str:
+        return DERIVED_FORMATS[self.format]
+
+    def key(self, art_prefix: str, card_id: str) -> str:
+        return f"{art_prefix}{self.name}/{card_id}.{self.format}"
+
+    def index_key(self, art_prefix: str) -> str:
+        return f"{art_prefix}{self.name}/index.json"
+
+
 @dataclass(frozen=True)
 class CdnConfig:
     root: Path
@@ -126,6 +170,7 @@ class CdnConfig:
     bundled_document: Path
     verify_script: Path
     node_user_agent: Optional[str]
+    derived: tuple[DerivedSet, ...] = ()
 
     @property
     def max_document_bytes(self) -> int:
@@ -155,7 +200,8 @@ REQUIRED = ("product", "envPrefix", "forbiddenWords", "dataFiles", "pages", "geo
 _TOP = {"schemaVersion", "product", "envPrefix", "userAgent", "forbiddenWords", "art", "settings", "dataFiles",
         "pages", "geometric", "releases", "runtime", "$comment"}
 _ART = {"prefix": "art/", "indexKey": "art/index.json", "cacheControl": "public, max-age=86400",
-        "maxImageBytes": 5 * 1024 * 1024}
+        "maxImageBytes": 5 * 1024 * 1024,
+        "derived": []}
 _SETTINGS = {"placeholders": ["{art}", "{file}", "{cardId}", "{printedId}"],
              "corsOrigin": "https://www.youtube.com", "obsoleteCardLink": None}
 _DATA = {"prefix": "data/", "namePattern": None, "schemaVersion": 1, "requiredObjectKeys": [], "maxBytes": 32 * 1024 * 1024}
@@ -201,6 +247,38 @@ def _prefix(value: Any, what: str, label: str) -> str:
     if not _PREFIX.match(value) or any(part in (".", "..") for part in value.split("/")):
         raise CdnConfigError(f"{label}: {what} must be a clean relative folder ending in '/' ({value!r})")
     return value
+
+
+def _derived_sets(value: Any, label: str) -> tuple[DerivedSet, ...]:
+    if not isinstance(value, list):
+        raise CdnConfigError(f"{label}: art.derived must be a list of sets")
+    out: list[DerivedSet] = []
+    for i, spec in enumerate(value):
+        at = f"art.derived[{i}]"
+        if not isinstance(spec, dict):
+            raise CdnConfigError(f"{label}: {at} must be an object")
+        spec = {k: v for k, v in spec.items() if k != "$comment"}
+        unknown = sorted(set(spec) - DERIVED_KEYS)
+        if unknown:
+            raise CdnConfigError(f"{label}: unknown key(s) in {at}: {', '.join(unknown)}")
+        missing = sorted(DERIVED_KEYS - set(spec))
+        if missing:
+            raise CdnConfigError(f"{label}: {at} needs {', '.join(missing)} (width may be null)")
+        name, width, fmt, quality = spec["name"], spec["width"], spec["format"], spec["quality"]
+        if not isinstance(name, str) or not DERIVED_NAME.match(name):
+            raise CdnConfigError(f"{label}: {at}.name must be lowercase letters, digits and '-', starting with a letter")
+        if any(d.name == name for d in out):
+            raise CdnConfigError(f"{label}: {at}.name {name!r} is used twice")
+        if width is not None and (not isinstance(width, int) or isinstance(width, bool)
+                                  or not DERIVED_MIN_WIDTH <= width <= DERIVED_MAX_WIDTH):
+            raise CdnConfigError(f"{label}: {at}.width must be {DERIVED_MIN_WIDTH} to {DERIVED_MAX_WIDTH}, or null")
+        if fmt not in DERIVED_FORMATS:
+            raise CdnConfigError(f"{label}: {at}.format must be \"webp\" (the only format that keeps alpha and is "
+                                 f"small), not {fmt!r}")
+        if not isinstance(quality, int) or isinstance(quality, bool) or not 1 <= quality <= 100:
+            raise CdnConfigError(f"{label}: {at}.quality must be 1 to 100")
+        out.append(DerivedSet(name, width, fmt, quality))
+    return tuple(out)
 
 
 def _relative(root: Path, value: Any, what: str, label: str) -> Path:
@@ -250,6 +328,7 @@ def cdn_config_from_dict(raw: object, root: Path, label: str = "cdn.config.json"
     releases = _section(raw, "releases", _RELEASES, label)
     runtime = _section(raw, "runtime", _RUNTIME, label)
 
+    derived = _derived_sets(art["derived"], label)
     placeholders = settings["placeholders"]
     if not isinstance(placeholders, list) or not all(isinstance(p, str) and re.fullmatch(r"\{[A-Za-z]+\}", p) for p in placeholders):
         raise CdnConfigError(f"{label}: settings.placeholders must be a list like [\"{{art}}\", \"{{cardId}}\"]")
@@ -323,6 +402,7 @@ def cdn_config_from_dict(raw: object, root: Path, label: str = "cdn.config.json"
         bundled_document=_relative(root, releases["bundledDocument"], "releases.bundledDocument", label),
         verify_script=runtime_dir / script,
         node_user_agent=node_ua,
+        derived=derived,
     )
 
 

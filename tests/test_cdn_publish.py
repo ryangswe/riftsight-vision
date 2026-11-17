@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from cardvision.cdn.config import CONFIG_KEY, Refused
-from cardvision.cdn.publish import data_file_gate, plan_or_publish, pointer_gate, publish_release
+from cardvision.cdn.publish import data_file_gate, plan_offline, plan_or_publish, pointer_gate, publish_release
 from cardvision.cdn.release import RELEASE_CACHE, load_local_release, pointer_block
 from cardvision.cdn.settings import load_data_file
 from cardvision.cdn.target import Target
@@ -725,3 +725,111 @@ def test_a_pointer_move_reads_the_live_config_once(setup, move, gate, monkeypatc
     args = publish_args(config=str(move.cfg_file), dry_run=True)
     assert plan_or_publish(move.p, args, TGT, s3=FakeS3(), get=counting, log=quiet) == 0
     assert sum(CONFIG_KEY in u for u in urls) == 1 and any(gate.ptr["path"] in u for u in urls), "the default pointer gate ran"
+
+
+# ------------------------------------------------------------ derived art sets
+
+TOOLTIP_SPEC = {"name": "tooltip", "width": 640, "format": "webp", "quality": 75}
+TOOLTIP_URL = BASE + "/art/tooltip/{cardId}.webp"
+
+
+def derived_world(tmp, cards=("AB-001", "AB-002"), derived=(TOOLTIP_SPEC,)):
+    """A product with a derived set, its catalog and pictures, and a settings file per switch."""
+    import io
+
+    from PIL import Image
+    p = product({**PANEL_CONFIG, "art": {"derived": list(derived)}}, tmp)
+    images = tmp / "images"
+    images.mkdir()
+    for card in cards:
+        out = io.BytesIO()
+        Image.new("RGB", (800, 1120), (10, 120, 200)).save(out, "JPEG")
+        (images / f"{card}.jpg").write_bytes(out.getvalue())
+    catalog = tmp / "catalog.json"
+    catalog.write_text(json.dumps([{"id": c, "art": f"{c}.jpg"} for c in cards] + [{"id": "AB-999", "art": None}]))
+
+    def settings(name, template=TOOLTIP_URL, as_fallback=False):
+        src = {"id": "t", "template": template}
+        cfg = CFG | ({"fallbacks": [src]} if as_fallback else {"primary": src, "fallbacks": [{"id": "full", "template": BASE + "/art/{art}"}]})
+        path = tmp / name
+        path.write_text(json.dumps(cfg))
+        return str(path)
+    return SimpleNamespace(p=p, images=str(images), catalog=str(catalog), settings=settings)
+
+
+def test_publish_derives_uploads_and_switches_in_one_run_with_config_last(tmp_path):
+    w = derived_world(tmp_path)
+    s3 = FakeS3()
+    args = publish_args(catalog=w.catalog, images=w.images, config=w.settings("switch.json"))
+    assert plan_or_publish(w.p, args, TGT, s3=s3, log=quiet) == 0
+    assert s3.put_keys == ["art/AB-001.jpg", "art/AB-002.jpg", "art/tooltip/AB-001.webp", "art/tooltip/AB-002.webp",
+                           "art/index.json", "art/tooltip/index.json", CONFIG_KEY]
+
+
+def test_a_dry_run_and_plan_write_nothing_and_list_the_set(tmp_path, capsys):
+    w = derived_world(tmp_path)
+    s3 = FakeS3()
+    assert plan_or_publish(w.p, publish_args(catalog=w.catalog, images=w.images, dry_run=True), TGT, s3=s3, log=quiet) == 0
+    assert not s3.puts
+    out = capsys.readouterr().out
+    assert "derived tooltip (webp q75, 640 px wide at most): 2 new, 0 to redo, 0 unchanged" in out
+    assert plan_offline(w.p, publish_args(command="plan", catalog=w.catalog, images=w.images, offline=True)) == 0
+    assert "derived tooltip" in capsys.readouterr().out
+    assert refused(lambda: plan_offline(w.p, publish_args(command="plan", catalog=w.catalog, offline=True)))
+
+
+def test_a_settings_publish_pointing_at_a_set_that_is_not_there_is_refused(tmp_path):
+    w = derived_world(tmp_path)
+    switch = w.settings("switch.json")
+    for extra in ({}, {"dry_run": True}):
+        s3 = FakeS3()
+        assert refused(lambda: plan_or_publish(w.p, publish_args(config=switch, catalog=w.catalog, **extra), TGT, s3=s3)), extra
+        assert not s3.puts
+    s3 = FakeS3()
+    assert refused(lambda: plan_or_publish(w.p, publish_args(config=switch), TGT, s3=s3)), "a switch needs --catalog"
+    assert not s3.puts
+
+
+def test_a_settings_publish_needs_the_whole_set_at_the_current_spec(tmp_path):
+    w = derived_world(tmp_path)
+    s3 = FakeS3()
+    assert plan_or_publish(w.p, publish_args(catalog=w.catalog, images=w.images), TGT, s3=s3, log=quiet) == 0
+    switch = w.settings("switch.json")
+    s3.puts.clear()
+    assert plan_or_publish(w.p, publish_args(config=switch, catalog=w.catalog), TGT, s3=s3, log=quiet) == 0, "complete: ok, catalog alone"
+    assert s3.put_keys == [CONFIG_KEY]
+    assert plan_or_publish(w.p, publish_args(config=w.settings("fb.json", as_fallback=True), catalog=w.catalog), TGT, s3=s3, log=quiet) == 0
+    # a card the set lacks (one more card in the catalog)
+    more = tmp_path / "more.json"
+    more.write_text(json.dumps(json.loads(Path(w.catalog).read_text()) + [{"id": "AB-003", "art": "AB-003.jpg"}]))
+    s3.puts.clear()
+    assert refused(lambda: plan_or_publish(w.p, publish_args(config=switch, catalog=str(more)), TGT, s3=s3))
+    assert not s3.puts
+    # a set made at another spec
+    other = product({**PANEL_CONFIG, "art": {"derived": [{**TOOLTIP_SPEC, "quality": 60}]}}, tmp_path)
+    assert refused(lambda: plan_or_publish(other, publish_args(config=switch, catalog=w.catalog), TGT, s3=s3))
+    assert not s3.puts
+    # a settings file that does not use the set is not held up by it
+    assert plan_or_publish(other, publish_args(config=str(setup_cfg(tmp_path))), TGT, s3=s3, log=quiet) == 0
+
+
+def setup_cfg(tmp_path) -> Path:
+    path = tmp_path / "plain.json"
+    path.write_text(json.dumps(CFG))
+    return path
+
+
+def test_a_card_id_that_is_not_a_clean_file_name_refuses_the_whole_run(tmp_path):
+    w = derived_world(tmp_path)
+    Path(w.catalog).write_text(json.dumps([{"id": "AB/001", "art": "AB-001.jpg"}]))
+    s3 = FakeS3()
+    assert refused(lambda: plan_or_publish(w.p, publish_args(catalog=w.catalog, images=w.images), TGT, s3=s3))
+    assert not s3.puts
+
+
+def test_a_product_without_derived_sets_runs_as_before(tmp_path):
+    w = derived_world(tmp_path, derived=())
+    s3 = FakeS3()
+    assert plan_or_publish(w.p, publish_args(catalog=w.catalog, images=w.images), TGT, s3=s3, log=quiet) == 0
+    assert s3.put_keys == ["art/AB-001.jpg", "art/AB-002.jpg", "art/index.json"]
+    assert refused(lambda: plan_or_publish(w.p, publish_args(catalog=w.catalog, config=w.settings("s.json")), TGT, s3=FakeS3())), "--catalog needs --images"

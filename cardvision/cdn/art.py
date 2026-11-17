@@ -13,6 +13,7 @@ from typing import Callable, Optional, Sequence
 
 from cardvision.cdn import config as _config
 from cardvision.cdn.config import CONFIG_CACHE, CONFIG_KEY, CONTENT_TYPES, INDEX_CACHE, PAGE_CACHE, CdnConfig, Refused
+from cardvision.cdn.derived import make_derived_file, write_derived_index
 from cardvision.cdn.settings import DataFile, PageFile
 
 
@@ -79,6 +80,7 @@ class LocalFile:
     sha256: str
     bytes: int
     content_type: str  # from the bytes, not the name
+    cards: tuple = ()  # the catalog cards that use it
 
 
 def scan_images(paths: dict[str, list[str]], images: Path, max_bytes: int) -> list[LocalFile]:
@@ -101,7 +103,7 @@ def scan_images(paths: dict[str, list[str]], images: Path, max_bytes: int) -> li
         if ctype is None:
             problems.append(f"{art}: not a JPEG/PNG/WebP image (starts {head_repr(data)})")
             continue
-        out.append(LocalFile(art, f, hashlib.sha256(data).hexdigest(), len(data), ctype))
+        out.append(LocalFile(art, f, hashlib.sha256(data).hexdigest(), len(data), ctype, tuple(paths[art])))
     if problems:
         shown = "\n  ".join(problems[:20])
         more = f"\n  … and {len(problems) - 20} more" if len(problems) > 20 else ""
@@ -119,6 +121,7 @@ class Plan:
     cards: int
     index: dict             # the merged index to write after the uploads
     mismatched: dict = None  # "<.ext> holding <type>" -> count
+    derived: list = None     # one DerivedPlan per art.derived set
 
 
 def make_plan(files: list[LocalFile], live_index: dict, artless: int, cards: int) -> Plan:
@@ -159,6 +162,16 @@ def print_plan(product: CdnConfig, plan: Plan, config: Optional[bytes], data_fil
         print(f"note: file name and bytes disagree for {sum(plan.mismatched.values())} image(s) ({kinds});"
               " served with the type of the bytes")
     print(f"index: {product.index_key} ({len(plan.index['files'])} paths)")
+    for dp in plan.derived or []:
+        s = dp.spec
+        size = "each source's own width" if s.width is None else f"{s.width} px wide at most"
+        print(f"derived {s.name} ({s.format} q{s.quality}, {size}): {len(dp.new)} new, {len(dp.changed)} to redo, "
+              f"{dp.unchanged} unchanged; made at upload time")
+        if dp.respec:
+            print("  the live set was made at another spec: all its files are redone, and its index lists only what lands")
+        if dp.changed:
+            print("  to redo: " + ", ".join(d.key for d in dp.changed[:15]) + (" …" if len(dp.changed) > 15 else ""))
+        print(f"derived index: {dp.index_key}, after the full images")
     for d in data_files:
         print(f"{d.kind.name}: {d.key} ({d.entries} entries, {len(d.data) / 1e6:.1f} MB), after the index")
     print(f"config: {'config.json, uploaded last' if config is not None else 'not uploaded (no --config)'}")
@@ -181,8 +194,8 @@ def read_live_index(product: CdnConfig, s3, bucket: str) -> dict:
 def execute(product: CdnConfig, s3, bucket: str, plan: Optional[Plan], config: Optional[bytes], workers: int = 8,
             log: Callable[[str], None] = print, data_files: Sequence[DataFile] = (),
             page: Optional[PageFile] = None) -> int:
-    """Images, then the index (of what actually landed), then the data files, then a page, then
-    config.json. Returns failures. `plan` None publishes the data files, the page and config.json alone."""
+    """Images, then the derived images, then the indexes (of what actually landed), then the data
+    files, then a page, then config.json. Returns failures. `plan` None publishes the data files, the page and config.json alone."""
     if plan is None:
         plan = Plan([], [], 0, 0, 0, 0, {})
     todo = plan.new + plan.changed
@@ -205,10 +218,37 @@ def execute(product: CdnConfig, s3, bucket: str, plan: Optional[Plan], config: O
                 log(f"images: {n}/{len(todo)}")
     for path in failed:  # the index records only what is really on the CDN: a re-run retries the rest
         plan.index["files"].pop(path, None)
+
+    landed: dict[str, dict] = {}   # derived set name -> key -> record of what landed
+    for dp in plan.derived or []:
+        landed[dp.spec.name] = {}
+        pending = dp.todo
+
+        def put_derived(d, dp=dp) -> dict:
+            data, rec = make_derived_file(product, dp, d)
+            s3.put_object(Bucket=bucket, Key=d.key, Body=data, ContentType=dp.spec.content_type,
+                          CacheControl=product.art_cache)
+            return rec
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(put_derived, d): d for d in pending}
+            for n, fut in enumerate(as_completed(futures), 1):
+                d = futures[fut]
+                try:
+                    landed[dp.spec.name][d.key] = fut.result()
+                except Exception as e:
+                    failed.append(d.key)
+                    log(f"FAILED {d.key}: {e}")
+                if n % 250 == 0 or n == len(pending):
+                    log(f"derived {dp.spec.name}: {n}/{len(pending)}")
+
     if plan.index:
         s3.put_object(Bucket=bucket, Key=product.index_key, Body=json.dumps(plan.index, indent=1).encode(),
                       ContentType="application/json", CacheControl=INDEX_CACHE)
         log(f"index: {product.index_key} written ({len(plan.index['files'])} paths)")
+    for dp in plan.derived or []:
+        n = write_derived_index(product, dp, landed[dp.spec.name], s3, bucket)
+        log(f"index: {dp.index_key} written ({n} files)")
     if failed:
         log(f"{len(failed)} upload(s) failed; config.json NOT written. Re-run to retry.")
         return len(failed)

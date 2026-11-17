@@ -33,6 +33,18 @@ contract. The fields that `cardvision cdn` checks before it publishes the file:
 | `release` | the pointer, below; optional |
 | a data file's key | `{path, sha256}` of a data file on the host ([cdn.md](cdn.md#data-files-and-pages)) |
 
+A product that publishes a smaller picture for its tooltip ([derived art sets](cdn.md#derived-art-sets))
+points `primary` at it and keeps the full art as a fallback; a product's tooltip code that
+tries `primary` first and then each fallback in order falls back on a miss:
+
+```json
+"primary": {"id": "tooltip", "template": "https://cdn.example.org/art/tooltip/{cardId}.webp"},
+"fallbacks": [{"id": "full", "template": "https://cdn.example.org/art/{art}"}]
+```
+
+`cardvision cdn publish` refuses a settings file that points at such a set until the set lists
+every card with art. Rolling back is publishing the earlier settings file.
+
 A template is an `https://` address with placeholders from the product's list (for example
 `{art}`, `{file}`, `{cardId}`). An address that names another project in the product's
 `forbiddenWords` is refused. The file is served with `Content-Type: application/json` and
