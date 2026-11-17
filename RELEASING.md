@@ -75,3 +75,49 @@ Publish its measured numbers beside the previous release's, and make sure
 - Never land a change to the release automation in the same pull request as a version bump.
 - Only the maintainer merges a pull request that raises the version, since the merge is what
   tags and releases.
+
+## The downstream canary
+
+`.github/workflows/canary.yml` ("Downstream canary") checks a change against the products that
+vendor the browser runtime. It runs on every pull request and every push to `main`. For each
+product it names, it checks the product out at a pinned commit, vendors this checkout's build into
+it with the options the product's own vendor manifest records, and runs the product's own checks.
+It is advisory: it is not a required check, so a red run is information for the reviewer, not a
+block.
+
+The products come from the repository variable `CANARY_TARGETS`, a JSON list with one entry per
+product commit:
+
+```json
+[{"repo": "account/product", "sha": "<full 40-character commit>", "vendorDir": "vendor/cardvision-browser", "steps": ["npm run vendor-check", "npm test"]}]
+```
+
+- `repo`: the product's repository. `sha`: the commit to try. `vendorDir`: the folder, inside the
+  product, it vendors the runtime into. `steps`: shell commands run in the product after
+  vendoring, in order, each reported in the job summary. An optional `"chrome": true` installs a
+  headless Chrome for Testing first and names it in `$CHROME`.
+- A product can be listed more than once, for example its released code and the commit it is
+  about to release. The summary tells the jobs apart by commit.
+- An empty variable, or `[]`, makes the job a neutral skip.
+- Each step runs with `CARDVISION_CANARY=1` set. A product can use it to skip a check that cannot
+  pass on a build it did not vendor itself, such as a test that its docs link the vendored commit.
+
+To change it, write the list to a file, check it, then set it from a checkout of this
+repository:
+
+```bash
+CANARY_TARGETS="$(cat targets.json)" node browser/scripts/canary.mjs plan .
+```
+
+```bash
+gh variable set CANARY_TARGETS < targets.json
+```
+
+`plan` prints the matrix it would run, or names each problem and exits 1. In the browser, the
+variable is under the repository's Settings → Secrets and variables → Actions → Variables. It
+takes effect on the next pull request or push to `main`; the workflow has no manual run.
+
+Update a pin when a product releases or merges a change that vendors a new toolkit commit. Pin a
+commit on the product's main branch, or on a branch that will stay: the job checks the commit out
+by its hash, and a squash merge leaves a pull request's own commits only on its branch, which may
+be deleted.
