@@ -592,3 +592,265 @@ def test_publish_installs_the_uploaded_version_from_the_index_with_read_only_pow
     assert "for attempt in 1 2 3 4 5" in job and "sleep 60" in job
     assert "The upload of ${version} succeeded; only this check failed." in job and "GITHUB_STEP_SUMMARY" in job
     assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)
+
+
+# ---------------------------------------------------------------------------------- browser.yml
+def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_and_no_secrets():
+    """The job builds the fixture twice, runs the hover browser test and the rollback check on
+    it in a pinned Chrome for Testing, and keeps the reports. It reads the repository and nothing else."""
+    text = (WORKFLOWS / "browser.yml").read_text(encoding="utf-8")
+    job = text[text.index("\n  host-browser:"):]
+    assert re.search(r"^permissions:\n  contents: read\n", text, re.M) and "secrets." not in text and "pull_request_target" not in text
+    assert all(re.search(r"uses: \S+@[0-9a-f]{40} # v", line) for line in job.splitlines() if "uses: " in line)
+    assert "persist-credentials: false" in job
+    assert "puppeteer-core@25.17.0" in job and "chrome@157.0.8103.78" in job and "@puppeteer/browsers@3.2.7" in job
+    # The install pipes into tee, so a failed download must fail this step, not a later one.
+    assert "set -euo pipefail" in job
+    assert "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in job and "apt-get install -y -qq ffmpeg" in job
+    assert job.count("node scripts/build-fixture.mjs") == 2 and "--idle-unload-ms" in job
+    assert "node harness/hover-browser.mjs --product fixture-extension/product.mjs" in job
+    assert "node harness/rollback-check.mjs --product fixture-extension/product.mjs" in job
+    assert "if: always()" in job and "actions/upload-artifact@" in job
+    assert "if: ${{ !cancelled() && steps.fixture-build.outcome == 'success' && steps.chrome-install.outcome == 'success' }}" in job and "--version 0.0.2" in job
+
+
+# ------------------------------------------------------------------------------ canary.yml
+CANARY = ROOT / "browser" / "scripts" / "canary.mjs"
+needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="the canary helper is a Node script")
+PRODUCT_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def targets_text(**changes) -> str:
+    import json
+
+    target = {"repo": "example/product", "sha": PRODUCT_SHA, "vendorDir": "vendor/cardvision-browser", "steps": ["npm run vendor-check", "npm test"]}
+    return json.dumps([{**target, **changes}])
+
+
+def canary(*args: str, targets: str | None = None, cwd: Path = ROOT, **extra: str) -> subprocess.CompletedProcess:
+    environment = {key: value for key, value in os.environ.items() if not key.startswith(("GITHUB_", "CANARY_"))}
+    if targets is not None:
+        environment["CANARY_TARGETS"] = targets
+    environment.update(extra)
+    return subprocess.run(["node", str(CANARY), *args], cwd=cwd, env=environment, capture_output=True, text=True, timeout=120)
+
+
+def test_the_canary_workflow_is_advisory_read_only_and_names_no_product():
+    """It is never a required check (a workflow cannot say so; nothing in it asks to be), runs
+    on the pull request's own power, reads no secret and keeps no credentials."""
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert re.search(r"^on:\n  push:\n    branches: \[main\]\n  pull_request:\n", text, re.M)
+    assert "pull_request_target" not in text and "secrets." not in text
+    assert re.search(r"^permissions:\n  contents: read\n\nconcurrency:", text, re.M)
+    assert re.search(r"^concurrency:\n  group: canary-", text, re.M)
+    checkouts = text.count("actions/checkout@")
+    assert checkouts == 3 and text.count("persist-credentials: false") == checkouts
+    assert "vars.CANARY_TARGETS" in text
+    assert not re.search(r"kenbunshoku|duelsight|riftsight-vision", text, re.I)
+
+
+def test_the_canary_workflow_builds_the_toolkit_then_the_product_then_vendors_and_checks():
+    steps = steps_of("canary.yml")
+    order = [name for name in steps]
+    wanted = ["Borrow the product's OpenCV.js (it is not in the repository and takes long to build)", "Build the toolkit's browser runtime at this checkout", "Install the product's locked dependencies",
+              "Vendor the new build into the product, with the options its manifest records", "Run the product's own checks"]
+    assert all(name in steps for name in wanted)
+    assert [order.index(name) for name in wanted] == sorted(order.index(name) for name in wanted)
+    assert "canary.mjs seed-opencv toolkit product" in steps[wanted[0]]["run"]
+    assert "npm run build" in steps[wanted[1]]["run"]
+    assert "canary.mjs vendor toolkit product" in steps[wanted[3]]["run"]
+    assert steps["Install Chrome for Testing, puppeteer-core and ffmpeg"]["if"] == "matrix.chrome"
+
+
+@needs_node
+def test_an_empty_variable_is_a_neutral_skip_shown_in_the_job_summary(tmp_path):
+    for text in (None, "", "  \n", "[]"):
+        summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
+        for file in (summary, out):
+            file.unlink(missing_ok=True)
+        done = canary("plan", ".", targets=text, GITHUB_STEP_SUMMARY=str(summary), GITHUB_OUTPUT=str(out))
+        assert done.returncode == 0, done.stderr
+        assert "Skipped (neutral)" in summary.read_text(encoding="utf-8") and "CANARY_TARGETS" in summary.read_text(encoding="utf-8")
+        assert "run=false" in out.read_text(encoding="utf-8")
+
+
+@needs_node
+@pytest.mark.parametrize("text, problem", [
+    ("not json", "not JSON"),
+    ('{"repo": "a/b"}', "must be a JSON list"),
+    (targets_text(sha="main"), "full 40-character commit"),
+    (targets_text(repo="no-slash"), '"account/name"'),
+    (targets_text(vendorDir="../outside"), "relative folder"),
+    (targets_text(vendorDir="/abs"), "relative folder"),
+    (targets_text(steps=[]), "non-empty list of commands"),
+    (targets_text(token="x"), 'unknown field "token"'),
+])
+def test_a_malformed_variable_fails_the_plan_and_says_why(text, problem, tmp_path):
+    summary = tmp_path / "summary.md"
+    done = canary("plan", ".", targets=text, GITHUB_STEP_SUMMARY=str(summary))
+    assert done.returncode == 1 and problem in done.stderr and problem in summary.read_text(encoding="utf-8")
+
+
+def read_outputs(file: Path) -> dict[str, str]:
+    return dict(line.split("=", 1) for line in file.read_text(encoding="utf-8").splitlines() if "=" in line)
+
+
+@needs_node
+def test_the_marker_key_follows_the_targets_and_the_files_that_decide_a_run(tmp_path):
+    import json
+
+    def plan_of(text: str, root: Path = ROOT) -> dict[str, str]:
+        out = tmp_path / "output.txt"
+        out.unlink(missing_ok=True)
+        done = canary("plan", ".", targets=text, cwd=root, GITHUB_OUTPUT=str(out))
+        assert done.returncode == 0, done.stderr
+        return read_outputs(out)
+
+    first = plan_of(targets_text())
+    assert first["run"] == "true" and re.fullmatch(r"[0-9a-f]{64}", first["key"])
+    assert json.loads(first["matrix"])["include"][0]["repo"] == "example/product"
+    assert plan_of(targets_text())["key"] == first["key"]
+    assert plan_of(targets_text(sha="f" * 40))["key"] != first["key"]
+
+    # A throwaway repository: a change under browser/ or to the spec moves the key, one elsewhere does not.
+    repo = tmp_path / "repo"
+    (repo / "browser").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / "browser" / "a.ts").write_text("one\n")
+    (repo / "docs" / "hover-spec.md").write_text("spec\n")
+    (repo / "README.md").write_text("readme\n")
+    git(repo, "init", "--quiet")
+    git(repo, "add", "-A")
+    base = plan_of(targets_text(), repo)["key"]
+    (repo / "README.md").write_text("changed\n")
+    git(repo, "add", "-A")
+    assert plan_of(targets_text(), repo)["key"] == base
+    (repo / "docs" / "hover-spec.md").write_text("new spec\n")
+    git(repo, "add", "-A")
+    assert plan_of(targets_text(), repo)["key"] != base
+    spec_key = plan_of(targets_text(), repo)["key"]
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / ".github" / "workflows" / "canary.yml").write_text("one\n")
+    git(repo, "add", "-A")
+    workflow_key = plan_of(targets_text(), repo)["key"]
+    assert workflow_key != spec_key
+    (repo / ".github" / "workflows" / "canary.yml").write_text("two\n")
+    git(repo, "add", "-A")
+    assert plan_of(targets_text(), repo)["key"] != workflow_key
+
+
+@needs_node
+def test_a_rerun_with_nothing_changed_finds_the_marker_and_skips(tmp_path):
+    """The record job writes ``canary-marker/note.txt``; the plan job restores it from the cache
+    on the next run with the same key. Here the folder is put where the cache would put it."""
+    summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
+    environment = {"GITHUB_STEP_SUMMARY": str(summary), "GITHUB_OUTPUT": str(out)}
+    note = tmp_path / "canary-marker" / "note.txt"
+
+    done = canary("marker-note", str(note), **environment)          # first run: no marker
+    assert done.returncode == 0 and read_outputs(out)["skip"] == "false" and not summary.exists()
+
+    steps = steps_of("canary.yml")
+    write = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert "canary-marker/note.txt" in write and "key: canary-ok-${{ needs.plan.outputs.key }}" in write
+    assert steps["Skip when the marker is found"]["run"].strip() == "node browser/scripts/canary.mjs marker-note canary-marker/note.txt"
+    note.parent.mkdir()
+    note.write_text("https://github.com/example/toolkit/actions/runs/42 (commit abc)\n", encoding="utf-8")
+    out.unlink()
+    done = canary("marker-note", str(note), **environment)          # the re-run: marker restored
+    assert done.returncode == 0 and read_outputs(out)["skip"] == "true"
+    shown = summary.read_text(encoding="utf-8")
+    assert "Skipped (neutral)" in shown and "actions/runs/42" in shown
+
+
+@needs_node
+def test_the_vendor_step_passes_the_options_the_product_recorded(tmp_path):
+    """Run against a fake toolkit whose vendor script prints its arguments."""
+    import json
+
+    toolkit, product = tmp_path / "toolkit", tmp_path / "product"
+    (toolkit / "browser" / "scripts").mkdir(parents=True)
+    (toolkit / "browser" / "scripts" / "vendor.mjs").write_text("console.log(JSON.stringify(process.argv.slice(2)));\n")
+    folder = product / "vendor" / "cardvision-browser"
+    folder.mkdir(parents=True)
+    manifest = {"options": {"opencv": True, "ortWasm": False, "nodeTools": True, "host": True, "harness": False}, "unmanaged": ["notes/"]}
+    (folder / "cardvision-vendor.json").write_text(json.dumps(manifest))
+    done = canary("vendor", str(toolkit), str(product), "vendor/cardvision-browser")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == ["--into", str(folder), "--no-ort-wasm", "--node-tools", "--host", "--unmanaged", "notes/"]
+    missing = canary("vendor", str(toolkit), str(product), "elsewhere")
+    assert missing.returncode == 1 and "no vendored runtime" in missing.stderr
+
+
+@needs_node
+def test_the_product_s_opencv_files_are_borrowed_only_when_it_vendors_them(tmp_path):
+    import json
+
+    toolkit, product = tmp_path / "toolkit", tmp_path / "product"
+    folder = product / "v"
+    folder.mkdir(parents=True)
+    manifest = folder / "cardvision-vendor.json"
+    manifest.write_text(json.dumps({"options": {"opencv": False}}))
+    done = canary("seed-opencv", str(toolkit), str(product), "v")
+    assert done.returncode == 0 and not (toolkit / "browser" / "vendor").exists()
+    manifest.write_text(json.dumps({"options": {"opencv": True}}))
+    assert canary("seed-opencv", str(toolkit), str(product), "v").returncode == 1      # files missing
+    for name in ("opencv.mjs", "opencv_js.wasm", "opencv.mjs.LEGAL.txt"):
+        (folder / name).write_text(name)
+    done = canary("seed-opencv", str(toolkit), str(product), "v")
+    assert done.returncode == 0 and (toolkit / "browser" / "vendor" / "opencv" / "opencv.mjs").read_text() == "opencv.mjs"
+
+
+@needs_node
+def test_the_run_step_reports_every_step_and_fails_when_one_fails(tmp_path):
+    summary = tmp_path / "summary.md"
+    product = tmp_path / "product"
+    product.mkdir()
+    import json
+
+    steps = json.dumps(["echo fine", "exit 3", "echo still runs > ran.txt"])
+    done = canary("run", str(product), STEPS=steps, TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(summary))
+    shown = summary.read_text(encoding="utf-8")
+    assert done.returncode == 1 and (product / "ran.txt").exists()
+    assert "example/product at 0123456789ab: 1 of 3 step(s) failed" in shown
+    assert "| <code>echo fine</code> | passed |" in shown and "| <code>exit 3</code> | failed (3) |" in shown
+    done = canary("run", str(product), STEPS=json.dumps(["true"]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(tmp_path / "ok.md"))
+    assert done.returncode == 0
+
+
+@needs_node
+def test_a_step_is_written_into_the_summary_table_as_text(tmp_path):
+    """A backslash, a pipe, markup or a line break in a step's command cannot end its cell,
+    escape the next character or become HTML: each is written as an entity inside <code>."""
+    summary = tmp_path / "summary.md"
+    product = tmp_path / "product"
+    product.mkdir()
+    import json
+
+    step = "echo 'a\\|b <i>c</i> & `d`'\ntrue"
+    done = canary("run", str(product), STEPS=json.dumps([step]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(summary))
+    assert done.returncode == 0
+    row = next(line for line in summary.read_text(encoding="utf-8").splitlines() if line.startswith("| <code>"))
+    assert row == "| <code>echo &#39;a&#92;&#124;b &#60;i&#62;c&#60;/i&#62; &#38; &#96;d&#96;&#39; true</code> | passed |"
+
+
+def test_the_canary_skip_criteria_are_wired_through_the_marker():
+    """The restore and the save name one folder and one key; the plan job's ``run`` output holds
+    the marker skip, which only a cache hit can set; the targets run only when ``run`` is true; and
+    the marker is recorded only when every target passed."""
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    restore = re.search(r"actions/cache/restore@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
+    save = re.search(r"actions/cache/save@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
+    assert restore and save and restore.group(1) == save.group(1) == "canary-marker"
+    assert restore.group(2) == "canary-ok-${{ steps.plan.outputs.key }}"
+    assert save.group(2) == "canary-ok-${{ needs.plan.outputs.key }}"
+    assert "run: ${{ steps.plan.outputs.run == 'true' && steps.marker.outputs.skip != 'true' }}" in text
+    steps = steps_of("canary.yml")
+    assert steps["Skip when the marker is found"]["if"] == "steps.plan.outputs.run == 'true' && steps.restore.outputs.cache-hit == 'true'"
+    assert re.search(r"name: Look for an earlier passing run of the same inputs\n\s+id: restore\n", text)
+    assert "    needs: plan\n    if: needs.plan.outputs.run == 'true'\n" in text
+    assert re.search(r"    needs: \[plan, targets\]\n    if: .*needs\.targets\.result == 'success'", text)
+
+
+def test_the_canary_chrome_step_stops_on_a_failed_pipe():
+    assert "set -euo pipefail" in steps_of("canary.yml")["Install Chrome for Testing, puppeteer-core and ffmpeg"]["run"]

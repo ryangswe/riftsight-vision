@@ -13,6 +13,11 @@
 // changed, is missing or is extra; a file set that lacks what every vendored runtime has; a file
 // that does not match the build of the manifest's commit (when that build is at hand); OpenCV.js that
 // does not match the lock; a missing license file. Nothing here uses the network.
+//
+// Two options add files beyond the runtime. `host` adds the shared hover host (the three
+// dist/host-*.js files, their license texts when present, and their declaration shims); they share
+// the runtime's commit and go in the same swap. `harness` adds the browser test harness
+// (browser/harness/*.mjs, vendored as harness/*.mjs).
 
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -39,9 +44,17 @@ export const RUNTIME_FILES = [
 ];
 /** The declarations: the entry shims beside the runtime, and types/ (tsc output of src/). */
 export const TYPE_SHIMS = ["cardvision.d.ts", "compute-session.d.ts", "page-capture.d.ts", "remote-release.d.ts"];
-export const NODE_TOOLS = ["node/verify-release.mjs", "node/package-zip.mjs", "node/store-upload.mjs", "node/release-decide.mjs"];
+/** The shared hover host's files: one per realm, self-contained (the LEGAL files exist only when the bundle had license comments). */
+export const HOST_FILES = ["host-content.js", "host-compute.js", "host-settings.js", "host-content.js.LEGAL.txt", "host-compute.js.LEGAL.txt", "host-settings.js.LEGAL.txt"];
+export const HOST_SHIMS = ["host-content.d.ts", "host-compute.d.ts", "host-settings.d.ts"];
+/** Where the harness sources are in a checkout, and where they go in the vendored folder. */
+export const HARNESS_SOURCE = ["browser", "harness"];
+export const HARNESS_DIR = "harness/";
+export const NODE_TOOLS = ["node/verify-release.mjs", "node/package-zip.mjs", "node/store-upload.mjs", "node/realm-check.mjs", "node/release-decide.mjs"];
 /** Every vendored folder lists these. */
 export const REQUIRED = ["cardvision.js", "worker.js", "compute-session.js", "page-capture.js", "remote-release.js", ...TYPE_SHIMS, "types/index.d.ts", CHECKER, ...LICENSE_FILES];
+/** What a vendored folder lists when its options say `host`. */
+export const HOST_REQUIRED = ["host-content.js", "host-compute.js", "host-settings.js", ...HOST_SHIMS];
 /** What a product owns in the folder is named exactly; nothing is, by default. */
 export const DEFAULT_UNMANAGED = [];
 
@@ -130,7 +143,7 @@ function lockSummary(lock) {
  * Returns { files: [[folder-relative name, source path or null for the checker]], ort, lock }.
  */
 export function planFiles({ root, dist, options }) {
-  const { opencv, ortWasm, nodeTools } = options;
+  const { opencv, ortWasm, nodeTools, host = false, harness = false } = options;
   const files = [];
   const need = (name, source) => {
     if (!existsSync(source)) throw new Error(`${source} is missing (build the toolkit first: npm run build in browser/)`);
@@ -145,10 +158,23 @@ export function planFiles({ root, dist, options }) {
   need("NOTICE", join(root, "NOTICE"));
   need("THIRD-PARTY-NOTICES.txt", join(dist, "THIRD-PARTY-NOTICES.txt"));
   for (const name of TYPE_SHIMS) need(name, join(dist, name));
+  if (host) {
+    for (const name of HOST_FILES) {
+      if (name.endsWith(".LEGAL.txt") && !existsSync(join(dist, name))) continue;
+      need(name, join(dist, name));
+    }
+    for (const name of HOST_SHIMS) need(name, join(dist, name));
+  }
+  if (harness) {
+    const dir = join(root, ...HARNESS_SOURCE);
+    const names = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".mjs") && statSync(join(dir, n)).isFile()).sort() : [];
+    if (names.length === 0) throw new Error(`${dir} has no .mjs files to vendor as the harness`);
+    for (const name of names) need(`${HARNESS_DIR}${name}`, join(dir, name));
+  }
   const types = walk(join(dist, "types"));
   if (types.length === 0) throw new Error(`${join(dist, "types")} has no declarations (build the toolkit first: npm run build in browser/)`);
   for (const name of types) need(`types/${name}`, join(dist, "types", name));
-  for (const name of TYPE_SHIMS) {
+  for (const name of host ? [...TYPE_SHIMS, ...HOST_SHIMS] : TYPE_SHIMS) {
     const target = /from "\.\/types\/([^"]+)\.js"/.exec(readFileSync(join(dist, name), "utf-8"))?.[1];
     if (!target || !types.includes(`${target}.d.ts`)) throw new Error(`${name} points at types/${target ?? "(nothing)"}.js, but dist/types has no ${target ?? "?"}.d.ts (fix the shim target in scripts/build.mjs)`);
   }
@@ -218,12 +244,14 @@ const legacy = (name, planned) =>
  *   ortWasm    false to leave ONNX Runtime's WebAssembly files out (a product that copies its own);
  *              the manifest names the version and files either way
  *   nodeTools  true to add dist/node/*.mjs
+ *   host       true to add the shared hover host: dist/host-*.js and their declaration shims
+ *   harness    true to add browser/harness/*.mjs as harness/*.mjs
  *   unmanaged  folders ("dir/") and exact file names the product owns in the folder; kept across a run
  *   adopt      true to replace a non-empty folder that has no manifest yet (a hand-vendored runtime)
  *   warn       called with a message for what went wrong but did not stop the run
  *   hooks      test seams: { beforeSwap(stage), betweenRenames() }
  */
-export function vendorInto({ root, dist, into, commit, opencv = true, ortWasm = true, nodeTools = false, unmanaged = DEFAULT_UNMANAGED, adopt = false, warn = () => {}, hooks = {} }) {
+export function vendorInto({ root, dist, into, commit, opencv = true, ortWasm = true, nodeTools = false, host = false, harness = false, unmanaged = DEFAULT_UNMANAGED, adopt = false, warn = () => {}, hooks = {} }) {
   if (!HEX40.test(commit)) throw new Error(`commit must be a full 40-character SHA, not "${commit}"`);
   const bad = unmanagedProblems(unmanaged);
   if (bad.length > 0) throw new Error(bad.join("; "));
@@ -233,7 +261,7 @@ export function vendorInto({ root, dist, into, commit, opencv = true, ortWasm = 
   if ((!inside.startsWith("..") && !isAbsolute(inside)) || (!around.startsWith("..") && !isAbsolute(around))) throw new Error(`${into} is inside the toolkit checkout (or holds it): vendor into a product's folder`);
   recover(into, warn);
 
-  const options = { opencv, ortWasm, nodeTools };
+  const options = { opencv, ortWasm, nodeTools, host, harness };
   const plan = planFiles({ root, dist, options });
   const names = new Set(plan.files.map(([n]) => n));
   const clash = [...names].filter((n) => isUnmanaged(n, unmanaged));
@@ -395,6 +423,18 @@ export function checkVendor(dir, toolkit) {
   // The options, and the ONNX Runtime pin the product must ship.
   const o = m.options;
   if (!o || typeof o.opencv !== "boolean" || typeof o.ortWasm !== "boolean" || typeof o.nodeTools !== "boolean") problems.push(`${MANIFEST} has no options (opencv, ortWasm, nodeTools)`);
+  // host and harness came later: a manifest without them reads as false, but one that has them must say true or false.
+  for (const key of ["host", "harness"]) if (o && key in o && typeof o[key] !== "boolean") problems.push(`${MANIFEST} option ${key} is not true or false`);
+
+  // The shared hover host: required when the options ask for it, and not there when they do not.
+  const hostListed = HOST_FILES.filter((n) => listed.includes(n));
+  if (o?.host === true) {
+    for (const n of HOST_REQUIRED) if (!listed.includes(n)) problems.push(`${n} is not listed in ${MANIFEST} (its options say the hover host is vendored)`);
+  } else if (hostListed.length > 0 || HOST_SHIMS.some((n) => listed.includes(n))) problems.push(`host files are listed but ${MANIFEST} options say the hover host is left out`);
+  const harnessListed = listed.filter((n) => n.startsWith(HARNESS_DIR));
+  if (o?.harness === true) {
+    if (!harnessListed.some((n) => n.endsWith(".mjs"))) problems.push(`no ${HARNESS_DIR}*.mjs file is listed in ${MANIFEST} (its options say the harness is vendored)`);
+  } else if (harnessListed.length > 0) problems.push(`harness files are listed but ${MANIFEST} options say the harness is left out`);
   const ort = m.ort;
   if (!ort || typeof ort.version !== "string" || ort.version === "" || !Array.isArray(ort.files) || ort.files.length === 0) problems.push(`${MANIFEST} has no ort pin (version and files)`);
   else if (o?.ortWasm) for (const n of ort.files) if (!listed.includes(n)) problems.push(`ONNX Runtime file ${n} is not listed in ${MANIFEST}`);

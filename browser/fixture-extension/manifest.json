@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Toy hover host fixture",
+  "description": "A stand-in extension for testing the shared hover host. Recognition is simulated by toy models; it is not a product.",
+  "version": "0.0.1",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "web_accessible_resources": [
+    {
+      "resources": ["compute.html", "view.html"],
+      "matches": ["http://127.0.0.1/*", "http://localhost/*"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://settings.toy-fixture.test; img-src 'self' blob: data:"
+  }
+}
