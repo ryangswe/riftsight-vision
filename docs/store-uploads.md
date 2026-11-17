@@ -146,37 +146,23 @@ For a product's first release through the workflow, go in this order:
    a run from a branch is refused.
 4. **The real upload.** "Run workflow" on the tag with `upload` only, and approve it.
 
-### Checking a pull request without a tag
+### Checking a pull request
 
-`store-upload.mjs check` takes the tag as an argument, so a pull request can run it with the tag
-the version would get. The template does not include such a job; add one to a separate workflow
-file, `.github/workflows/store-check.yml` (it must not hold store credentials), with the same build, lint and check steps as the
-template's build job, and replace the tag lookup:
+The template [`browser/templates/store-check.yml`](../browser/templates/store-check.yml) runs the
+build job's steps on every pull request, with the tag the version would get, and no store access.
+Copy it to `.github/workflows/store-check.yml` beside `store-release.yml` and replace its step
+marked PRODUCT with the same build. It runs `store-upload.mjs check --pull-request` in one of two
+modes, so that a pull request after a release is not red for what describes that release:
 
-```yaml
-on: pull_request
-jobs:
-  store-check:
-    runs-on: ubuntu-latest
-    permissions: { contents: read }
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { fetch-depth: 0 }
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with: { node-version: 22 }
-      - run: npm ci
-      - run: npm run store:build   # the product's own build into out/
-      - run: |
-          version=$(node -p "require('./package.json').version")   # or the version the release file names
-          node vendor/cardvision-browser/node/store-upload.mjs check --config store/store.config.json \
-            --release "store/releases/$version.json" --tag "v$version" --tag-prefix v \
-            --permissions store/permissions.json --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip \
-            --workflow .github/workflows/store-release.yml \\
-            --workflow .github/workflows/store-check.yml --summary "$GITHUB_STEP_SUMMARY"
-```
+| Mode | When | What changes from the tag's build job |
+| --- | --- | --- |
+| `release` | `package.json`'s version is not tagged yet (the version pull request, or a change that will ship in it), or the pull request changes that version's release file, its notes folder or `cdn/RUNTIMES.json` | A "before upload" address that is not live yet is a warning: it is published after the merge. The tag's build job checks it again, and the upload refuses while it is not live. |
+| `released` | the tag exists and the pull request changes none of those files | Only `version` is read from the release file; its notes, `before`, `permissionsChanged` and store settings are not checked. The packages are still built, linted and checked against `store/permissions.json`. A permission change since the tag (`--previous-permissions` is given the tag's file) and a runtime row that no longer matches (`--runtimes`) are warnings for the next version pull request. |
 
-Add the template's `--previous-permissions`, `--firefox-source` and `--lint` options as the
-product's release needs them.
+Warnings never fail the run. In a workflow they are `::warning` lines on the run page and are
+listed in its summary. The template sets `STORE_CHECK_MODE` for later steps, so a product's own
+release gates that compare the commit with the released version (a runtime-row check in its build
+script, say) can warn instead of failing when it is `released`.
 
 If one store fails after the other succeeded, the run page lists what was done before the
 failure. Re-run the failed job: a store that already has this version submitted or published is

@@ -9,6 +9,18 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+### Added
+
+- `store-upload.mjs check --pull-request release|released` and the template
+  `browser/templates/store-check.yml`, the store check on every pull request. In `release` (the
+  version is not tagged yet, or the pull request changes its release file, notes or runtime row)
+  everything is checked, but a "before upload" address that is not live yet is a warning, since it
+  is published after the merge. In `released` (the tag exists) only the version is read from the
+  release file; the packages are still built, linted and checked against the committed
+  permissions, and a permission change since the tag or a runtime row that no longer matches is a
+  warning for the next version. A pull request after a release is no longer red for what describes
+  that release. See [docs/store-uploads.md](docs/store-uploads.md#checking-a-pull-request).
+
 ## [0.15.0] - 2026-11-17
 
 The shared hover host, the hover test harness, release on merge with release records and a
