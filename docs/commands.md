@@ -312,5 +312,8 @@ skipped as well: one test of `tests/test_data_extract.py`, in its four cases, an
 
 CI also runs each Python version in three parts, on three runners at the same time, with
 `--shard 1/3`, `--shard 2/3` and `--shard 3/3`. Each part runs whole test files, its longest
-files first, and the three parts together run every test once. `tests/shards.py` says how the parts are chosen and
-how to measure again the seconds per file that balance them.
+files first, and the three parts together run every test once. `tests/shards.py` says how the
+parts are chosen. The parts are balanced by each file's seconds in `tests/shard_seconds.json`.
+After each push to main, CI compares those seconds with the times it just measured. When new
+seconds would make the slowest part at least 15% faster, it opens the issue "Test parts are out
+of balance" with the new file to commit, and it closes the issue once the parts are even again.
