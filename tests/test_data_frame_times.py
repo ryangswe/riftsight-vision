@@ -48,6 +48,24 @@ def quiet(_: str) -> None:
     pass
 
 
+@pytest.fixture(autouse=True)
+def decode_on_one_thread(monkeypatch):
+    """The videos here are opened hundreds of times and are 96 by 54 pixels. OpenCV starts a
+    decoding thread per processor on every open, and here that costs more than the decoding.
+    So these tests decode on one thread, which gives the same frames. Recordings are larger and
+    keep OpenCV's choice, as do the other tests that read video."""
+    try:
+        import cv2
+    except ImportError:
+        return
+    opened = cv2.VideoCapture
+
+    def one_thread(path, *rest):
+        return opened(path, *rest) if rest else opened(path, cv2.CAP_ANY, [cv2.CAP_PROP_N_THREADS, 1])
+
+    monkeypatch.setattr(cv2, "VideoCapture", one_thread)
+
+
 def make_row(t: float, fingerprint: str | None, video_id: str = "own-table") -> Row:
     attributes = {} if fingerprint is None else {"frame_dhash": fingerprint}
     return Row(platform="local", video_id=video_id, t=t, frame_width=WIDTH, frame_height=HEIGHT, source_type="physical/phone",
@@ -76,6 +94,15 @@ def steady(request, tmp_path_factory) -> tuple[Path, float, list[str]]:
         writer.write(np.ascontiguousarray(picture(number)[:, :, ::-1]))
     writer.release()
     return path, rate, [dhash(picture(number)) for number in range(count)]
+
+
+def test_the_videos_here_are_decoded_on_one_thread(steady):
+    cv2 = pytest.importorskip("cv2")
+    capture = cv2.VideoCapture(str(steady[0]))
+    try:
+        assert capture.isOpened() and capture.get(cv2.CAP_PROP_N_THREADS) == 1
+    finally:
+        capture.release()
 
 
 def test_at_a_constant_rate_a_time_gives_the_frame_the_rate_names(steady):

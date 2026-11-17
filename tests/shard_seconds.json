@@ -45,7 +45,7 @@
  "tests/test_data_dhash.py": 2.8,
  "tests/test_data_extract.py": 1.3,
  "tests/test_data_fetch.py": 7.4,
- "tests/test_data_frame_times.py": 44.1,
+ "tests/test_data_frame_times.py": 28.7,
  "tests/test_data_reachable.py": 0.8,
  "tests/test_data_roles.py": 0.1,
  "tests/test_data_schema.py": 0.1,
