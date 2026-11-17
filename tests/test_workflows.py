@@ -406,6 +406,7 @@ def test_the_pages_steps_write_the_toy_game_and_build_the_site_with_the_game_pic
 # ----------------------------------------------------------------------------- quickstart.yml
 QUICKSTART_LINUX = "Run the beginner path as the documents write it"
 QUICKSTART_WSL = ("Let the user run sudo, as the user Ubuntu asks for on its first start can",
+                  "Check that Ubuntu can resolve the servers the beginner path downloads from",
                   "Prepare Ubuntu with the quickstart's blocks for Windows", "Clone the repository into the Linux home",
                   "Run the beginner path as the documents write it, and open the demo from Windows")
 SETUP_WSL = "Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4"
@@ -435,12 +436,12 @@ def test_the_quickstart_workflow_runs_the_documents_beginner_path_on_linux_and_i
     steps = steps_of("quickstart.yml")
     assert list(steps) == [QUICKSTART_LINUX, *QUICKSTART_WSL]
     assert steps[QUICKSTART_LINUX]["run"] == "python3 tests/beginner_path.py\n"
-    prepare = steps[QUICKSTART_WSL[1]]["run"]
+    prepare = steps[QUICKSTART_WSL[2]]["run"]
     assert "--print windows-packages" in prepare and "--print windows-node" in prepare
     # The repository is cloned into the Linux home, not used from the Windows drive.
-    clone = steps[QUICKSTART_WSL[2]]["run"]
+    clone = steps[QUICKSTART_WSL[3]]["run"]
     assert 'git init --quiet "$HOME/riftsight-vision"' in clone and "git checkout --quiet --detach FETCH_HEAD" in clone
-    run = steps[QUICKSTART_WSL[3]]["run"]
+    run = steps[QUICKSTART_WSL[4]]["run"]
     assert run.startswith('cd "$HOME/riftsight-vision"\n') and "python3 tests/beginner_path.py --while-serving '" in run
     assert '"${DEMO_URL/127.0.0.1/localhost}"' in run and "/mnt/c/Windows/System32/curl.exe" in run
     # A push to main, a pull request, a run by hand; no secret and no variable.
@@ -451,13 +452,32 @@ def test_the_quickstart_workflow_runs_the_documents_beginner_path_on_linux_and_i
     assert "          distribution: Ubuntu-24.04\n          wsl-version: 2\n" in text
     assert "    defaults:\n      run:\n        shell: wsl-bash {0}\n" in text
     used = [line.strip() for line in text.splitlines() if "uses: " in line]
-    assert used == [f"- uses: {CHECKOUT}", f"- uses: {SETUP_NODE}",
-                    f"- uses: {CHECKOUT}", f"uses: {SETUP_WSL} # v7.2.0", f"uses: {SETUP_WSL} # v7.2.0"]
-    # The second set-up runs only when the first failed, with the same inputs.
-    assert f"      - id: wsl\n        continue-on-error: true\n        uses: {SETUP_WSL} # v7.2.0\n" in text
-    first, second = text.split(f"uses: {SETUP_WSL} # v7.2.0\n")[1:]
-    assert first.endswith("      - if: steps.wsl.outcome == 'failure'\n        ")
-    assert first.split("      - ", 1)[0] == second.split("      - ", 1)[0]
+    assert used == [f"- uses: {CHECKOUT}", f"- uses: {SETUP_NODE}", f"- uses: {CHECKOUT}", f"- uses: {SETUP_WSL} # v7.2.0"]
+
+
+def test_the_wsl_job_has_no_second_try_and_fails_fast():
+    """A step that needs a second try hides a fault, and a hang must not hold the check for an
+    hour: WSL is set up once, with a limit of 5 minutes, and the job stops after 15."""
+    text = (WORKFLOWS / "quickstart.yml").read_text(encoding="utf-8")
+    job = text.split("\n  windows-wsl:\n", 1)[1]
+    assert "continue-on-error" not in text and "outcome" not in text and text.count(SETUP_WSL) == 1
+    assert job.startswith("    name: Beginner path on Windows, in Ubuntu under WSL 2\n    runs-on: windows-latest\n"
+                          "    timeout-minutes: 15\n")
+    assert f"      - uses: {SETUP_WSL} # v7.2.0\n        timeout-minutes: 5\n        with:\n" in job
+
+
+def test_the_wsl_job_checks_dns_before_the_quickstart_downloads_anything():
+    """When the runner's WSL cannot resolve names, the job fails at once and says that the
+    documents are not at fault. Every server the beginner path downloads from is checked."""
+    steps = steps_of("quickstart.yml")
+    names = list(steps)
+    check = QUICKSTART_WSL[1]
+    assert names.index(check) < names.index(QUICKSTART_WSL[2])
+    run = steps[check]["run"]
+    for host in ("archive.ubuntu.com", "security.ubuntu.com", "raw.githubusercontent.com", "github.com", "nodejs.org",
+                 "pypi.org", "files.pythonhosted.org", "registry.npmjs.org"):
+        assert f" {host} " in run.replace("\\\n", " ").replace(";", " ")
+    assert 'timeout 20 getent hosts "$host"' in run and "exit 1" in run and "The documents are not at fault." in run
 
 
 def test_the_quickstart_workflow_s_windows_blocks_are_the_quickstart_s(tools):
