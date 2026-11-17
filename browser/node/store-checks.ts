@@ -159,7 +159,13 @@ export function notesText(raw: string): string {
   return raw.replace(/^\s*<!--\s*SPDX-License-Identifier:[^>]*-->\s*/, "").trim();
 }
 
-/** The notes a release file names, read from files beside it. */
+/** The longest notes to reviewers addons.mozilla.org accepts, in characters (Python code points,
+ *  not UTF-16 units). Its API documentation names no limit; the limit comes from the server's
+ *  own refusal: "Ensure this field has no more than 3000 characters." */
+export const AMO_APPROVAL_NOTES_LIMIT = 3000;
+
+/** The notes a release file names, read from files beside it. Notes to reviewers longer than
+ *  addons.mozilla.org accepts are refused here, so that nothing is uploaded first. */
 export function readNotes(releasePath: string, release: ReleaseFile): { releaseNotes?: Record<string, string>; approvalNotes?: string } {
   const dir = dirname(resolve(releasePath));
   const read = (p: string): string => {
@@ -171,7 +177,13 @@ export function readNotes(releasePath: string, release: ReleaseFile): { releaseN
   if (release.firefox?.releaseNotes) {
     out.releaseNotes = Object.fromEntries(Object.entries(release.firefox.releaseNotes).map(([locale, p]) => [locale, read(p)]));
   }
-  if (release.firefox?.approvalNotes) out.approvalNotes = read(release.firefox.approvalNotes);
+  if (release.firefox?.approvalNotes) {
+    out.approvalNotes = read(release.firefox.approvalNotes);
+    const length = [...out.approvalNotes].length;
+    if (length > AMO_APPROVAL_NOTES_LIMIT) {
+      fail(`${release.firefox.approvalNotes} is ${length} characters; addons.mozilla.org accepts at most ${AMO_APPROVAL_NOTES_LIMIT} for notes to reviewers (counted without the license comment)`);
+    }
+  }
   return out;
 }
 

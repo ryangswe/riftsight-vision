@@ -181,6 +181,12 @@ break the public surface; this file names each break and how to migrate.
   inside the 10 seconds and a late one. It is counted when the picture is delivered: a grant that
   lapses unspent or is dropped by a seek, or a capture that takes no picture, does not use it up.
   A trusted move begins a new rest. The rest of the one-picture rule is unchanged.
+- The store-upload tool now refuses notes to reviewers longer than addons.mozilla.org accepts
+  (3000 characters, counted as code points, without the license comment). Before, the limit was
+  met only after the Chrome package was submitted and the Firefox version existed, and the
+  notes then could not be set, nor could a re-run set them. `check` and the upload's prechecks
+  name the file, its length and the limit, before anything is uploaded. An upload to Chrome alone
+  does not read the Firefox notes.
 
 ## [0.14.1] - 2026-11-14
 
