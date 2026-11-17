@@ -143,6 +143,23 @@ def test_the_reports_of_a_run_give_each_file_its_median_over_the_python_versions
         shards.seconds_from_reports(tmp_path / "empty")
 
 
+def test_earlier_runs_join_the_median_but_list_no_file_of_their_own(tmp_path):
+    this, earlier = tmp_path / "junit", tmp_path / "earlier"
+    for version in ("3.11", "3.12", "3.13"):
+        write_report(this / f"junit-{version}-part-1" / "junit.xml", {"tests/test_a.py": 30.0, "tests/test_new.py": 4.0})
+    # Two earlier runs measured test_a.py at 10 s, and one of them a file that is gone since.
+    for run in ("101", "102"):
+        for version in ("3.11", "3.12", "3.13"):
+            write_report(earlier / run / f"junit-{version}-part-1" / "junit.xml",
+                         {"tests/test_a.py": 10.0, **({"tests/test_gone.py": 9.0} if run == "101" else {})})
+    # A run whose reports are past their week has an empty folder.
+    (earlier / "100").mkdir()
+    assert shards.seconds_from_reports(this) == {"tests/test_a.py": 30.0, "tests/test_new.py": 4.0}
+    assert shards.seconds_from_reports(this, earlier) == {"tests/test_a.py": 10.0, "tests/test_new.py": 4.0}
+    assert len(shards.earlier_runs(earlier)) == 2
+    assert shards.earlier_runs(tmp_path / "missing") == shards.earlier_runs(None) == []
+
+
 def test_stale_seconds_open_the_issue_and_balanced_parts_close_it():
     files = {f"tests/test_{number}.py": 10.0 for number in range(9)}
     # One file has become five times slower than its recorded seconds, and a new one is listed nowhere.
@@ -171,6 +188,14 @@ def test_the_issue_holds_the_new_seconds_as_shard_seconds_json_is_written():
     assert "(https://example.invalid/run/1) are out of balance." in body and "`tests/test_b.py`" in body
     balanced = shards.issue_body(shards.compare(measured, measured, 2), measured, "https://example.invalid/run/1")
     assert "(https://example.invalid/run/1) are balanced." in balanced and "out of balance" not in balanced.split("\n")[0]
+    assert "measured in that run," in body and "of that run. Stale" in body
+    five = shards.issue_body(stale, measured, "https://example.invalid/run/1", runs=5)
+    assert "measured in that run and the 4 before it," in five and "of that run and the 4 before it. Stale" in five
+
+
+def test_a_gain_just_under_the_limit_never_reads_as_the_limit():
+    assert shards.percent(0.0999) == "9%" and shards.percent(0.10) == "10%" and shards.percent(0.29) == "29%"
+    assert shards.percent(0.0) == "0%"
 
 
 def test_the_check_command_writes_the_issue_and_prints_its_state(tmp_path):
@@ -186,6 +211,15 @@ def test_the_check_command_writes_the_issue_and_prints_its_state(tmp_path):
     assert done.returncode == 0, done.stderr
     assert done.stdout == "state=close\n"
     assert "https://example.invalid/run/2" in (tmp_path / "balance.md").read_text(encoding="utf-8")
+    # The same with an earlier run that took exactly as long: still balanced, from two runs.
+    for part in (1, 2, 3):
+        write_report(tmp_path / "earlier" / "7" / f"junit-3.12-part-{part}" / "junit.xml",
+                     {name: recorded[name] for name in names[part - 1::3]})
+    done = subprocess.run([sys.executable, "tests/shards.py", "check", str(tmp_path / "junit"), "--parts", "3",
+                           "--earlier", str(tmp_path / "earlier"), "--run-url", "https://example.invalid/run/2",
+                           "--body", str(tmp_path / "balance.md")], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0 and done.stdout == "state=close\n", done.stderr
+    assert "that run and the 1 before it" in (tmp_path / "balance.md").read_text(encoding="utf-8")
 
 
 ISSUE_STEP = "Open, update or close the issue"
@@ -225,6 +259,39 @@ def test_the_issue_step_opens_updates_or_closes_the_one_issue(state, existing, e
     assert summary.read_text(encoding="utf-8") == f"Balance: {state}\nthe text\n"
 
 
+DOWNLOAD_STEP = "Download the reports of the four runs on main before this one"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_the_download_step_takes_four_runs_on_main_and_skips_one_without_reports(tmp_path):
+    """The step's own script, with a stand-in ``gh`` that lists two runs and has reports only for
+    the first."""
+    from test_workflows import run_step, steps_of
+
+    bin_folder = tmp_path / "bin"
+    bin_folder.mkdir()
+    (bin_folder / "gh").write_text(
+        '#!/bin/bash\necho "$*" >> "$CALLS"\n'
+        'if [ "$1 $2" = "run list" ]; then printf "11\\n22\\n"; exit 0; fi\n'
+        'if [ "$3" = "11" ]; then mkdir -p "${@: -1}/junit-3.12-part-1"; exit 0; fi\n'
+        'echo "no valid artifacts found to download" >&2; exit 1\n', encoding="utf-8")
+    (bin_folder / "gh").chmod(0o755)
+    calls = tmp_path / "calls"
+    work = tmp_path / "work"
+    work.mkdir()
+    environment = {**os.environ, "PATH": f"{bin_folder}{os.pathsep}{os.environ['PATH']}", "CALLS": str(calls),
+                   "GITHUB_REPOSITORY": "example/toolkit", "GH_TOKEN": "unused"}
+    done = run_step(steps_of("tests.yml")[DOWNLOAD_STEP]["run"], work, environment)
+    assert done.returncode == 0, done.stderr
+    assert "Run 22 has no test reports left." in done.stdout
+    assert calls.read_text(encoding="utf-8").splitlines() == [
+        "run list --repo example/toolkit --workflow tests.yml --branch main --event push --status success "
+        "--limit 4 --json databaseId --jq .[].databaseId",
+        "run download 11 --repo example/toolkit --pattern junit-* --dir earlier/11",
+        "run download 22 --repo example/toolkit --pattern junit-* --dir earlier/22"]
+    assert (work / "earlier" / "11" / "junit-3.12-part-1").is_dir()
+
+
 def test_an_unknown_state_fails_the_issue_step(tmp_path):
     from test_workflows import run_step, steps_of
 
@@ -246,9 +313,14 @@ def test_only_the_balance_job_may_write_issues_and_it_runs_on_pushes_to_main_aft
     job = text.split("\n  balance:\n", 1)[1]
     assert job.startswith("    name: Test parts balance\n    needs: [tests-3-11, tests-3-12, tests-3-13]\n"
                           "    if: github.event_name == 'push' && github.ref == 'refs/heads/main'\n"
-                          "    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n      issues: write\n")
+                          "    runs-on: ubuntu-latest\n    permissions:\n      actions: read\n      contents: read\n"
+                          "      issues: write\n")
+    # It may read the reports of earlier runs, and no other job may.
+    assert text.count("actions: read") == 1
     assert "        with:\n          pattern: junit-*\n          path: junit\n" in job
-    assert 'python tests/shards.py check junit --parts 3 --run-url "$RUN_URL" --body balance.md >> "$GITHUB_OUTPUT"' in job
+    assert job.index("path: junit\n") < job.index(DOWNLOAD_STEP) < job.index("id: compare")
+    assert ('          python tests/shards.py check junit --earlier earlier --parts 3 --run-url "$RUN_URL" --body balance.md\n'
+            '          >> "$GITHUB_OUTPUT"\n') in job
     # Each part keeps its report under the name the check reads, for a week.
     assert "--junitxml=junit.xml --shard ${{ matrix.part }}/3\n" in text
     assert ("          name: junit-${{ matrix.python }}-part-${{ matrix.part }}\n          path: junit.xml\n"
