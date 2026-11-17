@@ -156,7 +156,7 @@ modes, so that a pull request after a release is not red for what describes that
 
 | Mode | When | What changes from the tag's build job |
 | --- | --- | --- |
-| `release` | `package.json`'s version is not tagged yet (the version pull request, or a change that will ship in it), or the pull request changes that version's release file, its notes folder or `cdn/RUNTIMES.json` | A "before upload" address that is not live yet is a warning: it is published after the merge. The tag's build job checks it again, and the upload refuses while it is not live. |
+| `release` | `package.json`'s version is not tagged yet (the version pull request, or a change that will ship in it), or the pull request changes that version's release file, its notes folder or its row in `cdn/RUNTIMES.json` | A "before upload" address that is not live yet is a warning: it is published after the merge. The tag's build job checks it again, and the upload refuses while it is not live. |
 | `released` | the tag exists and the pull request changes none of those files | Only `version` is read from the release file; its notes, `before`, `permissionsChanged` and store settings are not checked. The packages are still built, linted and checked against `store/permissions.json`. A permission change since the tag (`--previous-permissions` is given the tag's file) and a runtime row that no longer matches (`--runtimes`) are warnings for the next version pull request. |
 
 Warnings never fail the run. In a workflow they are `::warning` lines on the run page and are

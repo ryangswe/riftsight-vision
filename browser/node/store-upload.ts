@@ -353,9 +353,9 @@ export async function runCheck(
     }
 
     // On a pull request, an address that is not live yet is published after the merge: the tag's
-    // build job checks it again, and the upload refuses while it is not live.
+    // build job checks it again (bytes included), and the upload refuses while it is not live.
     const notLive = await beforeProblems(release, deps.fetchFn);
-    if (a.pullRequest) for (const p of notLive) warnings.push(`before upload, not live yet: ${p}: publish it before the tag`);
+    if (a.pullRequest) for (const p of notLive) warnings.push(`before upload (checked again on the tag): ${p}`);
     else for (const p of notLive) problems.push(`before upload: ${p}`);
     if ((release.before ?? []).length > 0) summary.push("", `Before upload: ${(release.before ?? []).length} address(es) checked.`);
   }

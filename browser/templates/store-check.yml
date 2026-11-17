@@ -9,8 +9,8 @@
 # exists), so that a pull request after a release is not red for what describes that release:
 #
 # - `release`: the version is not tagged yet (the version pull request, or a change that will ship
-#   in it), or the pull request changes that version's release file, its notes folder or
-#   cdn/RUNTIMES.json (a fix before tagging again). Everything the tag's build job checks, except
+#   in it), or the pull request changes that version's release file, its notes folder or its row
+#   in cdn/RUNTIMES.json (a fix before tagging again). Everything the tag's build job checks, except
 #   that a "before upload" address that is not live yet is a warning: it is published after the
 #   merge. The tag's build job checks it again, and the upload refuses while it is not live.
 # - `released`: the tag exists and the pull request changes none of those. This commit will never
@@ -67,12 +67,26 @@ jobs:
           if ! git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
             mode=release
             echo "$tag is not tagged yet: the release checks."
-          elif ! git diff --quiet "$BASE_SHA" HEAD -- "store/releases/$version.json" "store/releases/$version" cdn/RUNTIMES.json; then
-            mode=release
-            echo "$tag exists, but this pull request changes its release file, notes or cdn/RUNTIMES.json: the release checks."
           else
-            mode=released
-            echo "$tag is released: the packages are checked; what describes $tag is not."
+            # 0: unchanged, 1: changed; anything else is a git error, which fails the step.
+            changed=0
+            git diff --quiet "$BASE_SHA" HEAD -- "store/releases/$version.json" "store/releases/$version" || changed=$?
+            # Of cdn/RUNTIMES.json only this version's row counts: adding the next one changes nothing here.
+            row() {
+              git show "$1:cdn/RUNTIMES.json" 2>/dev/null | node -e '
+                let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+                  try { console.log(JSON.stringify(JSON.parse(s)[process.argv[1]] ?? null)); } catch { console.log(s === "" ? "null" : "unreadable"); }
+                });' "$version"
+            }
+            if [ "$changed" = 0 ] && [ "$(row "$BASE_SHA")" != "$(row HEAD)" ]; then changed=1; fi
+            case "$changed" in
+              0) mode=released
+                 echo "$tag is released: the packages are checked; what describes $tag is not." ;;
+              1) mode=release
+                 echo "$tag exists, but this pull request changes its release file, notes or its row in cdn/RUNTIMES.json: the release checks." ;;
+              *) echo "::error::git diff against the pull request's base failed (exit $changed)"
+                 exit 1 ;;
+            esac
           fi
           echo "STORE_CHECK_MODE=$mode" >> "$GITHUB_ENV"
 

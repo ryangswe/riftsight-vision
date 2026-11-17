@@ -111,7 +111,7 @@ describe("check --pull-request release (the version pull request)", () => {
     const pr = await runCheck(args(dir, { pullRequest: "release" }), deps(404));
     expect(pr.problems).toEqual([]);
     expect(pr.warnings).toEqual([
-      "before upload, not live yet: https://cdn.example.org/data/details-1.json: HTTP 404 (the details file this version reads): publish it before the tag",
+      "before upload (checked again on the tag): https://cdn.example.org/data/details-1.json: HTTP 404 (the details file this version reads)",
     ]);
     expect(pr.summary.join("\n")).toMatch(/1 warning\(s\)/);
     const live = await runCheck(args(dir, { pullRequest: "release" }), deps(200));
@@ -211,11 +211,11 @@ describe("the command line", () => {
     const log: string[] = [];
     expect(await main(checkArgv(dir, ["--pull-request", "release"]), deps(404, log, { GITHUB_ACTIONS: "true" })), log.join("\n")).toBe(0);
     expect(log[0]).toBe(
-      "::warning title=Store check::before upload, not live yet: https://cdn.example.org/data/details-1.json: HTTP 404 (the details file this version reads): publish it before the tag",
+      "::warning title=Store check::before upload (checked again on the tag): https://cdn.example.org/data/details-1.json: HTTP 404 (the details file this version reads)",
     );
     const plain: string[] = [];
     expect(await main(checkArgv(dir, ["--pull-request", "release"]), deps(404, plain))).toBe(0);
-    expect(plain[0]).toMatch(/^warning: before upload, not live yet/);
+    expect(plain[0]).toMatch(/^warning: before upload \(checked again on the tag\)/);
     expect(await main(checkArgv(dir), deps(404))).toBe(1);
   });
 
@@ -305,7 +305,61 @@ describe("templates/store-check.yml", () => {
     expect(change("src/a.js")).toBe("released");
     expect(change("store/releases/1.0.0.json")).toBe("release");
     expect(change("store/releases/1.0.0/notes.md")).toBe("release");
-    expect(change("cdn/RUNTIMES.json")).toBe("release");
+    expect(change("cdn/RUNTIMES.json")).toBe("release"); // unreadable now, so the row differs
+    git("checkout", "-q", "--detach", "v1.0.0");
+    write("cdn/RUNTIMES.json", JSON.stringify({ "1.0.0": { ortWeb: "1.29.0" } }));
+    git("add", "-A");
+    git("commit", "-q", "-m", "the row of 1.0.0");
+    git("tag", "-f", "v1.0.0");
+    const withRow = git("rev-parse", "HEAD");
+    const rows = (body: object): string => {
+      git("checkout", "-q", "--detach", withRow);
+      write("cdn/RUNTIMES.json", JSON.stringify(body));
+      git("add", "-A");
+      git("commit", "-q", "-m", "rows");
+      return mode(withRow);
+    };
+    expect(rows({ "1.0.0": { ortWeb: "1.29.0" }, "1.0.1": { ortWeb: "1.30.0" } })).toBe("released"); // the next row only
+    expect(rows({ "1.0.0": { ortWeb: "1.30.0" } })).toBe("release"); // this version's row
     expect(change("store/releases/1.0.1.json")).toBe("released");
+    // A base the clone does not have is an error, not "changed".
+    expect(() => mode("0".repeat(40))).toThrow(/git diff against the pull request's base failed/);
+  });
+
+  it("compares with the tag's own permissions when released, and with the release before it otherwise", () => {
+    const repo = mkdtempSync(join(tmpdir(), "store-check-git-"));
+    dirs.push(repo);
+    const email = ["t", "invalid"].join("@");
+    const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: email, GIT_CONFIG_GLOBAL: "/dev/null" };
+    const git = (...a: string[]): void => {
+      execFileSync("git", a, { cwd: repo, env: gitEnv, stdio: "ignore" });
+    };
+    const release = (version: string, permissions: string): void => {
+      mkdirSync(join(repo, "store"), { recursive: true });
+      writeFileSync(join(repo, "store/permissions.json"), permissions);
+      git("add", "-A");
+      git("commit", "-q", "-m", version);
+      git("tag", `v${version}`);
+    };
+    git("init", "-q", "-b", "main");
+    release("0.9.0", "permissions of 0.9.0");
+    release("1.0.0-rc1", "permissions of 1.0.0-rc1");
+    release("1.0.0", "permissions of 1.0.0");
+    const compared = (mode: string): string => {
+      const env = join(repo, "..", `${repo.split("/").pop()}-env`);
+      dirs.push(env);
+      writeFileSync(env, "");
+      rmSync(join(repo, "out"), { recursive: true, force: true });
+      mkdirSync(join(repo, "out"));
+      execFileSync("bash", ["-c", stepBody("The permissions to compare with")], {
+        cwd: repo,
+        env: { PATH: process.env.PATH, TAG: "v1.0.0", TAG_PREFIX: "v", STORE_CHECK_MODE: mode, GITHUB_ENV: env },
+        stdio: ["ignore", "ignore", "inherit"],
+      });
+      expect(readFileSync(env, "utf-8")).toBe("PREVIOUS=--previous-permissions out/previous-permissions.json\n");
+      return readFileSync(join(repo, "out/previous-permissions.json"), "utf-8").trim();
+    };
+    expect(compared("released")).toBe("permissions of 1.0.0");
+    expect(compared("release")).toBe("permissions of 0.9.0");
   });
 });
