@@ -75,6 +75,13 @@ export function vendorFlags(manifest) {
   return flags;
 }
 
+/** A step's command as one cell of the summary's Markdown table: inside <code>, with every
+ *  character that HTML, the table or a backslash escape could read written as a numeric entity,
+ *  and line breaks as spaces. */
+export function stepCell(step) {
+  return `<code>${step.replace(/\r?\n/g, " ").replace(/[&<>"'|\\`]/g, (c) => `&#${c.charCodeAt(0)};`)}</code>`;
+}
+
 function summary(text) {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
   else console.log(text);
@@ -168,7 +175,7 @@ function run(product) {
     rows.push([step, done.status === 0 ? "passed" : `failed (${done.status ?? done.signal})`]);
   }
   const bad = rows.filter((r) => r[1] !== "passed").length;
-  summary(`### ${repo} at ${sha.slice(0, 12)}: ${bad === 0 ? "passed" : `${bad} of ${rows.length} step(s) failed`}\n\n| Step | Result |\n| --- | --- |\n${rows.map(([s, r]) => `| \`${s.replace(/\|/g, "\\|").replace(/\n/g, " ")}\` | ${r} |`).join("\n")}\n`);
+  summary(`### ${repo} at ${sha.slice(0, 12)}: ${bad === 0 ? "passed" : `${bad} of ${rows.length} step(s) failed`}\n\n| Step | Result |\n| --- | --- |\n${rows.map(([s, r]) => `| ${stepCell(s)} | ${r} |`).join("\n")}\n`);
   return bad === 0 ? 0 : 1;
 }
 
