@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Split a test run into parts that take about the same time: ``python -m pytest --shard K/N``.
 
-The Tests workflow runs each Python version in two parts, on two runners at the same time. A
-test file stays whole in one part, so the setup its tests share runs once, and every file is in
-exactly one part: the N parts together run every test once.
+The Tests workflow runs each Python version in three parts, on three runners at the same
+time. A test file stays whole in one part, so the setup its tests share runs once, and every
+file is in exactly one part: the N parts together run every test once.
 
 Files are dealt out longest first, each to the part with the least time so far, by the seconds
 in ``shard_seconds.json`` beside this file. A file that is not listed there counts as one

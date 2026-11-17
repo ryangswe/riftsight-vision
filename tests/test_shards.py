@@ -35,12 +35,13 @@ def test_the_parts_depend_on_the_files_not_on_their_order():
     assert shards.deal(files + files, seconds, 3) == once
 
 
-def test_the_recorded_seconds_split_the_suite_into_two_nearly_even_parts():
+@pytest.mark.parametrize("parts", [2, 3])
+def test_the_recorded_seconds_split_the_suite_into_nearly_even_parts(parts):
     """Longest first, each to the lighter part: the parts differ by at most the longest file."""
     seconds = shards.load_seconds()
     assert seconds and all(re.fullmatch(r"(tests|labeler)/test_\w+\.py", name) for name in seconds)
-    first, second = (sum(seconds[name] for name in part) for part in shards.deal(seconds, seconds, 2))
-    assert abs(first - second) <= max(seconds.values())
+    loads = [sum(seconds[name] for name in part) for part in shards.deal(seconds, seconds, parts)]
+    assert max(loads) - min(loads) <= max(seconds.values())
 
 
 @pytest.mark.parametrize("spec", ["0/2", "3/2", "1/0", "2", "1/2/3", " 1/2", "a/b", "01/2", ""])
@@ -112,7 +113,7 @@ def test_the_tests_workflow_runs_every_part_of_every_version_and_names_each_chec
         # always(): a version whose parts failed or were cancelled fails here rather than being
         # skipped, since a skipped check would not stop a merge.
         assert (f"  python-{version.replace('.', '-')}:\n    name: Python {version}\n    needs: {job}\n"
-                f"    if: always()\n    runs-on: ubuntu-latest\n    steps:\n      - name: Both parts passed\n"
+                f"    if: always()\n    runs-on: ubuntu-latest\n    steps:\n      - name: Every part passed\n"
                 f"        env:\n          PARTS: ${{{{ needs.{job}.result }}}}\n"
                 f"        run: test \"$PARTS\" = success\n") in text
     # The steps are written once and repeated for every other version.
