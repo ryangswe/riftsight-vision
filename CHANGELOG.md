@@ -9,6 +9,24 @@ break the public surface; this file names each break and how to migrate.
 
 ## [Unreleased]
 
+## [0.15.0rc1] - 2026-11-16
+
+A release candidate, because products will build on what it adds before it is final. It brings
+the shared hover host, an experimental layer that does the work around the runtime for a product's
+extension, with a toy fixture extension and a browser test job for it; the hover test harness
+in the toolkit; a release-on-merge workflow, release records and a daily status check for a
+product's store releases; and a map of the hover path. The five runtime files change only by the
+slow-start fix below. Changes that may need action:
+
+- A rest that already had its slow-start picture no longer gets a second one after the compute
+  frame's worker restarts. A product's privacy page that counts the pictures needs no change.
+- `npm run vendor -- --node-tools` now also copies `node/realm-check.mjs` and
+  `node/release-decide.mjs`, so a product's vendored folder lists two more files.
+- `store-upload.mjs check` refuses more than before: notes to reviewers over 3000 characters, and
+  a workflow in which a job that names an environment has no permissions of its own or could get
+  write permission. A product that copied `store-release.yml` earlier updates its `check` step to
+  scan `extension-release.yml` too.
+
 ### Added
 
 - A shared hover host, in `browser/src/host/`: the code a product's extension needs around the
@@ -1965,7 +1983,8 @@ Initial public release.
 - The browser runtime, the labeling tool and a hosted demo.
 - Apache-2.0 code and weights, CC BY 4.0 labels.
 
-[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/ryangswe/riftsight-vision/compare/v0.15.0rc1...HEAD
+[0.15.0rc1]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.1...v0.15.0rc1
 [0.14.1]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/ryangswe/riftsight-vision/compare/v0.13.0...v0.14.0
 [0.14.0rc2]: https://github.com/ryangswe/riftsight-vision/compare/v0.14.0rc1...v0.14.0rc2
