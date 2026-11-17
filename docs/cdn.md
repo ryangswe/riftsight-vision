@@ -227,7 +227,8 @@ example, 640 px wide WebP and keep the full art as the fallback:
 - **Deriving.** The source is read as an image, turned upright by its EXIF orientation,
   converted to RGB (RGBA when it has alpha, a palette image with transparency included), made at
   most `width` wide with LANCZOS and the same proportions, and never enlarged. It is encoded with
-  `quality` and `method=6`, and keeps the source's ICC profile. A 16-bit or 32-bit integer source
+  `quality` and `method=6`, and keeps the source's ICC profile when it is an RGB one (a CMYK,
+  gray or Lab profile does not describe the RGB pixels and is dropped). A 16-bit or 32-bit integer source
   cannot be derived ("save the source as 8-bit") and counts as a failed file. The same source and spec give the same bytes with one Pillow version.
   A derived file must be smaller than `art.maxImageBytes`; one that cannot be made or is too big
   counts as a failed upload.
