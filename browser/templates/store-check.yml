@@ -133,7 +133,8 @@ jobs:
           workflows="--workflow .github/workflows/store-release.yml --workflow .github/workflows/store-check.yml"
           [ -f .github/workflows/extension-release.yml ] && workflows="$workflows --workflow .github/workflows/extension-release.yml"
           facts=""; [ -f store/record-facts.json ] && facts="--facts store/record-facts.json"
-          runtimes=""; [ -f cdn/RUNTIMES.json ] && runtimes="--runtimes cdn/RUNTIMES.json"
+          # The runtime row is checked against the facts file's modelRelease: both files, or neither.
+          runtimes=""; [ -f cdn/RUNTIMES.json ] && [ -f store/record-facts.json ] && runtimes="--runtimes cdn/RUNTIMES.json"
           case "$BEFORE_ON_PULL_REQUEST" in
             warn) pr="--pull-request $STORE_CHECK_MODE" ;;
             # The release's own checks, before addresses included, as the tag's build job runs them.

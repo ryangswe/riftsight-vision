@@ -129,7 +129,8 @@ jobs:
           RELEASE_WORKFLOW=""; [ -f .github/workflows/extension-release.yml ] && RELEASE_WORKFLOW="--workflow .github/workflows/extension-release.yml"
           # Optional: the product's own facts, and the runtime table its model release is checked against.
           facts=""; [ -f store/record-facts.json ] && facts="--facts store/record-facts.json"
-          runtimes=""; [ -f cdn/RUNTIMES.json ] && runtimes="--runtimes cdn/RUNTIMES.json"
+          # The runtime row is checked against the facts file's modelRelease: both files, or neither.
+          runtimes=""; [ -f cdn/RUNTIMES.json ] && [ -f store/record-facts.json ] && runtimes="--runtimes cdn/RUNTIMES.json"
           node "$STORE_TOOL" check --config store/store.config.json --release "store/releases/$version.json" \
             --tag "$TAG" --tag-prefix "$TAG_PREFIX" --permissions store/permissions.json $PREVIOUS \
             --chrome-zip out/chrome.zip --firefox-zip out/firefox.zip $source \

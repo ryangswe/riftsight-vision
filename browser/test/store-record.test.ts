@@ -314,7 +314,7 @@ describe("the template's release-assets job", () => {
   it("passes the facts and the runtime table only when the product has the files, and gathers the commit's check runs", () => {
     const build = job(template(), "build");
     expect(build).toMatch(/\[ -f store\/record-facts\.json \] && facts="--facts store\/record-facts\.json"/);
-    expect(build).toMatch(/\[ -f cdn\/RUNTIMES\.json \] && runtimes="--runtimes cdn\/RUNTIMES\.json"/);
+    expect(build).toMatch(/\[ -f cdn\/RUNTIMES\.json \] && \[ -f store\/record-facts\.json \] && runtimes="--runtimes cdn\/RUNTIMES\.json"/);
     expect(build).toMatch(/\$facts \$runtimes \$CI_RESULTS/);
     expect(build).toMatch(/gh api "repos\/\$GITHUB_REPOSITORY\/commits\/\$GITHUB_SHA\/check-runs/);
     expect(build).toMatch(/permissions:\n {6}contents: read\n {6}checks: read\n/);

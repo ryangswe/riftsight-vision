@@ -24,6 +24,12 @@ break the public surface; this file names each break and how to migrate.
   version pull request from merging until its "before upload" addresses are live, for a product
   whose merge makes the release tag.
 
+### Fixed
+
+- `store-release.yml` and `store-check.yml` pass `--runtimes` only when `store/record-facts.json`
+  exists too. A product with a `cdn/RUNTIMES.json` but no facts file was refused for naming no
+  model release, which on a version pull request made the store check red.
+
 ## [0.15.0] - 2026-11-17
 
 The shared hover host, the hover test harness, release on merge with release records and a

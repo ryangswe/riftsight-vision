@@ -368,6 +368,44 @@ describe("templates/store-check.yml", () => {
     expect(text).toMatch(/^ {2}BEFORE_ON_PULL_REQUEST: warn$/m);
   });
 
+  it("both templates pass --runtimes only with a facts file to check the row against", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-check-step-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "tool.mjs"), "console.log(process.argv.slice(2).join(' '));\n");
+    const step = (template: string, name: string): string => {
+      const body = readFileSync(join(TEMPLATES, template), "utf-8");
+      const lines = body.slice(body.indexOf(`- name: ${name}`)).split("\n");
+      const start = lines.findIndex((l) => l.trim() === "run: |") + 1;
+      const out: string[] = [];
+      for (const l of lines.slice(start)) {
+        if (l.trim() !== "" && !l.startsWith("          ")) break;
+        out.push(l.slice(10));
+      }
+      return out.join("\n");
+    };
+    const run = (template: string, name: string): string =>
+      execFileSync("bash", ["-eo", "pipefail", "-c", step(template, name)], {
+        cwd: dir,
+        env: { PATH: process.env.PATH, TAG: "v1.0.0", TAG_PREFIX: "v", STORE_TOOL: join(dir, "tool.mjs"), STORE_CHECK_MODE: "release", BEFORE_ON_PULL_REQUEST: "warn", GITHUB_STEP_SUMMARY: join(dir, "summary.md"), GITHUB_SHA: "0".repeat(40), GITHUB_RUN_ID: "1" },
+        encoding: "utf-8",
+      });
+    const both = (): string[] => [run("store-check.yml", "Check the packages and the release"), run("store-release.yml", "Check the release")];
+    mkdirSync(join(dir, "cdn"));
+    writeFileSync(join(dir, "cdn/RUNTIMES.json"), "{}");
+    for (const args of both()) {
+      expect(args).not.toContain("--runtimes");
+      expect(args).not.toContain("--facts");
+    }
+    mkdirSync(join(dir, "store"));
+    writeFileSync(join(dir, "store/record-facts.json"), "{}");
+    for (const args of both()) expect(args).toContain("--facts store/record-facts.json --runtimes cdn/RUNTIMES.json");
+    rmSync(join(dir, "cdn"), { recursive: true });
+    for (const args of both()) {
+      expect(args).toContain("--facts store/record-facts.json");
+      expect(args).not.toContain("--runtimes");
+    }
+  });
+
   it("compares with the tag's own permissions when released, and with the release before it otherwise", () => {
     const repo = mkdtempSync(join(tmpdir(), "store-check-git-"));
     dirs.push(repo);

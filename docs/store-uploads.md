@@ -229,9 +229,12 @@ the build that made it. Add to the template's `check` step:
 --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
 ```
 
-`--facts`, `--runtimes` and `--ci-results` are optional. The template passes `--facts` and
-`--runtimes` only when `store/record-facts.json` and `cdn/RUNTIMES.json` exist, and `--ci-results`
-when its step that reads the commit's check runs succeeded.
+`--facts`, `--runtimes` and `--ci-results` are optional. The templates pass `--facts` when
+`store/record-facts.json` exists, and `--runtimes` only when `cdn/RUNTIMES.json` and the facts file
+both exist, since the row is checked against the facts file's `modelRelease`, which must then be
+set. Without a facts file the templates check no runtime row, the ONNX Runtime version included;
+a product that checks its row in its own build needs no facts file. They pass `--ci-results` when
+the step that reads the commit's check runs succeeded.
 
 The tool is vendored with `--node-tools` ([extension.md](extension.md)): a product must re-vendor
 it from a toolkit commit that has these commands (`--record-out`, `assets`, `status`) before it
