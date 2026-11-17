@@ -161,11 +161,16 @@ def test_stale_seconds_open_the_issue_and_balanced_parts_close_it():
 
 
 def test_the_issue_holds_the_new_seconds_as_shard_seconds_json_is_written():
-    measured = {"tests/test_b.py": 2.5, "tests/test_a.py": 40.0}
-    body = shards.issue_body(shards.compare(measured, {"tests/test_a.py": 1.0}, 2), measured, "https://example.invalid/run/1")
+    # The recorded seconds put the two slow files in one part, and test_b.py has none.
+    measured = {"tests/test_a.py": 40.0, "tests/test_b.py": 40.0, "tests/test_c.py": 2.5}
+    stale = shards.compare(measured, {"tests/test_a.py": 10.0, "tests/test_c.py": 20.0}, 2)
+    assert stale["state"] == "open"
+    body = shards.issue_body(stale, measured, "https://example.invalid/run/1")
     block = body.split("```json\n", 1)[1].split("```", 1)[0]
     assert block == shards.json_text(measured) and json.loads(block) == measured
-    assert "(https://example.invalid/run/1)" in body and "`tests/test_b.py`" in body
+    assert "(https://example.invalid/run/1) are out of balance." in body and "`tests/test_b.py`" in body
+    balanced = shards.issue_body(shards.compare(measured, measured, 2), measured, "https://example.invalid/run/1")
+    assert "(https://example.invalid/run/1) are balanced." in balanced and "out of balance" not in balanced.split("\n")[0]
 
 
 def test_the_check_command_writes_the_issue_and_prints_its_state(tmp_path):

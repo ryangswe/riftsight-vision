@@ -43,8 +43,10 @@ ISSUE_TITLE = "Test parts are out of balance"
 # New seconds that would make the slowest part this much faster open the issue; once they would
 # gain less than CLOSE_GAIN, the parts are balanced again and the issue is closed. In between,
 # an open issue is kept up to date and none is opened, so that the noise of one run cannot open
-# and close it in turn.
-OPEN_GAIN = 0.15
+# and close it in turn. On CI's reports of one run, seconds measured in one Python version's
+# run already differ from another's by up to about a tenth of the slowest part; seconds left
+# unmeasured for the six longest files, or the same for every file, cost 12% and 14%.
+OPEN_GAIN = 0.10
 CLOSE_GAIN = 0.05
 
 
@@ -123,7 +125,9 @@ def compare(measured: Mapping[str, float], recorded: Mapping[str, float], parts:
 
 
 def issue_body(result: dict, measured: Mapping[str, float], run_url: str) -> str:
-    lines = [f"The test parts of the [Tests run on main]({run_url}) are out of balance. With the seconds "
+    verdict = {"open": "are out of balance", "keep": "are still somewhat out of balance",
+               "close": "are balanced"}[result["state"]]
+    lines = [f"The test parts of the [Tests run on main]({run_url}) {verdict}. With the seconds "
              "measured in that run, the slowest part would take "
              f"{max(result['new']):.0f} s of test time instead of {max(result['now']):.0f} s "
              f"({result['gain']:.0%} less).", "",
