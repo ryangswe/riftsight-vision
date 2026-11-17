@@ -59,6 +59,15 @@ a minor release** (0.X.0), not only at 1.0. The changelog names each change.
   Also experimental,
   in the modules behind them: `withinMaxAge` (`frame-scheduler.ts`) and `progressUpdate`
   (`session-core.ts`).
+- **The shared hover host:** `dist/host-content.js`, `dist/host-compute.js` and
+  `dist/host-settings.js` (`browser/src/host/`, built from `content-entry.ts`, `compute-entry.ts`
+  and `settings-entry.ts`), their exports and declarations (the view adapter and its `ViewFrame`,
+  `ProductConfig`, `HostContentEnv`, `HostComputeEnv`, `Switches`, `SettingsCore` and the rest), the
+  vendor options `--host` and `--harness` and the files they add, `dist/node/realm-check.mjs`
+  (its arguments and exit codes), and the browser test harness (`browser/harness/`: the
+  `--product` module fields, `expectedFail`, `unsupported` and the check list) with
+  `browser/fixture-extension/`. [extension-session.md](extension-session.md#the-shared-hover-host)
+  is the guide. They are not covered by the stability promise until this page names them otherwise.
 - **The remote-release module:** the exports of `browser/src/remote/`, built to
   `dist/remote-release.js` (not part of `browser/src/index.ts`), and the settings contract it
   implements, [remote-releases.md](remote-releases.md).

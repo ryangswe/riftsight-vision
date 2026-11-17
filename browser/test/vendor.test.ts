@@ -38,7 +38,7 @@ const put = (path: string, text: string): void => {
 type Kit = { root: string; dist: string };
 
 /** A made-up toolkit checkout and build; `tag` changes every built file, as another commit would. */
-function fakeToolkit(tag: string, { opencv = true, spec = true } = {}): Kit {
+function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, harness = true } = {}): Kit {
   const root = temp();
   const dist = join(root, "browser", "dist");
   const built: Record<string, string> = {
@@ -53,7 +53,8 @@ function fakeToolkit(tag: string, { opencv = true, spec = true } = {}): Kit {
     "node/verify-release.mjs": `v ${tag}`,
     "node/package-zip.mjs": `p ${tag}`,
     "node/store-upload.mjs": `s ${tag}`,
-    "node/release-decide.mjs": `r ${tag}`,
+    "node/realm-check.mjs": `r ${tag}`,
+    "node/release-decide.mjs": `d ${tag}`,
     "THIRD-PARTY-NOTICES.txt": `notices ${tag}`,
     "cardvision.d.ts": `export * from "./types/index.js"; // ${tag}`,
     "compute-session.d.ts": `export * from "./types/compute-session.js"; // ${tag}`,
@@ -63,6 +64,20 @@ function fakeToolkit(tag: string, { opencv = true, spec = true } = {}): Kit {
     "types/compute-session.d.ts": `export {}; // ${tag}`,
     "types/page-capture-entry.d.ts": `export {}; // ${tag}`,
     "types/remote/index.d.ts": `export {}; // ${tag}`,
+    ...(host
+      ? {
+          "host-content.js": `hc ${tag}`,
+          "host-compute.js": `hk ${tag}`,
+          "host-settings.js": `hs ${tag}`,
+          "host-compute.js.LEGAL.txt": `hklegal ${tag}`,
+          "host-content.d.ts": `export * from "./types/host/content-entry.js"; // ${tag}`,
+          "host-compute.d.ts": `export * from "./types/host/compute-entry.js"; // ${tag}`,
+          "host-settings.d.ts": `export * from "./types/host/settings-entry.js"; // ${tag}`,
+          "types/host/content-entry.d.ts": `export {}; // ${tag}`,
+          "types/host/compute-entry.d.ts": `export {}; // ${tag}`,
+          "types/host/settings-entry.d.ts": `export {}; // ${tag}`,
+        }
+      : {}),
     ...(opencv ? { "opencv.mjs": "cvjs", "opencv_js.wasm": "cvwasm", "opencv.mjs.LEGAL.txt": "cv license" } : {}),
   };
   for (const [name, text] of Object.entries(built)) put(join(dist, name), text);
@@ -70,6 +85,11 @@ function fakeToolkit(tag: string, { opencv = true, spec = true } = {}): Kit {
   put(join(root, "NOTICE"), "notice");
   put(join(root, "pyproject.toml"), `[project]\nversion = "0.14.0"\n`);
   put(join(root, "browser", "package.json"), JSON.stringify({ dependencies: { "onnxruntime-web": "1.29.0" } }));
+  if (harness) {
+    put(join(root, "browser", "harness", "hover-browser.mjs"), `harness ${tag}`);
+    put(join(root, "browser", "harness", "serve.mjs"), `serve ${tag}`);
+    put(join(root, "browser", "harness", "netlog.d.mts"), `declarations ${tag}`);
+  }
   if (spec) put(join(root, "docs", "hover-spec.json"), `{"clauses":"${tag}"}`);
   put(
     join(root, "browser", "opencv.lock.json"),
@@ -111,7 +131,7 @@ describe("vendoring a runtime", () => {
       ].sort((a, b) => (a < b ? -1 : 1)),
     );
     expect(manifest.toolkit).toEqual({ version: "0.14.0", commit: COMMIT_A });
-    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false });
+    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: false, harness: false });
     expect(manifest.ort).toEqual({ version: "1.29.0", files: ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"] });
     expect(manifest.files["worker.js"].sha256).toBe(sha(readFileSync(join(kit.dist, "worker.js"), "utf-8")));
     expect(manifest.opencv.tag).toBe("5.0.0");
@@ -125,11 +145,93 @@ describe("vendoring a runtime", () => {
     const into = join(temp(), "v");
     const manifest = vendor(kit, into, COMMIT_A, { nodeTools: true, opencv: false, ortWasm: false });
     expect(Object.keys(manifest.files)).toContain("node/store-upload.mjs");
+    expect(Object.keys(manifest.files)).toContain("node/realm-check.mjs");
+    expect(Object.keys(manifest.files)).toContain("node/release-decide.mjs");
     expect(Object.keys(manifest.files).some((n) => n.startsWith("ort-wasm") || n.startsWith("opencv"))).toBe(false);
     expect(manifest.opencv).toBeNull();
     expect(manifest.ort.files).toHaveLength(2);
     expect(lib.checkVendor(into)).toEqual([]);
     expect(lib.checkVendor(into, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("adds the hover host and the harness only on request, in the same manifest and the same commit", () => {
+    const kit = fakeToolkit("one", { host: true });
+    const plain = join(temp(), "v");
+    expect(Object.keys(vendor(kit, plain).files).filter((n) => n.startsWith("host-") || n.startsWith("harness/"))).toEqual([]);
+
+    const into = join(temp(), "v");
+    const manifest = vendor(kit, into, COMMIT_A, { host: true, harness: true });
+    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: true, harness: true });
+    const names = Object.keys(manifest.files);
+    for (const n of ["host-content.js", "host-compute.js", "host-settings.js", "host-compute.js.LEGAL.txt", "host-content.d.ts", "host-compute.d.ts", "host-settings.d.ts", "types/host/content-entry.d.ts"]) expect(names, n).toContain(n);
+    expect(names).not.toContain("host-content.js.LEGAL.txt"); // no license comments in that bundle
+    expect(names.filter((n) => n.startsWith("harness/"))).toEqual(["harness/hover-browser.mjs", "harness/serve.mjs"]); // .mjs only
+    expect(lib.checkVendor(into)).toEqual([]);
+    expect(lib.checkVendor(into, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("refuses the hover host or the harness when the build or the checkout lacks them", () => {
+    const noHost = fakeToolkit("one");
+    expect(() => vendor(noHost, join(temp(), "v"), COMMIT_A, { host: true })).toThrow(/host-content\.js is missing/);
+    const noHarness = fakeToolkit("one", { host: true, harness: false });
+    expect(() => vendor(noHarness, join(temp(), "v"), COMMIT_A, { harness: true })).toThrow(/no \.mjs files to vendor as the harness/);
+  });
+
+  it("checks the hover host and harness against the options: required when asked for, absent when not, one commit", () => {
+    const kit = fakeToolkit("one", { host: true });
+    const into = join(temp(), "v");
+    vendor(kit, into, COMMIT_A, { host: true, harness: true });
+    // One host file from another commit is as wrong as a runtime file from another commit.
+    writeFileSync(join(into, "host-compute.js"), "from another commit");
+    expect(lib.checkVendor(into).join("\n")).toMatch(/host-compute\.js differs from the SHA-256/);
+    writeFileSync(join(into, "host-compute.js"), "hk one");
+    expect(lib.checkVendor(into)).toEqual([]);
+
+    // Dropped from the folder and the manifest together: the options still ask for it.
+    const m = manifestOf(into);
+    rmSync(join(into, "host-settings.js"));
+    delete m.files["host-settings.js"];
+    writeManifest(into, m);
+    expect(lib.checkVendor(into).join("\n")).toMatch(/host-settings\.js is not listed in cardvision-vendor\.json \(its options say the hover host is vendored\)/);
+
+    const noHarness = join(temp(), "v");
+    vendor(kit, noHarness, COMMIT_A, { harness: true });
+    const h = manifestOf(noHarness);
+    for (const n of Object.keys(h.files)) if (n.startsWith("harness/")) delete h.files[n];
+    for (const n of readdirSync(join(noHarness, "harness"))) rmSync(join(noHarness, "harness", n));
+    writeManifest(noHarness, h);
+    expect(lib.checkVendor(noHarness).join("\n")).toMatch(/no harness\/\*\.mjs file is listed/);
+
+    // Options that say "left out" while the files are listed.
+    const left = join(temp(), "v");
+    vendor(kit, left, COMMIT_A, { host: true, harness: true });
+    const l = manifestOf(left);
+    l.options.host = false;
+    l.options.harness = false;
+    writeManifest(left, l);
+    const text = lib.checkVendor(left).join("\n");
+    expect(text).toMatch(/host files are listed but .* left out/);
+    expect(text).toMatch(/harness files are listed but .* left out/);
+
+    // A manifest that predates the options (no host, no harness) reads as false and passes.
+    const old = join(temp(), "v");
+    vendor(kit, old, COMMIT_A);
+    const o = manifestOf(old);
+    delete o.options.host;
+    delete o.options.harness;
+    writeManifest(old, o);
+    expect(lib.checkVendor(old)).toEqual([]);
+    o.options.host = "yes";
+    writeManifest(old, o);
+    expect(lib.checkVendor(old).join("\n")).toMatch(/option host is not true or false/);
+  });
+
+  it("compares a vendored hover host with the build of its commit, and flags a file set that differs from the options", () => {
+    const kit = fakeToolkit("one", { host: true });
+    const into = join(temp(), "v");
+    vendor(kit, into, COMMIT_A, { host: true });
+    writeFileSync(join(kit.dist, "host-content.js"), "rebuilt");
+    expect(lib.checkVendor(into, toolkitOf(kit)).join("\n")).toMatch(/host-content\.js differs from the build of commit/);
   });
 
   it("leaves the hover spec out when the commit has none, and the build comparison agrees", () => {
@@ -706,5 +808,26 @@ describe("the commands, in a fake git checkout", () => {
     expect(check.stderr).toContain(`worker.js differs from the build of commit ${head.slice(0, 12)}`);
     expect(check.stderr).toContain("Checked: file hashes, file set, licenses, OpenCV lock, build of commit");
     expect(run(root, "vendor-check.mjs", caller).status).toBe(2);
+  });
+});
+
+describe("the hover host's shims and file set", () => {
+  it("a host shim that points at a declaration the build lacks fails the vendor step", () => {
+    const kit = fakeToolkit("one", { host: true });
+    put(join(kit.dist, "host-content.d.ts"), `export * from "./types/host/missing.js";`);
+    expect(() => vendor(kit, join(temp(), "v"), COMMIT_A, { host: true })).toThrow(/host-content\.d\.ts points at types\/host\/missing\.js, but dist\/types has no host\/missing\.d\.ts/);
+    // Without the option the shim is not part of the vendored set, so it is not checked.
+    expect(() => vendor(kit, join(temp(), "v2"))).not.toThrow();
+  });
+
+  it("a folder vendored with the host fails the check when one declaration shim is dropped from the folder and the manifest", () => {
+    const kit = fakeToolkit("one", { host: true });
+    const into = join(temp(), "v");
+    vendor(kit, into, COMMIT_A, { host: true });
+    const m = manifestOf(into);
+    rmSync(join(into, "host-content.d.ts"));
+    delete m.files["host-content.d.ts"];
+    writeManifest(into, m);
+    expect(lib.checkVendor(into).join("\n")).toMatch(/host-content\.d\.ts is not listed in cardvision-vendor\.json \(its options say the hover host is vendored\)/);
   });
 });
