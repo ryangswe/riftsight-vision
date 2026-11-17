@@ -550,6 +550,16 @@ def test_the_icc_profile_is_kept():
     assert "icc_profile" not in webp_of(derive_webp(encode(gradient(300, 420), "PNG"), 200, 75)).info
 
 
+def test_a_profile_that_is_not_rgb_is_dropped():
+    from PIL import ImageCms
+    gray = ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB")).tobytes()
+    assert gray[16:20] != b"RGB "
+    src = encode(gradient(300, 420).convert("CMYK"), "JPEG", icc_profile=gray)
+    assert Image.open(io.BytesIO(src)).info["icc_profile"] == gray
+    out = webp_of(derive_webp(src, 200, 75))
+    assert out.mode == "RGB" and "icc_profile" not in out.info
+
+
 def test_32_bit_integer_sources_are_refused_too():
     with pytest.raises(ValueError, match="16-bit images are not supported"):
         derive_webp(encode(Image.new("I", (200, 280), 30000), "TIFF"), 100, 75)

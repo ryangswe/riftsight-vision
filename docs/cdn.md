@@ -255,7 +255,8 @@ example, 640 px wide WebP and keep the full art as the fallback:
   - A template under a set must be exactly `https://<host>/<art prefix><name>/{cardId}.webp`: no
     other placeholder, extension, query or fragment. Host case, a default port, dot segments, doubled
     slashes and percent escapes are normalized before the comparison, so a different spelling of the
-    address is gated the same way.
+    address is gated the same way. The check knows only the configured public address: a template on
+    another address that serves the same bucket is not checked, so point settings at the public one.
   - A template under `<art prefix>X/` where `X/index.json` is on the bucket but `X` is no longer in
     `art.derived` is refused: the set is still live but no longer configured.
   - `--catalog` without `--images` is accepted only for a settings file that points at a derived

@@ -46,14 +46,16 @@ def check_card_id(card_id: str) -> Optional[str]:
 
 def derive_webp(data: bytes, width: Optional[int], quality: int) -> bytes:
     """The source image as WebP: EXIF turn applied, alpha kept, at most `width` wide (never
-    enlarged; None keeps the size), LANCZOS, `quality`, method 6. The same source and spec give the
-    same bytes with one Pillow version."""
+    enlarged; None keeps the size), LANCZOS, `quality`, method 6, and the source's color profile when
+    it is an RGB one. The same source and spec give the same bytes with one Pillow version."""
     from PIL import Image, ImageOps
 
     with Image.open(io.BytesIO(data)) as opened:
         if opened.mode in WIDE_MODES:
             raise ValueError("16-bit images are not supported in derived sets; save the source as 8-bit")
         icc = opened.info.get("icc_profile")
+        if icc and icc[16:20] != b"RGB ":  # a CMYK, gray or Lab profile does not describe RGB pixels
+            icc = None
         img = ImageOps.exif_transpose(opened)  # first frame of an animation; a copy
         img.load()
         has_alpha = img.mode in ("RGBA", "LA", "PA", "RGBa", "La") or "transparency" in img.info
