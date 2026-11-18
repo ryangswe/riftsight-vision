@@ -10,8 +10,8 @@
 #
 # It is not a required check, but red still means do not merge: fix the change, or merge a change
 # in the product that works with both toolkits first (RELEASING.md, "What a red check means").
-# What a pull request cannot fix is a warning: a product that cannot be read, or one whose checks
-# also fail without the new build.
+# What a pull request cannot fix is a warning: a product that cannot be read or installed, or a
+# check that already fails before the new build is vendored.
 #
 # CANARY_TARGETS is a JSON list of { repo, branch | sha, vendorDir, steps, chrome? }: see
 # browser/scripts/canary.mjs, and RELEASING.md ("The downstream canary") for how to set it. The
@@ -19,8 +19,9 @@
 # summary.
 #
 # A run that ends green saves a marker in the Actions cache, keyed by a hash of browser/**,
-# docs/hover-spec.*, this workflow and the targets at the commits they resolve to. A later run with the same key (a re-run, or a version pull
-# request that changes none of them) finds the marker, skips the builds and cites the earlier run.
+# docs/hover-spec.*, this workflow and the targets at the commits they resolve to. A later run with
+# the same key (a version pull request that changes none of them) finds the marker, skips the builds
+# and cites the earlier run. A re-run of a workflow never uses the marker: it always tests.
 #
 # Safety: the pull request event only, with its own power; contents: read; no secrets;
 # checkouts keep no credentials. The commands in the variable are the maintainer's, and run with no secret to read.
@@ -58,7 +59,7 @@ jobs:
         run: node browser/scripts/canary.mjs plan .
       - name: Look for an earlier passing run of the same inputs
         id: restore
-        if: steps.plan.outputs.run == 'true'
+        if: steps.plan.outputs.run == 'true' && github.run_attempt == '1'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: canary-marker
@@ -92,6 +93,8 @@ jobs:
         with:
           node-version: 24
       - name: Borrow the product's OpenCV.js (it is not in the repository and takes long to build)
+        id: seed
+        continue-on-error: true
         env:
           VENDOR_DIR: ${{ matrix.vendorDir }}
         run: node toolkit/browser/scripts/canary.mjs seed-opencv toolkit product "$VENDOR_DIR"
@@ -101,14 +104,21 @@ jobs:
           npm ci
           npm run build
       - name: Install the product's locked dependencies
+        id: install
+        if: steps.seed.outcome == 'success'
+        continue-on-error: true
         working-directory: product
         run: npm ci
-      - name: Vendor the new build into the product, with the options its manifest records
+      - name: Warn when the product could not be prepared
+        if: steps.install.outcome != 'success'
         env:
-          VENDOR_DIR: ${{ matrix.vendorDir }}
-        run: node toolkit/browser/scripts/canary.mjs vendor toolkit product "$VENDOR_DIR"
+          TARGET_REPO: ${{ matrix.repo }}
+          TARGET_SHA: ${{ matrix.sha }}
+        run: |
+          echo "::warning title=Downstream canary::$TARGET_REPO at ${TARGET_SHA:0:12} could not be prepared, so it was not tried"
+          printf '### %s at %s: could not be prepared, so it was not tried (see the log)\n' "$TARGET_REPO" "${TARGET_SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
       - name: Install Chrome for Testing, puppeteer-core and ffmpeg
-        if: matrix.chrome
+        if: matrix.chrome && steps.install.outcome == 'success'
         run: |
           set -euo pipefail
           npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
@@ -119,10 +129,23 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Run the product's own checks
-        id: checks
+      - name: Run the product's own checks without the new build
+        if: steps.install.outcome == 'success'
         env:
           STEPS: ${{ toJSON(matrix.steps) }}
+          BASELINE_FILE: ${{ runner.temp }}/canary-baseline.json
+        run: node toolkit/browser/scripts/canary.mjs baseline product
+      - name: Vendor the new build into the product, with the options its manifest records
+        if: steps.install.outcome == 'success'
+        env:
+          VENDOR_DIR: ${{ matrix.vendorDir }}
+        run: node toolkit/browser/scripts/canary.mjs vendor toolkit product "$VENDOR_DIR"
+      - name: Run the product's own checks
+        id: checks
+        if: steps.install.outcome == 'success'
+        env:
+          STEPS: ${{ toJSON(matrix.steps) }}
+          BASELINE_FILE: ${{ runner.temp }}/canary-baseline.json
           TARGET_REPO: ${{ matrix.repo }}
           TARGET_SHA: ${{ matrix.sha }}
         run: node toolkit/browser/scripts/canary.mjs run product

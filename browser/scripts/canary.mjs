@@ -10,10 +10,11 @@
 //   node scripts/canary.mjs vendor TOOLKIT_ROOT PRODUCT_ROOT VENDOR_DIR
 //                                                 vendor this checkout's build into the product with the options
 //                                                 its own manifest records
-//   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each;
-//                                                 each step sees CARDVISION_CANARY=1. In CI, a step that fails
-//                                                 is tried on the product without the new build: a product that
-//                                                 fails there too is a warning, since this change did not cause it
+//   node scripts/canary.mjs baseline PRODUCT_ROOT run the product's steps before vendoring and save each result in
+//                                                 $BASELINE_FILE; a failing step does not fail this command
+//   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each; a step
+//                                                 that already failed in the baseline is a warning, not a failure.
+//                                                 Each step sees CARDVISION_CANARY=1
 //
 // CANARY_TARGETS is a JSON list of { repo, branch | sha, vendorDir, steps, chrome? }: the product's
 // repository ("account/name"), the branch whose current commit to try (the plan looks it up on each
@@ -25,7 +26,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -223,36 +224,44 @@ function runSteps(product, steps) {
   });
 }
 
-// Puts the product back as it was checked out, keeping its installed dependencies. Only on a CI
-// runner, in the product's own checkout: on a person's machine this would discard their work.
-function restoreProduct(product) {
-  if (process.env.GITHUB_ACTIONS !== "true" || !existsSync(join(product, ".git"))) return false;
-  return [["reset", "--quiet", "--hard", "HEAD"], ["clean", "-ffdqx", "-e", "node_modules"]].every((args) => spawnSync("git", args, { cwd: product, stdio: "inherit" }).status === 0);
+function baseline(product) {
+  writeFileSync(process.env.BASELINE_FILE, JSON.stringify(runSteps(product, JSON.parse(process.env.STEPS ?? "[]"))));
+  return 0;
+}
+
+/** What each step did before vendoring, or null when that is not known for every step. */
+function baselineResults(count) {
+  try {
+    const results = JSON.parse(readFileSync(process.env.BASELINE_FILE ?? "", "utf-8"));
+    return Array.isArray(results) && results.length === count && results.every((r) => typeof r === "string") ? results : null;
+  } catch {
+    return null;
+  }
 }
 
 function run(product) {
   const steps = JSON.parse(process.env.STEPS ?? "[]");
   const repo = process.env.TARGET_REPO ?? product;
   const sha = process.env.TARGET_SHA ?? "";
+  const before = baselineResults(steps.length);
   const results = runSteps(product, steps);
   const bad = results.filter((r) => r !== "passed").length;
-  const alone = bad > 0 && restoreProduct(product) ? runSteps(product, steps) : null;
-  const notThisChange = alone !== null && results.every((r, i) => r === "passed" || alone[i] !== "passed");
-  const verdict = bad === 0 ? "passed" : notThisChange ? `${bad} of ${steps.length} step(s) fail without this change too` : `${bad} of ${steps.length} step(s) failed`;
-  const head = alone === null ? "| Step | Result |\n| --- | --- |" : "| Step | Result | Without this change |\n| --- | --- | --- |";
-  const table = steps.map((s, i) => `| ${stepCell(s)} | ${results[i]} |${alone === null ? "" : ` ${alone[i]} |`}`).join("\n");
+  const alreadyFailing = bad > 0 && before !== null && results.every((r, i) => r === "passed" || before[i] !== "passed");
+  const verdict = bad === 0 ? "passed" : alreadyFailing ? `${bad} of ${steps.length} step(s) already fail without this change, so it could not be checked there` : `${bad} of ${steps.length} step(s) failed`;
+  const head = before === null ? "| Step | Result |\n| --- | --- |" : "| Step | Result | Without this change |\n| --- | --- | --- |";
+  const table = steps.map((s, i) => `| ${stepCell(s)} | ${results[i]} |${before === null ? "" : ` ${before[i]} |`}`).join("\n");
   summary(`### ${repo} at ${sha.slice(0, 12)}: ${verdict}\n\n${head}\n${table}\n`);
-  if (notThisChange) console.log(`::warning title=Downstream canary::${repo} at ${sha.slice(0, 12)} fails without this change too, so this pull request did not cause it`);
-  return bad === 0 || notThisChange ? 0 : 1;
+  if (alreadyFailing) console.log(`::warning title=Downstream canary::${repo} at ${sha.slice(0, 12)}: ${verdict}`);
+  return bad === 0 || alreadyFailing ? 0 : 1;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
   const usage = () => {
-    console.error("Usage: node scripts/canary.mjs plan ROOT | marker-note FILE | seed-opencv TOOLKIT PRODUCT VENDOR_DIR | vendor TOOLKIT PRODUCT VENDOR_DIR | run PRODUCT");
+    console.error("Usage: node scripts/canary.mjs plan ROOT | marker-note FILE | seed-opencv TOOLKIT PRODUCT VENDOR_DIR | vendor TOOLKIT PRODUCT VENDOR_DIR | baseline PRODUCT | run PRODUCT");
     return 2;
   };
-  const table = { plan: [1, plan], "marker-note": [1, markerNote], vendor: [3, vendor], "seed-opencv": [3, seedOpencv], run: [1, run] };
+  const table = { plan: [1, plan], "marker-note": [1, markerNote], vendor: [3, vendor], "seed-opencv": [3, seedOpencv], baseline: [1, baseline], run: [1, run] };
   const entry = table[command];
   process.exit(entry && rest.length === entry[0] ? entry[1](...rest) : usage());
 }

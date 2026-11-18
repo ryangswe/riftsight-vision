@@ -94,9 +94,9 @@ vendor the browser runtime. It runs on every pull request and every push to `mai
 product it names, it checks out the current commit of the product's branch, vendors this
 checkout's build into it with the options the product's own vendor manifest records, and runs the
 product's own checks. It is not a required check, but a red run still means do not merge (see
-"What a red check means"). Two things a pull request cannot fix are warnings instead: a product
-whose branch cannot be read is left out of the run, and a product whose checks also fail without
-the new build is reported as failing on its own.
+"What a red check means"). What a pull request cannot fix is a warning instead: a product that
+cannot be read or installed is not tried, and each check also runs before the new build is vendored,
+so a check that already fails there cannot judge this change.
 
 After a product merges a compatible change, use **Re-run all jobs** on the pull request. Re-running
 only the failed job tests the commit that the first attempt looked up.
@@ -131,7 +131,8 @@ CANARY_TARGETS="$(cat targets.json)" node browser/scripts/canary.mjs plan .
 gh variable set CANARY_TARGETS < targets.json
 ```
 
-`plan` prints the matrix it would run, or names each problem and exits 1. In the browser, the
+`plan` prints the matrix it would run, or names each problem in the list and exits 1. A branch it
+cannot read is a warning and exits 0, so read what it prints. In the browser, the
 variable is under the repository's Settings → Secrets and variables → Actions → Variables. It
 takes effect on the next pull request or push to `main`; the workflow has no manual run.
 

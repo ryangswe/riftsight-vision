@@ -688,7 +688,7 @@ def test_the_canary_workflow_builds_the_toolkit_then_the_product_then_vendors_an
     assert "canary.mjs seed-opencv toolkit product" in steps[wanted[0]]["run"]
     assert "npm run build" in steps[wanted[1]]["run"]
     assert "canary.mjs vendor toolkit product" in steps[wanted[3]]["run"]
-    assert steps["Install Chrome for Testing, puppeteer-core and ffmpeg"]["if"] == "matrix.chrome"
+    assert steps["Install Chrome for Testing, puppeteer-core and ffmpeg"]["if"] == "matrix.chrome && steps.install.outcome == 'success'"
 
 
 @needs_node
@@ -865,82 +865,80 @@ def test_a_failed_lookup_is_tried_three_times_then_skipped_without_going_red(tmp
     assert "is empty" not in summary.read_text(encoding="utf-8"), "the variable is not empty"
 
 
-@pytest.fixture()
-def vendored_product(tmp_path) -> Path:
-    """A product checkout whose check passes while build.txt says good."""
-    product = tmp_path / "vendored"
-    (product / "node_modules").mkdir(parents=True)
-    (product / "node_modules" / "kept.txt").write_text("installed\n")
-    (product / ".gitignore").write_text("node_modules\n")
-    (product / "build.txt").write_text("good\n")
-    git(product, "init", "--quiet")
-    git(product, "add", ".gitignore", "build.txt")
-    git(product, "commit", "--quiet", "-m", "product")
-    return product
+def run_after_baseline(tmp_path: Path, steps: list[str], before: object) -> tuple[subprocess.CompletedProcess, str]:
+    import json
 
-
-CHECK_BUILD = 'test "$(cat build.txt)" = good'
+    product, summary, saved = tmp_path / "product", tmp_path / "summary.md", tmp_path / "baseline.json"
+    product.mkdir()
+    saved.write_text(json.dumps(before), encoding="utf-8")
+    done = canary("run", str(product), STEPS=json.dumps(steps), TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA,
+                  BASELINE_FILE=str(saved), GITHUB_STEP_SUMMARY=str(summary))
+    return done, summary.read_text(encoding="utf-8")
 
 
 @needs_node
-def test_a_step_that_only_fails_with_the_new_build_is_red(vendored_product, tmp_path):
+def test_the_baseline_saves_each_step_s_result_and_never_fails(tmp_path):
     import json
 
-    summary = tmp_path / "summary.md"
-    (vendored_product / "build.txt").write_text("broken by the new build\n")
-    (vendored_product / "new-file.txt").write_text("vendored\n")
-    done = canary("run", str(vendored_product), STEPS=json.dumps([CHECK_BUILD]), TARGET_SHA=PRODUCT_SHA, GITHUB_ACTIONS="true", GITHUB_STEP_SUMMARY=str(summary))
-    shown = summary.read_text(encoding="utf-8")
-    assert done.returncode == 1 and "1 of 1 step(s) failed" in shown and "| Without this change |" in shown
-    assert "| failed (1) | passed |" in shown
-    assert not (vendored_product / "new-file.txt").exists() and (vendored_product / "node_modules" / "kept.txt").exists()
-
-
-@needs_node
-def test_a_product_that_fails_on_its_own_is_a_warning_not_red(vendored_product, tmp_path):
-    import json
-
-    summary = tmp_path / "summary.md"
-    (vendored_product / "build.txt").write_text("already broken\n")
-    git(vendored_product, "commit", "--quiet", "-am", "a broken main")
-    done = canary("run", str(vendored_product), STEPS=json.dumps([CHECK_BUILD]), TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA,
-                  GITHUB_ACTIONS="true", GITHUB_STEP_SUMMARY=str(summary))
+    product, saved = tmp_path / "product", tmp_path / "baseline.json"
+    product.mkdir()
+    steps = ["true", "exit 3", 'test "$CARDVISION_CANARY" = 1']
+    done = canary("baseline", str(product), STEPS=json.dumps(steps), BASELINE_FILE=str(saved))
     assert done.returncode == 0, done.stderr
-    assert "::warning title=Downstream canary::example/product at 0123456789ab fails without this change too" in done.stdout
-    assert "1 of 1 step(s) fail without this change too" in summary.read_text(encoding="utf-8")
+    assert json.loads(saved.read_text(encoding="utf-8")) == ["passed", "failed (3)", "passed"]
 
 
 @needs_node
-def test_one_step_broken_by_the_new_build_stays_red_beside_one_that_fails_anyway(vendored_product, tmp_path):
-    import json
+def test_a_step_that_only_fails_with_the_new_build_is_red(tmp_path):
+    done, shown = run_after_baseline(tmp_path, ["exit 3"], ["passed"])
+    assert done.returncode == 1 and "1 of 1 step(s) failed" in shown and "| failed (3) | passed |" in shown
+    assert "::warning" not in done.stdout
 
-    (vendored_product / "build.txt").write_text("broken by the new build\n")
-    done = canary("run", str(vendored_product), STEPS=json.dumps(["exit 3", CHECK_BUILD]), TARGET_SHA=PRODUCT_SHA, GITHUB_ACTIONS="true",
-                  GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
+
+@needs_node
+def test_a_step_that_already_failed_is_a_warning_that_says_it_could_not_judge(tmp_path):
+    done, shown = run_after_baseline(tmp_path, ["exit 3"], ["failed (3)"])
+    assert done.returncode == 0, done.stderr
+    wanted = "1 of 1 step(s) already fail without this change, so it could not be checked there"
+    assert wanted in shown and f"::warning title=Downstream canary::example/product at 0123456789ab: {wanted}" in done.stdout
+
+
+@needs_node
+def test_one_step_broken_by_the_new_build_stays_red_beside_one_that_already_failed(tmp_path):
+    done, _ = run_after_baseline(tmp_path, ["exit 3", "exit 4"], ["failed (3)", "passed"])
     assert done.returncode == 1 and "::warning" not in done.stdout
 
 
 @needs_node
-def test_outside_ci_a_failed_step_leaves_the_checkout_alone(vendored_product, tmp_path):
-    import json
+@pytest.mark.parametrize("before", [["failed (3)", "failed (3)"], [], {"a": 1}, [3]])
+def test_a_baseline_that_does_not_match_the_steps_excuses_nothing(before, tmp_path):
+    done, shown = run_after_baseline(tmp_path, ["exit 3"], before)
+    assert done.returncode == 1 and "Without this change" not in shown
 
-    (vendored_product / "build.txt").write_text("someone's work\n")
-    done = canary("run", str(vendored_product), STEPS=json.dumps([CHECK_BUILD]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
-    assert done.returncode == 1 and (vendored_product / "build.txt").read_text() == "someone's work\n"
+
+def test_the_baseline_runs_before_vendoring_and_a_rerun_always_tests():
+    steps = steps_of("canary.yml")
+    order = list(steps)
+    baseline = "Run the product's own checks without the new build"
+    vendor = "Vendor the new build into the product, with the options its manifest records"
+    assert order.index("Install Chrome for Testing, puppeteer-core and ffmpeg") < order.index(baseline) < order.index(vendor)
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert text.count("BASELINE_FILE: ${{ runner.temp }}/canary-baseline.json") == 2, "the baseline and the checks share one file"
+    assert "id: restore\n        if: steps.plan.outputs.run == 'true' && github.run_attempt == '1'\n" in text
+
+
+def test_a_product_that_cannot_be_prepared_is_a_warning_and_is_not_tried():
+    steps = steps_of("canary.yml")
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert "id: seed\n        continue-on-error: true\n" in text
+    assert "id: install\n        if: steps.seed.outcome == 'success'\n        continue-on-error: true\n" in text
+    assert "::warning" in steps["Warn when the product could not be prepared"]["run"]
+    for name in ("Run the product's own checks without the new build", "Vendor the new build into the product, with the options its manifest records", "Run the product's own checks"):
+        assert steps[name]["if"] == "steps.install.outcome == 'success'"
 
 
 @needs_node
-def test_a_fixed_commit_is_used_as_written_with_no_lookup(tmp_path):
-    import json
-
-    out = tmp_path / "output.txt"
-    done = canary("plan", ".", targets=targets_text(), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{tmp_path}/nowhere")
-    assert done.returncode == 0, done.stderr
-    assert json.loads(read_outputs(out)["matrix"])["include"][0]["sha"] == PRODUCT_SHA
-
-
-@needs_node
-def test_a_rerun_with_nothing_changed_finds_the_marker_and_skips(tmp_path):
+def test_a_later_run_with_nothing_changed_finds_the_marker_and_skips(tmp_path):
     """The record job writes ``canary-marker/note.txt``; the plan job restores it from the cache
     on the next run with the same key. Here the folder is put where the cache would put it."""
     summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
