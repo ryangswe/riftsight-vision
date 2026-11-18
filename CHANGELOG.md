@@ -53,6 +53,11 @@ break the public surface; this file names each break and how to migrate.
   version pull request from merging until its "before upload" addresses are live, for a product
   whose merge makes the release tag.
 
+### Changed
+
+- `vendor --harness` also copies the harness's `.d.mts` declarations. A product that imports a
+  harness module under `@ts-expect-error` removes that line when it next vendors.
+
 ### Fixed
 
 - The rollback check draws a card that leaves and comes back (`places.C.back`) as the hover

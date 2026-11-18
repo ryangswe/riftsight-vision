@@ -1095,7 +1095,7 @@ public API): `host-content.js`, `host-compute.js` and `host-settings.js`, one se
 per realm, with their license texts when the bundle has any and their declarations
 (`host-content.d.ts`, `host-compute.d.ts`, `host-settings.d.ts`). They come from the same commit as
 the runtime and go in the same swap, and the check fails on a mix. `--harness` adds the browser test
-harness, `browser/harness/*.mjs`, as `harness/*.mjs`. Both are recorded in the manifest's `options`
+harness, `browser/harness/*.mjs` and their `*.d.mts` declarations, under `harness/`. Both are recorded in the manifest's `options`
 as `host` and `harness`; a manifest that has neither reads as false.
 
 The harness is the hover browser test: a product's unpacked extension in headless Chrome for
@@ -1128,7 +1128,8 @@ the runs it is compared with: the times of another machine are compared all the 
 says so), and a file from a failed run is refused. `--art-delay-ms <ms>` holds each card picture's
 answer from the stand-in that long, as a far CDN would; the timed checks are judged all the same,
 so a long delay can fail them, the delay is recorded in `measuredOn`, and such a run cannot be used
-with or as a `--baseline`. Two diagnostics are reported, never judged: with the module's
+with or as a `--baseline`. A product that fetches pictures ahead of the hover shows little of the
+delay: only a picture it has not fetched yet waits for it. Two diagnostics are reported, never judged: with the module's
 `tooltipDebugGlobal`, `counts.artAfterShownMs` gives per slot the time from the card shown to its
 picture on screen, and a compute debug record with a `prefetched` list gives `counts.prefetched`.
 The hover browser test and the rollback check render the same clip (`harness/clip.mjs`). Every run

@@ -17,7 +17,7 @@
 // Two options add files beyond the runtime. `host` adds the shared hover host (the three
 // dist/host-*.js files, their license texts when present, and their declaration shims); they share
 // the runtime's commit and go in the same swap. `harness` adds the browser test harness
-// (browser/harness/*.mjs, vendored as harness/*.mjs).
+// (browser/harness/*.mjs and their *.d.mts declarations, vendored under harness/).
 
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -167,8 +167,8 @@ export function planFiles({ root, dist, options }) {
   }
   if (harness) {
     const dir = join(root, ...HARNESS_SOURCE);
-    const names = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".mjs") && statSync(join(dir, n)).isFile()).sort() : [];
-    if (names.length === 0) throw new Error(`${dir} has no .mjs files to vendor as the harness`);
+    const names = existsSync(dir) ? readdirSync(dir).filter((n) => /\.(mjs|d\.mts)$/.test(n) && statSync(join(dir, n)).isFile()).sort() : [];
+    if (!names.some((n) => n.endsWith(".mjs"))) throw new Error(`${dir} has no .mjs files to vendor as the harness`);
     for (const name of names) need(`${HARNESS_DIR}${name}`, join(dir, name));
   }
   const types = walk(join(dist, "types"));
@@ -245,7 +245,7 @@ const legacy = (name, planned) =>
  *              the manifest names the version and files either way
  *   nodeTools  true to add dist/node/*.mjs
  *   host       true to add the shared hover host: dist/host-*.js and their declaration shims
- *   harness    true to add browser/harness/*.mjs as harness/*.mjs
+ *   harness    true to add browser/harness/*.mjs and *.d.mts under harness/
  *   unmanaged  folders ("dir/") and exact file names the product owns in the folder; kept across a run
  *   adopt      true to replace a non-empty folder that has no manifest yet (a hand-vendored runtime)
  *   warn       called with a message for what went wrong but did not stop the run
