@@ -15,6 +15,9 @@ break the public surface; this file names each break and how to migrate.
   NumPy 2.3.2 for every version, and pick ONNX Runtime by Python version: 3.11 to 3.13 keep
   1.23.2, and 3.14 uses 1.24.1, the first release with 3.14 builds, whose only macOS build is
   Apple silicon on macOS 14 or later. The supported ranges in `pyproject.toml` are unchanged.
+- `docs/hover-coverage.md`: each hover-spec clause with its unit tests, browser checks and pending
+  parts, generated with the spec's index; the spec check now fails when a clause is left with no
+  test.
 - Hover browser test options for a product's own diagnostics: `--art-delay-ms` holds each card
   picture's answer from the stand-in, as a far CDN would (recorded in `measuredOn`; such a run is
   never used with or as a `--baseline`); a product module's `tooltipDebugGlobal` gives

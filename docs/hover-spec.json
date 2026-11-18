@@ -44,6 +44,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "frames-at-play"
+      ],
       "pending": []
     },
     {
@@ -68,6 +71,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "fake-pointer-ignored"
+      ],
       "pending": []
     },
     {
@@ -87,6 +93,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -110,6 +117,9 @@
           "line": 101,
           "target": false
         }
+      ],
+      "browser": [
+        "idle-unloads"
       ],
       "pending": []
     },
@@ -135,6 +145,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -163,6 +174,10 @@
           "line": 320,
           "target": false
         }
+      ],
+      "browser": [
+        "loop-no-reload",
+        "idle-reload-on-hover"
       ],
       "pending": []
     },
@@ -203,6 +218,10 @@
           "target": false
         }
       ],
+      "browser": [
+        "on-while-playing-loads",
+        "switch-on-after-idle-reloads"
+      ],
       "pending": []
     },
     {
@@ -227,6 +246,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -246,6 +266,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -300,6 +321,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "frames-at-play"
+      ],
       "pending": []
     },
     {
@@ -314,6 +338,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -338,6 +363,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -357,6 +383,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -606,6 +633,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "second-tab-names-card"
+      ],
       "pending": [
         "real-browser test"
       ]
@@ -632,6 +662,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -646,6 +677,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -660,6 +692,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -678,6 +711,9 @@
           "line": 1788,
           "target": false
         }
+      ],
+      "browser": [
+        "no-capture-before-pointer"
       ],
       "pending": []
     },
@@ -703,6 +739,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -727,6 +764,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -746,6 +784,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -765,6 +804,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "off-means-off"
+      ],
       "pending": [
         "real-browser test"
       ]
@@ -775,6 +817,7 @@
       "title": "A product's privacy page states the gate's timings as the code has them",
       "status": "current",
       "tests": [],
+      "browser": [],
       "pending": [
         "real-browser test"
       ]
@@ -796,6 +839,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -815,6 +859,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -834,6 +879,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -853,6 +899,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -897,6 +944,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -936,6 +984,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -990,6 +1039,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1004,6 +1054,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1023,6 +1074,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1052,6 +1104,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1251,6 +1304,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1275,6 +1329,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1294,6 +1349,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1323,6 +1379,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "arrives-under-rest"
+      ],
       "pending": []
     },
     {
@@ -1342,6 +1401,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "paused-names-each"
+      ],
       "pending": []
     },
     {
@@ -1356,6 +1418,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1380,6 +1443,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1399,6 +1463,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1428,6 +1493,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1552,6 +1618,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1586,6 +1653,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1650,6 +1718,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1669,6 +1738,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1687,6 +1757,9 @@
           "line": 1815,
           "target": false
         }
+      ],
+      "browser": [
+        "art-visible"
       ],
       "pending": []
     },
@@ -1707,6 +1780,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1731,6 +1805,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1765,6 +1840,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "move-off-clears"
+      ],
       "pending": []
     },
     {
@@ -1788,6 +1866,9 @@
           "line": 1171,
           "target": false
         }
+      ],
+      "browser": [
+        "covered-kept"
       ],
       "pending": []
     },
@@ -1823,6 +1904,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "still-card-no-blink"
+      ],
       "pending": []
     },
     {
@@ -1852,6 +1936,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1876,6 +1961,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "still-outline-steady"
+      ],
       "pending": []
     },
     {
@@ -1890,6 +1978,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1939,6 +2028,9 @@
           "target": false
         }
       ],
+      "browser": [
+        "outline-shows"
+      ],
       "pending": []
     },
     {
@@ -1963,6 +2055,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -1987,6 +2080,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2000,6 +2094,9 @@
           "line": 264,
           "target": false
         }
+      ],
+      "browser": [
+        "held-outline-hides"
       ],
       "pending": [
         "real-browser test"
@@ -2032,6 +2129,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2046,6 +2144,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2080,6 +2179,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2124,6 +2224,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2148,6 +2249,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2202,6 +2304,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2230,6 +2333,9 @@
           "line": 25,
           "target": false
         }
+      ],
+      "browser": [
+        "switch-flips"
       ],
       "pending": []
     },
@@ -2285,6 +2391,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2299,6 +2406,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": [
         "slow-clock test"
       ]
@@ -2315,6 +2423,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2334,6 +2443,7 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     },
     {
@@ -2358,7 +2468,12 @@
           "target": false
         }
       ],
+      "browser": [],
       "pending": []
     }
+  ],
+  "productsOnlyChecks": [
+    "arrives-under-rest",
+    "cached-reload"
   ]
 }
