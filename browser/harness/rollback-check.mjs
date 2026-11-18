@@ -38,7 +38,7 @@ import { parseArgs } from "node:util";
 
 import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
-import { productProblems, SLOTS } from "./product-shape.mjs";
+import { productProblems } from "./product-shape.mjs";
 import { CHECKS } from "./clauses.mjs";
 import { cardBox, renderClip } from "./clip.mjs";
 import { startServer } from "./serve.mjs";
@@ -65,7 +65,7 @@ const versionA = manifestVersion(values.a);
 const versionB = manifestVersion(values.b);
 if (versionA === versionB) usage(`--a and --b have the same manifest version (${versionA}): give build B another version, or the check cannot tell which build is running`);
 
-const { clip: CLIP, places: PLACES } = PRODUCT;
+const { clip: CLIP } = PRODUCT;
 const puppeteerDir = process.env.PUPPETEER_CORE_DIR;
 const puppeteerModule = await import(puppeteerDir ? createRequire(join(resolve(puppeteerDir), "index.js")).resolve("puppeteer-core") : "puppeteer-core");
 const puppeteer = puppeteerModule.default?.launch ? puppeteerModule.default : puppeteerModule;

@@ -17,7 +17,8 @@
 //        [--art-delay-ms <ms>]
 //
 // --art-delay-ms holds each card picture's answer from the stand-in that long, as a CDN far away
-// would (a whole number from 0 to 10000; 0 by default). With the module's `tooltipDebugGlobal`, the
+// would (a whole number from 0 to 10000; 0 by default). The timed checks are judged all the same,
+// so a long delay can fail them; the delay is in measuredOn, and such a run is never a --baseline. With the module's `tooltipDebugGlobal`, the
 // report's counts.artAfterShownMs is, per card slot, the time from the tooltip showing the card to
 // its picture on screen, from the tooltip frame's own timings. When the compute frame's debug
 // record has a `prefetched` list of addresses, counts.prefetched gives their paths.
@@ -77,7 +78,7 @@ import { classify, netlogRequests } from "./netlog.mjs";
 import { LIMIT_DEFAULTS, productProblems, SLOTS } from "./product-shape.mjs";
 import { startServer } from "./serve.mjs";
 import { stillMoves } from "./steady.mjs";
-import { compareTimings, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "./timings.mjs";
+import { artAfterShownOf, compareTimings, prefetchedPaths, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "./timings.mjs";
 
 /** The whole run's deadline: past it the run stops, fails and still writes its report. */
 const RUN_DEADLINE_MS = 12 * 60_000;
@@ -125,8 +126,10 @@ const want = (id) => (!only || only.has(id)) && !(id in unsupported);
 if (!values["dist-idle"] && IDLE_CHECKS.some(want)) usage("--dist-idle is needed for the idle checks (or leave them out with --only)");
 const repoRoot = fileURLToPath(PRODUCT.root);
 if (!relative(repoRoot, resolve(values.art)).startsWith("..")) usage("--art must be outside the product's repository: card art is never committed");
-const artDelayMs = Number(values["art-delay-ms"]);
-if (!(Number.isInteger(artDelayMs) && artDelayMs >= 0 && artDelayMs <= 10_000)) usage("--art-delay-ms must be a whole number of ms from 0 to 10000");
+const artDelayMs = /^[0-9]{1,5}$/.test(values["art-delay-ms"]) ? Number(values["art-delay-ms"]) : NaN;
+if (!(artDelayMs >= 0 && artDelayMs <= 10_000)) usage("--art-delay-ms must be a whole number of ms from 0 to 10000");
+// A held picture lengthens the timed checks' times, so such a run is never compared with a saved one.
+if (artDelayMs > 0 && values.baseline) usage("--baseline cannot be used with --art-delay-ms: a held picture lengthens the timed checks");
 const LIMITS = { ...LIMIT_DEFAULTS, ...PRODUCT.limits };
 const MARGIN = { ...TIMING_DEFAULTS, ...PRODUCT.baseline };
 let savedTimings = null;
@@ -220,8 +223,10 @@ function startStandIn() {
   const requests = [];
   const server = createServer({ key: readFileSync(join(certDir, "key.pem")), cert: readFileSync(join(certDir, "cert.pem")) }, (req, res) => {
     const path = new URL(req.url ?? "/", `https://${cdnHost}`).pathname;
+    // A request is counted when it arrives; --art-delay-ms holds only the answer to a picture.
+    const t = Date.now() - startedAt;
     const send = (status, body, type, cache) => {
-      requests.push({ t: Date.now() - startedAt, path, status });
+      requests.push({ t, path, status });
       res.writeHead(status, { "content-type": type, "cache-control": cache, "access-control-allow-origin": "*" }).end(body);
     };
     if (path === settingsUrl.pathname) send(200, JSON.stringify(testSettings), "application/json", "no-cache");
@@ -367,20 +372,13 @@ async function tooltipState(page) {
   return { ...shown, frame: Boolean(f), inner };
 }
 
-/** Per card slot, the ms from the tooltip showing that card the first time to its picture on
- *  screen, from the tooltip frame's debug global (the module's `tooltipDebugGlobal`, a function
- *  returning { timings: [{ event: "show" | "art", cardId, at }] } in dev builds); null for a card
- *  not shown or with no picture yet. */
+/** The tooltip frame's own timings, from its debug global (the module's `tooltipDebugGlobal`, a
+ *  function returning { timings: [{ event: "show" | "art", cardId, at }] } in dev builds), paired
+ *  per card slot by timings.mjs. */
 async function artAfterShown(page) {
   const f = page.frames().find((fr) => fr.url().startsWith("chrome-extension://") && fr.url().endsWith(`/${PRODUCT.frames.tooltip}`));
-  const timings = f ? ((await f.evaluate((g) => window[g]?.()?.timings ?? null, PRODUCT.tooltipDebugGlobal).catch(() => null)) ?? []) : [];
-  const out = {};
-  for (const [slot, c] of Object.entries(cards)) {
-    const shown = timings.find((x) => x.event === "show" && x.cardId === c.id);
-    const art = shown ? timings.find((x) => x.event === "art" && x.cardId === c.id && x.at >= shown.at) : null;
-    out[slot] = shown && art ? Math.round(art.at - shown.at) : null;
-  }
-  return out;
+  const timings = f ? await f.evaluate((g) => window[g]?.()?.timings ?? null, PRODUCT.tooltipDebugGlobal).catch(() => null) : null;
+  return artAfterShownOf(timings, Object.fromEntries(Object.entries(cards).map(([slot, c]) => [slot, c.id])));
 }
 
 /** The compute frame's own account, for a check's record: its load state, its last error, the
@@ -667,11 +665,6 @@ try {
       // The switch on (the default): the hovered card stays, and its outline goes once it is seen
       // gone and stays gone while the tooltip stays.
       const on = await covered();
-      // Diagnostics, by now A, B and C have been shown: the tooltip's show-to-picture times, and the
-      // pictures the compute frame fetched ahead, when the product reports them.
-      if (PRODUCT.tooltipDebugGlobal) counts.artAfterShownMs = await artAfterShown(page);
-      const prefetched = (await computeDebug(page))?.prefetched;
-      if (Array.isArray(prefetched)) counts.prefetched = prefetched.map((u) => { try { return new URL(u).pathname; } catch { return String(u); } });
       if (want("covered-kept")) record("covered-kept", on.first === cards.A.name && on.last === cards.A.name && !on.names.includes(cards.D.name), on);
       if (want("held-outline-hides")) record("held-outline-hides", on.outlineBefore && on.heldFrom !== null && !on.outlineCameBack && on.last === cards.A.name, on);
 
@@ -682,6 +675,12 @@ try {
       await until(async () => ((await computeDebug(page))?.state === "ready" ? true : null), 60_000, 250);
       const offRun = await covered();
       if (want("switch-flips")) record("switch-flips", offRun.first === cards.A.name && offRun.last === cards.D.name, offRun);
+      // Diagnostics, never judged; by now every card has been shown (C only when a check above
+      // showed it): the tooltip's show-to-picture times, and the pictures the compute frame
+      // fetched ahead, when the product reports them.
+      if (PRODUCT.tooltipDebugGlobal) counts.artAfterShownMs = await artAfterShown(page);
+      const prefetched = prefetchedPaths((await computeDebug(page))?.prefetched);
+      if (prefetched) counts.prefetched = prefetched;
 
       // Still with the switch off: the pointer rests on B, which stays put on the playing clip,
       // for 16.5 s from the pointer's move (at least 16 s: past its 10 s and S-W6's 5 s after a
@@ -999,6 +998,7 @@ function finish() {
     settings: testSettings,
     platform: `${process.platform} ${process.arch}`,
     node: process.version,
+    artDelayMs,
   };
   const timings = timingsOf(counts);
   const baseline = savedTimings
@@ -1034,11 +1034,12 @@ function finish() {
   // release (the same kind of machine as the runs it is compared with).
   writeFileSync(
     join(out, "timings.json"),
-    JSON.stringify({ passed: report.passed, timings, measuredOn: { chrome: measuredOn.chrome, extensionVersion: measuredOn.extensionVersion, release: measuredOn.release, platform: measuredOn.platform } }, null, 2) + "\n",
+    JSON.stringify({ passed: report.passed, timings, measuredOn: { chrome: measuredOn.chrome, extensionVersion: measuredOn.extensionVersion, release: measuredOn.release, platform: measuredOn.platform, artDelayMs } }, null, 2) + "\n",
   );
   console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}${r.outcome === "unsupported" ? ` (${r.detail.reason})` : ""}`).join("\n")}`);
   if (missing.length) console.log(`missing (never ran): ${missing.join(", ")}`);
   console.log(`policy: ${policyViolations.length} content-security-policy violation(s); ${originMismatches.length} refused postMessage(s)`);
+  if (artDelayMs > 0) console.log(`art delay: each card picture was held ${artDelayMs} ms (the timed checks' times include it)`);
   console.log(`network: ${violations.length} violation(s), ${exempt.length} of Chrome's own exempt; hosts ${JSON.stringify(hostsSeen)}`);
   console.log(`counts: ${JSON.stringify(counts)}`);
   console.log(`timings: ${JSON.stringify(timings)}`);

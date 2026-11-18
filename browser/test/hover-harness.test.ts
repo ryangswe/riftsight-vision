@@ -14,7 +14,7 @@ import example from "../harness/example/product.mjs";
 import { LIMIT_DEFAULTS, productProblems, SLOTS } from "../harness/product-shape.mjs";
 import { cardBox, clipArgs, type ClipProduct, enableOf } from "../harness/clip.mjs";
 import { stillMoves } from "../harness/steady.mjs";
-import { compareTimings, REPORTED_ONLY, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "../harness/timings.mjs";
+import { artAfterShownOf, compareTimings, prefetchedPaths, REPORTED_ONLY, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "../harness/timings.mjs";
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -141,6 +141,11 @@ describe("the run's times and the baseline comparison", () => {
   it("reads a saved file only in the shape a run writes", () => {
     expect(timingsFileProblems({ passed: true, timings: { artVisibleMs: 300 }, measuredOn: { platform: "linux x64" } })).toEqual([]);
     expect(timingsFileProblems({ passed: false, timings: { artVisibleMs: 300 } })).toEqual(["it is from a failed run"]);
+    // A run whose pictures were held: its times include the delay.
+    expect(timingsFileProblems({ passed: true, timings: { artVisibleMs: 800 }, measuredOn: { artDelayMs: 500 } })).toEqual([
+      "it is from a run with --art-delay-ms 500, whose picture times include that delay",
+    ]);
+    expect(timingsFileProblems({ passed: true, timings: { artVisibleMs: 300 }, measuredOn: { artDelayMs: 0 } })).toEqual([]);
     expect(timingsFileProblems([])).toEqual(["it is not a JSON object"]);
     expect(timingsFileProblems({ artVisibleMs: 300 })).toEqual(["it has no timings object"]);
     expect(timingsFileProblems({ timings: {} })).toEqual(["its timings object is empty"]);
@@ -325,12 +330,52 @@ describe("the product diagnostics", () => {
     expect(productProblems({ ...example, tooltipDebugGlobal: "" }, CHECKS)).toEqual(["tooltipDebugGlobal is not a text"]);
   });
 
+  const args = ["--product", here("../harness/example/product.mjs"), "--chrome", "x", "--release", "x", "--art", "/nowhere/art", "--dist", "x", "--only", "art-visible"];
+  const run = (...more: string[]) => spawnSync(process.execPath, [here("../harness/hover-browser.mjs"), ...args, ...more], { encoding: "utf-8", timeout: 30_000 });
+
   it("refuses an --art-delay-ms that is not a whole number of ms from 0 to 10000", () => {
-    const args = ["--product", here("../harness/example/product.mjs"), "--chrome", "x", "--release", "x", "--art", "/nowhere/art", "--dist", "x", "--only", "art-visible"];
-    for (const bad of ["-1", "10001", "1.5", "soon"]) {
-      const r = spawnSync(process.execPath, [here("../harness/hover-browser.mjs"), ...args, `--art-delay-ms=${bad}`], { encoding: "utf-8", timeout: 30_000 });
-      expect(r.status, bad).toBe(2);
-      expect(r.stderr, bad).toContain("--art-delay-ms must be a whole number of ms from 0 to 10000");
+    for (const bad of ["-1", "10001", "1.5", "soon", "", " ", "1e3", "0x10", "+5", " 7 "]) {
+      const r = run(`--art-delay-ms=${bad}`);
+      expect(r.status, JSON.stringify(bad)).toBe(2);
+      expect(r.stderr, JSON.stringify(bad)).toContain("--art-delay-ms must be a whole number of ms from 0 to 10000");
     }
+  });
+
+  it("takes an --art-delay-ms of 0 to 10000, and never with --baseline", () => {
+    // Past the delay's own check, the run stops at the next one: the saved file cannot be read.
+    for (const good of ["0", "10000"]) {
+      const r = run(`--art-delay-ms=${good}`, "--baseline", "/nowhere/timings.json");
+      expect(r.status, good).toBe(2);
+      expect(r.stderr, good).not.toContain("--art-delay-ms must be");
+    }
+    expect(run("--art-delay-ms=0", "--baseline", "/nowhere/timings.json").stderr).toContain("--baseline: cannot read");
+    expect(run("--art-delay-ms=10000", "--baseline", "/nowhere/timings.json").stderr).toContain("--baseline cannot be used with --art-delay-ms");
+  });
+
+  it("pairs each card's first picture with the latest show before it", () => {
+    const ids = { A: "a1", B: "b1", C: "c1", D: "d1" };
+    const timings = [
+      { event: "show", cardId: "a1", at: 100 },
+      { event: "show", cardId: "b1", at: 150 },
+      { event: "art", cardId: "b1", at: 120 }, // before B's show: not B's picture
+      { event: "show", cardId: "a1", at: 400 }, // A shown again before its picture came
+      { event: "art", cardId: "b1", at: 410.6 },
+      { event: "art", cardId: "a1", at: 650 },
+      { event: "art", cardId: "a1", at: 900 }, // a later picture of A: not counted
+      { event: "art", cardId: "c1", at: 700 }, // C never shown
+      null,
+      { event: "show", cardId: "d1", at: Number.NaN },
+      { event: "art", cardId: "d1", at: 50 },
+    ];
+    expect(artAfterShownOf(timings, ids)).toEqual({ A: 250, B: 261, C: null, D: null });
+    expect(artAfterShownOf(null, ids)).toEqual({ A: null, B: null, C: null, D: null });
+    expect(artAfterShownOf({ timings: [] }, ids)).toEqual({ A: null, B: null, C: null, D: null });
+  });
+
+  it("gives the paths of the prefetched pictures", () => {
+    expect(prefetchedPaths(["https://cdn.example/art/a1.jpg?v=2", "not an address", 7, null])).toEqual(["/art/a1.jpg", "not an address"]);
+    expect(prefetchedPaths(undefined)).toBeNull();
+    expect(prefetchedPaths("https://cdn.example/a.jpg")).toBeNull();
+    expect(prefetchedPaths([])).toEqual([]);
   });
 });

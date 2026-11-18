@@ -14,8 +14,9 @@ export function cardBox(product, slot) {
   return { x: p.x, y: p.y, w: product.cardWidth, h: Math.round(product.cardWidth * product.cardAspect) };
 }
 
-/** ffmpeg's `enable` for a place: shown from `from`, until `until`, and again from `back` (a card
- *  that leaves and comes back with no seek). A place with none is shown the whole clip. */
+/** ffmpeg's `enable` for a place: shown from `from` (which wins over `until`), else until `until`,
+ *  and again from `back` (a card that leaves and comes back with no seek). A place with none is
+ *  shown the whole clip. */
 export function enableOf(place) {
   if (place.from !== undefined) return `:enable='gte(t,${place.from})'`;
   if (place.back !== undefined) return `:enable='lt(t,${place.until})+gte(t,${place.back})'`;

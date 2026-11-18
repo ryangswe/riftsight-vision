@@ -73,6 +73,7 @@ export default {
   // baseline: { factor: 2, slackMs: 250 },
   /** Optional. The tooltip frame's dev debug global, a function returning { timings: [{ event:
    *  "show" | "art", cardId, at }] } (performance.now() times): the report's counts.artAfterShownMs
-   *  gives, per slot, the time from the card shown to its picture on screen. */
+   *  gives, per slot, the time from the card shown to its picture on screen. `cardId` is the id the
+   *  module's `cards` names (its catalog id), not a printing's. */
   // tooltipDebugGlobal: "__exampleTooltipDebug",
 };

@@ -14,3 +14,5 @@ export const REPORTED_ONLY: string[];
 export function timingsOf(counts: Record<string, any>): Record<string, number>;
 export function compareTimings(saved: Record<string, number>, now: Record<string, number>, margin?: TimingMargin): TimingComparison;
 export function timingsFileProblems(doc: unknown): string[];
+export function artAfterShownOf(timings: unknown, cardIds: Record<string, string>): Record<string, number | null>;
+export function prefetchedPaths(prefetched: unknown): string[] | null;
