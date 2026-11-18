@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Exact versions of the base environment the tests were last run in (CPython 3.12, macOS arm64):
-# the runtime dependencies and the "dev" extra together. pyproject.toml holds the supported ranges.
+# Exact versions of the base environment the tests were last run in (CPython 3.11 and 3.14, macOS
+# arm64): the runtime dependencies and the "dev" extra together. pyproject.toml holds the supported
+# ranges. ONNX Runtime is pinned twice, by Python version: 1.23.2 below 3.14, and 1.24.1 from 3.14
+# (the first release with 3.14 builds; its only macOS build is Apple silicon, macOS 14 or later).
 #
 #     python -m pip install -r requirements-lock.txt
 #     python -m pip install --no-deps -e .
@@ -185,7 +187,30 @@ onnx==1.23.2 \
     --hash=sha256:f8b9a5e25a390cc291600e5fd619f4b79708287a6bbc41a37209f364e08a63da \
     --hash=sha256:fb3e892f19f3a793b9722587349941b074f74091ad33e794a7798fe03fdc0c9c \
     --hash=sha256:fcbbd53e3482434dbf2c27f4a8727ad4865e21bbc0b5530e7557669f8d8f587b
-onnxruntime==1.24.1 \
+onnxruntime==1.23.2 ; python_version < "3.14" \
+    --hash=sha256:0be6a37a45e6719db5120e9986fcd30ea205ac8103fd1fb74b6c33348327a0cc \
+    --hash=sha256:0f9b4ae77f8e3c9bee50c27bc1beede83f786fe1d52e99ac85aa8d65a01e9b77 \
+    --hash=sha256:162f4ca894ec3de1a6fd53589e511e06ecdc3ff646849b62a9da7489dee9ce95 \
+    --hash=sha256:1f9cc0a55349c584f083c1c076e611a7c35d5b867d5d6e6d6c823bf821978088 \
+    --hash=sha256:218295a8acae83905f6f1aed8cacb8e3eb3bd7513a13fe4ba3b2664a19fc4a6b \
+    --hash=sha256:25de5214923ce941a3523739d34a520aac30f21e631de53bba9174dc9c004435 \
+    --hash=sha256:2ff531ad8496281b4297f32b83b01cdd719617e2351ffe0dba5684fb283afa1f \
+    --hash=sha256:45d127d6e1e9b99d1ebeae9bcd8f98617a812f53f46699eafeb976275744826b \
+    --hash=sha256:4ca88747e708e5c67337b0f65eed4b7d0dd70d22ac332038c9fc4635760018f7 \
+    --hash=sha256:6f91d2c9b0965e86827a5ba01531d5b669770b01775b23199565d6c1f136616c \
+    --hash=sha256:76ff670550dc23e58ea9bc53b5149b99a44e63b34b524f7b8547469aaa0dcb8c \
+    --hash=sha256:87d8b6eaf0fbeb6835a60a4265fde7a3b60157cf1b2764773ac47237b4d48612 \
+    --hash=sha256:8bace4e0d46480fbeeb7bbe1ffe1f080e6663a42d1086ff95c1551f2d39e7872 \
+    --hash=sha256:8f7d1fe034090a1e371b7f3ca9d3ccae2fabae8c1d8844fb7371d1ea38e8e8d2 \
+    --hash=sha256:902c756d8b633ce0dedd889b7c08459433fbcf35e9c38d1c03ddc020f0648c6e \
+    --hash=sha256:9d2385e774f46ac38f02b3a91a91e30263d41b2f1f4f26ae34805b2a9ddef466 \
+    --hash=sha256:a7730122afe186a784660f6ec5807138bf9d792fa1df76556b27307ea9ebcbe3 \
+    --hash=sha256:b28740f4ecef1738ea8f807461dd541b8287d5650b5be33bca7b474e3cbd1f36 \
+    --hash=sha256:b8f029a6b98d3cf5be564d52802bb50a8489ab73409fa9db0bf583eabb7c2321 \
+    --hash=sha256:bbfd2fca76c855317568c1b36a885ddea2272c13cb0e395002c402f2360429a6 \
+    --hash=sha256:da44b99206e77734c5819aa2142c69e64f3b46edc3bd314f6a45a932defc0b3e \
+    --hash=sha256:e2b9233c4947907fd1818d0e581c049c41ccc39b2856cc942ff6d26317cee145
+onnxruntime==1.24.1 ; python_version >= "3.14" \
     --hash=sha256:1099f3629832580fedf415cfce2462a56cc9ca2b560d6300c24558e2ac049134 \
     --hash=sha256:1cabe71ca14dcfbf812d312aab0a704507ac909c137ee6e89e4908755d0fc60e \
     --hash=sha256:2dfbba602da840615ed5b431facda4b3a43b5d8276cf9e0dbf13d842df105838 \

@@ -8,10 +8,11 @@
 #
 # A few updates are held because they change what the tools produce, and each needs its own
 # change with a re-measurement, not a routine bump:
-#   - numpy 2.3 and later: the training composites come out with different pixels, so the
-#     pinned composite digests would have to be recorded again.
-#   - onnxruntime (Python) 1.24 and later, onnxruntime-web 1.30 and later: every release records
-#     the browser runtime it was measured on, and a runtime on a new minor line refuses it.
+#   - numpy 2.3.3 and later: the composite digests are pinned on numpy 2.3.2 (macOS arm64), so a
+#     later NumPy is its own change, with the digests recorded again if they move.
+#   - onnxruntime (Python) 1.25 and later, onnxruntime-web 1.30 and later: a newer ONNX Runtime
+#     changes what the browser runtime is measured against, and every release records the
+#     browser runtime it was measured on, which a runtime on a new minor line refuses.
 #   - mpmath 1.4 and later: sympy 1.14, pinned beside it, requires an earlier mpmath.
 #   - @types/node 25 and later: the types stay on the Node versions CI runs (22 and 24).
 version: 2
@@ -28,9 +29,9 @@ updates:
         patterns: ["*"]
     ignore:
       - dependency-name: numpy
-        versions: [">=2.3"]
+        versions: [">=2.3.3"]
       - dependency-name: onnxruntime
-        versions: [">=1.24"]
+        versions: [">=1.25"]
       - dependency-name: mpmath
         versions: [">=1.4"]
   - package-ecosystem: npm

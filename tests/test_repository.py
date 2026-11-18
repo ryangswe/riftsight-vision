@@ -314,7 +314,7 @@ def test_the_base_lock_and_the_publish_and_lint_tools_are_pinned_by_hash():
         text = (ROOT / name).read_text(encoding="utf-8")
         body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
         pins = [chunk for chunk in body.replace(" \\\n", " ").splitlines() if chunk.strip()]
-        assert pins and all(re.search(r"==\S+(\s+--hash=sha256:[0-9a-f]{64})+\s*$", pin) for pin in pins), name
+        assert pins and all(re.search(r"==\S+(\s+;[^\\]*?)?(\s+--hash=sha256:[0-9a-f]{64})+\s*$", pin) for pin in pins), name
     publish = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
     assert "python -m pip install --require-hashes -r requirements-publish.txt" in publish
     assert "pip install --upgrade" not in publish

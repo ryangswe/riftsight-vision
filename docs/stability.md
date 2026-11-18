@@ -121,10 +121,12 @@ what changed.
   versions in the lock files. A supported version is one CI tests; others may work but are not
   promised.
   - **A new Python version joins** once the pinned NumPy and ONNX Runtime publish builds for it and
-    the tests pass on it. Python 3.14 joined with NumPy 2.3.2 and ONNX Runtime 1.24.1, the first
-    releases with builds for it that also have them for 3.11; the browser runtime's agreement
-    check passed with them. A newer ONNX Runtime changes what the browser runtime is measured
-    against, so moving to one is its own change.
+    the tests pass on it. Python 3.14 joined with NumPy 2.3.2 (for every version) and ONNX Runtime
+    1.24.1, the first release with builds for it; 3.11 to 3.13 keep ONNX Runtime 1.23.2. The
+    browser runtime's agreement check passed with 1.23.2 on 3.11 to 3.13 and with 1.24.1 on 3.14.
+    ONNX Runtime 1.24.1 has one macOS build, for Apple silicon on macOS 14 or later, so on 3.14 a
+    Mac needs that. A newer ONNX Runtime changes what the browser runtime is measured against, so
+    moving to one is its own change.
   - **A version leaves** when it reaches its end of life upstream (3.11 in October 2027), or
     earlier only when a security fix needs a newer one. The changelog's Deprecated section names it
     at least one release before the release that drops it. Python 3.10 left in v0.2.0.
