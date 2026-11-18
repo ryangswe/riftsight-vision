@@ -55,6 +55,8 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
+- The downstream canary can follow a product's branch: a `CANARY_TARGETS` entry names `branch`
+  instead of a fixed `sha`, and each run tests that branch's current commit.
 - `vendor --harness` also copies the harness's `.d.mts` declarations. When a product next vendors,
   it removes `@ts-expect-error` from imports of the modules that now have declarations, and drops
   any `--unmanaged` rule that names one of these files. `hover-browser.mjs`, `rollback-check.mjs`

@@ -13,12 +13,13 @@
 //   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each;
 //                                                 each step sees CARDVISION_CANARY=1
 //
-// CANARY_TARGETS is a JSON list of { repo, sha, vendorDir, steps, chrome? }: the product's
-// repository ("account/name"), the full commit to try, the folder it vendors the runtime into, the
-// shell commands to run in the product after vendoring (in order, each reported), and whether the
-// job installs a headless Chrome first ($CHROME names it). An empty variable, or an empty list,
-// is a neutral skip: the job summary says so and the run ends green. Results go to
-// $GITHUB_STEP_SUMMARY and, for the workflow, $GITHUB_OUTPUT. Nothing here reads a secret.
+// CANARY_TARGETS is a JSON list of { repo, branch | sha, vendorDir, steps, chrome? }: the product's
+// repository ("account/name"), the branch whose current commit to try (the plan looks it up on each
+// run) or one full commit, the folder it vendors the runtime into, the shell commands to run in the
+// product after vendoring (in order, each reported), and whether the job installs a headless Chrome
+// first ($CHROME names it). An empty variable, or an empty list, is a neutral skip: the job summary
+// says so and the run ends green. Results go to $GITHUB_STEP_SUMMARY and, for the workflow,
+// $GITHUB_OUTPUT. Nothing here reads a secret.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -28,7 +29,12 @@ import { fileURLToPath } from "node:url";
 
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const SHA = /^[0-9a-f]{40}$/;
-const KEYS = new Set(["repo", "sha", "vendorDir", "steps", "chrome"]);
+const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+const KEYS = new Set(["repo", "branch", "sha", "vendorDir", "steps", "chrome"]);
+const LOOKUP_TRIES = 3;
+const LOOKUP_WAIT_MS = 2000;
+
+const validBranch = (name) => typeof name === "string" && BRANCH.test(name) && !name.includes("..") && !name.includes("//") && !name.endsWith("/") && !name.endsWith(".") && !name.endsWith(".lock");
 
 /** The targets in a variable's text, or { problems } when it is malformed; an empty text or list is []. */
 export function parseTargets(text) {
@@ -47,14 +53,46 @@ export function parseTargets(text) {
     if (t === null || typeof t !== "object" || Array.isArray(t)) return problems.push(`${at} is not an object`);
     for (const key of Object.keys(t)) if (!KEYS.has(key)) problems.push(`${at} has an unknown field "${key}"`);
     if (typeof t.repo !== "string" || !REPO.test(t.repo)) problems.push(`${at}: repo must be "account/name"`);
-    if (typeof t.sha !== "string" || !SHA.test(t.sha)) problems.push(`${at}: sha must be a full 40-character commit`);
+    if ((t.sha === undefined) === (t.branch === undefined)) problems.push(`${at}: give exactly one of branch and sha`);
+    if (t.sha !== undefined && (typeof t.sha !== "string" || !SHA.test(t.sha))) problems.push(`${at}: sha must be a full 40-character commit`);
+    if (t.branch !== undefined && !validBranch(t.branch)) problems.push(`${at}: branch must be a plain branch name`);
     const dir = t.vendorDir;
     if (typeof dir !== "string" || dir === "" || isAbsolute(dir) || dir.includes("\\") || dir.split("/").some((p) => p === ".." || p === ".")) problems.push(`${at}: vendorDir must be a relative folder inside the product`);
     if (!Array.isArray(t.steps) || t.steps.length === 0 || t.steps.some((s) => typeof s !== "string" || s.trim() === "")) problems.push(`${at}: steps must be a non-empty list of commands`);
     if (t.chrome !== undefined && typeof t.chrome !== "boolean") problems.push(`${at}: chrome must be true or false`);
-    targets.push({ repo: t.repo, sha: t.sha, vendorDir: t.vendorDir, steps: t.steps, chrome: t.chrome === true });
+    targets.push({ repo: t.repo, ...(t.branch === undefined ? { sha: t.sha } : { branch: t.branch }), vendorDir: t.vendorDir, steps: t.steps, chrome: t.chrome === true });
   });
   return problems.length > 0 ? { problems } : { targets };
+}
+
+/** The commit a repository's branch is at now, or { problem }. A failed lookup is tried again; a branch that is not there is not. */
+export function branchCommit(repo, branch, base = process.env.CANARY_REPO_BASE ?? "https://github.com") {
+  const ref = `refs/heads/${branch}`;
+  let failure = "";
+  for (let attempt = 1; attempt <= LOOKUP_TRIES; attempt += 1) {
+    const done = spawnSync("git", ["ls-remote", `${base}/${repo}.git`, ref], { encoding: "utf-8", timeout: 60_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+    if (done.status === 0) {
+      const found = done.stdout.split("\n").map((line) => line.split("\t")).filter(([sha, name]) => SHA.test(sha ?? "") && name === ref);
+      return found.length === 1 ? { sha: found[0][0] } : { problem: `${repo} has no branch ${branch}` };
+    }
+    failure = (done.stderr ?? "").trim().split("\n").at(-1) || (done.error?.message ?? "git ls-remote failed");
+    if (attempt < LOOKUP_TRIES) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOOKUP_WAIT_MS);
+  }
+  return { problem: `could not read branch ${branch} of ${repo}: ${failure}` };
+}
+
+/** The targets with every branch replaced by the commit it is at now, or { problems }. */
+export function resolveTargets(targets, lookup = branchCommit) {
+  const problems = [];
+  const resolved = targets.map((t, i) => {
+    if (t.branch === undefined) return t;
+    const { branch, ...rest } = t;
+    const { sha, problem } = lookup(t.repo, branch);
+    if (problem) problems.push(`target ${i + 1}: ${problem}`);
+    else console.log(`${t.repo}: ${branch} is at ${sha}`);
+    return { ...rest, sha };
+  });
+  return problems.length > 0 ? { problems } : { targets: resolved };
 }
 
 /** The marker key: the tracked files that decide a run (browser/**, docs/hover-spec.*, the workflow file) and the targets. */
@@ -100,7 +138,13 @@ function plan(root) {
     summary(`## Downstream canary\n\nThe list of products is malformed:\n\n${parsed.problems.map((p) => `- ${p}`).join("\n")}`);
     return 1;
   }
-  const { targets } = parsed;
+  const resolved = resolveTargets(parsed.targets);
+  if (resolved.problems) {
+    for (const p of resolved.problems) console.error(p);
+    summary(`## Downstream canary\n\nA product's branch could not be read:\n\n${resolved.problems.map((p) => `- ${p}`).join("\n")}`);
+    return 1;
+  }
+  const { targets } = resolved;
   if (targets.length === 0) {
     summary("## Downstream canary\n\nSkipped (neutral): the repository variable `CANARY_TARGETS` is empty, so there is no product to try.");
     output("run", "false");

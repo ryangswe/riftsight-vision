@@ -648,6 +648,15 @@ def targets_text(**changes) -> str:
     return json.dumps([{**target, **changes}])
 
 
+def following(branch: str | None) -> str:
+    """An entry that follows a branch instead of naming a commit; None leaves both out."""
+    import json
+
+    target = json.loads(targets_text())[0]
+    del target["sha"]
+    return json.dumps([target if branch is None else {**target, "branch": branch}])
+
+
 def canary(*args: str, targets: str | None = None, cwd: Path = ROOT, **extra: str) -> subprocess.CompletedProcess:
     environment = {key: value for key, value in os.environ.items() if not key.startswith(("GITHUB_", "CANARY_"))}
     if targets is not None:
@@ -656,9 +665,8 @@ def canary(*args: str, targets: str | None = None, cwd: Path = ROOT, **extra: st
     return subprocess.run(["node", str(CANARY), *args], cwd=cwd, env=environment, capture_output=True, text=True, timeout=120)
 
 
-def test_the_canary_workflow_is_advisory_read_only_and_names_no_product():
-    """It is never a required check (a workflow cannot say so; nothing in it asks to be), runs
-    on the pull request's own power, reads no secret and keeps no credentials."""
+def test_the_canary_workflow_is_read_only_and_names_no_product():
+    """It runs on the pull request's own power, reads no secret and keeps no credentials."""
     text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
     assert re.search(r"^on:\n  push:\n    branches: \[main\]\n  pull_request:\n", text, re.M)
     assert "pull_request_target" not in text and "secrets." not in text
@@ -705,6 +713,13 @@ def test_an_empty_variable_is_a_neutral_skip_shown_in_the_job_summary(tmp_path):
     (targets_text(vendorDir="/abs"), "relative folder"),
     (targets_text(steps=[]), "non-empty list of commands"),
     (targets_text(token="x"), 'unknown field "token"'),
+    (targets_text(branch="main"), "exactly one of branch and sha"),
+    (following(None), "exactly one of branch and sha"),
+    (following("-upload-pack=x"), "plain branch name"),
+    (following("a..b"), "plain branch name"),
+    (following("a b"), "plain branch name"),
+    (following("main.lock"), "plain branch name"),
+    (following(""), "plain branch name"),
 ])
 def test_a_malformed_variable_fails_the_plan_and_says_why(text, problem, tmp_path):
     summary = tmp_path / "summary.md"
@@ -758,6 +773,68 @@ def test_the_marker_key_follows_the_targets_and_the_files_that_decide_a_run(tmp_
     (repo / ".github" / "workflows" / "canary.yml").write_text("two\n")
     git(repo, "add", "-A")
     assert plan_of(targets_text(), repo)["key"] != workflow_key
+
+
+@pytest.fixture()
+def product_remote(tmp_path) -> tuple[Path, Path]:
+    """A local stand-in for github.com: <base>/example/product.git, with a commit on main."""
+    base, work = tmp_path / "remote", tmp_path / "work"
+    bare = base / "example" / "product.git"
+    bare.mkdir(parents=True)
+    work.mkdir()
+    git(bare, "init", "--quiet", "--bare", "--initial-branch=main")
+    git(work, "init", "--quiet", "--initial-branch=main")
+    (work / "a.txt").write_text("one\n")
+    git(work, "add", "a.txt")
+    git(work, "commit", "--quiet", "-m", "one")
+    git(work, "remote", "add", "origin", str(bare))
+    git(work, "push", "--quiet", "origin", "main")
+    return base, work
+
+
+@needs_node
+def test_a_target_that_follows_a_branch_runs_at_that_branch_s_current_commit(product_remote, tmp_path):
+    import json
+
+    base, work = product_remote
+    out = tmp_path / "output.txt"
+
+    def plan() -> dict[str, str]:
+        out.unlink(missing_ok=True)
+        done = canary("plan", ".", targets=following("main"), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{base}")
+        assert done.returncode == 0, done.stderr
+        return read_outputs(out)
+
+    first = plan()
+    entry = json.loads(first["matrix"])["include"][0]
+    assert entry["sha"] == git(work, "rev-parse", "HEAD") and "branch" not in entry
+    assert plan()["key"] == first["key"]
+
+    (work / "a.txt").write_text("two\n")
+    git(work, "commit", "--quiet", "-am", "two")
+    git(work, "push", "--quiet", "origin", "main")
+    moved = plan()
+    assert json.loads(moved["matrix"])["include"][0]["sha"] == git(work, "rev-parse", "HEAD")
+    assert moved["key"] != first["key"], "a product that moved is tried again"
+
+
+@needs_node
+def test_a_branch_that_cannot_be_read_fails_the_plan_and_says_why(product_remote, tmp_path):
+    base, _ = product_remote
+    summary = tmp_path / "summary.md"
+    done = canary("plan", ".", targets=following("gone"), GITHUB_STEP_SUMMARY=str(summary), CANARY_REPO_BASE=f"file://{base}")
+    assert done.returncode == 1 and "target 1: example/product has no branch gone" in done.stderr
+    assert "has no branch gone" in summary.read_text(encoding="utf-8")
+
+
+@needs_node
+def test_a_fixed_commit_is_used_as_written_with_no_lookup(tmp_path):
+    import json
+
+    out = tmp_path / "output.txt"
+    done = canary("plan", ".", targets=targets_text(), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{tmp_path}/nowhere")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(read_outputs(out)["matrix"])["include"][0]["sha"] == PRODUCT_SHA
 
 
 @needs_node
