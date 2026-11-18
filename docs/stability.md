@@ -117,12 +117,14 @@ what changed.
 
 ## Supported versions
 
-- **Python: 3.11, 3.12 and 3.13.** CI tests each one on every pull request, with the pinned
+- **Python: 3.11, 3.12, 3.13 and 3.14.** CI tests each one on every pull request, with the pinned
   versions in the lock files. A supported version is one CI tests; others may work but are not
   promised.
   - **A new Python version joins** once the pinned NumPy and ONNX Runtime publish builds for it and
-    the tests pass on it. Python 3.14 waits for the pinned ONNX Runtime: a newer ONNX Runtime
-    changes what the browser runtime is measured against, so moving to it is its own change.
+    the tests pass on it. Python 3.14 joined with NumPy 2.3.2 and ONNX Runtime 1.24.1, the first
+    releases with builds for it that also have them for 3.11; the browser runtime's agreement
+    check passed with them. A newer ONNX Runtime changes what the browser runtime is measured
+    against, so moving to one is its own change.
   - **A version leaves** when it reaches its end of life upstream (3.11 in October 2027), or
     earlier only when a security fix needs a newer one. The changelog's Deprecated section names it
     at least one release before the release that drops it. Python 3.10 left in v0.2.0.

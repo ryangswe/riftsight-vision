@@ -11,6 +11,10 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Python 3.14 is supported and tested in CI, beside 3.11, 3.12 and 3.13. The lock files move to
+  NumPy 2.3.2 and ONNX Runtime 1.24.1, the first releases with builds for 3.14 that also have
+  them for 3.11, and the train lock to torchvision 0.29.1, which has every 3.14 build. The
+  supported ranges in `pyproject.toml` are unchanged.
 - Four hover browser test checks (`browser/harness/`), from steps the maintainers did by hand
   before each release: `paused-names-each` (each card of a paused picture is named with its
   picture within 1 s), `arrives-under-rest` (a card that comes back, with no seek, under a

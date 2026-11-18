@@ -448,7 +448,7 @@ def test_the_quickstart_workflow_runs_the_documents_beginner_path_on_linux_and_i
     assert "on:\n  push:\n    branches: [main]\n  pull_request:\n  workflow_dispatch:\n\n" in text
     assert "secrets." not in text and "vars." not in text
     assert "permissions:\n  contents: read\n" in text and text.count("permissions:") == 1
-    # The system's python3 must be a supported one (3.11 to 3.13): Ubuntu 24.04's, not the newest.
+    # The system's python3 must be a supported one (3.11 to 3.14): Ubuntu 24.04's, not the newest.
     assert "runs-on: ubuntu-24.04" in text and "runs-on: ubuntu-latest" not in text and "runs-on: windows-latest" in text
     assert "          distribution: Ubuntu-24.04\n          wsl-version: 2\n" in text
     assert "    defaults:\n      run:\n        shell: wsl-bash {0}\n" in text

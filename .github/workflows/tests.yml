@@ -114,6 +114,16 @@ jobs:
         part: [1, 2, 3]
     steps: *steps
 
+  tests-3-14:
+    name: Python ${{ matrix.python }}, part ${{ matrix.part }} of 3
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.14"]
+        part: [1, 2, 3]
+    steps: *steps
+
   python-3-11:
     name: Python 3.11
     needs: tests-3-11
@@ -147,9 +157,20 @@ jobs:
           PARTS: ${{ needs.tests-3-13.result }}
         run: test "$PARTS" = success
 
+  python-3-14:
+    name: Python 3.14
+    needs: tests-3-14
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every part passed
+        env:
+          PARTS: ${{ needs.tests-3-14.result }}
+        run: test "$PARTS" = success
+
   balance:
     name: Test parts balance
-    needs: [tests-3-11, tests-3-12, tests-3-13]
+    needs: [tests-3-11, tests-3-12, tests-3-13, tests-3-14]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
