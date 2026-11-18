@@ -10,6 +10,10 @@
 # Linux home first, as the quickstart says, Ubuntu is prepared with the quickstart's own blocks,
 # and the demo is also fetched from Windows at the localhost address the quickstart gives.
 #
+# The Linux job runs on Ubuntu 24.04, not ubuntu-latest: it uses the system's python3, which must
+# be one the documents support (3.11 to 3.13). Ubuntu 26.04's is 3.14, for which the locked
+# onnxruntime has no wheel. It is also the Ubuntu the quickstart names for WSL.
+#
 # Vampire/setup-wsl is pinned to the commit of its tag v7.2.0, since it is not GitHub's own.
 #
 # The Windows job has no second try, and it fails fast rather than holding the check. Setting up
@@ -32,7 +36,7 @@ permissions:
 jobs:
   linux:
     name: Beginner path on Linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

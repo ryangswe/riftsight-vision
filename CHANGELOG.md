@@ -26,6 +26,8 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- The quickstart's Linux check runs on Ubuntu 24.04. GitHub's newest Ubuntu image comes with
+  Python 3.14, which the documents do not support yet (the locked onnxruntime has no wheel for it).
 - `store-release.yml` and `store-check.yml` pass `--runtimes` only when `store/record-facts.json`
   exists too. A product with a `cdn/RUNTIMES.json` but no facts file was refused for naming no
   model release, which on a version pull request made the store check red.
