@@ -14,6 +14,15 @@
 //        --release <release folder> --art <folder for the card pictures named in the product module,
 //        outside the product's repository> [--fetch-art] [--dist <build>] [--dist-idle <build>]
 //        [--out <folder for the report and logs>] [--only <check id,...>] [--baseline <timings.json>]
+//        [--art-delay-ms <ms>]
+//
+// --art-delay-ms holds each card picture's answer from the stand-in that long, as a CDN far away
+// would (a whole number from 0 to 10000; 0 by default). The timed checks are judged all the same,
+// so a long delay can fail them; the delay is in measuredOn, and such a run is never a --baseline.
+// With the module's `tooltipDebugGlobal`, the report's counts.artAfterShownMs is, per card slot,
+// the time from the tooltip showing the card to its picture on screen, from the tooltip frame's
+// own timings. When the compute frame's debug record has a `prefetched` list of addresses,
+// counts.prefetched gives their paths.
 //
 // Every run writes timings.json beside report.json: the times it measured, by name (timings.mjs).
 // With --baseline, the times of a saved run (a product keeps its last release's file) are compared
@@ -64,12 +73,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "./clauses.mjs";
+import { cardBox, renderClip } from "./clip.mjs";
 import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
 import { LIMIT_DEFAULTS, productProblems, SLOTS } from "./product-shape.mjs";
 import { startServer } from "./serve.mjs";
 import { stillMoves } from "./steady.mjs";
-import { compareTimings, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "./timings.mjs";
+import { artAfterShownOf, compareTimings, prefetchedPaths, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "./timings.mjs";
 
 /** The whole run's deadline: past it the run stops, fails and still writes its report. */
 const RUN_DEADLINE_MS = 12 * 60_000;
@@ -86,12 +96,13 @@ const { values } = parseArgs({
     out: { type: "string" },
     only: { type: "string" },
     baseline: { type: "string" },
+    "art-delay-ms": { type: "string", default: "0" },
     "fetch-art": { type: "boolean", default: false },
     headful: { type: "boolean", default: false },
   },
 });
 const usage = (problem) => {
-  console.error(`${problem}\nusage: node hover-browser.mjs --product <product module> --chrome <Chrome for Testing> --release <release folder> --art <card pictures> [--fetch-art] [--dist <build>] [--dist-idle <build>] [--out folder] [--only ids] [--baseline timings.json]`);
+  console.error(`${problem}\nusage: node hover-browser.mjs --product <product module> --chrome <Chrome for Testing> --release <release folder> --art <card pictures> [--fetch-art] [--dist <build>] [--dist-idle <build>] [--out folder] [--only ids] [--baseline timings.json] [--art-delay-ms ms]`);
   process.exit(2);
 };
 if (!values.product) usage("missing --product");
@@ -116,6 +127,10 @@ const want = (id) => (!only || only.has(id)) && !(id in unsupported);
 if (!values["dist-idle"] && IDLE_CHECKS.some(want)) usage("--dist-idle is needed for the idle checks (or leave them out with --only)");
 const repoRoot = fileURLToPath(PRODUCT.root);
 if (!relative(repoRoot, resolve(values.art)).startsWith("..")) usage("--art must be outside the product's repository: card art is never committed");
+const artDelayMs = /^[0-9]{1,5}$/.test(values["art-delay-ms"]) ? Number(values["art-delay-ms"]) : NaN;
+if (!(artDelayMs >= 0 && artDelayMs <= 10_000)) usage("--art-delay-ms must be a whole number of ms from 0 to 10000");
+// A held picture lengthens the timed checks' times, so such a run is never compared with a saved one.
+if (artDelayMs > 0 && values.baseline) usage("--baseline cannot be used with --art-delay-ms: a held picture lengthens the timed checks");
 const LIMITS = { ...LIMIT_DEFAULTS, ...PRODUCT.limits };
 const MARGIN = { ...TIMING_DEFAULTS, ...PRODUCT.baseline };
 let savedTimings = null;
@@ -193,41 +208,8 @@ for (const [slot, id] of Object.entries(PRODUCT.cards)) {
   cards[slot] = { id, name: card.name, art: card.art, file };
 }
 
-/** The clip, rendered with ffmpeg: VP8 in WebM (Chrome for Testing plays no H.264). */
-function renderClip() {
-  const clip = join(work, "clip.webm");
-  const slots = SLOTS; // fixed order: a later slot is drawn over an earlier one (D over A)
-  const inputs = slots.flatMap((s) => ["-loop", "1", "-i", cards[s].file]);
-  const scaled = slots.map((s, i) => `[${i + 1}]scale=${box(s).w}:${box(s).h}[${s}]`);
-  let last = "bg";
-  const layered = slots.map((s, i) => {
-    const p = PLACES[s];
-    const when =
-      p.from !== undefined
-        ? `:enable='gte(t,${p.from})'`
-        : p.back !== undefined
-          ? `:enable='lt(t,${p.until})+gte(t,${p.back})'`
-          : p.until !== undefined
-            ? `:enable='lt(t,${p.until})'`
-            : "";
-    const next = i === slots.length - 1 ? "v" : `l${i}`;
-    const step = `[${last}][${s}]overlay=${p.x}:${p.y}${when}:shortest=1[${next}]`;
-    last = next;
-    return step;
-  });
-  const graph = [`[0]noise=alls=10:allf=t[bg]`, ...scaled, ...layered].join(";");
-  execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-f", "lavfi", "-i", `color=c=0x1d4a2e:s=${CLIP.width}x${CLIP.height}:r=${CLIP.fps}:d=${CLIP.seconds}`, ...inputs,
-    // libvpx's real-time setting: about 8 times faster than its default here, for the same quality
-    // where the cards are (PSNR 36.2 against 36.4 dB, on the toy clip against a lossless render).
-    "-filter_complex", graph, "-map", "[v]", "-t", String(CLIP.seconds), "-c:v", "libvpx", "-b:v", "2M", "-deadline", "realtime", "-cpu-used", "8", "-an", clip]);
-  return clip;
-}
-
-/** The card's box in the clip, in clip pixels (the picture is scaled to it). */
-function box(slot) {
-  const p = PLACES[slot];
-  return { x: p.x, y: p.y, w: PRODUCT.cardWidth, h: Math.round(PRODUCT.cardWidth * PRODUCT.cardAspect) };
-}
+/** The card's box in the clip, in clip pixels (clip.mjs). */
+const box = (slot) => cardBox(PRODUCT, slot);
 
 const testSettings = PRODUCT.testSettings(`https://${cdnHost}${PRODUCT.artPath("{art}")}`);
 
@@ -242,13 +224,16 @@ function startStandIn() {
   const requests = [];
   const server = createServer({ key: readFileSync(join(certDir, "key.pem")), cert: readFileSync(join(certDir, "cert.pem")) }, (req, res) => {
     const path = new URL(req.url ?? "/", `https://${cdnHost}`).pathname;
-    const send = (status, body, type, cache) => {
-      requests.push({ t: Date.now() - startedAt, path, status });
-      res.writeHead(status, { "content-type": type, "cache-control": cache, "access-control-allow-origin": "*" }).end(body);
-    };
-    if (path === settingsUrl.pathname) send(200, JSON.stringify(testSettings), "application/json", "no-cache");
-    else if (art.has(path)) send(200, art.get(path), "image/jpeg", "public, max-age=86400");
-    else send(404, "", "text/plain", "no-store");
+    const [status, body, type, cache, delay] =
+      path === settingsUrl.pathname ? [200, JSON.stringify(testSettings), "application/json", "no-cache", 0]
+      : art.has(path) ? [200, art.get(path), "image/jpeg", "public, max-age=86400", artDelayMs]
+      : [404, "", "text/plain", "no-store", 0];
+    // A request is listed when it arrives (the checks count the list around a window); --art-delay-ms
+    // holds only the answer to a picture.
+    requests.push({ t: Date.now() - startedAt, path, status });
+    const send = () => res.writeHead(status, { "content-type": type, "cache-control": cache, "access-control-allow-origin": "*" }).end(body);
+    if (delay > 0) setTimeout(send, delay);
+    else send();
   });
   return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok({ server, port: server.address().port, spki, requests })));
 }
@@ -389,6 +374,15 @@ async function tooltipState(page) {
   return { ...shown, frame: Boolean(f), inner };
 }
 
+/** The tooltip frame's own timings, from its debug global (the module's `tooltipDebugGlobal`, a
+ *  function returning { timings: [{ event: "show" | "art", cardId, at }] } in dev builds), paired
+ *  per card slot by timings.mjs. */
+async function artAfterShown(page) {
+  const f = page.frames().find((fr) => fr.url().startsWith("chrome-extension://") && fr.url().endsWith(`/${PRODUCT.frames.tooltip}`));
+  const timings = f ? await f.evaluate((g) => window[g]?.()?.timings ?? null, PRODUCT.tooltipDebugGlobal).catch(() => null) : null;
+  return artAfterShownOf(timings, Object.fromEntries(Object.entries(cards).map(([slot, c]) => [slot, c.id])));
+}
+
 /** The compute frame's own account, for a check's record: its load state, its last error, the
  *  last look's error and how long the worker took on it, whether it stopped or restarted, and how
  *  many looks it analyzed. */
@@ -489,7 +483,7 @@ for (const [id, reason] of Object.entries(unsupported)) {
   log("check unsupported", { id, clause: CLAUSES[id], reason });
 }
 
-const clipPath = renderClip();
+const clipPath = renderClip(PRODUCT, Object.fromEntries(Object.entries(cards).map(([slot, c]) => [slot, c.file])), work);
 const server = await startServer({ video: clipPath, port: 0 });
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 const standIn = await startStandIn();
@@ -683,6 +677,12 @@ try {
       await until(async () => ((await computeDebug(page))?.state === "ready" ? true : null), 60_000, 250);
       const offRun = await covered();
       if (want("switch-flips")) record("switch-flips", offRun.first === cards.A.name && offRun.last === cards.D.name, offRun);
+      // Diagnostics, never judged; by now every card has been shown (C only when a check above
+      // showed it): the tooltip's show-to-picture times, and the pictures the compute frame
+      // fetched ahead, when the product reports them.
+      if (PRODUCT.tooltipDebugGlobal) counts.artAfterShownMs = await artAfterShown(page);
+      const prefetched = prefetchedPaths((await computeDebug(page))?.prefetched);
+      if (prefetched) counts.prefetched = prefetched;
 
       // Still with the switch off: the pointer rests on B, which stays put on the playing clip,
       // for 16.5 s from the pointer's move (at least 16 s: past its 10 s and S-W6's 5 s after a
@@ -866,9 +866,10 @@ try {
           record("second-tab-names-card", Boolean(named), {
             ...counts.secondTab,
             analyzed: last?.analyzed ?? null,
-            // The first step after "no frame" is about when the compute frame started: a frame
-            // that starts more than 10 s after the pointer's last move is not told of the pointer
-            // when it connects, so it gets no slow-start look.
+            // The first step after "no frame" is about when the compute frame started. The first
+            // frame to connect during a rest is told that the pointer rests, however late within
+            // 60 s, and gets its one slow-start look (S-B13); a frame made again during the same
+            // rest gets none.
             steps,
             compute: computeState(last),
             release: last?.release ? { source: last.release.source, reason: last.release.reason ?? null } : null,
@@ -999,6 +1000,7 @@ function finish() {
     settings: testSettings,
     platform: `${process.platform} ${process.arch}`,
     node: process.version,
+    artDelayMs,
   };
   const timings = timingsOf(counts);
   const baseline = savedTimings
@@ -1034,11 +1036,12 @@ function finish() {
   // release (the same kind of machine as the runs it is compared with).
   writeFileSync(
     join(out, "timings.json"),
-    JSON.stringify({ passed: report.passed, timings, measuredOn: { chrome: measuredOn.chrome, extensionVersion: measuredOn.extensionVersion, release: measuredOn.release, platform: measuredOn.platform } }, null, 2) + "\n",
+    JSON.stringify({ passed: report.passed, timings, measuredOn: { chrome: measuredOn.chrome, extensionVersion: measuredOn.extensionVersion, release: measuredOn.release, platform: measuredOn.platform, artDelayMs } }, null, 2) + "\n",
   );
   console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}${r.outcome === "unsupported" ? ` (${r.detail.reason})` : ""}`).join("\n")}`);
   if (missing.length) console.log(`missing (never ran): ${missing.join(", ")}`);
   console.log(`policy: ${policyViolations.length} content-security-policy violation(s); ${originMismatches.length} refused postMessage(s)`);
+  if (artDelayMs > 0) console.log(`art delay: each card picture was held ${artDelayMs} ms (the timed checks' times include it)`);
   console.log(`network: ${violations.length} violation(s), ${exempt.length} of Chrome's own exempt; hosts ${JSON.stringify(hostsSeen)}`);
   console.log(`counts: ${JSON.stringify(counts)}`);
   console.log(`timings: ${JSON.stringify(timings)}`);

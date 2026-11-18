@@ -38,8 +38,9 @@ import { parseArgs } from "node:util";
 
 import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
-import { productProblems, SLOTS } from "./product-shape.mjs";
+import { productProblems } from "./product-shape.mjs";
 import { CHECKS } from "./clauses.mjs";
+import { cardBox, renderClip } from "./clip.mjs";
 import { startServer } from "./serve.mjs";
 
 const RUN_DEADLINE_MS = 6 * 60_000;
@@ -64,7 +65,7 @@ const versionA = manifestVersion(values.a);
 const versionB = manifestVersion(values.b);
 if (versionA === versionB) usage(`--a and --b have the same manifest version (${versionA}): give build B another version, or the check cannot tell which build is running`);
 
-const { clip: CLIP, places: PLACES } = PRODUCT;
+const { clip: CLIP } = PRODUCT;
 const puppeteerDir = process.env.PUPPETEER_CORE_DIR;
 const puppeteerModule = await import(puppeteerDir ? createRequire(join(resolve(puppeteerDir), "index.js")).resolve("puppeteer-core") : "puppeteer-core");
 const puppeteer = puppeteerModule.default?.launch ? puppeteerModule.default : puppeteerModule;
@@ -89,26 +90,7 @@ for (const [slot, id] of Object.entries(PRODUCT.cards)) {
   if (!existsSync(file)) throw new Error(`setup: no picture ${file} for ${id}`);
   cards[slot] = { id, name: card.name, art: card.art, file };
 }
-const box = (slot) => ({ x: PLACES[slot].x, y: PLACES[slot].y, w: PRODUCT.cardWidth, h: Math.round(PRODUCT.cardWidth * PRODUCT.cardAspect) });
-
-/** The clip: the cards of the product module's places, over a noisy table (VP8: Chrome for Testing plays no H.264). */
-function renderClip() {
-  const clip = join(work, "clip.webm");
-  const inputs = SLOTS.flatMap((s) => ["-loop", "1", "-i", cards[s].file]);
-  const scaled = SLOTS.map((s, i) => `[${i + 1}]scale=${box(s).w}:${box(s).h}[${s}]`);
-  let last = "bg";
-  const layered = SLOTS.map((s, i) => {
-    const p = PLACES[s];
-    const when = p.from !== undefined ? `:enable='gte(t,${p.from})'` : p.until !== undefined ? `:enable='lt(t,${p.until})'` : "";
-    const next = i === SLOTS.length - 1 ? "v" : `l${i}`;
-    const step = `[${last}][${s}]overlay=${p.x}:${p.y}${when}:shortest=1[${next}]`;
-    last = next;
-    return step;
-  });
-  execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-f", "lavfi", "-i", `color=c=0x1d4a2e:s=${CLIP.width}x${CLIP.height}:r=${CLIP.fps}:d=${CLIP.seconds}`, ...inputs,
-    "-filter_complex", [`[0]noise=alls=10:allf=t[bg]`, ...scaled, ...layered].join(";"), "-map", "[v]", "-t", String(CLIP.seconds), "-c:v", "libvpx", "-b:v", "2M", "-an", clip]);
-  return clip;
-}
+const box = (slot) => cardBox(PRODUCT, slot);
 
 /** The local stand-in for the settings host, with a throwaway certificate Chrome trusts by its key's hash. */
 function startStandIn() {
@@ -135,7 +117,7 @@ const browsers = new Set();
 const policyViolations = [];
 const originMismatches = [];
 
-const clipPath = renderClip();
+const clipPath = renderClip(PRODUCT, Object.fromEntries(Object.entries(cards).map(([slot, c]) => [slot, c.file])), work);
 const server = await startServer({ video: clipPath, port: 0 });
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 const standIn = await startStandIn();

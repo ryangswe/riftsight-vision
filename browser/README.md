@@ -1125,9 +1125,15 @@ fails when a time is slower than factor × saved + slack (the module's `baseline
 default, from the spread of 16 CI runs). The second tab's time and the arrival's are reported but
 not compared: they vary by design. Save the file from a passing CI run of the release, on the same kind of runner as
 the runs it is compared with: the times of another machine are compared all the same (the report
-says so), and a file from a failed run is refused. Every run also fails on any
-content-security-policy violation that Chrome logs in a page, frame or worker, and counts
-`postMessage` calls refused for their target origin (`harness/console-watch.mjs`). Run it with
+says so), and a file from a failed run is refused. `--art-delay-ms <ms>` holds each card picture's
+answer from the stand-in that long, as a far CDN would; the timed checks are judged all the same,
+so a long delay can fail them, the delay is recorded in `measuredOn`, and such a run cannot be used
+with or as a `--baseline`. Two diagnostics are reported, never judged: with the module's
+`tooltipDebugGlobal`, `counts.artAfterShownMs` gives per slot the time from the card shown to its
+picture on screen, and a compute debug record with a `prefetched` list gives `counts.prefetched`.
+The hover browser test and the rollback check render the same clip (`harness/clip.mjs`). Every run
+also fails on any content-security-policy violation that Chrome logs in a page, frame or worker,
+and counts `postMessage` calls refused for their target origin (`harness/console-watch.mjs`). Run it with
 `node harness/hover-browser.mjs --product <file> --chrome <Chrome for Testing> --release <release
 folder> --art <folder outside the product's repository> --dist <build> [--dist-idle <build>]
 [--baseline <timings.json>]`.

@@ -3,7 +3,7 @@
 // product module must have, and that the harness starts from the example module and says what it
 // still needs. It runs no browser and reaches no network.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -12,8 +12,9 @@ import { describe, expect, it } from "vitest";
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "../harness/clauses.mjs";
 import example from "../harness/example/product.mjs";
 import { LIMIT_DEFAULTS, productProblems, SLOTS } from "../harness/product-shape.mjs";
+import { cardBox, clipArgs, type ClipProduct, enableOf } from "../harness/clip.mjs";
 import { stillMoves } from "../harness/steady.mjs";
-import { compareTimings, REPORTED_ONLY, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "../harness/timings.mjs";
+import { artAfterShownOf, compareTimings, prefetchedPaths, REPORTED_ONLY, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "../harness/timings.mjs";
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -140,6 +141,11 @@ describe("the run's times and the baseline comparison", () => {
   it("reads a saved file only in the shape a run writes", () => {
     expect(timingsFileProblems({ passed: true, timings: { artVisibleMs: 300 }, measuredOn: { platform: "linux x64" } })).toEqual([]);
     expect(timingsFileProblems({ passed: false, timings: { artVisibleMs: 300 } })).toEqual(["it is from a failed run"]);
+    // A run whose pictures were held: its times include the delay.
+    expect(timingsFileProblems({ passed: true, timings: { artVisibleMs: 800 }, measuredOn: { artDelayMs: 500 } })).toEqual([
+      "it is from a run with --art-delay-ms 500, whose picture times include that delay",
+    ]);
+    expect(timingsFileProblems({ passed: true, timings: { artVisibleMs: 300 }, measuredOn: { artDelayMs: 0 } })).toEqual([]);
     expect(timingsFileProblems([])).toEqual(["it is not a JSON object"]);
     expect(timingsFileProblems({ artVisibleMs: 300 })).toEqual(["it has no timings object"]);
     expect(timingsFileProblems({ timings: {} })).toEqual(["its timings object is empty"]);
@@ -285,5 +291,91 @@ describe("still-outline-steady's judgment", () => {
     expect(withReport.tipWobbles).toEqual([]);
     const alone = stillMoves([{ outline: box(10), tip: tip(0) }, { outline: box(10), tip: tip(0) }, { outline: box(10), tip: tip(4) }], limits);
     expect(alone.tipWobbles).toEqual([{ poll: 2, px: 4 }]);
+  });
+});
+
+describe("the clip both browser checks render", () => {
+  it("shows a place from `from`, until `until`, and again from `back`", () => {
+    expect(enableOf({ x: 0, y: 0 })).toBe("");
+    expect(enableOf({ x: 0, y: 0, from: 8 })).toBe(":enable='gte(t,8)'");
+    expect(enableOf({ x: 0, y: 0, until: 12 })).toBe(":enable='lt(t,12)'");
+    expect(enableOf({ x: 0, y: 0, until: 12, back: 16 })).toBe(":enable='lt(t,12)+gte(t,16)'");
+  });
+
+  it("draws the slots in order, scaled to the card box, with the real-time encoder", () => {
+    const files = { A: "a.png", B: "b.png", C: "c.png", D: "d.png" };
+    const product = example as unknown as ClipProduct;
+    const args = clipArgs(product, files, "/out/clip.webm");
+    const graph = args[args.indexOf("-filter_complex") + 1] ?? "";
+    const { w, h } = cardBox(product, "A");
+    expect(graph).toContain(`[1]scale=${w}:${h}[A]`);
+    expect(graph).toContain(`overlay=${example.places.C.x}:${example.places.C.y}:enable='lt(t,12)+gte(t,16)'`);
+    expect(graph.indexOf("[A]overlay")).toBeLessThan(graph.indexOf("[D]overlay"));
+    expect(args).toEqual(expect.arrayContaining(["-deadline", "realtime", "-cpu-used", "8", "-c:v", "libvpx"]));
+    expect(args.at(-1)).toBe("/out/clip.webm");
+  });
+
+  it("is the one clip of the hover browser test and the rollback check", () => {
+    for (const file of ["../harness/hover-browser.mjs", "../harness/rollback-check.mjs"]) {
+      const text = readFileSync(here(file), "utf-8");
+      expect(text, file).toContain('import { cardBox, renderClip } from "./clip.mjs";');
+      expect(text, file).not.toContain("overlay=");
+    }
+  });
+});
+
+describe("the product diagnostics", () => {
+  it("takes an optional tooltip debug global", () => {
+    expect(productProblems({ ...example, tooltipDebugGlobal: "__tooltipDebug" }, CHECKS)).toEqual([]);
+    expect(productProblems({ ...example, tooltipDebugGlobal: "" }, CHECKS)).toEqual(["tooltipDebugGlobal is not a text"]);
+  });
+
+  const args = ["--product", here("../harness/example/product.mjs"), "--chrome", "x", "--release", "x", "--art", "/nowhere/art", "--dist", "x", "--only", "art-visible"];
+  const run = (...more: string[]) => spawnSync(process.execPath, [here("../harness/hover-browser.mjs"), ...args, ...more], { encoding: "utf-8", timeout: 30_000 });
+
+  it("refuses an --art-delay-ms that is not a whole number of ms from 0 to 10000", () => {
+    for (const bad of ["-1", "10001", "1.5", "soon", "", " ", "1e3", "0x10", "+5", " 7 "]) {
+      const r = run(`--art-delay-ms=${bad}`);
+      expect(r.status, JSON.stringify(bad)).toBe(2);
+      expect(r.stderr, JSON.stringify(bad)).toContain("--art-delay-ms must be a whole number of ms from 0 to 10000");
+    }
+  });
+
+  it("takes an --art-delay-ms of 0 to 10000, and never with --baseline", () => {
+    // Past the delay's own check, the run stops at the next one: the saved file cannot be read.
+    for (const good of ["0", "10000"]) {
+      const r = run(`--art-delay-ms=${good}`, "--baseline", "/nowhere/timings.json");
+      expect(r.status, good).toBe(2);
+      expect(r.stderr, good).not.toContain("--art-delay-ms must be");
+    }
+    expect(run("--art-delay-ms=0", "--baseline", "/nowhere/timings.json").stderr).toContain("--baseline: cannot read");
+    expect(run("--art-delay-ms=10000", "--baseline", "/nowhere/timings.json").stderr).toContain("--baseline cannot be used with --art-delay-ms");
+  });
+
+  it("pairs each card's first picture with the latest show before it", () => {
+    const ids = { A: "a1", B: "b1", C: "c1", D: "d1" };
+    const timings = [
+      { event: "show", cardId: "a1", at: 100 },
+      { event: "show", cardId: "b1", at: 150 },
+      { event: "art", cardId: "b1", at: 120 }, // before B's show: not B's picture
+      { event: "show", cardId: "a1", at: 400 }, // A shown again before its picture came
+      { event: "art", cardId: "b1", at: 410.6 },
+      { event: "art", cardId: "a1", at: 650 },
+      { event: "art", cardId: "a1", at: 900 }, // a later picture of A: not counted
+      { event: "art", cardId: "c1", at: 700 }, // C never shown
+      null,
+      { event: "show", cardId: "d1", at: Number.NaN },
+      { event: "art", cardId: "d1", at: 50 },
+    ];
+    expect(artAfterShownOf(timings, ids)).toEqual({ A: 250, B: 261, C: null, D: null });
+    expect(artAfterShownOf(null, ids)).toEqual({ A: null, B: null, C: null, D: null });
+    expect(artAfterShownOf({ timings: [] }, ids)).toEqual({ A: null, B: null, C: null, D: null });
+  });
+
+  it("gives the paths of the prefetched pictures", () => {
+    expect(prefetchedPaths(["https://cdn.example/art/a1.jpg?v=2", "not an address", 7, null])).toEqual(["/art/a1.jpg", "not an address"]);
+    expect(prefetchedPaths(undefined)).toBeNull();
+    expect(prefetchedPaths("https://cdn.example/a.jpg")).toBeNull();
+    expect(prefetchedPaths([])).toEqual([]);
   });
 });
