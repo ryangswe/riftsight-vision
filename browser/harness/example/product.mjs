@@ -41,12 +41,13 @@ export default {
   cardAspect: 88 / 63,
   /** The clip: seconds at frames a second, looping, and the card places inside it. Slot A is on
    *  show for the whole clip, and D is laid on top of it from 8 s (a card covering the hovered
-   *  one). B is on show for the whole clip. C is on show until 12 s, then picked up. */
+   *  one). B is on show for the whole clip. C is on show until 12 s, then picked up, and laid back
+   *  in its place at 16 s (a card that arrives under a resting pointer, with no seek). */
   clip: { width: 1280, height: 720, fps: 15, seconds: 20 },
   places: {
     A: { x: 140, y: 250 },
     B: { x: 430, y: 250 },
-    C: { x: 720, y: 250, until: 12 },
+    C: { x: 720, y: 250, until: 12, back: 16 },
     D: { x: 152, y: 262, from: 8 },
   },
   /** Checks expected to fail on this product's code, each until the change named fixes it:
@@ -60,4 +61,14 @@ export default {
    *  reason. An unsupported check has no unexpected-pass signal, so keep the list short and reviewed.
    *  A setup failure is never unsupported. */
   unsupported: {},
+  /** Optional. The time limits of the timed checks, in ms: `pausedMs` for each card of a paused
+   *  picture (paused-names-each) and `arrivalMs` for a card that comes under a resting pointer
+   *  (arrives-under-rest). 1000 and 3000 by default (LIMIT_DEFAULTS in product-shape.mjs).
+   *  arrives-under-rest runs when C leaves (`until`) and comes back (`back`) 2 to 6 s later, with
+   *  back + arrivalMs + 0.5 s within the clip and no other card on C's place; without `back` it is
+   *  unsupported. */
+  // limits: { pausedMs: 1000, arrivalMs: 3000 },
+  /** Optional. With --baseline, a time fails when it is more than factor x saved + slackMs.
+   *  2 and 250 by default (TIMING_DEFAULTS in timings.mjs). */
+  // baseline: { factor: 2, slackMs: 250 },
 };

@@ -40,9 +40,10 @@ describe("the fixture extension's product module", () => {
   });
 
   it("names a reason for every check it does not support", () => {
-    expect(Object.keys(product.unsupported)).toEqual(["cached-reload"]);
+    expect(Object.keys(product.unsupported)).toEqual(["arrives-under-rest", "cached-reload"]);
     for (const reason of Object.values(product.unsupported)) expect(String(reason).length).toBeGreaterThan(20);
     expect(product.unsupported["cached-reload"]).toContain("reopen half");
+    expect(product.unsupported["arrives-under-rest"]).toContain("real detector");
   });
 
   it("puts card D exactly over card A, and the cards on the toy table's boxes", () => {
