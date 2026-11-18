@@ -921,6 +921,25 @@ def test_one_step_broken_by_the_new_build_stays_red_beside_one_that_already_fail
 
 
 @needs_node
+def test_what_a_failed_step_leaves_running_is_stopped_before_the_copy_runs(tmp_path):
+    """A background process that outlives a failed step, as a server holds a port, must be gone
+    before the copy runs, or a real break would pass as a product that was already failing."""
+    pid_file = tmp_path / "left-running.txt"
+    step = f'test -f old-build.txt || {{ sleep 60 & echo $! > "{pid_file}"; exit 3; }}; kill -0 "$(cat "{pid_file}")" 2>/dev/null && exit 4; exit 0'
+    done, shown, _ = run_beside_a_copy(tmp_path, [step])
+    assert done.returncode == 1 and "| failed (3) | passed |" in shown, shown
+
+
+@needs_node
+def test_the_real_run_and_the_copy_do_not_share_a_temporary_folder(tmp_path):
+    seen = tmp_path / "seen.txt"
+    done, _, _ = run_beside_a_copy(tmp_path, [f'echo "$TMPDIR" >> "{seen}"; exit 3'])
+    assert done.returncode == 0, done.stderr
+    first, second = seen.read_text(encoding="utf-8").split()
+    assert first != second
+
+
+@needs_node
 def test_with_no_copy_a_failed_step_is_red(tmp_path):
     import json
 

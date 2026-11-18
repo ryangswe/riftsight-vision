@@ -25,7 +25,8 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -215,13 +216,23 @@ function vendor(toolkit, product, vendorDir) {
   return spawnSync("node", args, { cwd: join(toolkit, "browser"), stdio: "inherit" }).status ?? 1;
 }
 
+// Each pass gets its own temporary folder, and each step its own process group, stopped when the
+// step ends: what a failed run leaves behind must not make the copy's run fail too.
 function runSteps(product, steps) {
-  return steps.map((step) => {
+  const temp = mkdtempSync(join(tmpdir(), "canary-steps-"));
+  const results = steps.map((step) => {
     console.log(`::group::${step}`);
-    const done = spawnSync("bash", ["-e", "-c", step], { cwd: product, stdio: "inherit", env: { ...process.env, CARDVISION_CANARY: "1" } });
+    const done = spawnSync("bash", ["-e", "-c", step], { cwd: product, stdio: "inherit", detached: true, env: { ...process.env, CARDVISION_CANARY: "1", TMPDIR: temp } });
+    try {
+      if (done.pid) process.kill(-done.pid, "SIGKILL");
+    } catch {
+      // The group has already gone.
+    }
     console.log("::endgroup::");
     return done.status === 0 ? "passed" : `failed (${done.status ?? done.signal})`;
   });
+  rmSync(temp, { recursive: true, force: true });
+  return results;
 }
 
 function run(product) {
