@@ -819,12 +819,114 @@ def test_a_target_that_follows_a_branch_runs_at_that_branch_s_current_commit(pro
 
 
 @needs_node
-def test_a_branch_that_cannot_be_read_fails_the_plan_and_says_why(product_remote, tmp_path):
-    base, _ = product_remote
-    summary = tmp_path / "summary.md"
-    done = canary("plan", ".", targets=following("gone"), GITHUB_STEP_SUMMARY=str(summary), CANARY_REPO_BASE=f"file://{base}")
-    assert done.returncode == 1 and "target 1: example/product has no branch gone" in done.stderr
+def test_only_the_exact_branch_counts_not_one_whose_name_ends_the_same(product_remote, tmp_path):
+    import json
+
+    base, work = product_remote
+    first = git(work, "rev-parse", "HEAD")
+    (work / "a.txt").write_text("two\n")
+    git(work, "commit", "--quiet", "-am", "two")
+    git(work, "push", "--quiet", "origin", "HEAD:refs/heads/x/refs/heads/main")
+    out = tmp_path / "output.txt"
+    done = canary("plan", ".", targets=following("main"), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{base}")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(read_outputs(out)["matrix"])["include"][0]["sha"] == first
+
+
+@needs_node
+def test_a_branch_that_is_gone_is_left_out_with_a_warning_and_the_rest_still_run(product_remote, tmp_path):
+    import json
+
+    base, work = product_remote
+    summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
+    both = json.dumps(json.loads(following("gone")) + json.loads(following("main")))
+    done = canary("plan", ".", targets=both, GITHUB_STEP_SUMMARY=str(summary), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{base}")
+    assert done.returncode == 0, done.stderr
+    assert "::warning title=Downstream canary::target 1: example/product has no branch gone" in done.stdout
     assert "has no branch gone" in summary.read_text(encoding="utf-8")
+    outputs = read_outputs(out)
+    assert outputs["run"] == "true" and [t["sha"] for t in json.loads(outputs["matrix"])["include"]] == [git(work, "rev-parse", "HEAD")]
+
+
+@needs_node
+def test_a_failed_lookup_is_tried_three_times_then_skipped_without_going_red(tmp_path):
+    log = tmp_path / "git.log"
+    fake = tmp_path / "bin" / "git"
+    fake.parent.mkdir()
+    fake.write_text(f'#!/bin/sh\necho "$1" >> "{log}"\necho "fatal: unable to access" >&2\nexit 128\n')
+    fake.chmod(0o755)
+    summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
+    done = canary("plan", ".", targets=following("main"), GITHUB_STEP_SUMMARY=str(summary), GITHUB_OUTPUT=str(out),
+                  PATH=f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    assert done.returncode == 0, done.stderr
+    assert log.read_text().split() == ["ls-remote"] * 3
+    assert "could not read branch main of example/product: fatal: unable to access" in summary.read_text(encoding="utf-8")
+    assert read_outputs(out)["run"] == "false"
+    assert "is empty" not in summary.read_text(encoding="utf-8"), "the variable is not empty"
+
+
+@pytest.fixture()
+def vendored_product(tmp_path) -> Path:
+    """A product checkout whose check passes while build.txt says good."""
+    product = tmp_path / "vendored"
+    (product / "node_modules").mkdir(parents=True)
+    (product / "node_modules" / "kept.txt").write_text("installed\n")
+    (product / ".gitignore").write_text("node_modules\n")
+    (product / "build.txt").write_text("good\n")
+    git(product, "init", "--quiet")
+    git(product, "add", ".gitignore", "build.txt")
+    git(product, "commit", "--quiet", "-m", "product")
+    return product
+
+
+CHECK_BUILD = 'test "$(cat build.txt)" = good'
+
+
+@needs_node
+def test_a_step_that_only_fails_with_the_new_build_is_red(vendored_product, tmp_path):
+    import json
+
+    summary = tmp_path / "summary.md"
+    (vendored_product / "build.txt").write_text("broken by the new build\n")
+    (vendored_product / "new-file.txt").write_text("vendored\n")
+    done = canary("run", str(vendored_product), STEPS=json.dumps([CHECK_BUILD]), TARGET_SHA=PRODUCT_SHA, GITHUB_ACTIONS="true", GITHUB_STEP_SUMMARY=str(summary))
+    shown = summary.read_text(encoding="utf-8")
+    assert done.returncode == 1 and "1 of 1 step(s) failed" in shown and "| Without this change |" in shown
+    assert "| failed (1) | passed |" in shown
+    assert not (vendored_product / "new-file.txt").exists() and (vendored_product / "node_modules" / "kept.txt").exists()
+
+
+@needs_node
+def test_a_product_that_fails_on_its_own_is_a_warning_not_red(vendored_product, tmp_path):
+    import json
+
+    summary = tmp_path / "summary.md"
+    (vendored_product / "build.txt").write_text("already broken\n")
+    git(vendored_product, "commit", "--quiet", "-am", "a broken main")
+    done = canary("run", str(vendored_product), STEPS=json.dumps([CHECK_BUILD]), TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA,
+                  GITHUB_ACTIONS="true", GITHUB_STEP_SUMMARY=str(summary))
+    assert done.returncode == 0, done.stderr
+    assert "::warning title=Downstream canary::example/product at 0123456789ab fails without this change too" in done.stdout
+    assert "1 of 1 step(s) fail without this change too" in summary.read_text(encoding="utf-8")
+
+
+@needs_node
+def test_one_step_broken_by_the_new_build_stays_red_beside_one_that_fails_anyway(vendored_product, tmp_path):
+    import json
+
+    (vendored_product / "build.txt").write_text("broken by the new build\n")
+    done = canary("run", str(vendored_product), STEPS=json.dumps(["exit 3", CHECK_BUILD]), TARGET_SHA=PRODUCT_SHA, GITHUB_ACTIONS="true",
+                  GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
+    assert done.returncode == 1 and "::warning" not in done.stdout
+
+
+@needs_node
+def test_outside_ci_a_failed_step_leaves_the_checkout_alone(vendored_product, tmp_path):
+    import json
+
+    (vendored_product / "build.txt").write_text("someone's work\n")
+    done = canary("run", str(vendored_product), STEPS=json.dumps([CHECK_BUILD]), TARGET_SHA=PRODUCT_SHA, GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
+    assert done.returncode == 1 and (vendored_product / "build.txt").read_text() == "someone's work\n"
 
 
 @needs_node

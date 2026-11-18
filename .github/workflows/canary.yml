@@ -10,13 +10,15 @@
 #
 # It is not a required check, but red still means do not merge: fix the change, or merge a change
 # in the product that works with both toolkits first (RELEASING.md, "What a red check means").
+# What a pull request cannot fix is a warning: a product that cannot be read, or one whose checks
+# also fail without the new build.
 #
 # CANARY_TARGETS is a JSON list of { repo, branch | sha, vendorDir, steps, chrome? }: see
 # browser/scripts/canary.mjs, and RELEASING.md ("The downstream canary") for how to set it. The
 # workflow names no product. An empty variable, as on a fork, is a neutral skip, shown in the job
 # summary.
 #
-# A passing run saves a marker in the Actions cache, keyed by a hash of browser/**,
+# A run that ends green saves a marker in the Actions cache, keyed by a hash of browser/**,
 # docs/hover-spec.*, this workflow and the targets at the commits they resolve to. A later run with the same key (a re-run, or a version pull
 # request that changes none of them) finds the marker, skips the builds and cites the earlier run.
 #

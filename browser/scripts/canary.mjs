@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// The helper behind .github/workflows/canary.yml, the advisory downstream check. It reads the
+// The helper behind .github/workflows/canary.yml, the downstream check. It reads the
 // list of products to try, from the repository variable CANARY_TARGETS, and does nothing a
 // workflow's own YAML would make hard to test:
 //
@@ -11,7 +11,9 @@
 //                                                 vendor this checkout's build into the product with the options
 //                                                 its own manifest records
 //   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each;
-//                                                 each step sees CARDVISION_CANARY=1
+//                                                 each step sees CARDVISION_CANARY=1. In CI, a step that fails
+//                                                 is tried on the product without the new build: a product that
+//                                                 fails there too is a warning, since this change did not cause it
 //
 // CANARY_TARGETS is a JSON list of { repo, branch | sha, vendorDir, steps, chrome? }: the product's
 // repository ("account/name"), the branch whose current commit to try (the plan looks it up on each
@@ -33,6 +35,8 @@ const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const KEYS = new Set(["repo", "branch", "sha", "vendorDir", "steps", "chrome"]);
 const LOOKUP_TRIES = 3;
 const LOOKUP_WAIT_MS = 2000;
+const LOOKUP_TIMEOUT_MS = 20_000;
+const LOOKUP_BUDGET_MS = 150_000; // all lookups together, well inside the plan job's five minutes
 
 const validBranch = (name) => typeof name === "string" && BRANCH.test(name) && !name.includes("..") && !name.includes("//") && !name.endsWith("/") && !name.endsWith(".") && !name.endsWith(".lock");
 
@@ -66,11 +70,12 @@ export function parseTargets(text) {
 }
 
 /** The commit a repository's branch is at now, or { problem }. A failed lookup is tried again; a branch that is not there is not. */
-export function branchCommit(repo, branch, base = process.env.CANARY_REPO_BASE ?? "https://github.com") {
+export function branchCommit(repo, branch, deadline = Infinity, base = process.env.CANARY_REPO_BASE ?? "https://github.com") {
   const ref = `refs/heads/${branch}`;
-  let failure = "";
-  for (let attempt = 1; attempt <= LOOKUP_TRIES; attempt += 1) {
-    const done = spawnSync("git", ["ls-remote", `${base}/${repo}.git`, ref], { encoding: "utf-8", timeout: 60_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  let failure = "the time for lookups ran out";
+  for (let attempt = 1; attempt <= LOOKUP_TRIES && Date.now() < deadline; attempt += 1) {
+    const timeout = Math.min(LOOKUP_TIMEOUT_MS, deadline - Date.now());
+    const done = spawnSync("git", ["ls-remote", `${base}/${repo}.git`, ref], { encoding: "utf-8", timeout, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
     if (done.status === 0) {
       const found = done.stdout.split("\n").map((line) => line.split("\t")).filter(([sha, name]) => SHA.test(sha ?? "") && name === ref);
       return found.length === 1 ? { sha: found[0][0] } : { problem: `${repo} has no branch ${branch}` };
@@ -81,18 +86,21 @@ export function branchCommit(repo, branch, base = process.env.CANARY_REPO_BASE ?
   return { problem: `could not read branch ${branch} of ${repo}: ${failure}` };
 }
 
-/** The targets with every branch replaced by the commit it is at now, or { problems }. */
+/** The targets with every branch replaced by the commit it is at now, and what could not be read.
+ *  A pull request cannot fix an unreadable product, so that target is left out, not failed. */
 export function resolveTargets(targets, lookup = branchCommit) {
-  const problems = [];
-  const resolved = targets.map((t, i) => {
-    if (t.branch === undefined) return t;
+  const deadline = Date.now() + LOOKUP_BUDGET_MS;
+  const skipped = [];
+  const resolved = [];
+  targets.forEach((t, i) => {
+    if (t.branch === undefined) return void resolved.push(t);
     const { branch, ...rest } = t;
-    const { sha, problem } = lookup(t.repo, branch);
-    if (problem) problems.push(`target ${i + 1}: ${problem}`);
-    else console.log(`${t.repo}: ${branch} is at ${sha}`);
-    return { ...rest, sha };
+    const { sha, problem } = lookup(t.repo, branch, deadline);
+    if (problem) return void skipped.push(`target ${i + 1}: ${problem}`);
+    console.log(`${t.repo}: ${branch} is at ${sha}`);
+    resolved.push({ ...rest, sha });
   });
-  return problems.length > 0 ? { problems } : { targets: resolved };
+  return { targets: resolved, skipped };
 }
 
 /** The marker key: the tracked files that decide a run (browser/**, docs/hover-spec.*, the workflow file) and the targets. */
@@ -138,15 +146,13 @@ function plan(root) {
     summary(`## Downstream canary\n\nThe list of products is malformed:\n\n${parsed.problems.map((p) => `- ${p}`).join("\n")}`);
     return 1;
   }
-  const resolved = resolveTargets(parsed.targets);
-  if (resolved.problems) {
-    for (const p of resolved.problems) console.error(p);
-    summary(`## Downstream canary\n\nA product's branch could not be read:\n\n${resolved.problems.map((p) => `- ${p}`).join("\n")}`);
-    return 1;
+  const { targets, skipped } = resolveTargets(parsed.targets);
+  if (skipped.length > 0) {
+    for (const p of skipped) console.log(`::warning title=Downstream canary::${p}`);
+    summary(`## Downstream canary\n\nNot tried, for a reason outside this pull request:\n\n${skipped.map((p) => `- ${p}`).join("\n")}`);
   }
-  const { targets } = resolved;
   if (targets.length === 0) {
-    summary("## Downstream canary\n\nSkipped (neutral): the repository variable `CANARY_TARGETS` is empty, so there is no product to try.");
+    if (skipped.length === 0) summary("## Downstream canary\n\nSkipped (neutral): the repository variable `CANARY_TARGETS` is empty, so there is no product to try.");
     output("run", "false");
     output("matrix", JSON.stringify({ include: [] }));
     return 0;
@@ -164,7 +170,7 @@ function markerNote(file) {
     return 0;
   }
   const note = readFileSync(file, "utf-8").trim();
-  summary(`## Downstream canary\n\nSkipped (neutral): the same toolkit files and products already passed.\n\nEarlier run: ${note}`);
+  summary(`## Downstream canary\n\nSkipped (neutral): the same toolkit files and products were already tried.\n\nEarlier run: ${note}`);
   output("skip", "true");
   return 0;
 }
@@ -208,20 +214,36 @@ function vendor(toolkit, product, vendorDir) {
   return spawnSync("node", args, { cwd: join(toolkit, "browser"), stdio: "inherit" }).status ?? 1;
 }
 
+function runSteps(product, steps) {
+  return steps.map((step) => {
+    console.log(`::group::${step}`);
+    const done = spawnSync("bash", ["-e", "-c", step], { cwd: product, stdio: "inherit", env: { ...process.env, CARDVISION_CANARY: "1" } });
+    console.log("::endgroup::");
+    return done.status === 0 ? "passed" : `failed (${done.status ?? done.signal})`;
+  });
+}
+
+// Puts the product back as it was checked out, keeping its installed dependencies. Only on a CI
+// runner, in the product's own checkout: on a person's machine this would discard their work.
+function restoreProduct(product) {
+  if (process.env.GITHUB_ACTIONS !== "true" || !existsSync(join(product, ".git"))) return false;
+  return [["reset", "--quiet", "--hard", "HEAD"], ["clean", "-ffdqx", "-e", "node_modules"]].every((args) => spawnSync("git", args, { cwd: product, stdio: "inherit" }).status === 0);
+}
+
 function run(product) {
   const steps = JSON.parse(process.env.STEPS ?? "[]");
   const repo = process.env.TARGET_REPO ?? product;
   const sha = process.env.TARGET_SHA ?? "";
-  const rows = [];
-  for (const step of steps) {
-    console.log(`::group::${step}`);
-    const done = spawnSync("bash", ["-e", "-c", step], { cwd: product, stdio: "inherit", env: { ...process.env, CARDVISION_CANARY: "1" } });
-    console.log("::endgroup::");
-    rows.push([step, done.status === 0 ? "passed" : `failed (${done.status ?? done.signal})`]);
-  }
-  const bad = rows.filter((r) => r[1] !== "passed").length;
-  summary(`### ${repo} at ${sha.slice(0, 12)}: ${bad === 0 ? "passed" : `${bad} of ${rows.length} step(s) failed`}\n\n| Step | Result |\n| --- | --- |\n${rows.map(([s, r]) => `| ${stepCell(s)} | ${r} |`).join("\n")}\n`);
-  return bad === 0 ? 0 : 1;
+  const results = runSteps(product, steps);
+  const bad = results.filter((r) => r !== "passed").length;
+  const alone = bad > 0 && restoreProduct(product) ? runSteps(product, steps) : null;
+  const notThisChange = alone !== null && results.every((r, i) => r === "passed" || alone[i] !== "passed");
+  const verdict = bad === 0 ? "passed" : notThisChange ? `${bad} of ${steps.length} step(s) fail without this change too` : `${bad} of ${steps.length} step(s) failed`;
+  const head = alone === null ? "| Step | Result |\n| --- | --- |" : "| Step | Result | Without this change |\n| --- | --- | --- |";
+  const table = steps.map((s, i) => `| ${stepCell(s)} | ${results[i]} |${alone === null ? "" : ` ${alone[i]} |`}`).join("\n");
+  summary(`### ${repo} at ${sha.slice(0, 12)}: ${verdict}\n\n${head}\n${table}\n`);
+  if (notThisChange) console.log(`::warning title=Downstream canary::${repo} at ${sha.slice(0, 12)} fails without this change too, so this pull request did not cause it`);
+  return bad === 0 || notThisChange ? 0 : 1;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
