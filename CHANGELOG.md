@@ -11,6 +11,9 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- `docs/hover-coverage.md`: each hover-spec clause with its unit tests, browser checks and pending
+  parts, generated with the spec's index; the spec check now fails when a clause is left with no
+  test.
 - Hover browser test options for a product's own diagnostics: `--art-delay-ms` holds each card
   picture's answer from the stand-in, as a far CDN would (recorded in `measuredOn`; such a run is
   never used with or as a `--baseline`); a product module's `tooltipDebugGlobal` gives

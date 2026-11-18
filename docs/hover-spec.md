@@ -25,11 +25,14 @@ where a game needs something else.
   lands here before the runtime, then in each product through a vendor update. A clause
   id keeps its meaning; a removed clause's id is not reused.
 - **Clause format.** `S-<group><n> — <rule>`, a short statement, `Example:` one case with
-  numbers, and `Test:` the toolkit test that checks it (`path:line`, under `browser/test/`). A
-  part not checked yet says what will check it: `pending (slow-clock test)` a test that drives the
-  real scheduler and session on a virtual clock, `pending (real-browser test)` a test that runs
-  the extension in a browser, `pending (vendoring check)` the check that a product's vendored
-  files match one toolkit commit.
+  numbers, and `Test:` what checks it, one or more of: the toolkit tests (`path:line`, under
+  `browser/test/`); `harness check <name>` or `harness checks <a>, <b>`, checks of the hover
+  browser test (named in `browser/harness/clauses.mjs`); separated by `;`. A part not checked yet
+  says what will check it: `pending (slow-clock test)` a test that drives the real scheduler and
+  session on a virtual clock, `pending (real-browser test)` a test that runs the extension in a
+  browser, `pending (vendoring check)` the check that a product's vendored files match one toolkit
+  commit. [hover-coverage.md](hover-coverage.md) lists each clause's tests, checks and pending
+  parts.
 - **Marks.** A clause with no mark is met by the code today.
   - `Status: changes in 0.14.0` marks a clause that states the behavior of toolkit 0.14.0, which
     the toolkit's code does not meet yet.
@@ -97,7 +100,7 @@ opens paused: they are made at the `playing` event when the viewer presses play.
 dispatches `playing` on a video that is already playing: nothing is made.
 
 Test: `idle-unload.test.ts:719`, `idle-unload.test.ts:729`, `idle-unload.test.ts:742`,
-`idle-unload.test.ts:756`, `capture-control.test.ts:1121`
+`idle-unload.test.ts:756`, `capture-control.test.ts:1121`; harness check frames-at-play
 
 ### S-A2 — Elsewhere, the opening trusted pointer over the picture makes the frames
 
@@ -130,7 +133,8 @@ removes both frames.
 Example: a frame becomes ready at 12:00:00 and nobody points at the video: at 12:10:00 the status
 reads `idle` and both frames are gone.
 
-Test: `idle-unload.test.ts:134`, `idle-unload.test.ts:170`, `idle-frame-removal.test.ts:101`
+Test: `idle-unload.test.ts:134`, `idle-unload.test.ts:170`, `idle-frame-removal.test.ts:101`;
+harness check idle-unloads
 
 ### S-A5 — A pointer, a shown card or a look in flight keeps the model loaded
 
@@ -151,7 +155,8 @@ Example: a looping 30 s clip plays on after the unload: each loop fires `playing
 made. The viewer moves over the picture: both frames are made and connect.
 
 Test: `idle-frame-removal.test.ts:128`, `idle-frame-removal.test.ts:228`,
-`idle-frame-removal.test.ts:240`, `idle-frame-removal.test.ts:320`
+`idle-frame-removal.test.ts:240`, `idle-frame-removal.test.ts:320`;
+harness checks loop-no-reload, idle-reload-on-hover
 
 ### S-A7 — Turning hovers back on while the video plays loads at once in the tab in front
 
@@ -315,7 +320,7 @@ Test: `session-core.test.ts:2768`, `session-core.test.ts:2781`, `session-core.te
 `session-core.test.ts:2831`, `session-core.test.ts:2847`, `compute-messages.test.ts:49`,
 `compute-frame.test.ts:802`, `compute-frame.test.ts:811`, `compute-frame.test.ts:824`,
 `compute-frame.test.ts:832`, `compute-frame.test.ts:841`, `capture-control.test.ts:1272`; end to
-end: pending (real-browser test)
+end: pending (real-browser test); harness check second-tab-names-card
 
 ### S-B4 — A tap gives pictures for 10 s and no longer
 
@@ -354,7 +359,8 @@ was never hovered gives none.
 Example: a video plays for 10 minutes and the viewer never points at it: no `capture` request is
 made.
 
-Test: `capture-control.test.ts:562`, `session-core.test.ts:1788`
+Test: `capture-control.test.ts:562`, `session-core.test.ts:1788`;
+harness check no-capture-before-pointer
 
 ### S-B8 — A frame made at play holds no capture authority
 
@@ -395,7 +401,8 @@ and a reply that arrives after off shows nothing.
 Example: the viewer switches hovers off while a look is in flight: the frames go at once, no card
 is drawn when the analysis would have answered, and moving over the video loads nothing.
 
-Test: `capture-control.test.ts:1078`, `session-core.test.ts:1885`; in a product: pending (real-browser test)
+Test: `capture-control.test.ts:1078`, `session-core.test.ts:1885`;
+in a product: pending (real-browser test); harness check off-means-off
 
 ### S-B12 — A product's privacy page states the gate's timings as the code has them
 
@@ -594,7 +601,7 @@ Example: WebGPU, the pointer rests on an empty spot for its 10 s: 5 looks, where
 would make 20.
 
 Test: `scheduler.test.ts:892`, `scheduler.test.ts:919`, `scheduler.test.ts:961`,
-`session-core.test.ts:2431`
+`session-core.test.ts:2431`; harness check arrives-under-rest
 
 ### S-C15 — A still picture is analyzed three times, then not again until it changes
 
@@ -604,7 +611,7 @@ again until a new picture is presented.
 Example: the viewer pauses at 0 s with the pointer active: looks at about 0, 250 and 500 ms, then
 none while the picture stays.
 
-Test: `scheduler.test.ts:64`, `scheduler.test.ts:71`
+Test: `scheduler.test.ts:64`, `scheduler.test.ts:71`; harness check paused-names-each
 
 ### S-C16 — A repeat of an unchanged still picture reuses the look before it
 
@@ -761,7 +768,7 @@ and not accepted shows nothing and still takes the pointer.
 Example: two cards overlap and the one on top fails the margin: the pointer over it shows nothing,
 not the card beneath.
 
-Test: `hover.test.ts:116`, `session-core.test.ts:1815`
+Test: `hover.test.ts:116`, `session-core.test.ts:1815`; harness check art-visible
 
 ### S-W2 — A result more than 2000 ms of video from the picture on screen is not shown
 
@@ -793,7 +800,7 @@ Example: the pointer rests on a card; a player picks it up 3 s later: the toolti
 pointer leaves that spot.
 
 Test: `session-core.test.ts:698`, `session-core.test.ts:836`, `session-core.test.ts:851`,
-`session-core.test.ts:858`, `session-core.test.ts:1364`
+`session-core.test.ts:858`, `session-core.test.ts:1364`; harness check move-off-clears
 
 ### S-W5 — Under the reading hold, moving onto an overlapping card shows it
 
@@ -804,7 +811,8 @@ pointer, or one uncovered under a trembling pointer does not.
 Example: a fan of three cards: the pointer moves from the left card to the middle card: the middle card shows. A
 new card is laid on the left card while the pointer rests: the left card stays.
 
-Test: `session-core.test.ts:888`, `session-core.test.ts:976`, `session-core.test.ts:1171`
+Test: `session-core.test.ts:888`, `session-core.test.ts:976`, `session-core.test.ts:1171`;
+harness check covered-kept
 
 ### S-W6 — With keep-card off, a card is kept through short gaps
 
@@ -817,7 +825,7 @@ Example: on a live stream one analysis misses the card and the next sees it: the
 flicker. Two misses in a row: it goes.
 
 Test: `session-core.test.ts:510`, `session-core.test.ts:521`, `session-core.test.ts:572`,
-`session-core.test.ts:598`, `session-core.test.ts:629`
+`session-core.test.ts:598`, `session-core.test.ts:629`; harness check still-card-no-blink
 
 ### S-W7 — A kept card seen gone is marked held until it is seen again
 
@@ -841,7 +849,8 @@ degrees, since the last report. Small moves add up.
 Example: a 100 px wide card's box moves 3 px between looks: no new report. It moves 6 px, or 3 px
 twice in the same direction: a new report.
 
-Test: `shown-outline.test.ts:185`, `session-core.test.ts:746`, `session-core.test.ts:804`
+Test: `shown-outline.test.ts:185`, `session-core.test.ts:746`, `session-core.test.ts:804`;
+harness check still-outline-steady
 
 ### S-W9 — In focus scope, nothing is shown where an unverified card overlaps the pointer
 
@@ -908,7 +917,8 @@ While a shown card carries `held: true`, the product draws no outline and keeps 
 Example: the kept card is seen gone: the outline disappears and the tooltip stays; the card comes
 back to the spot: the outline returns.
 
-Test: `shown-outline.test.ts:264` (the message); the drawing: pending (real-browser test)
+Test: `shown-outline.test.ts:264` (the message); the drawing: pending (real-browser test);
+harness check held-outline-hides
 
 ## G. Site rules
 
