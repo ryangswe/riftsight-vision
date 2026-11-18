@@ -60,4 +60,13 @@ export default {
    *  reason. An unsupported check has no unexpected-pass signal, so keep the list short and reviewed.
    *  A setup failure is never unsupported. */
   unsupported: {},
+  /** Optional. The time limits of the timed checks, in ms: `pausedMs` for each card of a paused
+   *  picture (paused-names-each) and `arrivalMs` for a card that comes under a resting pointer
+   *  (arrives-under-rest). 2000 each by default (LIMIT_DEFAULTS in product-shape.mjs).
+   *  arrives-under-rest needs C to leave (`until`) at least 1 s before the clip ends, and no other
+   *  card on C's place. */
+  // limits: { pausedMs: 2000, arrivalMs: 2000 },
+  /** Optional. With --baseline, a time fails when it is more than factor x saved + slackMs.
+   *  1.5 and 750 by default (TIMING_DEFAULTS in timings.mjs). */
+  // baseline: { factor: 1.5, slackMs: 750 },
 };

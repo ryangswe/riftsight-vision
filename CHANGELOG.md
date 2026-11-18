@@ -11,6 +11,18 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Four hover browser test checks (`browser/harness/`), from steps the maintainers did by hand
+  before each release: `paused-names-each` (each card of a paused picture is named with its
+  picture within 2 s), `arrives-under-rest` (a card that comes under a resting pointer within
+  2 s), `still-card-no-blink` and `still-outline-steady` (with keep-card off, a still card's
+  tooltip never blinks out and its outline keeps still over a rest of up to 20 s). A product
+  module may set the limits (`limits.pausedMs`, `limits.arrivalMs`). A run without `--only` takes
+  about 30 s longer.
+- The hover browser test writes `timings.json`, its measured times by name, beside `report.json`.
+  `--baseline <timings.json>` fails a run whose time is slower than factor × saved + slack
+  (`baseline` in the product module; 1.5 and 750 ms by default), so a product that keeps its last
+  release's file sees a slower build in CI.
+
 - `store-upload.mjs check --pull-request release|released` and the template
   `browser/templates/store-check.yml`, the store check on every pull request. In `release` (the
   version is not tagged yet, or the pull request changes its release file, notes or runtime row)

@@ -6,6 +6,9 @@
 const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v) => typeof v === "string" && v.length > 0;
 const isNumber = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
+/** The time limits a product module may set, in ms, and their defaults. */
+export const LIMIT_DEFAULTS = { pausedMs: 2000, arrivalMs: 2000 };
+const LIMIT_KEYS = Object.keys(LIMIT_DEFAULTS);
 /** The card slots, in the order the clip draws them: a later slot is laid over an earlier one. */
 export const SLOTS = ["A", "B", "C", "D"];
 
@@ -40,5 +43,28 @@ export function productProblems(product, checkIds) {
     }
   }
   if (p.dist !== undefined && !(p.dist instanceof URL)) problems.push("dist is not a URL");
+  // Optional: the time limits of the timed checks, and the margin of the --baseline comparison.
+  if (p.limits !== undefined) {
+    if (!isObject(p.limits)) problems.push("limits is not an object");
+    else {
+      for (const [key, value] of Object.entries(p.limits)) {
+        if (!LIMIT_KEYS.includes(key)) problems.push(`limits has no ${key} (it takes ${LIMIT_KEYS.join(", ")})`);
+        else if (!isNumber(value)) problems.push(`limits.${key} is not a positive number of ms`);
+      }
+    }
+  }
+  if (p.baseline !== undefined) {
+    if (!isObject(p.baseline)) problems.push("baseline is not an object");
+    else {
+      for (const [key, value] of Object.entries(p.baseline)) {
+        const finite = typeof value === "number" && Number.isFinite(value);
+        if (key === "factor") {
+          if (!(finite && value >= 1)) problems.push("baseline.factor is not a number of 1 or more");
+        } else if (key === "slackMs") {
+          if (!(finite && value >= 0)) problems.push("baseline.slackMs is not a number of ms, 0 or more");
+        } else problems.push(`baseline has no ${key} (it takes factor, slackMs)`);
+      }
+    }
+  }
   return problems;
 }

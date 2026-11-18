@@ -13,7 +13,13 @@
 //   node hover-browser.mjs --product <product module> --chrome <Chrome for Testing>
 //        --release <release folder> --art <folder for the card pictures named in the product module,
 //        outside the product's repository> [--fetch-art] [--dist <build>] [--dist-idle <build>]
-//        [--out <folder for the report and logs>] [--only <check id,...>]
+//        [--out <folder for the report and logs>] [--only <check id,...>] [--baseline <timings.json>]
+//
+// Every run writes timings.json beside report.json: the times it measured, by name (timings.mjs).
+// With --baseline, the times of a saved run (a product keeps its last release's file) are compared
+// with this run's, and a time slower than factor x saved + slack fails the run (the product
+// module's `baseline` sets the margin; the default is in timings.mjs). The timed checks have limits
+// of their own (the module's `limits`; defaults in product-shape.mjs).
 //
 // ffmpeg (with libvpx) and openssl must be on the PATH.
 //
@@ -60,8 +66,9 @@ import { parseArgs } from "node:util";
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "./clauses.mjs";
 import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
-import { productProblems, SLOTS } from "./product-shape.mjs";
+import { LIMIT_DEFAULTS, productProblems, SLOTS } from "./product-shape.mjs";
 import { startServer } from "./serve.mjs";
+import { compareTimings, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "./timings.mjs";
 
 /** The whole run's deadline: past it the run stops, fails and still writes its report. */
 const RUN_DEADLINE_MS = 12 * 60_000;
@@ -77,12 +84,13 @@ const { values } = parseArgs({
     "dist-idle": { type: "string" },
     out: { type: "string" },
     only: { type: "string" },
+    baseline: { type: "string" },
     "fetch-art": { type: "boolean", default: false },
     headful: { type: "boolean", default: false },
   },
 });
 const usage = (problem) => {
-  console.error(`${problem}\nusage: node hover-browser.mjs --product <product module> --chrome <Chrome for Testing> --release <release folder> --art <card pictures> [--fetch-art] [--dist <build>] [--dist-idle <build>] [--out folder] [--only ids]`);
+  console.error(`${problem}\nusage: node hover-browser.mjs --product <product module> --chrome <Chrome for Testing> --release <release folder> --art <card pictures> [--fetch-art] [--dist <build>] [--dist-idle <build>] [--out folder] [--only ids] [--baseline timings.json]`);
   process.exit(2);
 };
 if (!values.product) usage("missing --product");
@@ -101,6 +109,30 @@ const want = (id) => (!only || only.has(id)) && !(id in unsupported);
 if (!values["dist-idle"] && IDLE_CHECKS.some(want)) usage("--dist-idle is needed for the idle checks (or leave them out with --only)");
 const repoRoot = fileURLToPath(PRODUCT.root);
 if (!relative(repoRoot, resolve(values.art)).startsWith("..")) usage("--art must be outside the product's repository: card art is never committed");
+const LIMITS = { ...LIMIT_DEFAULTS, ...PRODUCT.limits };
+const MARGIN = { ...TIMING_DEFAULTS, ...PRODUCT.baseline };
+let savedTimings = null;
+if (values.baseline) {
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(resolve(values.baseline), "utf-8"));
+  } catch (error) {
+    usage(`--baseline: cannot read ${values.baseline}: ${error?.message ?? error}`);
+  }
+  const problems = timingsFileProblems(doc);
+  if (problems.length > 0) usage(`--baseline ${values.baseline}: ${problems.join("; ")}`);
+  savedTimings = doc;
+}
+// arrives-under-rest rests the pointer on C's place after C is gone, until the clip loops and C is
+// back: C must leave before the clip ends, and no other card may be on its place meanwhile.
+if (want("arrives-under-rest")) {
+  const c = PLACES.C;
+  const w = PRODUCT.cardWidth;
+  const h = Math.round(w * PRODUCT.cardAspect);
+  const overlaps = SLOTS.filter((s) => s !== "C" && PLACES[s].x < c.x + w && c.x < PLACES[s].x + w && PLACES[s].y < c.y + h && c.y < PLACES[s].y + h);
+  if (!(Number.isFinite(c.until) && c.until < CLIP.seconds - 1) || c.from !== undefined) usage("arrives-under-rest needs places.C.until, at least 1 s before the clip ends, and no places.C.from (or list the check in `unsupported`)");
+  if (overlaps.length > 0) usage(`arrives-under-rest needs C's place free of other cards: ${overlaps.join(", ")} overlap it (or list the check in \`unsupported\`)`);
+}
 
 const puppeteerDir = process.env.PUPPETEER_CORE_DIR;
 // puppeteer-core is not a dependency of the toolkit or of a product: it is installed beside it (PUPPETEER_CORE_DIR)
@@ -528,6 +560,58 @@ try {
       const cleared = await until(async () => (!(await tooltip(page)).visible && !(await outline(page)) ? true : null), 2000);
       if (want("move-off-clears")) record("move-off-clears", Boolean(cleared), {});
 
+      // A paused picture: the other cards on it are each named with their picture at once (S-C8).
+      // The pointer goes from off the video to A, then straight on to C, as a viewer points at one
+      // card and then the next. B, the first card, is art-visible's.
+      if (want("paused-names-each")) {
+        const ms = {};
+        for (const slot of ["A", "C"]) ms[slot] = (await hoverCard(page, slot, Math.max(LIMITS.pausedMs * 5, 10_000)))?.ms ?? null;
+        counts.pausedMs = Object.fromEntries(Object.entries(ms).filter(([, v]) => v !== null));
+        const ok = Object.values(ms).every((v) => v !== null && v <= LIMITS.pausedMs);
+        record("paused-names-each", ok, { limitMs: LIMITS.pausedMs, ms, ...(ok ? {} : { tooltip: await tooltipState(page), compute: computeState(await computeDebug(page)) }) });
+        await page.mouse.move(off.x, off.y, { steps: 4 });
+        await until(async () => (!(await tooltip(page)).visible ? true : null), 2000);
+      }
+
+      // A card that comes under a resting pointer (S-B2: a hover gives pictures for 10 s). On the
+      // playing clip after C has gone, the pointer moves once onto C's empty place and rests; the
+      // clip loops and C is back. C is named with its picture within the limit of its return. Its
+      // return is the first poll that sees the clip's time go back, so the time is late by up to
+      // one poll (about 100 ms). What showed before C came back is reported (`shownBefore`), not
+      // judged: a stand-in detector that finds boxes on an empty place (the toy fixture's) names
+      // something there.
+      if (want("arrives-under-rest")) {
+        const start = Math.max(PLACES.C.until + 0.3, CLIP.seconds - 6);
+        await video.seek(page, start, true);
+        const pC = await pointOf(page, "C");
+        await page.mouse.move(pC.x, pC.y, { steps: 4 });
+        const movedAt = Date.now();
+        let prev = await video.time(page);
+        let backAt = null;
+        let shownBefore = null;
+        const namedAt = await until(async () => {
+          const t = await video.time(page);
+          if (backAt === null && t < prev) backAt = Date.now();
+          prev = t;
+          const s = await tooltip(page);
+          if (backAt === null) {
+            if (s.visible && shownBefore === null) shownBefore = s.name ?? "(no name)";
+            return null;
+          }
+          return s.visible && s.name === cards.C.name && s.art ? Date.now() : null;
+        }, (CLIP.seconds - start) * 1000 + Math.max(LIMITS.arrivalMs * 5, 10_000), 50);
+        const ms = namedAt && backAt ? namedAt - backAt : null;
+        counts.arrival = { ms, restedMs: backAt ? backAt - movedAt : null };
+        if (backAt !== null && backAt - movedAt > 9000) throw new Error(`setup: C came back ${backAt - movedAt} ms after the pointer's move, too near the end of its 10 s`);
+        record("arrives-under-rest", ms !== null && ms <= LIMITS.arrivalMs, {
+          limitMs: LIMITS.arrivalMs,
+          ...counts.arrival,
+          shownBefore,
+          ...(ms === null ? { tooltip: await tooltipState(page), compute: computeState(await computeDebug(page)) } : {}),
+        });
+        await page.mouse.move(off.x, off.y, { steps: 4 });
+      }
+
       // Point at A from 5 s, rest, and watch through 12.5 s while D is laid on top of it at 8 s.
       const covered = async () => {
         await video.seek(page, 5, true);
@@ -570,6 +654,57 @@ try {
       await until(async () => ((await computeDebug(page))?.state === "ready" ? true : null), 60_000, 250);
       const offRun = await covered();
       if (want("switch-flips")) record("switch-flips", offRun.first === cards.A.name && offRun.last === cards.D.name, offRun);
+
+      // Still with the switch off: the pointer rests on B, which stays put on the playing clip,
+      // until the clip nears its end (up to 20 s). Its tooltip never blinks out (S-W6: a card is kept
+      // through short gaps): the page counts every animation frame in which the tooltip frame is
+      // not visible, and a poll every ~100 ms reads the name. Its outline keeps still (S-W8: a box
+      // is reported again only when an edge moved more than 5 % of the card's size): no edge of it
+      // moves more than 5 % of the card's width on screen over the whole rest.
+      if (want("still-card-no-blink") || want("still-outline-steady")) {
+        await video.seek(page, 0.3, true);
+        const firstB = await hoverCard(page, "B", 30_000);
+        await page.evaluate((name) => {
+          window.__still = { frames: 0, hidden: 0, stop: false };
+          const tick = () => {
+            const f = [...document.querySelectorAll("iframe")].find((i) => i.src.endsWith(`/${name}`));
+            window.__still.frames += 1;
+            if (!f || getComputedStyle(f).visibility !== "visible") window.__still.hidden += 1;
+            if (!window.__still.stop) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }, PRODUCT.frames.tooltip);
+        const restFrom = Date.now();
+        const boxes = [];
+        let wrongName = 0;
+        let noOutline = 0;
+        let polls = 0;
+        while (firstB) {
+          const t = await video.time(page);
+          if (t >= CLIP.seconds - 0.4 || t < 0.2 || Date.now() - restFrom > 20_000) break;
+          const s = await tooltip(page);
+          polls += 1;
+          if (!s.visible || (s.name !== null && s.name !== cards.B.name)) wrongName += 1;
+          const o = await outline(page);
+          if (o) boxes.push(o);
+          else noOutline += 1;
+          await sleep(100);
+        }
+        const restMs = Date.now() - restFrom;
+        const frames = await page.evaluate(() => {
+          window.__still.stop = true;
+          return { frames: window.__still.frames, hidden: window.__still.hidden };
+        });
+        if (firstB && restMs < 12_000) throw new Error(`setup: the still-card rest lasted ${restMs} ms; it needs 12 s of B on the playing clip`);
+        const r = await video.rect(page);
+        const limitPx = Math.round(0.05 * (PRODUCT.cardWidth / CLIP.width) * r.width * 10) / 10;
+        const spread = Object.fromEntries(["left", "top", "width", "height"].map((k) => [k, boxes.length ? Math.round((Math.max(...boxes.map((b) => b[k])) - Math.min(...boxes.map((b) => b[k]))) * 10) / 10 : null]));
+        const detail = { named: Boolean(firstB), restMs, polls, ...frames, wrongName, noOutline, spread, limitPx };
+        counts.stillCard = detail;
+        if (want("still-card-no-blink")) record("still-card-no-blink", Boolean(firstB) && frames.frames > 0 && frames.hidden === 0 && wrongName === 0, detail);
+        if (want("still-outline-steady"))
+          record("still-outline-steady", Boolean(firstB) && boxes.length > 0 && noOutline === 0 && Object.values(spread).every((v) => v !== null && v <= limitPx), detail);
+      }
       await page.mouse.move(off.x, off.y);
       await setStored(ext, PRODUCT.keys.keepCard, true);
       await page.bringToFront();
@@ -739,6 +874,7 @@ try {
       // The next pointer move over the video makes them again, and names the card.
       await video.seek(page, 2, true);
       const reloaded = await hoverCard(page, "B", 60_000);
+      counts.idleReloadMs = reloaded?.ms ?? null;
       if (want("idle-reload-on-hover")) record("idle-reload-on-hover", Boolean(reloaded), { ms: reloaded?.ms ?? null });
       // Switched off and on after an idle unload, while the video plays.
       if (want("switch-on-after-idle-reloads")) {
@@ -791,9 +927,30 @@ function finish() {
   const failed = results.filter((r) => r.outcome === "fail" || r.outcome === "unexpected-pass");
   counts.originMismatches = originMismatches.length;
   const manifest = JSON.parse(readFileSync(join(resolve(distDir), "manifest.json"), "utf-8"));
+  const measuredOn = {
+    chrome: chromeVersion,
+    extensionVersion: manifest.version,
+    release: releaseDoc.id ?? null,
+    settings: testSettings,
+    platform: `${process.platform} ${process.arch}`,
+    node: process.version,
+  };
+  const timings = timingsOf(counts);
+  writeFileSync(join(out, "timings.json"), JSON.stringify({ timings, measuredOn: { chrome: measuredOn.chrome, extensionVersion: measuredOn.extensionVersion, release: measuredOn.release, platform: measuredOn.platform } }, null, 2) + "\n");
+  const baseline = savedTimings
+    ? {
+        file: values.baseline,
+        ...MARGIN,
+        savedOn: savedTimings.measuredOn ?? null,
+        // Times from another platform are compared all the same, and the report says so (null: the
+        // saved file names no platform).
+        samePlatform: savedTimings.measuredOn?.platform === undefined ? null : savedTimings.measuredOn.platform === measuredOn.platform,
+        ...compareTimings(savedTimings.timings, timings, MARGIN),
+      }
+    : null;
   const report = {
     product: PRODUCT.name,
-    passed: !fatal && violations.length === 0 && policyViolations.length === 0 && failed.length === 0 && missing.length === 0 && results.length > 0,
+    passed: !fatal && violations.length === 0 && policyViolations.length === 0 && failed.length === 0 && missing.length === 0 && results.length > 0 && !(baseline?.slower.length > 0),
     fatal,
     missing,
     violations,
@@ -803,14 +960,9 @@ function finish() {
     exemptChromeOwn: exempt,
     results,
     counts,
-    measuredOn: {
-      chrome: chromeVersion,
-      extensionVersion: manifest.version,
-      release: releaseDoc.id ?? null,
-      settings: testSettings,
-      platform: `${process.platform} ${process.arch}`,
-      node: process.version,
-    },
+    timings,
+    baseline,
+    measuredOn,
     durationMs: Date.now() - startedAt,
   };
   writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2));
@@ -819,6 +971,11 @@ function finish() {
   console.log(`policy: ${policyViolations.length} content-security-policy violation(s); ${originMismatches.length} refused postMessage(s)`);
   console.log(`network: ${violations.length} violation(s), ${exempt.length} of Chrome's own exempt; hosts ${JSON.stringify(hostsSeen)}`);
   console.log(`counts: ${JSON.stringify(counts)}`);
+  console.log(`timings: ${JSON.stringify(timings)}`);
+  if (baseline) {
+    const slower = baseline.slower.map((x) => `${x.key} ${x.now} ms > ${x.limit} ms (saved ${x.saved})`).join("; ");
+    console.log(`baseline: ${baseline.compared.length} time(s) compared with ${baseline.file}${baseline.samePlatform === false ? " (saved on another platform)" : baseline.samePlatform === null ? " (the saved file names no platform)" : ""}; ${slower ? `slower: ${slower}` : "none slower"}`);
+  }
   console.log(`${report.passed ? "PASS" : "FAIL"} in ${(report.durationMs / 1000).toFixed(0)} s on ${chromeVersion}; report ${join(out, "report.json")}`);
   process.exit(report.passed ? 0 : 1);
 }
