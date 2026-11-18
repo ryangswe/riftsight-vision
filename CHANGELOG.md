@@ -13,9 +13,9 @@ break the public surface; this file names each break and how to migrate.
 
 - Hover browser test options for a product's own diagnostics: `--art-delay-ms` holds each card
   picture's answer from the stand-in, as a far CDN would (recorded in `measuredOn`; such a run is
-  never used with or as a `--baseline`); a product module's `tooltipDebugGlobal`
-  gives `counts.artAfterShownMs` (per slot, the card shown to its picture on screen); and a
-  compute debug record's `prefetched` list gives `counts.prefetched`.
+  never used with or as a `--baseline`); a product module's `tooltipDebugGlobal` gives
+  `counts.artAfterShownMs` (per slot, the card shown to its picture on screen); and a compute
+  debug record's `prefetched` list gives `counts.prefetched`.
 - Four hover browser test checks (`browser/harness/`), from steps the maintainers did by hand
   before each release: `paused-names-each` (each card of a paused picture is named with its
   picture within 1 s), `arrives-under-rest` (a card that comes back, with no seek, under a

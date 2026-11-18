@@ -18,10 +18,11 @@
 //
 // --art-delay-ms holds each card picture's answer from the stand-in that long, as a CDN far away
 // would (a whole number from 0 to 10000; 0 by default). The timed checks are judged all the same,
-// so a long delay can fail them; the delay is in measuredOn, and such a run is never a --baseline. With the module's `tooltipDebugGlobal`, the
-// report's counts.artAfterShownMs is, per card slot, the time from the tooltip showing the card to
-// its picture on screen, from the tooltip frame's own timings. When the compute frame's debug
-// record has a `prefetched` list of addresses, counts.prefetched gives their paths.
+// so a long delay can fail them; the delay is in measuredOn, and such a run is never a --baseline.
+// With the module's `tooltipDebugGlobal`, the report's counts.artAfterShownMs is, per card slot,
+// the time from the tooltip showing the card to its picture on screen, from the tooltip frame's
+// own timings. When the compute frame's debug record has a `prefetched` list of addresses,
+// counts.prefetched gives their paths.
 //
 // Every run writes timings.json beside report.json: the times it measured, by name (timings.mjs).
 // With --baseline, the times of a saved run (a product keeps its last release's file) are compared
@@ -223,15 +224,16 @@ function startStandIn() {
   const requests = [];
   const server = createServer({ key: readFileSync(join(certDir, "key.pem")), cert: readFileSync(join(certDir, "cert.pem")) }, (req, res) => {
     const path = new URL(req.url ?? "/", `https://${cdnHost}`).pathname;
-    // A request is counted when it arrives; --art-delay-ms holds only the answer to a picture.
-    const t = Date.now() - startedAt;
-    const send = (status, body, type, cache) => {
-      requests.push({ t, path, status });
-      res.writeHead(status, { "content-type": type, "cache-control": cache, "access-control-allow-origin": "*" }).end(body);
-    };
-    if (path === settingsUrl.pathname) send(200, JSON.stringify(testSettings), "application/json", "no-cache");
-    else if (art.has(path)) setTimeout(() => send(200, art.get(path), "image/jpeg", "public, max-age=86400"), artDelayMs);
-    else send(404, "", "text/plain", "no-store");
+    const [status, body, type, cache, delay] =
+      path === settingsUrl.pathname ? [200, JSON.stringify(testSettings), "application/json", "no-cache", 0]
+      : art.has(path) ? [200, art.get(path), "image/jpeg", "public, max-age=86400", artDelayMs]
+      : [404, "", "text/plain", "no-store", 0];
+    // A request is listed when it arrives (the checks count the list around a window); --art-delay-ms
+    // holds only the answer to a picture.
+    requests.push({ t: Date.now() - startedAt, path, status });
+    const send = () => res.writeHead(status, { "content-type": type, "cache-control": cache, "access-control-allow-origin": "*" }).end(body);
+    if (delay > 0) setTimeout(send, delay);
+    else send();
   });
   return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok({ server, port: server.address().port, spki, requests })));
 }
