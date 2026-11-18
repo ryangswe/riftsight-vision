@@ -108,6 +108,7 @@ if (only) for (const id of only) if (!CHECKS.includes(id)) usage(`--only: no che
 // arrives-under-rest needs a card that leaves and comes back (places.C.back): a module whose clip
 // has none gets the check as unsupported, with that reason, rather than a setup error.
 const unsupported = { ...PRODUCT.unsupported };
+if (PLACES.C.back === undefined && "arrives-under-rest" in PRODUCT.expectedFail) usage("arrives-under-rest is listed in expectedFail, but places.C has no back to run it with");
 if (PLACES.C.back === undefined && !("arrives-under-rest" in unsupported)) {
   unsupported["arrives-under-rest"] = "the product module's clip has no card that comes back (places.C.back), so no card arrives under a resting pointer";
 }
@@ -131,15 +132,18 @@ if (values.baseline) {
 }
 // arrives-under-rest rests the pointer on C's empty place after C leaves (`until`), until C comes
 // back (`back`) with no seek. The pointer's move is 0.3 s after C leaves, and C must be named
-// before the pointer's 10 s run out (S-B2): back - until is 2 to 6 s. No other card may be on
-// C's place meanwhile. (Without `back` the check is unsupported, above.)
+// before the pointer's 10 s run out (S-B2): back - until is 2 to 6 s. C must be back early enough
+// for its time limit to pass before the clip loops (back + limit + 0.5 s within the clip). No other
+// card may be on C's place meanwhile. (Without `back` the check is unsupported, above.)
 if (want("arrives-under-rest")) {
   const c = PLACES.C;
   const w = PRODUCT.cardWidth;
   const h = Math.round(w * PRODUCT.cardAspect);
   const overlaps = SLOTS.filter((s) => s !== "C" && PLACES[s].x < c.x + w && c.x < PLACES[s].x + w && PLACES[s].y < c.y + h && c.y < PLACES[s].y + h);
   const gap = c.back - c.until;
-  if (!(Number.isFinite(gap) && gap >= 2 && gap <= 6 && c.back <= CLIP.seconds - 1)) usage("arrives-under-rest needs places.C.until and places.C.back, 2 to 6 s apart, back at least 1 s before the clip ends (or list the check in `unsupported`)");
+  if (!(Number.isFinite(gap) && gap >= 2 && gap <= 6 && c.back + LIMITS.arrivalMs / 1000 + 0.5 <= CLIP.seconds)) {
+    usage(`arrives-under-rest needs places.C.until and places.C.back, 2 to 6 s apart, and back + the ${LIMITS.arrivalMs} ms limit + 0.5 s within the ${CLIP.seconds} s clip (or list the check in \`unsupported\`)`);
+  }
   if (overlaps.length > 0) usage(`arrives-under-rest needs C's place free of other cards: ${overlaps.join(", ")} overlap it (or list the check in \`unsupported\`)`);
 }
 
@@ -612,7 +616,10 @@ try {
         let shownBefore = null;
         const namedAt = await until(async () => {
           const t = await video.time(page);
-          if (t < prev) throw new Error(`setup: the clip looped before C came back at ${PLACES.C.back} s`);
+          if (t < prev) {
+            if (backAt === null) throw new Error(`setup: the clip looped before C came back at ${PLACES.C.back} s`);
+            return "looped"; // C came back and was not named before the clip's end: the check fails
+          }
           prev = t;
           if (backAt === null && t >= PLACES.C.back) backAt = Date.now();
           const s = await tooltip(page);
@@ -623,8 +630,8 @@ try {
           return s.visible && s.name === cards.C.name && s.art ? Date.now() : null;
         }, (PLACES.C.back - start) * 1000 + LIMITS.arrivalMs * 2 + 2000, 50);
         if (backAt === null) throw new Error(`setup: the clip never reached ${PLACES.C.back} s, when C comes back`);
-        const ms = namedAt ? namedAt - backAt : null;
-        counts.arrival = { ms, restedMs: backAt - movedAt };
+        const ms = typeof namedAt === "number" ? namedAt - backAt : null;
+        counts.arrival = { ms, restedMs: backAt - movedAt, ...(namedAt === "looped" ? { looped: true } : {}) };
         record("arrives-under-rest", ms !== null && ms <= LIMITS.arrivalMs, {
           limitMs: LIMITS.arrivalMs,
           ...counts.arrival,

@@ -9,6 +9,11 @@
 // a wobble that should not have been reported: that is the jitter a viewer sees. The tooltip moves
 // with a report, so a tooltip move is a wobble unless an outline re-report is at the same poll or
 // the one next to it (the two are read one after the other, so one can lag a poll).
+//
+// The limits come from the card's size in the clip, where the frame takes 5 % of the detected box.
+// A detector whose box is tighter than the card could make a re-report of just over 5 % of its box
+// that is under 5 % of the card: this would call it a wobble. A still card makes no such move, so
+// this matters only for a product whose still card's box drifts by about 5 %.
 
 /** Moves at or below this many pixels are rounding, not a move. */
 export const SUB_PX = 0.5;

@@ -6,7 +6,8 @@
 
 /** How much slower than the saved time a time may be: factor × saved + slackMs. Set from 16 CI runs
  *  of two products' hover browser tests (Linux x64, WebAssembly): the named card's picture took
- *  250 to 369 ms and the cached reload 1091 to 2143 ms, so a time may double from run to run. It
+ *  250 to 369 ms and the cached reload 1091 to 2143 ms; in the same runs the reload after an idle
+ *  unload took 976 to 1917 ms. So a time may double from run to run. It
  *  catches a step change, not a drift. */
 export const TIMING_DEFAULTS = { factor: 2, slackMs: 250 };
 /** Times that are reported but not compared, because they vary by design: the second tab's waits

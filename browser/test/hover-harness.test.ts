@@ -195,6 +195,11 @@ describe("the harness command", () => {
       const exampleUrl = pathToFileURL(here("../harness/example/product.mjs")).href;
       const args = ["--chrome", "x", "--release", "x", "--art", "/nowhere/art", "--dist", "x", "--only", "arrives-under-rest"];
       writeFileSync(join(dir, "stays.mjs"), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, C: { x: e.places.C.x, y: e.places.C.y } } };\n`);
+      // No return time while the module expects the check to fail: a usage error, not a lost entry.
+      writeFileSync(join(dir, "expected.mjs"), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, C: { x: e.places.C.x, y: e.places.C.y } }, expectedFail: { "arrives-under-rest": { condition: "x", old: "x", intended: "x", clearedBy: "x" } } };\n`);
+      const expected = run("--product", join(dir, "expected.mjs"), ...args);
+      expect(expected.status).toBe(2);
+      expect(expected.stderr).toContain("arrives-under-rest is listed in expectedFail, but places.C has no back");
       // No return time: the check is unsupported (the report gives the reason), not a setup error,
       // so the run goes on to load puppeteer-core, which this test has not installed.
       const noPuppeteer = { ...process.env, PUPPETEER_CORE_DIR: join(dir, "no-puppeteer") };
@@ -202,13 +207,14 @@ describe("the harness command", () => {
       expect(stays.stderr).not.toContain("arrives-under-rest needs");
       expect(stays.status).toBe(1);
       expect(stays.stderr).toContain("puppeteer-core");
-      // Back too soon (1 s), too late in the pointer's 10 s (7 s), or past the clip's last second.
-      const cases: Array<[string, number, number]> = [["soon", 12, 13], ["slow", 10, 17], ["end", 15, 19.5]];
+      // Back too soon (1 s), too late in the pointer's 10 s (7 s), or too near the clip's end for
+      // the 3000 ms limit (17 + 3 + 0.5 > 20).
+      const cases: Array<[string, number, number]> = [["soon", 12, 13], ["slow", 10, 17], ["end", 12, 17]];
       for (const [name, until, back] of cases) {
         writeFileSync(join(dir, `${name}.mjs`), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, C: { ...e.places.C, until: ${until}, back: ${back} } } };\n`);
         const bad = run("--product", join(dir, `${name}.mjs`), ...args);
         expect(bad.status, name).toBe(2);
-        expect(bad.stderr, name).toContain("2 to 6 s apart, back at least 1 s before the clip ends");
+        expect(bad.stderr, name).toContain("2 to 6 s apart, and back + the 3000 ms limit + 0.5 s within the 20 s clip");
       }
       writeFileSync(join(dir, "covered.mjs"), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, B: { x: e.places.C.x + 10, y: e.places.C.y } } };\n`);
       const covered = run("--product", join(dir, "covered.mjs"), ...args);

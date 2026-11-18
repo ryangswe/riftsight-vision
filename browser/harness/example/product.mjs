@@ -64,8 +64,8 @@ export default {
   /** Optional. The time limits of the timed checks, in ms: `pausedMs` for each card of a paused
    *  picture (paused-names-each) and `arrivalMs` for a card that comes under a resting pointer
    *  (arrives-under-rest). 1000 and 3000 by default (LIMIT_DEFAULTS in product-shape.mjs).
-   *  arrives-under-rest runs when C leaves (`until`) and comes back (`back`) 2 to 6 s later, at
-   *  least 1 s before the clip ends, with no other card on C's place; without `back` it is
+   *  arrives-under-rest runs when C leaves (`until`) and comes back (`back`) 2 to 6 s later, with
+   *  back + arrivalMs + 0.5 s within the clip and no other card on C's place; without `back` it is
    *  unsupported. */
   // limits: { pausedMs: 1000, arrivalMs: 3000 },
   /** Optional. With --baseline, a time fails when it is more than factor x saved + slackMs.

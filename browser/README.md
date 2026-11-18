@@ -1111,8 +1111,8 @@ run's output and `report.json` list them with the reason. Two checks are timed:
 back, with no seek, under a pointer resting on its empty place, with keep-card on) must show the
 card within the module's `limits` (`pausedMs`, `arrivalMs`; 1000 and 3000 ms by default, the
 latter for the 2 s empty-spot cadence). `arrives-under-rest` runs when slot C leaves (`until`)
-and comes back (`back`) 2 to 6 s later; a module whose C has no `back` gets the check as
-unsupported, with that reason. Two watch a
+and comes back (`back`) 2 to 6 s later, early enough that `back` plus the limit plus 0.5 s is
+within the clip; a module whose C has no `back` gets the check as unsupported, with that reason. Two watch a
 rest of 16.5 s on a still card with keep-card off: `still-card-no-blink` (the tooltip is never
 hidden in any animation frame) and `still-outline-steady` (between two polls the outline either
 stays put or moves as a new report does, an edge by more than 5 % of the card's size or its tilt
