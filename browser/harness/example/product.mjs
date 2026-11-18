@@ -71,4 +71,8 @@ export default {
   /** Optional. With --baseline, a time fails when it is more than factor x saved + slackMs.
    *  2 and 250 by default (TIMING_DEFAULTS in timings.mjs). */
   // baseline: { factor: 2, slackMs: 250 },
+  /** Optional. The tooltip frame's dev debug global, a function returning { timings: [{ event:
+   *  "show" | "art", cardId, at }] } (performance.now() times): the report's counts.artAfterShownMs
+   *  gives, per slot, the time from the card shown to its picture on screen. */
+  // tooltipDebugGlobal: "__exampleTooltipDebug",
 };

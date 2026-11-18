@@ -55,6 +55,7 @@ export function productProblems(product, checkIds) {
     }
   }
   if (p.dist !== undefined && !(p.dist instanceof URL)) problems.push("dist is not a URL");
+  if (p.tooltipDebugGlobal !== undefined && !isString(p.tooltipDebugGlobal)) problems.push("tooltipDebugGlobal is not a text");
   // Optional: the time limits of the timed checks, and the margin of the --baseline comparison.
   if (p.limits !== undefined) {
     if (!isObject(p.limits)) problems.push("limits is not an object");

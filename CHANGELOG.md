@@ -11,6 +11,10 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Hover browser test options for a product's own diagnostics: `--art-delay-ms` holds each card
+  picture's answer from the stand-in, as a far CDN would; a product module's `tooltipDebugGlobal`
+  gives `counts.artAfterShownMs` (per slot, the card shown to its picture on screen); and a
+  compute debug record's `prefetched` list gives `counts.prefetched`.
 - Four hover browser test checks (`browser/harness/`), from steps the maintainers did by hand
   before each release: `paused-names-each` (each card of a paused picture is named with its
   picture within 1 s), `arrives-under-rest` (a card that comes back, with no seek, under a
@@ -43,6 +47,8 @@ break the public surface; this file names each break and how to migrate.
 
 ### Fixed
 
+- The rollback check draws a card that leaves and comes back (`places.C.back`) as the hover
+  browser test does, and renders its clip as fast: both now render it with `harness/clip.mjs`.
 - The quickstart's Linux check runs on Ubuntu 24.04. GitHub's newest Ubuntu image comes with
   Python 3.14, which the documents do not support yet (the locked onnxruntime has no wheel for it).
 - `store-release.yml` and `store-check.yml` pass `--runtimes` only when `store/record-facts.json`
