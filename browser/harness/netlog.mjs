@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // The hover browser test's network scope: what a Chrome NetLog says was requested, and which of
-// those requests left the machine. Tested on fixtures in test/netlog.test.ts.
+// those requests left the machine. Tested on fixtures in the toolkit's browser/test/netlog.test.ts.
 
 /** Every request in a NetLog's text: all the URLs it went to (a redirect adds one) and the origin
  *  that started it (null for a request the browser started itself), gathered per request across
