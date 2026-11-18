@@ -648,6 +648,15 @@ def targets_text(**changes) -> str:
     return json.dumps([{**target, **changes}])
 
 
+def following(branch: str | None) -> str:
+    """An entry that follows a branch instead of naming a commit; None leaves both out."""
+    import json
+
+    target = json.loads(targets_text())[0]
+    del target["sha"]
+    return json.dumps([target if branch is None else {**target, "branch": branch}])
+
+
 def canary(*args: str, targets: str | None = None, cwd: Path = ROOT, **extra: str) -> subprocess.CompletedProcess:
     environment = {key: value for key, value in os.environ.items() if not key.startswith(("GITHUB_", "CANARY_"))}
     if targets is not None:
@@ -656,9 +665,8 @@ def canary(*args: str, targets: str | None = None, cwd: Path = ROOT, **extra: st
     return subprocess.run(["node", str(CANARY), *args], cwd=cwd, env=environment, capture_output=True, text=True, timeout=120)
 
 
-def test_the_canary_workflow_is_advisory_read_only_and_names_no_product():
-    """It is never a required check (a workflow cannot say so; nothing in it asks to be), runs
-    on the pull request's own power, reads no secret and keeps no credentials."""
+def test_the_canary_workflow_is_read_only_and_names_no_product():
+    """It runs on the pull request's own power, reads no secret and keeps no credentials."""
     text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
     assert re.search(r"^on:\n  push:\n    branches: \[main\]\n  pull_request:\n", text, re.M)
     assert "pull_request_target" not in text and "secrets." not in text
@@ -680,7 +688,7 @@ def test_the_canary_workflow_builds_the_toolkit_then_the_product_then_vendors_an
     assert "canary.mjs seed-opencv toolkit product" in steps[wanted[0]]["run"]
     assert "npm run build" in steps[wanted[1]]["run"]
     assert "canary.mjs vendor toolkit product" in steps[wanted[3]]["run"]
-    assert steps["Install Chrome for Testing, puppeteer-core and ffmpeg"]["if"] == "matrix.chrome"
+    assert steps["Install Chrome for Testing, puppeteer-core and ffmpeg"]["if"] == "matrix.chrome && steps.install.outcome == 'success'"
 
 
 @needs_node
@@ -705,6 +713,13 @@ def test_an_empty_variable_is_a_neutral_skip_shown_in_the_job_summary(tmp_path):
     (targets_text(vendorDir="/abs"), "relative folder"),
     (targets_text(steps=[]), "non-empty list of commands"),
     (targets_text(token="x"), 'unknown field "token"'),
+    (targets_text(branch="main"), "exactly one of branch and sha"),
+    (following(None), "exactly one of branch and sha"),
+    (following("-upload-pack=x"), "plain branch name"),
+    (following("a..b"), "plain branch name"),
+    (following("a b"), "plain branch name"),
+    (following("main.lock"), "plain branch name"),
+    (following(""), "plain branch name"),
 ])
 def test_a_malformed_variable_fails_the_plan_and_says_why(text, problem, tmp_path):
     summary = tmp_path / "summary.md"
@@ -760,8 +775,216 @@ def test_the_marker_key_follows_the_targets_and_the_files_that_decide_a_run(tmp_
     assert plan_of(targets_text(), repo)["key"] != workflow_key
 
 
+@pytest.fixture()
+def product_remote(tmp_path) -> tuple[Path, Path]:
+    """A local stand-in for github.com: <base>/example/product.git, with a commit on main."""
+    base, work = tmp_path / "remote", tmp_path / "work"
+    bare = base / "example" / "product.git"
+    bare.mkdir(parents=True)
+    work.mkdir()
+    git(bare, "init", "--quiet", "--bare", "--initial-branch=main")
+    git(work, "init", "--quiet", "--initial-branch=main")
+    (work / "a.txt").write_text("one\n")
+    git(work, "add", "a.txt")
+    git(work, "commit", "--quiet", "-m", "one")
+    git(work, "remote", "add", "origin", str(bare))
+    git(work, "push", "--quiet", "origin", "main")
+    return base, work
+
+
 @needs_node
-def test_a_rerun_with_nothing_changed_finds_the_marker_and_skips(tmp_path):
+def test_a_target_that_follows_a_branch_runs_at_that_branch_s_current_commit(product_remote, tmp_path):
+    import json
+
+    base, work = product_remote
+    out = tmp_path / "output.txt"
+
+    def plan() -> dict[str, str]:
+        out.unlink(missing_ok=True)
+        done = canary("plan", ".", targets=following("main"), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{base}")
+        assert done.returncode == 0, done.stderr
+        return read_outputs(out)
+
+    first = plan()
+    entry = json.loads(first["matrix"])["include"][0]
+    assert entry["sha"] == git(work, "rev-parse", "HEAD") and "branch" not in entry
+    assert plan()["key"] == first["key"]
+
+    (work / "a.txt").write_text("two\n")
+    git(work, "commit", "--quiet", "-am", "two")
+    git(work, "push", "--quiet", "origin", "main")
+    moved = plan()
+    assert json.loads(moved["matrix"])["include"][0]["sha"] == git(work, "rev-parse", "HEAD")
+    assert moved["key"] != first["key"], "a product that moved is tried again"
+
+
+@needs_node
+def test_only_the_exact_branch_counts_not_one_whose_name_ends_the_same(product_remote, tmp_path):
+    import json
+
+    base, work = product_remote
+    first = git(work, "rev-parse", "HEAD")
+    (work / "a.txt").write_text("two\n")
+    git(work, "commit", "--quiet", "-am", "two")
+    git(work, "push", "--quiet", "origin", "HEAD:refs/heads/x/refs/heads/main")
+    out = tmp_path / "output.txt"
+    done = canary("plan", ".", targets=following("main"), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{base}")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(read_outputs(out)["matrix"])["include"][0]["sha"] == first
+
+
+@needs_node
+def test_a_branch_that_is_gone_is_left_out_with_a_warning_and_the_rest_still_run(product_remote, tmp_path):
+    import json
+
+    base, work = product_remote
+    summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
+    both = json.dumps(json.loads(following("gone")) + json.loads(following("main")))
+    done = canary("plan", ".", targets=both, GITHUB_STEP_SUMMARY=str(summary), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{base}")
+    assert done.returncode == 0, done.stderr
+    assert "::warning title=Downstream canary::target 1: example/product has no branch gone" in done.stdout
+    assert "has no branch gone" in summary.read_text(encoding="utf-8")
+    outputs = read_outputs(out)
+    assert outputs["run"] == "true" and [t["sha"] for t in json.loads(outputs["matrix"])["include"]] == [git(work, "rev-parse", "HEAD")]
+
+
+@needs_node
+def test_a_failed_lookup_is_tried_three_times_then_skipped_without_going_red(tmp_path):
+    log = tmp_path / "git.log"
+    fake = tmp_path / "bin" / "git"
+    fake.parent.mkdir()
+    fake.write_text(f'#!/bin/sh\necho "$1" >> "{log}"\necho "fatal: unable to access" >&2\nexit 128\n')
+    fake.chmod(0o755)
+    summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
+    done = canary("plan", ".", targets=following("main"), GITHUB_STEP_SUMMARY=str(summary), GITHUB_OUTPUT=str(out),
+                  PATH=f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    assert done.returncode == 0, done.stderr
+    assert log.read_text().split() == ["ls-remote"] * 3
+    assert "could not read branch main of example/product: fatal: unable to access" in summary.read_text(encoding="utf-8")
+    assert read_outputs(out)["run"] == "false"
+    assert "is empty" not in summary.read_text(encoding="utf-8"), "the variable is not empty"
+
+
+@needs_node
+def test_a_fixed_commit_is_used_as_written_with_no_lookup(tmp_path):
+    import json
+
+    out = tmp_path / "output.txt"
+    done = canary("plan", ".", targets=targets_text(), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{tmp_path}/nowhere")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(read_outputs(out)["matrix"])["include"][0]["sha"] == PRODUCT_SHA
+
+
+NEEDS_THE_OLD_BUILD = "test -f old-build.txt"
+
+
+def run_beside_a_copy(tmp_path: Path, steps: list[str]) -> tuple[subprocess.CompletedProcess, str, Path]:
+    """The product as vendored, beside a copy from before vendoring that holds old-build.txt."""
+    import json
+
+    product, copy, summary = tmp_path / "product", tmp_path / "copy", tmp_path / "summary.md"
+    product.mkdir(parents=True)
+    copy.mkdir()
+    (copy / "old-build.txt").write_text("old\n")
+    done = canary("run", str(product), STEPS=json.dumps(steps), TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA,
+                  BASELINE_DIR=str(copy), GITHUB_STEP_SUMMARY=str(summary))
+    return done, summary.read_text(encoding="utf-8"), copy
+
+
+@needs_node
+def test_a_product_that_passes_runs_its_checks_once(tmp_path):
+    done, shown, copy = run_beside_a_copy(tmp_path, ["echo ran >> ran.txt"])
+    assert done.returncode == 0 and "clean=true" in done.stdout
+    assert not (copy / "ran.txt").exists() and "Without this change" not in shown
+
+
+@needs_node
+def test_a_step_that_only_fails_with_the_new_build_is_red(tmp_path):
+    done, shown, _ = run_beside_a_copy(tmp_path, [NEEDS_THE_OLD_BUILD])
+    assert done.returncode == 1 and "1 of 1 step(s) failed" in shown and "| failed (1) | passed |" in shown
+    assert "::warning" not in done.stdout and "clean=false" in done.stdout
+
+
+@needs_node
+def test_a_step_that_also_fails_on_the_copy_is_a_warning_that_says_it_could_not_judge(tmp_path):
+    done, shown, _ = run_beside_a_copy(tmp_path, ["exit 3"])
+    assert done.returncode == 0, done.stderr
+    wanted = "1 of 1 step(s) already fail without this change, so it could not be checked there"
+    assert wanted in shown and f"::warning title=Downstream canary::example/product at 0123456789ab: {wanted}" in done.stdout
+    assert "clean=false" in done.stdout, "a warning is not a pass: no marker follows it"
+
+
+@needs_node
+def test_one_step_broken_by_the_new_build_stays_red_beside_one_that_already_failed(tmp_path):
+    done, _, _ = run_beside_a_copy(tmp_path, ["exit 3", NEEDS_THE_OLD_BUILD])
+    assert done.returncode == 1 and "::warning" not in done.stdout
+
+
+@needs_node
+def test_what_a_failed_step_leaves_running_is_stopped_before_the_copy_runs(tmp_path):
+    """A background process that outlives a failed step, as a server holds a port, must be gone
+    before the copy runs, or a real break would pass as a product that was already failing."""
+    pid_file = tmp_path / "left-running.txt"
+    step = f'test -f old-build.txt || {{ sleep 60 & echo $! > "{pid_file}"; exit 3; }}; kill -0 "$(cat "{pid_file}")" 2>/dev/null && exit 4; exit 0'
+    done, shown, _ = run_beside_a_copy(tmp_path, [step])
+    assert done.returncode == 1 and "| failed (3) | passed |" in shown, shown
+
+
+@needs_node
+def test_the_real_run_and_the_copy_do_not_share_a_temporary_folder(tmp_path):
+    seen = tmp_path / "seen.txt"
+    done, _, _ = run_beside_a_copy(tmp_path, [f'echo "$TMPDIR" >> "{seen}"; exit 3'])
+    assert done.returncode == 0, done.stderr
+    first, second = seen.read_text(encoding="utf-8").split()
+    assert first != second
+
+
+@needs_node
+def test_with_no_copy_a_failed_step_is_red(tmp_path):
+    import json
+
+    product = tmp_path / "product"
+    product.mkdir()
+    done = canary("run", str(product), STEPS=json.dumps(["exit 3"]), BASELINE_DIR=str(tmp_path / "nowhere"), GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
+    assert done.returncode == 1 and "Without this change" not in (tmp_path / "summary.md").read_text(encoding="utf-8")
+
+
+def test_the_copy_is_taken_before_vendoring_and_a_rerun_always_tests():
+    steps = steps_of("canary.yml")
+    order = list(steps)
+    keep = "Keep a copy of the product without the new build"
+    vendor = "Vendor the new build into the product, with the options its manifest records"
+    assert order.index(keep) < order.index(vendor) and steps[keep]["run"].strip() == 'cp -a product "$RUNNER_TEMP/product-baseline"'
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert "BASELINE_DIR: ${{ runner.temp }}/product-baseline" in text
+    assert "id: restore\n        if: steps.plan.outputs.run == 'true' && github.run_attempt == '1'\n" in text
+
+
+def test_only_a_run_in_which_every_product_passed_outright_saves_the_marker():
+    steps = steps_of("canary.yml")
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert steps["Note that this product passed outright"]["if"] == "steps.checks.outputs.clean == 'true'"
+    assert "name: canary-clean-${{ needs.plan.outputs.key }}-${{ strategy.job-index }}" in text, "a pass counts for these inputs alone"
+    assert "pattern: canary-clean-${{ needs.plan.outputs.key }}-*" in text
+    assert re.search(r"actions/upload-artifact@\S+ # \S+\n        if: steps\.checks\.outputs\.clean == 'true'\n        continue-on-error: true\n", text)
+    write = steps["Write the marker when every product passed outright"]["run"]
+    assert 'if ! [ "$passed" -eq "$COUNT" ]' in write and write.index("-eq") < write.index("mkdir canary-marker") < write.index("save=true")
+    assert "COUNT: ${{ needs.plan.outputs.count }}" in text
+    assert re.search(r"actions/cache/save@\S+ # \S+\n        if: steps\.write\.outputs\.save == 'true'\n", text)
+
+
+def test_a_product_that_cannot_be_prepared_is_a_warning_and_is_not_tried():
+    steps = steps_of("canary.yml")
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert "id: seed\n        continue-on-error: true\n" in text
+    assert "id: install\n        if: steps.seed.outcome == 'success'\n        continue-on-error: true\n" in text
+    assert "::warning" in steps["Warn when the product could not be prepared"]["run"]
+    for name in ("Keep a copy of the product without the new build", "Vendor the new build into the product, with the options its manifest records", "Run the product's own checks"):
+        assert steps[name]["if"] == "steps.install.outcome == 'success'"
+
+
+@needs_node
+def test_a_later_run_with_nothing_changed_finds_the_marker_and_skips(tmp_path):
     """The record job writes ``canary-marker/note.txt``; the plan job restores it from the cache
     on the next run with the same key. Here the folder is put where the cache would put it."""
     summary, out = tmp_path / "summary.md", tmp_path / "output.txt"
@@ -863,7 +1086,7 @@ def test_the_canary_skip_criteria_are_wired_through_the_marker():
     the marker is recorded only when every target passed."""
     text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
     restore = re.search(r"actions/cache/restore@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
-    save = re.search(r"actions/cache/save@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
+    save = re.search(r"actions/cache/save@\S+ # \S+\n\s+if: .+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
     assert restore and save and restore.group(1) == save.group(1) == "canary-marker"
     assert restore.group(2) == "canary-ok-${{ steps.plan.outputs.key }}"
     assert save.group(2) == "canary-ok-${{ needs.plan.outputs.key }}"

@@ -76,28 +76,46 @@ Publish its measured numbers beside the previous release's, and make sure
 - Only the maintainer merges a pull request that raises the version, since the merge is what
   tags and releases.
 
+## What a red check means
+
+Red means do not merge. There is no check that is expected to fail for a while and is fine to
+merge past.
+
+- A check on a pull request fails only on what that pull request can fix.
+- Something that can only happen after the merge, such as a page going live, is a warning on the
+  pull request. The tag's build or the upload enforces it.
+- A toolkit change that would break a product goes in two steps: the product first merges a change
+  that works with both the current toolkit and the new one, and then the toolkit change merges.
+
 ## The downstream canary
 
 `.github/workflows/canary.yml` ("Downstream canary") checks a change against the products that
 vendor the browser runtime. It runs on every pull request and every push to `main`. For each
-product it names, it checks the product out at a pinned commit, vendors this checkout's build into
-it with the options the product's own vendor manifest records, and runs the product's own checks.
-It is advisory: it is not a required check, so a red run is information for the reviewer, not a
-block.
+product it names, it checks out the current commit of the product's branch, vendors this
+checkout's build into it with the options the product's own vendor manifest records, and runs the
+product's own checks. It is not a required check, but a red run still means do not merge (see
+"What a red check means"). What a pull request cannot fix is a warning instead: a product that
+cannot be read or installed is not tried. When a check fails, it also runs on a copy of the product
+without the new build, and a check that fails there too cannot judge this change.
+
+After a product merges a compatible change, use **Re-run all jobs** on the pull request. Re-running
+only the failed job tests the commit that the first attempt looked up.
 
 The products come from the repository variable `CANARY_TARGETS`, a JSON list with one entry per
-product commit:
+product:
 
 ```json
-[{"repo": "account/product", "sha": "<full 40-character commit>", "vendorDir": "vendor/cardvision-browser", "steps": ["npm run vendor-check", "npm test"]}]
+[{"repo": "account/product", "branch": "main", "vendorDir": "vendor/cardvision-browser", "steps": ["npm run vendor-check", "npm test"]}]
 ```
 
-- `repo`: the product's repository. `sha`: the commit to try. `vendorDir`: the folder, inside the
-  product, it vendors the runtime into. `steps`: shell commands run in the product after
+- `repo`: the product's repository. `branch`: the branch to follow; each run looks up its current
+  commit and the job summary names it. To try one fixed commit instead, give `sha`, the full
+  40-character commit, in place of `branch`. `vendorDir`: the folder, inside the product, it
+  vendors the runtime into. `steps`: shell commands run in the product after
   vendoring, in order, each reported in the job summary. An optional `"chrome": true` installs a
   headless Chrome for Testing first and names it in `$CHROME`.
-- A product can be listed more than once, for example its released code and the commit it is
-  about to release. The summary tells the jobs apart by commit.
+- A product can be listed more than once, for example its `main` branch and the commit it last
+  released. The summary tells the jobs apart by commit.
 - An empty variable, or `[]`, makes the job a neutral skip.
 - Each step runs with `CARDVISION_CANARY=1` set. A product can use it to skip a check that cannot
   pass on a build it did not vendor itself, such as a test that its docs link the vendored commit.
@@ -113,11 +131,12 @@ CANARY_TARGETS="$(cat targets.json)" node browser/scripts/canary.mjs plan .
 gh variable set CANARY_TARGETS < targets.json
 ```
 
-`plan` prints the matrix it would run, or names each problem and exits 1. In the browser, the
+`plan` prints the matrix it would run, or names each problem in the list and exits 1. A branch it
+cannot read is a warning and exits 0, so read what it prints. In the browser, the
 variable is under the repository's Settings → Secrets and variables → Actions → Variables. It
 takes effect on the next pull request or push to `main`; the workflow has no manual run.
 
-Update a pin when a product releases or merges a change that vendors a new toolkit commit. Pin a
+An entry that follows a branch needs no update when the product changes. A fixed `sha` must be a
 commit on the product's main branch, or on a branch that will stay: the job checks the commit out
 by its hash, and a squash merge leaves a pull request's own commits only on its branch, which may
 be deleted.
