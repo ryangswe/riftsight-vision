@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
-from support_hover_spec import COVERAGE, INDEX, ROOT, SPEC, TESTLESS, coverage, parse, render
+from support_hover_spec import COVERAGE, INDEX, ROOT, SPEC, TESTLESS, coverage, is_tested, parse, render
 
 GOOD = """# Spec
 
@@ -139,7 +139,7 @@ def test_the_committed_coverage_doc_matches():
 
 def test_the_testless_list_is_what_the_spec_shows():
     index = json.loads(INDEX.read_text(encoding="utf-8"))
-    bare = {c["id"] for c in index["clauses"] if not c["tests"] and not c["browser"]}
+    bare = {c["id"] for c in index["clauses"] if not is_tested(c, index["productsOnlyChecks"])}
     assert bare == set(TESTLESS)
 
 
@@ -246,4 +246,37 @@ def test_a_check_only_the_products_run_is_marked_and_not_counted(tree):
 def test_a_browser_check_alone_is_a_test(tree):
     text = GOOD.replace("Test: `x.test.ts:4`; harness checks other-check, first-check", "Test: harness checks other-check, first-check")
     assert problems_of(text, tree) == []
+
+
+def test_a_test_file_named_for_the_harness_is_a_plain_reference(tree):
+    (tree / "browser" / "test" / "hover-harness.test.ts").write_text('it("a", () => {});\n')
+    text = GOOD.replace("Test: `x.test.ts:4`;", "Test: `x.test.ts:4`, `hover-harness.test.ts:1`;")
+    assert problems_of(text, tree) == []
+
+
+def fixture_module(tree: Path, body: str) -> None:
+    folder = tree / "browser" / "fixture-extension"
+    folder.mkdir(exist_ok=True)
+    folder.joinpath("product.mjs").write_text(body)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("export default {\n  unsupported: { \"other-check\": \"why\" },\n};\n", "cannot read its `unsupported"),
+        ("export default {\n  unsupported: {\n    'other-check': 'why',\n  },\n};\n", "cannot read the unsupported line"),
+        ("export default {\n  unsupported: {\n    \"other-chek\": \"why\",\n  },\n};\n", "unsupported 'other-chek' is not in"),
+    ],
+)
+def test_an_unsupported_list_it_cannot_read_is_a_fault(tree, body, expected):
+    fixture_module(tree, body)
+    assert any(expected in p for p in problems_of(GOOD, tree))
+
+
+def test_a_clause_tested_only_in_the_products_stays_testless(tree):
+    fixture_module(tree, 'export default {\n  unsupported: {\n    "other-check": "why",\n  },\n};\n')
+    text = GOOD.replace("Test: `x.test.ts:4`; harness checks other-check, first-check", "Test: harness check other-check; pending (real-browser test)")
+    index, problems = parse(text, tree, frozenset({"S-A2"}))
+    assert problems == []
+    assert "0 pending only; 2 partial." not in coverage(index) and "1 pending only; 1 partial." in coverage(index)
 

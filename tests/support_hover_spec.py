@@ -49,8 +49,8 @@ FILE_TOKEN = re.compile(r"^[A-Za-z0-9_./-]+\.(?:test\.ts|py)(?::.*)?$")
 REF = re.compile(r"^([A-Za-z0-9_./-]+\.(?:test\.ts|py)):([1-9][0-9]*)$")
 CHECK_ENTRY = re.compile(r'^\s*"([a-z0-9-]+)":\s*"([^"]+)",?\s*$')
 CHECKS_BLOCK = re.compile(r"^export const CLAUSES = \{\n(.*?)^\};", re.MULTILINE | re.DOTALL)
-UNSUPPORTED_BLOCK = re.compile(r"^\s*unsupported: \{\n(.*?)^\s*\},", re.MULTILINE | re.DOTALL)
-UNSUPPORTED_KEY = re.compile(r'^\s*"([a-z0-9-]+)":', re.MULTILINE)
+UNSUPPORTED_BLOCK = re.compile(r"^[ \t]*unsupported: \{\n(.*?)^[ \t]*\},", re.MULTILINE | re.DOTALL)
+UNSUPPORTED_ENTRY = re.compile(r'^[ \t]*"([a-z0-9-]+)": ".*",?[ \t]*$')
 HARNESS_WORD = re.compile(r"harness", re.IGNORECASE)
 CHECK_CITE = re.compile(r"harness checks? ([a-z][a-z0-9-]*(?:,\s*[a-z][a-z0-9-]*)*)")
 PENDING = re.compile(r"pending \(([^)]*)\)")
@@ -121,13 +121,37 @@ def read_checks(root: Path = ROOT) -> tuple[dict[str, str], list[str]]:
     return checks, problems
 
 
-def products_only(root: Path = ROOT) -> list[str]:
-    """The checks the toolkit's fixture module lists as unsupported (an empty list without it)."""
+def products_only(checks: dict[str, str], root: Path = ROOT) -> tuple[list[str], list[str]]:
+    """The checks the toolkit's fixture module lists as unsupported, and the problems reading them.
+    Without the file there are none; a file that mentions `unsupported` must hold the block in the
+    form read here, one ``"check": "reason",`` a line, each a check of the harness table."""
     path = root / FIXTURE_FILE
     if not path.is_file():
-        return []
-    block = UNSUPPORTED_BLOCK.search(path.read_text(encoding="utf-8"))
-    return sorted(UNSUPPORTED_KEY.findall(block.group(1))) if block else []
+        return [], []
+    text = path.read_text(encoding="utf-8")
+    if "unsupported" not in text:
+        return [], []
+    block = UNSUPPORTED_BLOCK.search(text)
+    if not block:
+        return [], [f"{FIXTURE_FILE}: cannot read its `unsupported: {{ ... }},` block"]
+    names: list[str] = []
+    problems: list[str] = []
+    for line in block.group(1).splitlines():
+        if not line.strip() or line.strip().startswith("//"):
+            continue
+        m = UNSUPPORTED_ENTRY.match(line)
+        if not m:
+            problems.append(f"{FIXTURE_FILE}: cannot read the unsupported line {line.strip()[:60]!r}")
+        elif m.group(1) not in checks:
+            problems.append(f"{FIXTURE_FILE}: unsupported {m.group(1)!r} is not in {CHECKS_FILE}")
+        else:
+            names.append(m.group(1))
+    return sorted(names), problems
+
+
+def is_tested(clause: dict, only_in_products: list[str] | set[str]) -> bool:
+    """A clause the toolkit tests: a unit test, or a browser check its own CI runs."""
+    return bool(clause["tests"]) or any(name not in only_in_products for name in clause["browser"])
 
 
 def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> tuple[dict, list[str]]:
@@ -135,7 +159,8 @@ def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> 
     problems: list[str] = []
     checks, read_problems = read_checks(root)
     problems.extend(read_problems)
-    only_in_products = products_only(root)
+    only_in_products, fixture_problems = products_only(checks, root)
+    problems.extend(fixture_problems)
     groups: dict[str, str] = {}
     clauses: list[dict] = []
     seen: set[str] = set()
@@ -241,7 +266,7 @@ def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> 
                         browser.append(name)
             # Every mention of the harness must be a citation it read: a list joined by "and", a
             # capital letter or a double space would otherwise drop a check silently.
-            rest = CHECK_CITE.sub("", content)
+            rest = CHECK_CITE.sub("", re.sub(r"`[^`]*`", "", content))
             if HARNESS_WORD.search(rest) or re.search(r"harness checks? [a-z][a-z0-9-]*(?:,\s*[a-z][a-z0-9-]*)*\s+and\b", content):
                 problems.append(f"{cid}: a harness check citation it cannot read: write `harness check <name>` or `harness checks <a>, <b>`")
             for kind in PENDING.findall(content):
@@ -261,16 +286,13 @@ def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> 
             problems.append(f"harness check {name!r} names {clause}, which is not a clause")
         elif name not in by_id[clause]["browser"]:
             problems.append(f"{clause}: its Test paragraph does not cite harness check {name}")
-    def tested(c: dict) -> bool:
-        return bool(c["tests"]) or any(name not in only_in_products for name in c["browser"])
-
     for c in clauses:
-        if not tested(c) and c["id"] not in testless:
+        if not is_tested(c, only_in_products) and c["id"] not in testless:
             problems.append(f"{c['id']} has no test: add one, or add it to TESTLESS with a reason in the PR")
     for cid in sorted(testless):
         if cid not in ids:
             problems.append(f"{cid} is in TESTLESS but is not a clause: remove it from TESTLESS")
-        elif tested(by_id[cid]):
+        elif is_tested(by_id[cid], only_in_products):
             problems.append(f"{cid} is in TESTLESS but now has a test: remove it from TESTLESS")
     for mention in sorted(set(ID_MENTION.findall(text)) - ids):
         problems.append(f"{mention} is mentioned but no clause has that id")
@@ -289,8 +311,8 @@ def coverage(index: dict) -> str:
     only = set(index.get("productsOnlyChecks", []))
     has_test = [c for c in rows if c["tests"]]
     has_browser = [c for c in rows if any(name not in only for name in c["browser"])]
-    pending_only = [c for c in rows if c["pending"] and c not in has_test and c not in has_browser]
-    partial = [c for c in rows if c["pending"] and (c in has_test or c in has_browser)]
+    pending_only = [c for c in rows if c["pending"] and not is_tested(c, only)]
+    partial = [c for c in rows if c["pending"] and is_tested(c, only)]
     lines = [
         "<!-- SPDX-License-Identifier: Apache-2.0 -->",
         "",
