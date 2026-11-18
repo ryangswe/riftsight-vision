@@ -159,8 +159,9 @@ jobs:
           echo passed > canary-clean/passed.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.checks.outputs.clean == 'true'
+        continue-on-error: true
         with:
-          name: canary-clean-${{ strategy.job-index }}
+          name: canary-clean-${{ needs.plan.outputs.key }}-${{ strategy.job-index }}
           path: canary-clean
           retention-days: 1
       - name: Report a failure before the checks began
@@ -181,7 +182,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
-          pattern: canary-clean-*
+          pattern: canary-clean-${{ needs.plan.outputs.key }}-*
           path: canary-clean
       - name: Write the marker when every product passed outright
         id: write
@@ -190,7 +191,7 @@ jobs:
           NOTE: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} (commit ${{ github.sha }})
         run: |
           passed="$(find canary-clean -name passed.txt 2>/dev/null | wc -l)"
-          if [ "$passed" -ne "$COUNT" ]; then
+          if ! [ "$passed" -eq "$COUNT" ]; then
             echo "$passed of $COUNT products passed outright: no marker is saved, so the next run tests again."
             exit 0
           fi

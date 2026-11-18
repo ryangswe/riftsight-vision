@@ -946,9 +946,11 @@ def test_only_a_run_in_which_every_product_passed_outright_saves_the_marker():
     steps = steps_of("canary.yml")
     text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
     assert steps["Note that this product passed outright"]["if"] == "steps.checks.outputs.clean == 'true'"
-    assert "name: canary-clean-${{ strategy.job-index }}" in text
+    assert "name: canary-clean-${{ needs.plan.outputs.key }}-${{ strategy.job-index }}" in text, "a pass counts for these inputs alone"
+    assert "pattern: canary-clean-${{ needs.plan.outputs.key }}-*" in text
+    assert re.search(r"actions/upload-artifact@\S+ # \S+\n        if: steps\.checks\.outputs\.clean == 'true'\n        continue-on-error: true\n", text)
     write = steps["Write the marker when every product passed outright"]["run"]
-    assert 'if [ "$passed" -ne "$COUNT" ]' in write and write.index("-ne") < write.index("mkdir canary-marker") < write.index("save=true")
+    assert 'if ! [ "$passed" -eq "$COUNT" ]' in write and write.index("-eq") < write.index("mkdir canary-marker") < write.index("save=true")
     assert "COUNT: ${{ needs.plan.outputs.count }}" in text
     assert re.search(r"actions/cache/save@\S+ # \S+\n        if: steps\.write\.outputs\.save == 'true'\n", text)
 
