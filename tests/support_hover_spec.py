@@ -1,15 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """Turns docs/hover-spec.md into docs/hover-spec.json, and checks the Markdown on the way.
 
-    python tests/support_hover_spec.py            write docs/hover-spec.json
-    python tests/support_hover_spec.py --check    fail when the committed JSON is out of date
+    python tests/support_hover_spec.py            write docs/hover-spec.json and docs/hover-coverage.md
+    python tests/support_hover_spec.py --check    fail when either committed file is out of date
 
 Each clause is a ``### S-<group><n> — <title>`` heading under its ``## <group>. <title>`` section.
 The index holds the clause id, group, title, status and test references. A clause is checked for:
 a well-formed and unique id, a group that matches its section, a ``Status:`` line that is one of
 the known marks, a ``Test:`` paragraph whose every reference is ``file:line`` and whose line is an
 ``it(`` / ``it.each(`` line (TypeScript) or a ``def test_`` line (Python), or a ``pending (...)``
-mark, and every ``S-`` id the text mentions naming a clause. Nothing here reads the network.
+mark, and every ``S-`` id the text mentions naming a clause. A ``harness check <name>`` (or
+``harness checks <a>, <b>``) in a Test paragraph names a check of the hover browser test, read
+from browser/harness/clauses.mjs; every check there that names a clause must be cited by that
+clause. A clause with no unit test and no browser check must be in TESTLESS. The script also
+writes docs/hover-coverage.md, one row per clause. Nothing here reads the network.
 """
 
 from __future__ import annotations
@@ -22,7 +26,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "docs" / "hover-spec.md"
 INDEX = ROOT / "docs" / "hover-spec.json"
+COVERAGE = ROOT / "docs" / "hover-coverage.md"
 BROWSER_TESTS = ROOT / "browser" / "test"
+CHECKS_FILE = Path("browser") / "harness" / "clauses.mjs"
+
+# Clauses with no unit test and no browser check today. The list only shrinks: a new clause needs a
+# test, and a clause that gets one leaves the list.
+TESTLESS = frozenset({"S-B12"})
 
 STATUSES = ("changes in 0.14.0", "changes in a product release", "open decision")
 CHANGES = STATUSES[:2]
@@ -34,6 +44,8 @@ CLAUSE = re.compile(r"^### (S-([A-CFGHPWX])([1-9][0-9]*)) — (\S.*?)\s*$")
 ID_MENTION = re.compile(r"\bS-[A-Z][0-9]+\b")
 FILE_TOKEN = re.compile(r"^[A-Za-z0-9_./-]+\.(?:test\.ts|py)(?::.*)?$")
 REF = re.compile(r"^([A-Za-z0-9_./-]+\.(?:test\.ts|py)):([1-9][0-9]*)$")
+CHECK_ENTRY = re.compile(r'^\s*"([a-z0-9-]+)":\s*"([^"]+)"', re.MULTILINE)
+CHECK_CITE = re.compile(r"harness checks? ([a-z][a-z0-9-]*(?:,\s*[a-z][a-z0-9-]*)*)")
 PENDING = re.compile(r"pending \(([^)]*)\)")
 TS_TEST_LINE = re.compile(r"^\s*it(?:\.each\b|\.fails\b|\()")
 TS_TARGET_LINE = re.compile(r"^\s*it\.fails\b")
@@ -78,9 +90,21 @@ def paragraphs(body: list[str]) -> list[str]:
     return out
 
 
-def parse(text: str, root: Path = ROOT) -> tuple[dict, list[str]]:
+def read_checks(root: Path = ROOT) -> dict[str, str] | None:
+    """Check name -> clause id (or "no clause") from the harness table; None when it is missing."""
+    path = root / CHECKS_FILE
+    if not path.is_file():
+        return None
+    return dict(CHECK_ENTRY.findall(path.read_text(encoding="utf-8")))
+
+
+def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> tuple[dict, list[str]]:
     """The index of ``text`` and the problems found, one line each."""
     problems: list[str] = []
+    checks = read_checks(root)
+    if checks is None:
+        problems.append(f"{CHECKS_FILE} not found: browser checks cannot be checked")
+        checks = {}
     groups: dict[str, str] = {}
     clauses: list[dict] = []
     seen: set[str] = set()
@@ -157,6 +181,7 @@ def parse(text: str, root: Path = ROOT) -> tuple[dict, list[str]]:
                             problems.append(f"{cid}: test reference {bad}")
         tests: list[dict] = []
         pending: list[str] = []
+        browser: list[str] = []
         test_paras = [p for p in paras if p.startswith("Test:")]
         if len(test_paras) != 1:
             problems.append(f"{cid}: needs exactly one Test paragraph, found {len(test_paras)}")
@@ -177,15 +202,37 @@ def parse(text: str, root: Path = ROOT) -> tuple[dict, list[str]]:
                 if target and "target" not in content:
                     problems.append(f"{cid}: `{token}` pins the target and the Test paragraph does not say \"target\"")
                 tests.append({"file": name, "line": line_no, "target": target})
+            for group_of_names in CHECK_CITE.findall(content):
+                for name in re.split(r",\s*", group_of_names):
+                    if name not in checks:
+                        problems.append(f"{cid}: harness check {name!r} is not in {CHECKS_FILE}")
+                    if name not in browser:
+                        browser.append(name)
             for kind in PENDING.findall(content):
                 if kind not in PENDING_KINDS:
                     problems.append(f"{cid}: unknown pending kind {kind!r}")
                 pending.append(kind)
-            if not tests and not pending:
+            if not tests and not pending and not browser:
                 problems.append(f"{cid}: the Test paragraph has no reference and no pending mark")
-        clauses.append({"id": cid, "group": letter, "title": title, "status": status, "tests": tests, "pending": pending})
+        clauses.append({"id": cid, "group": letter, "title": title, "status": status, "tests": tests, "browser": browser, "pending": pending})
 
     ids = {c["id"] for c in clauses}
+    by_id = {c["id"]: c for c in clauses}
+    for name, owner in checks.items():
+        if owner == "no clause":
+            continue
+        if owner not in ids:
+            problems.append(f"harness check {name!r} names {owner}, which is not a clause")
+        elif name not in by_id[owner]["browser"]:
+            problems.append(f"{owner}: its Test paragraph does not cite harness check {name}")
+    for c in clauses:
+        if not c["tests"] and not c["browser"] and c["id"] not in testless:
+            problems.append(f"{c['id']} has no test: add one, or add it to TESTLESS with a reason in the PR")
+    for cid in sorted(testless):
+        if cid not in ids:
+            problems.append(f"{cid} is in TESTLESS but is not a clause: remove it from TESTLESS")
+        elif by_id[cid]["tests"] or by_id[cid]["browser"]:
+            problems.append(f"{cid} is in TESTLESS but now has a test: remove it from TESTLESS")
     for mention in sorted(set(ID_MENTION.findall(text)) - ids):
         problems.append(f"{mention} is mentioned but no clause has that id")
     if not clauses:
@@ -198,18 +245,52 @@ def render(index: dict) -> str:
     return json.dumps(index, indent=2, ensure_ascii=False) + "\n"
 
 
+def coverage(index: dict) -> str:
+    rows = index["clauses"]
+    has_test = [c for c in rows if c["tests"]]
+    has_browser = [c for c in rows if c["browser"]]
+    pending_only = [c for c in rows if c["pending"] and not c["tests"] and not c["browser"]]
+    partial = [c for c in rows if c["pending"] and (c["tests"] or c["browser"])]
+    lines = [
+        "<!-- SPDX-License-Identifier: Apache-2.0 -->",
+        "",
+        "# Hover spec coverage",
+        "",
+        "Generated from [hover-spec.md](hover-spec.md) by `python tests/support_hover_spec.py`, which",
+        "also writes `hover-spec.json`. Do not edit it by hand; `--check` fails when it is out of date.",
+        "",
+        "- **Status**: the clause's mark in the spec (`current` when it has none).",
+        "- **Unit tests**: how many `file:line` tests the clause's Test paragraph lists.",
+        "- **Browser checks**: the hover browser test checks it cites (`harness check <name>`).",
+        "- **Pending**: the parts a test does not check yet, as the spec marks them.",
+        "",
+        f"{len(rows)} clauses; {len(has_test)} with unit tests; {len(has_browser)} with browser checks; "
+        f"{len(pending_only)} pending only; {len(partial)} partial (a test or check, and a pending mark).",
+        "",
+        "| Clause | Title | Status | Unit tests | Browser checks | Pending |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for c in rows:
+        lines.append(
+            f"| {c['id']} | {c['title'].replace('|', '/')} | {c['status']} | {len(c['tests'])} | "
+            f"{', '.join(c['browser']) or '-'} | {'; '.join(c['pending']) or '-'} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str]) -> int:
     index, problems = parse(SPEC.read_text(encoding="utf-8"))
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
-    out = render(index)
+    outputs = [(INDEX, render(index)), (COVERAGE, coverage(index))]
     if "--check" in argv:
-        if not INDEX.is_file() or INDEX.read_text(encoding="utf-8") != out:
-            print("docs/hover-spec.json is out of date: run python tests/support_hover_spec.py", file=sys.stderr)
-            return 1
-        return 0
-    INDEX.write_text(out, encoding="utf-8")
+        stale = [p for p, out in outputs if not p.is_file() or p.read_text(encoding="utf-8") != out]
+        for p in stale:
+            print(f"docs/{p.name} is out of date: run python tests/support_hover_spec.py", file=sys.stderr)
+        return 1 if stale else 0
+    for p, out in outputs:
+        p.write_text(out, encoding="utf-8")
     return 0
 
 

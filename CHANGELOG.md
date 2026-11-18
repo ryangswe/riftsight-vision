@@ -11,6 +11,9 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- `docs/hover-coverage.md`: each hover-spec clause with its unit tests, browser checks and pending
+  parts, generated with the spec's index; the spec check now fails when a clause is left with no
+  test.
 - Four hover browser test checks (`browser/harness/`), from steps the maintainers did by hand
   before each release: `paused-names-each` (each card of a paused picture is named with its
   picture within 1 s), `arrives-under-rest` (a card that comes back, with no seek, under a
