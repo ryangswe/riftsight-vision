@@ -59,7 +59,45 @@ export function timingsFileProblems(doc) {
   if (typeof timings !== "object" || timings === null || Array.isArray(timings)) return ["it has no timings object"];
   const problems = [];
   if (/** @type {Record<string, any>} */ (doc).passed === false) problems.push("it is from a failed run");
+  const delay = /** @type {Record<string, any>} */ (doc).measuredOn?.artDelayMs;
+  if (typeof delay === "number" && delay > 0) problems.push(`it is from a run with --art-delay-ms ${delay}, whose picture times include that delay`);
   for (const [key, ms] of Object.entries(timings)) if (!(typeof ms === "number" && Number.isFinite(ms) && ms >= 0)) problems.push(`timings.${key} is not a time in ms`);
   if (Object.keys(timings).length === 0) problems.push("its timings object is empty");
   return problems;
+}
+
+/** Per card slot, the ms from the tooltip showing that card to its picture on screen, from the
+ *  tooltip frame's own timings ({ event: "show" | "art", cardId, at } in the order they happened):
+ *  the first picture of the card, against the latest show of it at or before that picture. null for
+ *  a card with no such pair (not shown, or no picture yet). Entries of another shape are skipped. */
+export function artAfterShownOf(timings, cardIds) {
+  const list = Array.isArray(timings) ? timings : [];
+  const ok = (x) => typeof x === "object" && x !== null && typeof x.cardId === "string" && typeof x.at === "number" && Number.isFinite(x.at);
+  const out = {};
+  for (const [slot, id] of Object.entries(cardIds)) {
+    let shownAt = null;
+    out[slot] = null;
+    for (const x of list) {
+      if (!ok(x) || x.cardId !== id) continue;
+      if (x.event === "show") shownAt = x.at;
+      else if (x.event === "art" && shownAt !== null && x.at >= shownAt) {
+        out[slot] = Math.round(x.at - shownAt);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** The paths of the compute frame's `prefetched` addresses; null when it reports no list. A text
+ *  that is not an address is kept as it is; an entry that is not a text is skipped. */
+export function prefetchedPaths(prefetched) {
+  if (!Array.isArray(prefetched)) return null;
+  return prefetched.filter((u) => typeof u === "string").map((u) => {
+    try {
+      return new URL(u).pathname;
+    } catch {
+      return u;
+    }
+  });
 }
