@@ -1108,14 +1108,24 @@ fields and a neutral example are in `browser/harness/example/product.mjs`, and
 checks, each with the reason its stand-in cannot support it: they are not run as checks, and the
 run's output and `report.json` list them with the reason. Two checks are timed:
 `paused-names-each` (each card of a paused picture) and `arrives-under-rest` (a card that comes
-under a resting pointer) must show the card within the module's `limits` (`pausedMs`,
-`arrivalMs`; 2000 ms each by default). Two watch a rest of up to 20 s on a still card with
-keep-card off: `still-card-no-blink` (the tooltip is never hidden in any animation frame) and
-`still-outline-steady` (no edge of the outline moves more than 5 % of the card's width). Every run
-writes `timings.json`, the times it measured by name (`harness/timings.mjs`), beside
-`report.json`. With `--baseline <timings.json>` a run fails when a time is slower than
-factor × saved + slack (the module's `baseline`; 1.5 and 750 ms by default), so a product keeps
-its last release's file and passes it in CI. Every run also fails on any
+back, with no seek, under a pointer resting on its empty place, with keep-card on) must show the
+card within the module's `limits` (`pausedMs`, `arrivalMs`; 1000 and 3000 ms by default, the
+latter for the 2 s empty-spot cadence). `arrives-under-rest` runs when slot C leaves (`until`)
+and comes back (`back`) 2 to 6 s later; a module whose C has no `back` gets the check as
+unsupported, with that reason. Two watch a
+rest of 16.5 s on a still card with keep-card off: `still-card-no-blink` (the tooltip is never
+hidden in any animation frame) and `still-outline-steady` (between two polls the outline either
+stays put or moves as a new report does, an edge by more than 5 % of the card's size or its tilt
+by more than 2 degrees; a smaller move, or a tooltip move with no such report next to it, is a
+wobble and fails, `harness/steady.mjs`). On a stand-in whose detector returns fixed boxes, as the
+toy fixture's does, the outline never moves, so only the unit tests of `steady.mjs` show that the
+check can fail. Every run writes `timings.json`, the times it measured by name and whether the
+run passed (`harness/timings.mjs`), beside `report.json`. With `--baseline <timings.json>` a run
+fails when a time is slower than factor × saved + slack (the module's `baseline`; 2 and 250 ms by
+default, from the spread of 16 CI runs). The second tab's time and the arrival's are reported but
+not compared: they vary by design. Save the file from a passing CI run of the release, on the same kind of runner as
+the runs it is compared with: the times of another machine are compared all the same (the report
+says so), and a file from a failed run is refused. Every run also fails on any
 content-security-policy violation that Chrome logs in a page, frame or worker, and counts
 `postMessage` calls refused for their target origin (`harness/console-watch.mjs`). Run it with
 `node harness/hover-browser.mjs --product <file> --chrome <Chrome for Testing> --release <release

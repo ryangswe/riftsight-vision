@@ -6,8 +6,11 @@
 const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v) => typeof v === "string" && v.length > 0;
 const isNumber = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
-/** The time limits a product module may set, in ms, and their defaults. */
-export const LIMIT_DEFAULTS = { pausedMs: 2000, arrivalMs: 2000 };
+/** The time limits a product module may set, in ms, and their defaults. A paused picture's card is
+ *  "at once": 1000 ms, where the products' CI shows it in 250 to 370 ms. A card that arrives
+ *  under a resting pointer waits for the next look of the 2 s empty-spot cadence (S-C14), then a
+ *  look and its picture: 3000 ms. */
+export const LIMIT_DEFAULTS = { pausedMs: 1000, arrivalMs: 3000 };
 const LIMIT_KEYS = Object.keys(LIMIT_DEFAULTS);
 /** The card slots, in the order the clip draws them: a later slot is laid over an earlier one. */
 export const SLOTS = ["A", "B", "C", "D"];
@@ -28,6 +31,15 @@ export function productProblems(product, checkIds) {
   if (!isObject(p.clip) || !["width", "height", "fps", "seconds"].every((k) => isNumber(p.clip[k]))) problems.push("clip needs width, height, fps and seconds");
   if (!isObject(p.places) || !SLOTS.every((k) => isObject(p.places[k]) && Number.isFinite(p.places[k].x) && Number.isFinite(p.places[k].y)) || Object.keys(p.places).length !== SLOTS.length) {
     problems.push(`places needs exactly ${SLOTS.join(", ")}, each with x and y`);
+  } else {
+    // `from`, `until` and `back` are clip seconds: shown from, shown until, and shown again from
+    // (a card that leaves and comes back with no seek).
+    for (const slot of SLOTS) {
+      const q = p.places[slot];
+      for (const key of ["from", "until", "back"]) if (q[key] !== undefined && !(Number.isFinite(q[key]) && q[key] >= 0)) problems.push(`places.${slot}.${key} is not a time in seconds`);
+      if (q.back !== undefined && !(Number.isFinite(q.until) && q.back > q.until)) problems.push(`places.${slot}.back needs an until before it`);
+      if (q.back !== undefined && q.from !== undefined) problems.push(`places.${slot} has both from and back`);
+    }
   }
   if (!isObject(p.expectedFail)) problems.push("expectedFail is not an object");
   else for (const id of Object.keys(p.expectedFail)) if (!checkIds.includes(id)) problems.push(`expectedFail names no check ${id}`);

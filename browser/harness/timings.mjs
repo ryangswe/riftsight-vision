@@ -4,9 +4,16 @@
 // writes its times to timings.json beside report.json; a product keeps the file of its last
 // release and passes it with --baseline.
 
-/** How much slower than the saved time a time may be: factor × saved + slackMs. CI runners vary
- *  from run to run, so the margin is wide: it catches a step change, not a drift. */
-export const TIMING_DEFAULTS = { factor: 1.5, slackMs: 750 };
+/** How much slower than the saved time a time may be: factor × saved + slackMs. Set from 16 CI runs
+ *  of two products' hover browser tests (Linux x64, WebAssembly): the named card's picture took
+ *  250 to 369 ms and the cached reload 1091 to 2143 ms, so a time may double from run to run. It
+ *  catches a step change, not a drift. */
+export const TIMING_DEFAULTS = { factor: 2, slackMs: 250 };
+/** Times that are reported but not compared, because they vary by design: the second tab's waits
+ *  for a model load that may end before or after the pointer's 10 s (1.1 to 15.1 s in the same
+ *  runs), and a card's arrival lands anywhere in a 2 s look cadence (S-C14). Their own checks
+ *  bound them. */
+export const REPORTED_ONLY = ["secondTabMs", "arrivalMs"];
 
 /** The named times (ms) in a run's counts. A time the run did not measure is left out. */
 export function timingsOf(counts) {
@@ -30,6 +37,7 @@ export function compareTimings(saved, now, { factor = TIMING_DEFAULTS.factor, sl
   const slower = [];
   const onlySaved = [];
   for (const [key, base] of Object.entries(saved)) {
+    if (REPORTED_ONLY.includes(key)) continue;
     if (!(key in now)) {
       onlySaved.push(key);
       continue;
@@ -38,17 +46,18 @@ export function compareTimings(saved, now, { factor = TIMING_DEFAULTS.factor, sl
     compared.push(key);
     if (now[key] > limit) slower.push({ key, saved: base, now: now[key], limit });
   }
-  const onlyNow = Object.keys(now).filter((key) => !(key in saved));
+  const onlyNow = Object.keys(now).filter((key) => !(key in saved) && !REPORTED_ONLY.includes(key));
   return { compared, slower, onlySaved, onlyNow };
 }
 
 /** The reasons a saved timings file cannot be used, or an empty list. Its shape is what a run
- *  writes: { timings: { name: ms }, measuredOn: { ... } }. */
+ *  writes: { passed, timings: { name: ms }, measuredOn: { ... } }. A failed run's file is refused. */
 export function timingsFileProblems(doc) {
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return ["it is not a JSON object"];
   const { timings } = /** @type {Record<string, any>} */ (doc);
   if (typeof timings !== "object" || timings === null || Array.isArray(timings)) return ["it has no timings object"];
   const problems = [];
+  if (/** @type {Record<string, any>} */ (doc).passed === false) problems.push("it is from a failed run");
   for (const [key, ms] of Object.entries(timings)) if (!(typeof ms === "number" && Number.isFinite(ms) && ms >= 0)) problems.push(`timings.${key} is not a time in ms`);
   if (Object.keys(timings).length === 0) problems.push("its timings object is empty");
   return problems;

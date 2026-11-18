@@ -12,7 +12,8 @@ import { describe, expect, it } from "vitest";
 import { CHECKS, CLAUSES, IDLE_CHECKS } from "../harness/clauses.mjs";
 import example from "../harness/example/product.mjs";
 import { LIMIT_DEFAULTS, productProblems, SLOTS } from "../harness/product-shape.mjs";
-import { compareTimings, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "../harness/timings.mjs";
+import { stillMoves } from "../harness/steady.mjs";
+import { compareTimings, REPORTED_ONLY, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "../harness/timings.mjs";
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -25,8 +26,8 @@ const EXPECTED_CLAUSES: Array<[string, string]> = [
   ["art-visible", "S-W1"],
   ["outline-shows", "S-F1"],
   ["move-off-clears", "S-W4"],
-  ["paused-names-each", "S-C8"],
-  ["arrives-under-rest", "S-B2"],
+  ["paused-names-each", "S-C15"],
+  ["arrives-under-rest", "S-C14"],
   ["covered-kept", "S-W5"],
   ["held-outline-hides", "S-F4"],
   ["switch-flips", "S-H2"],
@@ -85,7 +86,7 @@ describe("the clip's layer order", () => {
 
 describe("a product module's time limits and baseline margin", () => {
   it("takes known limits and a margin, and names what is wrong with others", () => {
-    expect(LIMIT_DEFAULTS).toEqual({ pausedMs: 2000, arrivalMs: 2000 });
+    expect(LIMIT_DEFAULTS).toEqual({ pausedMs: 1000, arrivalMs: 3000 });
     expect(productProblems({ ...example, limits: { pausedMs: 3000 }, baseline: { factor: 2, slackMs: 0 } }, CHECKS)).toEqual([]);
     expect(productProblems({ ...example, limits: { restMs: 1 } }, CHECKS)).toEqual(["limits has no restMs (it takes pausedMs, arrivalMs)"]);
     expect(productProblems({ ...example, limits: { arrivalMs: 0 } }, CHECKS)).toEqual(["limits.arrivalMs is not a positive number of ms"]);
@@ -93,6 +94,15 @@ describe("a product module's time limits and baseline margin", () => {
     expect(productProblems({ ...example, baseline: { factor: 0.9 } }, CHECKS)).toEqual(["baseline.factor is not a number of 1 or more"]);
     expect(productProblems({ ...example, baseline: { slackMs: -1 } }, CHECKS)).toEqual(["baseline.slackMs is not a number of ms, 0 or more"]);
     expect(productProblems({ ...example, baseline: { margin: 1 } }, CHECKS)).toEqual(["baseline has no margin (it takes factor, slackMs)"]);
+  });
+
+  it("checks the clip times of a place: from, until and back", () => {
+    const at = (C: object) => ({ ...example, places: { ...example.places, C } });
+    expect(productProblems(at({ x: 0, y: 0, until: 12, back: 16 }), CHECKS)).toEqual([]);
+    expect(productProblems(at({ x: 0, y: 0, back: 16 }), CHECKS)).toEqual(["places.C.back needs an until before it"]);
+    expect(productProblems(at({ x: 0, y: 0, until: 16, back: 12 }), CHECKS)).toEqual(["places.C.back needs an until before it"]);
+    expect(productProblems(at({ x: 0, y: 0, from: 2, until: 4, back: 8 }), CHECKS)).toEqual(["places.C has both from and back"]);
+    expect(productProblems(at({ x: 0, y: 0, until: "12" }), CHECKS)).toEqual(["places.C.until is not a time in seconds"]);
   });
 });
 
@@ -112,10 +122,13 @@ describe("the run's times and the baseline comparison", () => {
   });
 
   it("fails a time only past factor x saved + slack, and lists times in one file only apart", () => {
-    expect(TIMING_DEFAULTS).toEqual({ factor: 1.5, slackMs: 750 });
-    // 1000 ms saved: the limit is 1000 x 1.5 + 750 = 2250 ms.
+    expect(TIMING_DEFAULTS).toEqual({ factor: 2, slackMs: 250 });
+    // 1000 ms saved: the limit is 1000 x 2 + 250 = 2250 ms.
     expect(compareTimings({ a: 1000 }, { a: 2250 }).slower).toEqual([]);
     expect(compareTimings({ a: 1000 }, { a: 2251 }).slower).toEqual([{ key: "a", saved: 1000, now: 2251, limit: 2250 }]);
+    // The second tab's and the arrival's times vary by design: reported, never compared.
+    expect(REPORTED_ONLY).toEqual(["secondTabMs", "arrivalMs"]);
+    expect(compareTimings({ secondTabMs: 1000, arrivalMs: 100 }, { secondTabMs: 15_000, arrivalMs: 2900 })).toEqual({ compared: [], slower: [], onlySaved: [], onlyNow: [] });
     expect(compareTimings({ a: 1000, b: 5 }, { a: 1001, c: 9 }, { factor: 1, slackMs: 0 })).toEqual({
       compared: ["a"],
       slower: [{ key: "a", saved: 1000, now: 1001, limit: 1000 }],
@@ -125,7 +138,8 @@ describe("the run's times and the baseline comparison", () => {
   });
 
   it("reads a saved file only in the shape a run writes", () => {
-    expect(timingsFileProblems({ timings: { artVisibleMs: 300 }, measuredOn: { platform: "linux x64" } })).toEqual([]);
+    expect(timingsFileProblems({ passed: true, timings: { artVisibleMs: 300 }, measuredOn: { platform: "linux x64" } })).toEqual([]);
+    expect(timingsFileProblems({ passed: false, timings: { artVisibleMs: 300 } })).toEqual(["it is from a failed run"]);
     expect(timingsFileProblems([])).toEqual(["it is not a JSON object"]);
     expect(timingsFileProblems({ artVisibleMs: 300 })).toEqual(["it has no timings object"]);
     expect(timingsFileProblems({ timings: {} })).toEqual(["its timings object is empty"]);
@@ -175,23 +189,42 @@ describe("the harness command", () => {
     }
   });
 
-  it("refuses arrives-under-rest when C never leaves, or another card is on its place", () => {
+  it("skips arrives-under-rest when C never comes back, and refuses a return out of range or a covered place", () => {
     const dir = mkdtempSync(join(tmpdir(), "harness-product-"));
     try {
       const exampleUrl = pathToFileURL(here("../harness/example/product.mjs")).href;
       const args = ["--chrome", "x", "--release", "x", "--art", "/nowhere/art", "--dist", "x", "--only", "arrives-under-rest"];
       writeFileSync(join(dir, "stays.mjs"), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, C: { x: e.places.C.x, y: e.places.C.y } } };\n`);
-      const stays = run("--product", join(dir, "stays.mjs"), ...args);
-      expect(stays.status).toBe(2);
-      expect(stays.stderr).toContain("arrives-under-rest needs places.C.until");
+      // No return time: the check is unsupported (the report gives the reason), not a setup error,
+      // so the run goes on to load puppeteer-core, which this test has not installed.
+      const noPuppeteer = { ...process.env, PUPPETEER_CORE_DIR: join(dir, "no-puppeteer") };
+      const stays = spawnSync(process.execPath, [here("../harness/hover-browser.mjs"), "--product", join(dir, "stays.mjs"), ...args], { encoding: "utf-8", timeout: 30_000, env: noPuppeteer });
+      expect(stays.stderr).not.toContain("arrives-under-rest needs");
+      expect(stays.status).toBe(1);
+      expect(stays.stderr).toContain("puppeteer-core");
+      // Back too soon (1 s), too late in the pointer's 10 s (7 s), or past the clip's last second.
+      const cases: Array<[string, number, number]> = [["soon", 12, 13], ["slow", 10, 17], ["end", 15, 19.5]];
+      for (const [name, until, back] of cases) {
+        writeFileSync(join(dir, `${name}.mjs`), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, C: { ...e.places.C, until: ${until}, back: ${back} } } };\n`);
+        const bad = run("--product", join(dir, `${name}.mjs`), ...args);
+        expect(bad.status, name).toBe(2);
+        expect(bad.stderr, name).toContain("2 to 6 s apart, back at least 1 s before the clip ends");
+      }
       writeFileSync(join(dir, "covered.mjs"), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, B: { x: e.places.C.x + 10, y: e.places.C.y } } };\n`);
       const covered = run("--product", join(dir, "covered.mjs"), ...args);
       expect(covered.status).toBe(2);
       expect(covered.stderr).toContain("B overlap it");
       // Listed as unsupported, the check is not run, and its needs are not asked.
       writeFileSync(join(dir, "unsupported.mjs"), `import e from ${JSON.stringify(exampleUrl)};\nexport default { ...e, places: { ...e.places, C: { x: e.places.C.x, y: e.places.C.y } }, unsupported: { "arrives-under-rest": "no card leaves this clip" } };\n`);
-      const skipped = run("--product", join(dir, "unsupported.mjs"), ...args);
+      // It goes on to load puppeteer-core, which this test has not installed.
+      const skipped = spawnSync(process.execPath, [here("../harness/hover-browser.mjs"), "--product", join(dir, "unsupported.mjs"), ...args], {
+        encoding: "utf-8",
+        timeout: 30_000,
+        env: { ...process.env, PUPPETEER_CORE_DIR: join(dir, "no-puppeteer") },
+      });
       expect(skipped.stderr).not.toContain("arrives-under-rest needs");
+      expect(skipped.status).toBe(1);
+      expect(skipped.stderr).toContain("puppeteer-core");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -211,5 +244,40 @@ describe("the harness command", () => {
     const unknown = run("--product", here("../harness/example/product.mjs"), "--chrome", "x", "--release", "x", "--art", "/nowhere/art", "--only", "no-such-check");
     expect(unknown.status).toBe(2);
     expect(unknown.stderr).toContain("--only: no check no-such-check");
+  });
+});
+
+describe("still-outline-steady's judgment", () => {
+  const box = (left: number, top = 100, angle = 0) => ({ left, top, width: 100, height: 140, angle });
+  const tip = (left: number) => ({ left, top: 50 });
+  // 5 % of a 100 x 140 card: 5 px across, 7 px down.
+  const limits = { xLimitPx: 5, yLimitPx: 7 };
+
+  it("passes a still outline and sub-pixel noise", () => {
+    expect(stillMoves([{ outline: box(10), tip: tip(0) }, { outline: box(10.4), tip: tip(0.3) }, { outline: box(10), tip: tip(0) }], limits)).toEqual({ wobbles: [], rereports: [], tipWobbles: [] });
+  });
+
+  it("calls a move within the report threshold a wobble, and one past it a re-report", () => {
+    const r = stillMoves([{ outline: box(10), tip: null }, { outline: box(13), tip: null }, { outline: box(20), tip: null }, { outline: box(20, 108), tip: null }], limits);
+    expect(r.wobbles).toEqual([{ poll: 1, x: 3, y: 0, tilt: 0 }]);
+    expect(r.rereports).toEqual([
+      { poll: 2, x: 7, y: 0, tilt: 0 },
+      { poll: 3, x: 0, y: 8, tilt: 0 },
+    ]);
+  });
+
+  it("judges y edges against the card's height, and a tilt past 2 degrees as a re-report", () => {
+    expect(stillMoves([{ outline: box(10, 100), tip: null }, { outline: box(10, 106), tip: null }], limits).wobbles).toHaveLength(1);
+    const tilted = stillMoves([{ outline: box(10, 100, 0), tip: null }, { outline: box(12, 100, 3), tip: null }], limits);
+    expect(tilted.wobbles).toEqual([]);
+    expect(tilted.rereports).toEqual([{ poll: 1, x: 2, y: 0, tilt: 3 }]);
+    expect(stillMoves([{ outline: box(10, 100, 0), tip: null }, { outline: box(10, 100, 1), tip: null }], limits).wobbles).toEqual([{ poll: 1, x: 0, y: 0, tilt: 1 }]);
+  });
+
+  it("lets the tooltip move only beside an outline re-report", () => {
+    const withReport = stillMoves([{ outline: box(10), tip: tip(0) }, { outline: box(20), tip: tip(0) }, { outline: box(20), tip: tip(10) }], limits);
+    expect(withReport.tipWobbles).toEqual([]);
+    const alone = stillMoves([{ outline: box(10), tip: tip(0) }, { outline: box(10), tip: tip(0) }, { outline: box(10), tip: tip(4) }], limits);
+    expect(alone.tipWobbles).toEqual([{ poll: 2, px: 4 }]);
   });
 });

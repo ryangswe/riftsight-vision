@@ -10,6 +10,7 @@ export interface TimingComparison {
   onlyNow: string[];
 }
 export const TIMING_DEFAULTS: { factor: number; slackMs: number };
+export const REPORTED_ONLY: string[];
 export function timingsOf(counts: Record<string, any>): Record<string, number>;
 export function compareTimings(saved: Record<string, number>, now: Record<string, number>, margin?: TimingMargin): TimingComparison;
 export function timingsFileProblems(doc: unknown): string[];

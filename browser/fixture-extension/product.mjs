@@ -43,6 +43,7 @@ export default {
   /** Checks this stand-in cannot support, each with the reason. They are not run, and the product
    *  suites cover them. */
   unsupported: {
+    "arrives-under-rest": "the toy detector returns its fixed boxes whatever the picture, so it names a card on C's empty place, and under the reading hold that card is kept and not looked at again: the card that comes back is never named; a product's stand-in with a real detector runs it",
     "cached-reload": "the fixture's card pictures ship inside the extension, so no request for one can reach the settings host and the \"no picture request\" half would pass without testing anything; the reopen half (the card named again in a new tab) still runs, and its result is in the report's counts.cachedReload",
   },
 };

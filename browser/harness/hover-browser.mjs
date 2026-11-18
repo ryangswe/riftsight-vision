@@ -68,6 +68,7 @@ import { watchConsole } from "./console-watch.mjs";
 import { classify, netlogRequests } from "./netlog.mjs";
 import { LIMIT_DEFAULTS, productProblems, SLOTS } from "./product-shape.mjs";
 import { startServer } from "./serve.mjs";
+import { stillMoves } from "./steady.mjs";
 import { compareTimings, TIMING_DEFAULTS, timingsFileProblems, timingsOf } from "./timings.mjs";
 
 /** The whole run's deadline: past it the run stops, fails and still writes its report. */
@@ -104,7 +105,12 @@ const distDir = values.dist ?? (PRODUCT.dist ? fileURLToPath(PRODUCT.dist) : nul
 if (!distDir) usage("missing --dist (the product module names no default build folder)");
 const only = values.only ? new Set(values.only.split(",")) : null;
 if (only) for (const id of only) if (!CHECKS.includes(id)) usage(`--only: no check ${id}`);
-const unsupported = PRODUCT.unsupported ?? {};
+// arrives-under-rest needs a card that leaves and comes back (places.C.back): a module whose clip
+// has none gets the check as unsupported, with that reason, rather than a setup error.
+const unsupported = { ...PRODUCT.unsupported };
+if (PLACES.C.back === undefined && !("arrives-under-rest" in unsupported)) {
+  unsupported["arrives-under-rest"] = "the product module's clip has no card that comes back (places.C.back), so no card arrives under a resting pointer";
+}
 const want = (id) => (!only || only.has(id)) && !(id in unsupported);
 if (!values["dist-idle"] && IDLE_CHECKS.some(want)) usage("--dist-idle is needed for the idle checks (or leave them out with --only)");
 const repoRoot = fileURLToPath(PRODUCT.root);
@@ -123,14 +129,17 @@ if (values.baseline) {
   if (problems.length > 0) usage(`--baseline ${values.baseline}: ${problems.join("; ")}`);
   savedTimings = doc;
 }
-// arrives-under-rest rests the pointer on C's place after C is gone, until the clip loops and C is
-// back: C must leave before the clip ends, and no other card may be on its place meanwhile.
+// arrives-under-rest rests the pointer on C's empty place after C leaves (`until`), until C comes
+// back (`back`) with no seek. The pointer's move is 0.3 s after C leaves, and C must be named
+// before the pointer's 10 s run out (S-B2): back - until is 2 to 6 s. No other card may be on
+// C's place meanwhile. (Without `back` the check is unsupported, above.)
 if (want("arrives-under-rest")) {
   const c = PLACES.C;
   const w = PRODUCT.cardWidth;
   const h = Math.round(w * PRODUCT.cardAspect);
   const overlaps = SLOTS.filter((s) => s !== "C" && PLACES[s].x < c.x + w && c.x < PLACES[s].x + w && PLACES[s].y < c.y + h && c.y < PLACES[s].y + h);
-  if (!(Number.isFinite(c.until) && c.until < CLIP.seconds - 1) || c.from !== undefined) usage("arrives-under-rest needs places.C.until, at least 1 s before the clip ends, and no places.C.from (or list the check in `unsupported`)");
+  const gap = c.back - c.until;
+  if (!(Number.isFinite(gap) && gap >= 2 && gap <= 6 && c.back <= CLIP.seconds - 1)) usage("arrives-under-rest needs places.C.until and places.C.back, 2 to 6 s apart, back at least 1 s before the clip ends (or list the check in `unsupported`)");
   if (overlaps.length > 0) usage(`arrives-under-rest needs C's place free of other cards: ${overlaps.join(", ")} overlap it (or list the check in \`unsupported\`)`);
 }
 
@@ -189,7 +198,14 @@ function renderClip() {
   let last = "bg";
   const layered = slots.map((s, i) => {
     const p = PLACES[s];
-    const when = p.from !== undefined ? `:enable='gte(t,${p.from})'` : p.until !== undefined ? `:enable='lt(t,${p.until})'` : "";
+    const when =
+      p.from !== undefined
+        ? `:enable='gte(t,${p.from})'`
+        : p.back !== undefined
+          ? `:enable='lt(t,${p.until})+gte(t,${p.back})'`
+          : p.until !== undefined
+            ? `:enable='lt(t,${p.until})'`
+            : "";
     const next = i === slots.length - 1 ? "v" : `l${i}`;
     const step = `[${last}][${s}]overlay=${p.x}:${p.y}${when}:shortest=1[${next}]`;
     last = next;
@@ -197,7 +213,9 @@ function renderClip() {
   });
   const graph = [`[0]noise=alls=10:allf=t[bg]`, ...scaled, ...layered].join(";");
   execFileSync("ffmpeg", ["-loglevel", "error", "-y", "-f", "lavfi", "-i", `color=c=0x1d4a2e:s=${CLIP.width}x${CLIP.height}:r=${CLIP.fps}:d=${CLIP.seconds}`, ...inputs,
-    "-filter_complex", graph, "-map", "[v]", "-t", String(CLIP.seconds), "-c:v", "libvpx", "-b:v", "2M", "-an", clip]);
+    // libvpx's real-time setting: about 8 times faster than its default here, for the same quality
+    // where the cards are (PSNR 36.2 against 36.4 dB, on the toy clip against a lossless render).
+    "-filter_complex", graph, "-map", "[v]", "-t", String(CLIP.seconds), "-c:v", "libvpx", "-b:v", "2M", "-deadline", "realtime", "-cpu-used", "8", "-an", clip]);
   return clip;
 }
 
@@ -560,7 +578,8 @@ try {
       const cleared = await until(async () => (!(await tooltip(page)).visible && !(await outline(page)) ? true : null), 2000);
       if (want("move-off-clears")) record("move-off-clears", Boolean(cleared), {});
 
-      // A paused picture: the other cards on it are each named with their picture at once (S-C8).
+      // A paused picture: the other cards on it are each named with their picture at once, from the
+      // looks of the still picture (S-C15; with a geometric stage in focus scope, S-C8's re-look).
       // The pointer goes from off the video to A, then straight on to C, as a viewer points at one
       // card and then the next. B, the first card, is art-visible's.
       if (want("paused-names-each")) {
@@ -573,36 +592,39 @@ try {
         await until(async () => (!(await tooltip(page)).visible ? true : null), 2000);
       }
 
-      // A card that comes under a resting pointer (S-B2: a hover gives pictures for 10 s). On the
-      // playing clip after C has gone, the pointer moves once onto C's empty place and rests; the
-      // clip loops and C is back. C is named with its picture within the limit of its return. Its
-      // return is the first poll that sees the clip's time go back, so the time is late by up to
-      // one poll (about 100 ms). What showed before C came back is reported (`shownBefore`), not
-      // judged: a stand-in detector that finds boxes on an empty place (the toy fixture's) names
-      // something there.
+      // A card that comes under a resting pointer, with no seek (S-C14: a pointer resting on an
+      // empty spot is looked at every 2 s). On the playing clip just after C has left, the pointer
+      // moves once onto C's empty place and rests, with keep-card on (the default); C comes back
+      // at `back`. C is named with its picture within the limit of its return. Its return is the
+      // first poll that sees the clip's time at `back` or later, so the time is late by up to one
+      // poll (about 50 ms). What showed before C came back is reported (`shownBefore`): a real
+      // detector shows nothing on an empty place, and a card shown there would be kept under the
+      // reading hold, so C would not be named.
       if (want("arrives-under-rest")) {
-        const start = Math.max(PLACES.C.until + 0.3, CLIP.seconds - 6);
-        await video.seek(page, start, true);
+        const start = PLACES.C.until + 0.3;
+        await video.seek(page, start, false);
         const pC = await pointOf(page, "C");
         await page.mouse.move(pC.x, pC.y, { steps: 4 });
         const movedAt = Date.now();
-        let prev = await video.time(page);
+        await page.evaluate(() => document.querySelector("video").play());
+        let prev = start;
         let backAt = null;
         let shownBefore = null;
         const namedAt = await until(async () => {
           const t = await video.time(page);
-          if (backAt === null && t < prev) backAt = Date.now();
+          if (t < prev) throw new Error(`setup: the clip looped before C came back at ${PLACES.C.back} s`);
           prev = t;
+          if (backAt === null && t >= PLACES.C.back) backAt = Date.now();
           const s = await tooltip(page);
           if (backAt === null) {
             if (s.visible && shownBefore === null) shownBefore = s.name ?? "(no name)";
             return null;
           }
           return s.visible && s.name === cards.C.name && s.art ? Date.now() : null;
-        }, (CLIP.seconds - start) * 1000 + Math.max(LIMITS.arrivalMs * 5, 10_000), 50);
-        const ms = namedAt && backAt ? namedAt - backAt : null;
-        counts.arrival = { ms, restedMs: backAt ? backAt - movedAt : null };
-        if (backAt !== null && backAt - movedAt > 9000) throw new Error(`setup: C came back ${backAt - movedAt} ms after the pointer's move, too near the end of its 10 s`);
+        }, (PLACES.C.back - start) * 1000 + LIMITS.arrivalMs * 2 + 2000, 50);
+        if (backAt === null) throw new Error(`setup: the clip never reached ${PLACES.C.back} s, when C comes back`);
+        const ms = namedAt ? namedAt - backAt : null;
+        counts.arrival = { ms, restedMs: backAt - movedAt };
         record("arrives-under-rest", ms !== null && ms <= LIMITS.arrivalMs, {
           limitMs: LIMITS.arrivalMs,
           ...counts.arrival,
@@ -656,38 +678,63 @@ try {
       if (want("switch-flips")) record("switch-flips", offRun.first === cards.A.name && offRun.last === cards.D.name, offRun);
 
       // Still with the switch off: the pointer rests on B, which stays put on the playing clip,
-      // until the clip nears its end (up to 20 s). Its tooltip never blinks out (S-W6: a card is kept
-      // through short gaps): the page counts every animation frame in which the tooltip frame is
-      // not visible, and a poll every ~100 ms reads the name. Its outline keeps still (S-W8: a box
-      // is reported again only when an edge moved more than 5 % of the card's size): no edge of it
-      // moves more than 5 % of the card's width on screen over the whole rest.
+      // for 16.5 s from the pointer's move (at least 16 s: past its 10 s and S-W6's 5 s after a
+      // naming, so looks must go on at the slow cadence, S-C2).
+      // - still-card-no-blink (S-W6: a card is kept through short gaps): the page counts every
+      //   animation frame in which the tooltip frame is not visible (headless Chrome draws about 15
+      //   a second, so a blink shorter than one frame can slip through), and a poll every ~100 ms
+      //   reads the name and whether the picture shows.
+      // - still-outline-steady (S-W8: a card is reported again only when an edge moved more than
+      //   5 % of its size or its tilt more than 2 degrees): between two polls the outline stays
+      //   put or makes such a move; a smaller move is a wobble, and so is a tooltip move without an
+      //   outline re-report next to it (steady.mjs). A re-report is listed, not failed.
       if (want("still-card-no-blink") || want("still-outline-steady")) {
         await video.seek(page, 0.3, true);
         const firstB = await hoverCard(page, "B", 30_000);
-        await page.evaluate((name) => {
-          window.__still = { frames: 0, hidden: 0, stop: false };
+        await page.evaluate((name, end) => {
+          window.__still = { frames: 0, hidden: 0, stop: false, last: 0 };
           const tick = () => {
+            const v = document.querySelector("video");
+            // Stop at the clip's end or its loop (a seek, which ends the shown card, S-W3).
+            if (v.currentTime >= end || v.currentTime < window.__still.last) window.__still.stop = true;
+            window.__still.last = v.currentTime;
+            if (window.__still.stop) return;
             const f = [...document.querySelectorAll("iframe")].find((i) => i.src.endsWith(`/${name}`));
             window.__still.frames += 1;
             if (!f || getComputedStyle(f).visibility !== "visible") window.__still.hidden += 1;
-            if (!window.__still.stop) requestAnimationFrame(tick);
+            requestAnimationFrame(tick);
           };
           requestAnimationFrame(tick);
-        }, PRODUCT.frames.tooltip);
+        }, PRODUCT.frames.tooltip, CLIP.seconds - 0.4);
         const restFrom = Date.now();
-        const boxes = [];
+        const restUntil = restFrom - (firstB?.ms ?? 0) + 16_500;
+        const polls = [];
         let wrongName = 0;
         let noOutline = 0;
-        let polls = 0;
+        let prevT = await video.time(page);
         while (firstB) {
           const t = await video.time(page);
-          if (t >= CLIP.seconds - 0.4 || t < 0.2 || Date.now() - restFrom > 20_000) break;
+          if (t >= CLIP.seconds - 0.4 || t < prevT || Date.now() >= restUntil) break;
+          prevT = t;
           const s = await tooltip(page);
-          polls += 1;
-          if (!s.visible || (s.name !== null && s.name !== cards.B.name)) wrongName += 1;
-          const o = await outline(page);
-          if (o) boxes.push(o);
-          else noOutline += 1;
+          // The name and the picture: a poll that reads the frame as visible but cannot read its
+          // inside (name null) is not counted, as the animation frames count the frame itself.
+          if (!s.visible || (s.name !== null && (s.name !== cards.B.name || !s.art))) wrongName += 1;
+          const at = await page.evaluate((selector, name) => {
+            const el = document.querySelector(selector);
+            let outline = null;
+            if (el && getComputedStyle(el).display !== "none") {
+              const r = el.getBoundingClientRect();
+              const m = getComputedStyle(el).transform;
+              const ab = m && m.startsWith("matrix(") ? m.slice(7, -1).split(",").map(Number) : [1, 0];
+              outline = { left: r.left, top: r.top, width: r.width, height: r.height, angle: (Math.atan2(ab[1], ab[0]) * 180) / Math.PI };
+            }
+            const f = [...document.querySelectorAll("iframe")].find((i) => i.src.endsWith(`/${name}`));
+            const fr = f && getComputedStyle(f).visibility === "visible" ? f.getBoundingClientRect() : null;
+            return { outline, tip: fr ? { left: fr.left, top: fr.top } : null };
+          }, PRODUCT.outlineSelector, PRODUCT.frames.tooltip);
+          if (!at.outline) noOutline += 1;
+          polls.push(at);
           await sleep(100);
         }
         const restMs = Date.now() - restFrom;
@@ -695,15 +742,26 @@ try {
           window.__still.stop = true;
           return { frames: window.__still.frames, hidden: window.__still.hidden };
         });
-        if (firstB && restMs < 12_000) throw new Error(`setup: the still-card rest lasted ${restMs} ms; it needs 12 s of B on the playing clip`);
+        const fromMoveMs = firstB ? restMs + firstB.ms : null;
+        if (firstB && fromMoveMs < 16_000) throw new Error(`setup: the still-card rest lasted ${fromMoveMs} ms from the pointer's move; it needs 16 s of B on the playing clip`);
         const r = await video.rect(page);
-        const limitPx = Math.round(0.05 * (PRODUCT.cardWidth / CLIP.width) * r.width * 10) / 10;
-        const spread = Object.fromEntries(["left", "top", "width", "height"].map((k) => [k, boxes.length ? Math.round((Math.max(...boxes.map((b) => b[k])) - Math.min(...boxes.map((b) => b[k]))) * 10) / 10 : null]));
-        const detail = { named: Boolean(firstB), restMs, polls, ...frames, wrongName, noOutline, spread, limitPx };
-        counts.stillCard = detail;
+        const xLimitPx = 0.05 * (PRODUCT.cardWidth / CLIP.width) * r.width;
+        const yLimitPx = 0.05 * ((PRODUCT.cardWidth * PRODUCT.cardAspect) / CLIP.height) * r.height;
+        const moves = stillMoves(polls, { xLimitPx, yLimitPx });
+        const detail = {
+          named: Boolean(firstB),
+          fromMoveMs,
+          polls: polls.length,
+          ...frames,
+          wrongName,
+          noOutline,
+          limitPx: { x: Math.round(xLimitPx * 10) / 10, y: Math.round(yLimitPx * 10) / 10 },
+          ...moves,
+        };
+        counts.stillCard = { fromMoveMs, polls: polls.length, frames: frames.frames, rereports: moves.rereports.length };
         if (want("still-card-no-blink")) record("still-card-no-blink", Boolean(firstB) && frames.frames > 0 && frames.hidden === 0 && wrongName === 0, detail);
         if (want("still-outline-steady"))
-          record("still-outline-steady", Boolean(firstB) && boxes.length > 0 && noOutline === 0 && Object.values(spread).every((v) => v !== null && v <= limitPx), detail);
+          record("still-outline-steady", Boolean(firstB) && polls.length > 0 && noOutline === 0 && moves.wobbles.length === 0 && moves.tipWobbles.length === 0, detail);
       }
       await page.mouse.move(off.x, off.y);
       await setStored(ext, PRODUCT.keys.keepCard, true);
@@ -936,7 +994,6 @@ function finish() {
     node: process.version,
   };
   const timings = timingsOf(counts);
-  writeFileSync(join(out, "timings.json"), JSON.stringify({ timings, measuredOn: { chrome: measuredOn.chrome, extensionVersion: measuredOn.extensionVersion, release: measuredOn.release, platform: measuredOn.platform } }, null, 2) + "\n");
   const baseline = savedTimings
     ? {
         file: values.baseline,
@@ -966,6 +1023,12 @@ function finish() {
     durationMs: Date.now() - startedAt,
   };
   writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2));
+  // The times by name, for a later run's --baseline: keep the file of a passing CI run of the
+  // release (the same kind of machine as the runs it is compared with).
+  writeFileSync(
+    join(out, "timings.json"),
+    JSON.stringify({ passed: report.passed, timings, measuredOn: { chrome: measuredOn.chrome, extensionVersion: measuredOn.extensionVersion, release: measuredOn.release, platform: measuredOn.platform } }, null, 2) + "\n",
+  );
   console.log(`\n${results.map((r) => `${r.outcome.padEnd(15)} ${r.id}${r.outcome === "unsupported" ? ` (${r.detail.reason})` : ""}`).join("\n")}`);
   if (missing.length) console.log(`missing (never ran): ${missing.join(", ")}`);
   console.log(`policy: ${policyViolations.length} content-security-policy violation(s); ${originMismatches.length} refused postMessage(s)`);

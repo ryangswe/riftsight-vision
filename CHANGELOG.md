@@ -13,15 +13,20 @@ break the public surface; this file names each break and how to migrate.
 
 - Four hover browser test checks (`browser/harness/`), from steps the maintainers did by hand
   before each release: `paused-names-each` (each card of a paused picture is named with its
-  picture within 2 s), `arrives-under-rest` (a card that comes under a resting pointer within
-  2 s), `still-card-no-blink` and `still-outline-steady` (with keep-card off, a still card's
-  tooltip never blinks out and its outline keeps still over a rest of up to 20 s). A product
-  module may set the limits (`limits.pausedMs`, `limits.arrivalMs`). A run without `--only` takes
-  about 30 s longer.
+  picture within 1 s), `arrives-under-rest` (a card that comes back, with no seek, under a
+  pointer resting on its empty place, within 3 s: the clip's slot C takes a new `back` time, and
+  a module without one gets the check as unsupported),
+  `still-card-no-blink` and `still-outline-steady` (with keep-card off, over a 16.5 s rest a
+  still card's tooltip never blinks out, and its outline and tooltip move only as a new report of
+  the card does). A product module may set the limits (`limits.pausedMs`, `limits.arrivalMs`).
+- The hover browser test renders its clip with libvpx's real-time setting, about 8 times faster
+  for the same quality where the cards are, which more than makes up for the time the new checks
+  add.
 - The hover browser test writes `timings.json`, its measured times by name, beside `report.json`.
   `--baseline <timings.json>` fails a run whose time is slower than factor × saved + slack
-  (`baseline` in the product module; 1.5 and 750 ms by default), so a product that keeps its last
-  release's file sees a slower build in CI.
+  (`baseline` in the product module; 2 and 250 ms by default), so a product that keeps its last
+  release's file sees a slower build in CI. Save the file from a passing CI run of the release; a
+  failed run's file is refused.
 
 - `store-upload.mjs check --pull-request release|released` and the template
   `browser/templates/store-check.yml`, the store check on every pull request. In `release` (the
