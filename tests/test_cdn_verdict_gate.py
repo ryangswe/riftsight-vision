@@ -132,12 +132,31 @@ def test_a_verdict_that_is_missing_or_not_a_verdict_is_refused(setup, dry_run):
     for over, reason in (({"verdict_n": str(setup.tmp / "nowhere.json")}, "--verdict-n .*nowhere.json: cannot be read"),
                          ({"verdict_r": str(setup.tmp / "junk.json")}, "--verdict-r .*junk.json: not a verdict file"),
                          ({"verdict_r": str(setup.cfg_file)}, "not a gate R verdict"),
-                         ({"verdict_n": str(setup.tmp / "deep.json")}, "--verdict-n .*deep.json: not a verdict file"),
+                         # Python 3.14 limits the parser by the stack, so this file parses on a large one.
+                         ({"verdict_n": str(setup.tmp / "deep.json")}, "--verdict-n .*deep.json: not a (verdict file|gate N verdict)"),
                          ({"verdict_r": str(setup.tmp)}, "--verdict-r .*: cannot be read")):
         s3 = FakeS3()
         with pytest.raises(Refused, match=reason):
             run(setup, with_args(setup, dry_run=dry_run, **over), s3)
         assert untouched(setup, s3)
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_a_verdict_too_deep_for_the_parser_is_refused(setup, dry_run, monkeypatch):
+    deep = setup.tmp / "deep.json"
+    deep.write_text("[[]]")
+    parse = json.loads
+
+    def too_deep_for_this_file(text, *args, **kwargs):
+        if text == deep.read_bytes():
+            raise RecursionError("maximum recursion depth exceeded")
+        return parse(text, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", too_deep_for_this_file)
+    s3 = FakeS3()
+    with pytest.raises(Refused, match="--verdict-n .*deep.json: not a verdict file"):
+        run(setup, with_args(setup, dry_run=dry_run, verdict_n=str(deep)), s3)
+    assert untouched(setup, s3)
 
 
 @pytest.mark.parametrize("dry_run", [True, False])
