@@ -11,7 +11,8 @@
 # It is not a required check, but red still means do not merge: fix the change, or merge a change
 # in the product that works with both toolkits first (RELEASING.md, "What a red check means").
 # What a pull request cannot fix is a warning: a product that cannot be read or installed, or a
-# check that already fails before the new build is vendored.
+# check that also fails on a copy of the product without the new build. That copy runs only after
+# a check has failed, so a passing product runs its checks once.
 #
 # CANARY_TARGETS is a JSON list of { repo, branch | sha, vendorDir, steps, chrome? }: see
 # browser/scripts/canary.mjs, and RELEASING.md ("The downstream canary") for how to set it. The
@@ -130,14 +131,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Run the product's own checks without the new build
+      - name: Keep a copy of the product without the new build
         if: steps.install.outcome == 'success'
-        env:
-          STEPS: ${{ toJSON(matrix.steps) }}
-          BASELINE_FILE: ${{ runner.temp }}/canary-baseline.json
-        run: |
-          cp -a product "$RUNNER_TEMP/product-baseline"
-          node toolkit/browser/scripts/canary.mjs baseline "$RUNNER_TEMP/product-baseline"
+        run: cp -a product "$RUNNER_TEMP/product-baseline"
       - name: Vendor the new build into the product, with the options its manifest records
         if: steps.install.outcome == 'success'
         env:
@@ -148,7 +144,7 @@ jobs:
         if: steps.install.outcome == 'success'
         env:
           STEPS: ${{ toJSON(matrix.steps) }}
-          BASELINE_FILE: ${{ runner.temp }}/canary-baseline.json
+          BASELINE_DIR: ${{ runner.temp }}/product-baseline
           TARGET_REPO: ${{ matrix.repo }}
           TARGET_SHA: ${{ matrix.sha }}
         run: node toolkit/browser/scripts/canary.mjs run product

@@ -10,11 +10,10 @@
 //   node scripts/canary.mjs vendor TOOLKIT_ROOT PRODUCT_ROOT VENDOR_DIR
 //                                                 vendor this checkout's build into the product with the options
 //                                                 its own manifest records
-//   node scripts/canary.mjs baseline PRODUCT_ROOT run the product's steps before vendoring and save each result in
-//                                                 $BASELINE_FILE; a failing step does not fail this command
-//   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each; a step
-//                                                 that already failed in the baseline is a warning, not a failure.
-//                                                 Each step sees CARDVISION_CANARY=1
+//   node scripts/canary.mjs run PRODUCT_ROOT      run the product's steps (JSON list in $STEPS), report each. When one
+//                                                 fails, the steps also run in $BASELINE_DIR, a copy of the product from
+//                                                 before vendoring: a step that fails there too is a warning, not a
+//                                                 failure. Each step sees CARDVISION_CANARY=1
 //
 // CANARY_TARGETS is a JSON list of { repo, branch | sha, vendorDir, steps, chrome? }: the product's
 // repository ("account/name"), the branch whose current commit to try (the plan looks it up on each
@@ -26,7 +25,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -225,28 +224,14 @@ function runSteps(product, steps) {
   });
 }
 
-function baseline(product) {
-  writeFileSync(process.env.BASELINE_FILE, JSON.stringify(runSteps(product, JSON.parse(process.env.STEPS ?? "[]"))));
-  return 0;
-}
-
-/** What each step did before vendoring, or null when that is not known for every step. */
-function baselineResults(count) {
-  try {
-    const results = JSON.parse(readFileSync(process.env.BASELINE_FILE ?? "", "utf-8"));
-    return Array.isArray(results) && results.length === count && results.every((r) => typeof r === "string") ? results : null;
-  } catch {
-    return null;
-  }
-}
-
 function run(product) {
   const steps = JSON.parse(process.env.STEPS ?? "[]");
   const repo = process.env.TARGET_REPO ?? product;
   const sha = process.env.TARGET_SHA ?? "";
-  const before = baselineResults(steps.length);
   const results = runSteps(product, steps);
   const bad = results.filter((r) => r !== "passed").length;
+  const copy = process.env.BASELINE_DIR;
+  const before = bad > 0 && copy && existsSync(copy) ? runSteps(copy, steps) : null;
   const alreadyFailing = bad > 0 && before !== null && results.every((r, i) => r === "passed" || before[i] !== "passed");
   const verdict = bad === 0 ? "passed" : alreadyFailing ? `${bad} of ${steps.length} step(s) already fail without this change, so it could not be checked there` : `${bad} of ${steps.length} step(s) failed`;
   const head = before === null ? "| Step | Result |\n| --- | --- |" : "| Step | Result | Without this change |\n| --- | --- | --- |";
@@ -260,10 +245,10 @@ function run(product) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
   const usage = () => {
-    console.error("Usage: node scripts/canary.mjs plan ROOT | marker-note FILE | seed-opencv TOOLKIT PRODUCT VENDOR_DIR | vendor TOOLKIT PRODUCT VENDOR_DIR | baseline PRODUCT | run PRODUCT");
+    console.error("Usage: node scripts/canary.mjs plan ROOT | marker-note FILE | seed-opencv TOOLKIT PRODUCT VENDOR_DIR | vendor TOOLKIT PRODUCT VENDOR_DIR | run PRODUCT");
     return 2;
   };
-  const table = { plan: [1, plan], "marker-note": [1, markerNote], vendor: [3, vendor], "seed-opencv": [3, seedOpencv], baseline: [1, baseline], run: [1, run] };
+  const table = { plan: [1, plan], "marker-note": [1, markerNote], vendor: [3, vendor], "seed-opencv": [3, seedOpencv], run: [1, run] };
   const entry = table[command];
   process.exit(entry && rest.length === entry[0] ? entry[1](...rest) : usage());
 }

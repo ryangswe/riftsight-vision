@@ -875,41 +875,39 @@ def test_a_fixed_commit_is_used_as_written_with_no_lookup(tmp_path):
     assert json.loads(read_outputs(out)["matrix"])["include"][0]["sha"] == PRODUCT_SHA
 
 
-def run_after_baseline(tmp_path: Path, steps: list[str], before: object) -> tuple[subprocess.CompletedProcess, str]:
+NEEDS_THE_OLD_BUILD = "test -f old-build.txt"
+
+
+def run_beside_a_copy(tmp_path: Path, steps: list[str]) -> tuple[subprocess.CompletedProcess, str, Path]:
+    """The product as vendored, beside a copy from before vendoring that holds old-build.txt."""
     import json
 
-    product, summary, saved = tmp_path / "product", tmp_path / "summary.md", tmp_path / "baseline.json"
+    product, copy, summary = tmp_path / "product", tmp_path / "copy", tmp_path / "summary.md"
     product.mkdir(parents=True)
-    saved.write_text(json.dumps(before), encoding="utf-8")
+    copy.mkdir()
+    (copy / "old-build.txt").write_text("old\n")
     done = canary("run", str(product), STEPS=json.dumps(steps), TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA,
-                  BASELINE_FILE=str(saved), GITHUB_STEP_SUMMARY=str(summary))
-    return done, summary.read_text(encoding="utf-8")
+                  BASELINE_DIR=str(copy), GITHUB_STEP_SUMMARY=str(summary))
+    return done, summary.read_text(encoding="utf-8"), copy
 
 
 @needs_node
-def test_the_baseline_saves_each_step_s_result_and_never_fails(tmp_path):
-    import json
-
-    product, saved = tmp_path / "product", tmp_path / "baseline.json"
-    product.mkdir()
-    steps = ["true", "exit 3", 'test "$CARDVISION_CANARY" = 1']
-    done = canary("baseline", str(product), STEPS=json.dumps(steps), BASELINE_FILE=str(saved))
-    assert done.returncode == 0, done.stderr
-    assert json.loads(saved.read_text(encoding="utf-8")) == ["passed", "failed (3)", "passed"]
+def test_a_product_that_passes_runs_its_checks_once(tmp_path):
+    done, shown, copy = run_beside_a_copy(tmp_path, ["echo ran >> ran.txt"])
+    assert done.returncode == 0 and "clean=true" in done.stdout
+    assert not (copy / "ran.txt").exists() and "Without this change" not in shown
 
 
 @needs_node
 def test_a_step_that_only_fails_with_the_new_build_is_red(tmp_path):
-    passed, _ = run_after_baseline(tmp_path / "first", ["true"], ["passed"])
-    assert passed.returncode == 0 and "clean=true" in passed.stdout
-    done, shown = run_after_baseline(tmp_path, ["exit 3"], ["passed"])
-    assert done.returncode == 1 and "1 of 1 step(s) failed" in shown and "| failed (3) | passed |" in shown
-    assert "::warning" not in done.stdout
+    done, shown, _ = run_beside_a_copy(tmp_path, [NEEDS_THE_OLD_BUILD])
+    assert done.returncode == 1 and "1 of 1 step(s) failed" in shown and "| failed (1) | passed |" in shown
+    assert "::warning" not in done.stdout and "clean=false" in done.stdout
 
 
 @needs_node
-def test_a_step_that_already_failed_is_a_warning_that_says_it_could_not_judge(tmp_path):
-    done, shown = run_after_baseline(tmp_path, ["exit 3"], ["failed (3)"])
+def test_a_step_that_also_fails_on_the_copy_is_a_warning_that_says_it_could_not_judge(tmp_path):
+    done, shown, _ = run_beside_a_copy(tmp_path, ["exit 3"])
     assert done.returncode == 0, done.stderr
     wanted = "1 of 1 step(s) already fail without this change, so it could not be checked there"
     assert wanted in shown and f"::warning title=Downstream canary::example/product at 0123456789ab: {wanted}" in done.stdout
@@ -918,28 +916,29 @@ def test_a_step_that_already_failed_is_a_warning_that_says_it_could_not_judge(tm
 
 @needs_node
 def test_one_step_broken_by_the_new_build_stays_red_beside_one_that_already_failed(tmp_path):
-    done, _ = run_after_baseline(tmp_path, ["exit 3", "exit 4"], ["failed (3)", "passed"])
+    done, _, _ = run_beside_a_copy(tmp_path, ["exit 3", NEEDS_THE_OLD_BUILD])
     assert done.returncode == 1 and "::warning" not in done.stdout
 
 
 @needs_node
-@pytest.mark.parametrize("before", [["failed (3)", "failed (3)"], [], {"a": 1}, [3]])
-def test_a_baseline_that_does_not_match_the_steps_excuses_nothing(before, tmp_path):
-    done, shown = run_after_baseline(tmp_path, ["exit 3"], before)
-    assert done.returncode == 1 and "Without this change" not in shown
+def test_with_no_copy_a_failed_step_is_red(tmp_path):
+    import json
+
+    product = tmp_path / "product"
+    product.mkdir()
+    done = canary("run", str(product), STEPS=json.dumps(["exit 3"]), BASELINE_DIR=str(tmp_path / "nowhere"), GITHUB_STEP_SUMMARY=str(tmp_path / "summary.md"))
+    assert done.returncode == 1 and "Without this change" not in (tmp_path / "summary.md").read_text(encoding="utf-8")
 
 
-def test_the_baseline_runs_before_vendoring_and_a_rerun_always_tests():
+def test_the_copy_is_taken_before_vendoring_and_a_rerun_always_tests():
     steps = steps_of("canary.yml")
     order = list(steps)
-    baseline = "Run the product's own checks without the new build"
+    keep = "Keep a copy of the product without the new build"
     vendor = "Vendor the new build into the product, with the options its manifest records"
-    assert order.index("Install Chrome for Testing, puppeteer-core and ffmpeg") < order.index(baseline) < order.index(vendor)
+    assert order.index(keep) < order.index(vendor) and steps[keep]["run"].strip() == 'cp -a product "$RUNNER_TEMP/product-baseline"'
     text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
-    assert text.count("BASELINE_FILE: ${{ runner.temp }}/canary-baseline.json") == 2, "the baseline and the checks share one file"
+    assert "BASELINE_DIR: ${{ runner.temp }}/product-baseline" in text
     assert "id: restore\n        if: steps.plan.outputs.run == 'true' && github.run_attempt == '1'\n" in text
-    run = steps[baseline]["run"]
-    assert 'cp -a product "$RUNNER_TEMP/product-baseline"' in run and 'baseline "$RUNNER_TEMP/product-baseline"' in run, "the real run starts from an untouched folder"
 
 
 def test_only_a_run_in_which_every_product_passed_outright_saves_the_marker():
@@ -961,7 +960,7 @@ def test_a_product_that_cannot_be_prepared_is_a_warning_and_is_not_tried():
     assert "id: seed\n        continue-on-error: true\n" in text
     assert "id: install\n        if: steps.seed.outcome == 'success'\n        continue-on-error: true\n" in text
     assert "::warning" in steps["Warn when the product could not be prepared"]["run"]
-    for name in ("Run the product's own checks without the new build", "Vendor the new build into the product, with the options its manifest records", "Run the product's own checks"):
+    for name in ("Keep a copy of the product without the new build", "Vendor the new build into the product, with the options its manifest records", "Run the product's own checks"):
         assert steps[name]["if"] == "steps.install.outcome == 'success'"
 
 

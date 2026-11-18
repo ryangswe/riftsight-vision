@@ -95,8 +95,8 @@ product it names, it checks out the current commit of the product's branch, vend
 checkout's build into it with the options the product's own vendor manifest records, and runs the
 product's own checks. It is not a required check, but a red run still means do not merge (see
 "What a red check means"). What a pull request cannot fix is a warning instead: a product that
-cannot be read or installed is not tried, and each check also runs before the new build is vendored,
-so a check that already fails there cannot judge this change.
+cannot be read or installed is not tried. When a check fails, it also runs on a copy of the product
+without the new build, and a check that fails there too cannot judge this change.
 
 After a product merges a compatible change, use **Re-run all jobs** on the pull request. Re-running
 only the failed job tests the commit that the first attempt looked up.
