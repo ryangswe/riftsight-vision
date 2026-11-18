@@ -24,8 +24,8 @@ A Windows terminal such as PowerShell is not supported. What was checked on whic
 GPU training included, is in the [adapt guide](adapt-your-game.md#before-you-start).
 
 - **macOS:** as written. Python 3.14 on a Mac needs Apple silicon and macOS 14 or later (the
-  ONNX Runtime it uses has no other macOS build); 3.11 to 3.13 also run on Intel Macs and older
-  macOS. For the browser part, install Node 22 or later: the installer from
+  ONNX Runtime it uses has no other macOS build); 3.11 to 3.13 also run on Apple silicon with
+  macOS 13, and on Intel Macs with macOS 14 or later. For the browser part, install Node 22 or later: the installer from
   <https://nodejs.org>, or `brew install node` if you use Homebrew.
 - **Linux:** install Python 3.11, 3.12, 3.13 or 3.14, with its `venv` module, and Node 22 or later (for
   the browser part) with your package manager. Where a step says `open`, use `xdg-open`.

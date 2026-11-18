@@ -307,6 +307,14 @@ def test_the_lock_files_agree_with_each_other_and_with_the_package():
     assert f"python -m {YOLOX_INSTALL}" in text and YOLOX_REVISION in text
 
 
+def test_onnx_runtime_below_python_3_14_keeps_its_intel_mac_builds():
+    # ONNX Runtime 1.24 and later publish no Intel or macOS 13 builds, so the line for Python 3.11 to
+    # 3.13 stays on 1.23 whatever an automated update does to the 3.14 line.
+    for name in ("requirements-lock.txt", "requirements-lock-train.txt"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert re.search(r'^onnxruntime==1\.23\.\d+ ; python_version < "3\.14"', text, re.MULTILINE), name
+
+
 def test_the_base_lock_and_the_publish_and_lint_tools_are_pinned_by_hash():
     """pip checks every downloaded file against these hashes; with hashes in a file it asks for one
     on every pin, so a pin without one would fail the install rather than go unchecked."""

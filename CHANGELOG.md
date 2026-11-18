@@ -54,8 +54,8 @@ break the public surface; this file names each break and how to migrate.
 
 - The rollback check draws a card that leaves and comes back (`places.C.back`) as the hover
   browser test does, and renders its clip as fast: both now render it with `harness/clip.mjs`.
-- The quickstart's Linux check runs on Ubuntu 24.04. GitHub's newest Ubuntu image comes with
-  Python 3.14, which the documents do not support yet (the locked onnxruntime has no wheel for it).
+- The quickstart's Linux check runs on Ubuntu 24.04, the Ubuntu the quickstart names, not on
+  GitHub's newest image.
 - `store-release.yml` and `store-check.yml` pass `--runtimes` only when `store/record-facts.json`
   exists too. A product with a `cdn/RUNTIMES.json` but no facts file was refused for naming no
   model release, which on a version pull request made the store check red.
