@@ -8,7 +8,7 @@ command here was run as written, on macOS with Python 3.12; the output shown is 
 workflow, `.github/workflows/quickstart.yml`, runs the same steps on Linux and on Windows in
 WSL.
 
-You need Python 3.11, 3.12 or 3.13, and a copy of the repository: step 0 below gets it. Run
+You need Python 3.11, 3.12, 3.13 or 3.14, and a copy of the repository: step 0 below gets it. Run
 everything from the repository's root, the folder that holds `README.md`.
 
 **Video:** [Try the toy game: quickstart and demo page](https://www.youtube.com/watch?v=Xq8Dwal1f6E) follows this page.
@@ -23,16 +23,18 @@ Ubuntu under WSL 2 (the Windows Subsystem for Linux), where every step applies w
 A Windows terminal such as PowerShell is not supported. What was checked on which platform,
 GPU training included, is in the [adapt guide](adapt-your-game.md#before-you-start).
 
-- **macOS:** as written. For the browser part, install Node 22 or later: the installer from
+- **macOS:** as written. Python 3.14 on a Mac needs Apple silicon and macOS 14 or later (the
+  ONNX Runtime it uses has no other macOS build); 3.11 to 3.13 also run on Apple silicon with
+  macOS 13, and on Intel Macs with macOS 14 or later. For the browser part, install Node 22 or later: the installer from
   <https://nodejs.org>, or `brew install node` if you use Homebrew.
-- **Linux:** install Python 3.11, 3.12 or 3.13, with its `venv` module, and Node 22 or later (for
+- **Linux:** install Python 3.11, 3.12, 3.13 or 3.14, with its `venv` module, and Node 22 or later (for
   the browser part) with your package manager. Where a step says `open`, use `xdg-open`.
 - **Windows:** open PowerShell with "Run as administrator", type
   `wsl --install -d Ubuntu-24.04` (the Ubuntu the checks run on) and restart the computer.
   Then open **Ubuntu 24.04** from the Start menu; a plain "Ubuntu" entry, if you have one from
   before, may open Ubuntu 22.04, whose Python 3.10 is too old. The first time, it asks you to
   choose a user name and a password. Everything from here on happens in Ubuntu's terminal;
-  `python3 --version` there must say 3.11, 3.12 or 3.13 (24.04 has 3.12).
+  `python3 --version` there must say 3.11, 3.12, 3.13 or 3.14 (24.04 has 3.12).
 
 On Windows, in Ubuntu, paste this into the terminal (`sudo` asks for that password):
 
@@ -75,8 +77,8 @@ then **Download ZIP**. Unpack it, and `cd` into the unpacked folder (GitHub name
 branch, such as `riftsight-vision-main`). On Windows, unpack it in Ubuntu's home folder, not on
 the Windows drive.
 
-**1. Install.** First check the Python version: `python3 --version` must say 3.11, 3.12 or 3.13. If it
-says 3.10 or older (a Mac with an older installer from python.org, for one), or 3.14 or newer
+**1. Install.** First check the Python version: `python3 --version` must say 3.11, 3.12, 3.13 or 3.14. If it
+says 3.10 or older (a Mac with an older installer from python.org, for one), or 3.15 or newer
 (the pinned packages have no builds for it yet), install a supported
 Python (`brew install python@3.12`, or the installer from <https://www.python.org>) and type
 `python3.12` where the first line below says `python3`. Then paste this into the terminal, from

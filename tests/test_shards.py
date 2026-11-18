@@ -17,7 +17,7 @@ import pytest
 import shards
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSIONS = ("3.11", "3.12", "3.13")
+VERSIONS = ("3.11", "3.12", "3.13", "3.14")
 
 
 def test_every_file_is_in_exactly_one_part_whatever_the_seconds():
@@ -135,7 +135,7 @@ def write_report(path: Path, seconds: dict[str, float]) -> None:
 
 
 def test_the_reports_of_a_run_give_each_file_its_median_over_the_python_versions(tmp_path):
-    for version, slow in (("3.11", 10.0), ("3.12", 12.0), ("3.13", 30.0)):
+    for version, slow in (("3.11", 10.0), ("3.12", 12.0), ("3.13", 30.0), ("3.14", 12.0)):
         write_report(tmp_path / f"junit-{version}-part-1" / "junit.xml", {"tests/test_a.py": slow})
         write_report(tmp_path / f"junit-{version}-part-2" / "junit.xml", {"tests/test_b.py": 2.0, "labeler/test_c.py": 1.0})
     assert shards.seconds_from_reports(tmp_path) == {"labeler/test_c.py": 1.0, "tests/test_a.py": 12.0, "tests/test_b.py": 2.0}
@@ -145,11 +145,11 @@ def test_the_reports_of_a_run_give_each_file_its_median_over_the_python_versions
 
 def test_earlier_runs_join_the_median_but_list_no_file_of_their_own(tmp_path):
     this, earlier = tmp_path / "junit", tmp_path / "earlier"
-    for version in ("3.11", "3.12", "3.13"):
+    for version in ("3.11", "3.12", "3.13", "3.14"):
         write_report(this / f"junit-{version}-part-1" / "junit.xml", {"tests/test_a.py": 30.0, "tests/test_new.py": 4.0})
     # Two earlier runs measured test_a.py at 10 s, and one of them a file that is gone since.
     for run in ("101", "102"):
-        for version in ("3.11", "3.12", "3.13"):
+        for version in ("3.11", "3.12", "3.13", "3.14"):
             write_report(earlier / run / f"junit-{version}-part-1" / "junit.xml",
                          {"tests/test_a.py": 10.0, **({"tests/test_gone.py": 9.0} if run == "101" else {})})
     # A run whose reports are past their week has an empty folder.
@@ -311,7 +311,7 @@ def test_only_the_balance_job_may_write_issues_and_it_runs_on_pushes_to_main_aft
     text = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
     assert "\npermissions:\n  contents: read\n" in text and text.count("issues: write") == 1
     job = text.split("\n  balance:\n", 1)[1]
-    assert job.startswith("    name: Test parts balance\n    needs: [tests-3-11, tests-3-12, tests-3-13]\n"
+    assert job.startswith("    name: Test parts balance\n    needs: [tests-3-11, tests-3-12, tests-3-13, tests-3-14]\n"
                           "    if: github.event_name == 'push' && github.ref == 'refs/heads/main'\n"
                           "    runs-on: ubuntu-latest\n    permissions:\n      actions: read\n      contents: read\n"
                           "      issues: write\n")

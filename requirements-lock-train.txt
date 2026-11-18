@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Exact versions of the training environment the tests were last run in (CPython 3.12, macOS
-# arm64): the runtime dependencies and the "dev" and "train" extras together. pyproject.toml
-# holds the supported ranges.
+# Exact versions of the training environment the tests were last run in (CPython 3.11 and 3.14,
+# macOS arm64): the runtime dependencies and the "dev" and "train" extras together, with YOLOX
+# installed as below. pyproject.toml holds the supported ranges. ONNX Runtime is pinned twice, by
+# Python version, as in requirements-lock.txt.
 #
 #     python -m pip install -r requirements-lock-train.txt
 #     python -m pip install --no-deps -e .
@@ -37,9 +38,10 @@ MarkupSafe==3.0.4
 ml_dtypes==0.6.0
 mpmath==1.3.0
 networkx==3.6.1
-numpy==2.2.6
+numpy==2.3.2
 onnx==1.23.2
-onnxruntime==1.23.2
+onnxruntime==1.23.2 ; python_version < "3.14"
+onnxruntime==1.24.1 ; python_version >= "3.14"
 opencv-python-headless==5.0.0.93
 packaging==26.3
 pillow==13.0.0

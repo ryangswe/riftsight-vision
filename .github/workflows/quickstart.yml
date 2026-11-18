@@ -11,8 +11,8 @@
 # and the demo is also fetched from Windows at the localhost address the quickstart gives.
 #
 # The Linux job runs on Ubuntu 24.04, not ubuntu-latest: it uses the system's python3, which must
-# be one the documents support (3.11 to 3.13). Ubuntu 26.04's is 3.14, for which the locked
-# onnxruntime has no wheel. It is also the Ubuntu the quickstart names for WSL.
+# be one the documents support (3.11 to 3.14). Ubuntu 24.04's is 3.12, and it is also the Ubuntu
+# the quickstart names for WSL.
 #
 # Vampire/setup-wsl is pinned to the commit of its tag v7.2.0, since it is not GitHub's own.
 #

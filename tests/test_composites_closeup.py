@@ -28,7 +28,7 @@ UNIT = [(0, 0), (1, 0), (1, 1), (0, 1)]
 # (``folder_digest``). The bytes of a JPEG depend on the platform's floating point and image
 # libraries, so the pins are checked only where they were recorded; elsewhere the tests below
 # them still hold the same promise without fixed numbers.
-PINNED_ON = {"system": "Darwin", "machine": "arm64", "numpy": "2.2.6", "pillow": "13.0.0"}
+PINNED_ON = {"system": "Darwin", "machine": "arm64", "numpy": "2.3.2", "pillow": "13.0.0"}
 PINNED_DIGESTS = {
     "train-scans": "eb7562650db9ad5bc5be41d72877e95957a673317fd8e2979395056fe562377b",
     "val-plain": "3a8c78694e14560b8bafdd7f11424e92d902652fcb4b6686c888b7eba74e0908",

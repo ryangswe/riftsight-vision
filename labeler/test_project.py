@@ -2441,7 +2441,9 @@ class RemovingFrames(Server):
 
 class SmallThings(Server):
     def test_a_body_nested_too_deep_is_answered_not_dropped(self):
-        deep = ("[" * 100000 + "]" * 100000).encode()
+        # Python 3.14 limits the parser by the thread's stack, not by the recursion limit, and a
+        # server thread's stack takes 100000 levels; four million is too deep on every version.
+        deep = ("[" * 4000000 + "]" * 4000000).encode()
         with contextlib.redirect_stderr(io.StringIO()) as said:
             for path in ("/api/project", "/api/open", "/api/remember"):
                 status, _headers, body = self.request("POST", path, b'{"path": ' + deep + b"}")

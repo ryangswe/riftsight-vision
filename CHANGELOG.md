@@ -11,6 +11,10 @@ break the public surface; this file names each break and how to migrate.
 
 ### Added
 
+- Python 3.14 is supported and tested in CI, beside 3.11, 3.12 and 3.13. The lock files move to
+  NumPy 2.3.2 for every version, and pick ONNX Runtime by Python version: 3.11 to 3.13 keep
+  1.23.2, and 3.14 uses 1.24.1, the first release with 3.14 builds, whose only macOS build is
+  Apple silicon on macOS 14 or later. The supported ranges in `pyproject.toml` are unchanged.
 - `docs/hover-coverage.md`: each hover-spec clause with its unit tests, browser checks and pending
   parts, generated with the spec's index; the spec check now fails when a clause is left with no
   test.
@@ -53,8 +57,8 @@ break the public surface; this file names each break and how to migrate.
 
 - The rollback check draws a card that leaves and comes back (`places.C.back`) as the hover
   browser test does, and renders its clip as fast: both now render it with `harness/clip.mjs`.
-- The quickstart's Linux check runs on Ubuntu 24.04. GitHub's newest Ubuntu image comes with
-  Python 3.14, which the documents do not support yet (the locked onnxruntime has no wheel for it).
+- The quickstart's Linux check runs on Ubuntu 24.04, the Ubuntu the quickstart names, not on
+  GitHub's newest image.
 - `store-release.yml` and `store-check.yml` pass `--runtimes` only when `store/record-facts.json`
   exists too. A product with a `cdn/RUNTIMES.json` but no facts file was refused for naming no
   model release, which on a version pull request made the store check red.
