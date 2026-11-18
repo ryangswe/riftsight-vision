@@ -25,7 +25,7 @@ const USAGE =
   "  --node-tools      add node/verify-release.mjs, node/package-zip.mjs, node/store-upload.mjs, node/realm-check.mjs,\n" +
   "                    node/release-decide.mjs\n" +
   "  --host            add the shared hover host (experimental): host-content.js, host-compute.js, host-settings.js and their declarations\n" +
-  "  --harness         add the browser test harness (browser/harness/*.mjs) as harness/*.mjs\n" +
+  "  --harness         add the browser test harness (browser/harness/*.mjs and *.d.mts) under harness/\n" +
   "  --unmanaged RULE  what the product owns in FOLDER: a folder (\"notes/\") or one exact file name (\"README.md\"); repeatable\n" +
   "  --adopt           replace a non-empty folder that has no cardvision-vendor.json (a hand-vendored runtime, VENDOR.json)\n" +
   "  The tool refuses a folder that holds other files, a symbolic link, and a folder inside this checkout.";

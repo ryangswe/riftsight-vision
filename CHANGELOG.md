@@ -53,6 +53,13 @@ break the public surface; this file names each break and how to migrate.
   version pull request from merging until its "before upload" addresses are live, for a product
   whose merge makes the release tag.
 
+### Changed
+
+- `vendor --harness` also copies the harness's `.d.mts` declarations. When a product next vendors,
+  it removes `@ts-expect-error` from imports of the modules that now have declarations, and drops
+  any `--unmanaged` rule that names one of these files. `hover-browser.mjs`, `rollback-check.mjs`
+  and `serve.mjs` have no declarations.
+
 ### Fixed
 
 - The rollback check draws a card that leaves and comes back (`places.C.back`) as the hover

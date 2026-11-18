@@ -89,6 +89,10 @@ function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, ha
     put(join(root, "browser", "harness", "hover-browser.mjs"), `harness ${tag}`);
     put(join(root, "browser", "harness", "serve.mjs"), `serve ${tag}`);
     put(join(root, "browser", "harness", "netlog.d.mts"), `declarations ${tag}`);
+    put(join(root, "browser", "harness", "notes.md"), `not vendored ${tag}`);
+    put(join(root, "browser", "harness", "other.mts"), `not vendored ${tag}`);
+    put(join(root, "browser", "harness", "example", "product.mjs"), `not vendored ${tag}`);
+    put(join(root, "browser", "harness", "example", "product.d.mts"), `not vendored ${tag}`);
   }
   if (spec) put(join(root, "docs", "hover-spec.json"), `{"clauses":"${tag}"}`);
   put(
@@ -165,7 +169,7 @@ describe("vendoring a runtime", () => {
     const names = Object.keys(manifest.files);
     for (const n of ["host-content.js", "host-compute.js", "host-settings.js", "host-compute.js.LEGAL.txt", "host-content.d.ts", "host-compute.d.ts", "host-settings.d.ts", "types/host/content-entry.d.ts"]) expect(names, n).toContain(n);
     expect(names).not.toContain("host-content.js.LEGAL.txt"); // no license comments in that bundle
-    expect(names.filter((n) => n.startsWith("harness/"))).toEqual(["harness/hover-browser.mjs", "harness/serve.mjs"]); // .mjs only
+    expect(names.filter((n) => n.startsWith("harness/"))).toEqual(["harness/hover-browser.mjs", "harness/netlog.d.mts", "harness/serve.mjs"]); // modules and declarations; nothing else
     expect(lib.checkVendor(into)).toEqual([]);
     expect(lib.checkVendor(into, toolkitOf(kit))).toEqual([]);
   });
@@ -174,6 +178,8 @@ describe("vendoring a runtime", () => {
     const noHost = fakeToolkit("one");
     expect(() => vendor(noHost, join(temp(), "v"), COMMIT_A, { host: true })).toThrow(/host-content\.js is missing/);
     const noHarness = fakeToolkit("one", { host: true, harness: false });
+    expect(() => vendor(noHarness, join(temp(), "v"), COMMIT_A, { harness: true })).toThrow(/no \.mjs files to vendor as the harness/);
+    put(join(noHarness.root, "browser", "harness", "netlog.d.mts"), "declarations alone");
     expect(() => vendor(noHarness, join(temp(), "v"), COMMIT_A, { harness: true })).toThrow(/no \.mjs files to vendor as the harness/);
   });
 
