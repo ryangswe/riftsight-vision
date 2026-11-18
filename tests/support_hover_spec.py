@@ -218,13 +218,13 @@ def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> 
 
     ids = {c["id"] for c in clauses}
     by_id = {c["id"]: c for c in clauses}
-    for name, owner in checks.items():
-        if owner == "no clause":
+    for name, clause in checks.items():
+        if clause == "no clause":
             continue
-        if owner not in ids:
-            problems.append(f"harness check {name!r} names {owner}, which is not a clause")
-        elif name not in by_id[owner]["browser"]:
-            problems.append(f"{owner}: its Test paragraph does not cite harness check {name}")
+        if clause not in ids:
+            problems.append(f"harness check {name!r} names {clause}, which is not a clause")
+        elif name not in by_id[clause]["browser"]:
+            problems.append(f"{clause}: its Test paragraph does not cite harness check {name}")
     for c in clauses:
         if not c["tests"] and not c["browser"] and c["id"] not in testless:
             problems.append(f"{c['id']} has no test: add one, or add it to TESTLESS with a reason in the PR")
