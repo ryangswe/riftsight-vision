@@ -7,10 +7,17 @@ also writes `hover-spec.json`. Do not edit it by hand; `--check` fails when it i
 
 - **Status**: the clause's mark in the spec (`current` when it has none).
 - **Unit tests**: how many `file:line` tests the clause's Test paragraph lists.
-- **Browser checks**: the hover browser test checks it cites (`harness check <name>`).
+- **Browser checks**: the hover browser test checks it cites (`harness check <name>`). A check
+  marked "products only" is unsupported by the toolkit's own fixture, so only the products' runs
+  test it; it is not counted below.
 - **Pending**: the parts a test does not check yet, as the spec marks them.
+- **Pending only**: a pending mark, and no unit test or browser check.
+- **Partial**: a unit test or browser check, and a pending mark beside it. The spec marks what
+  the tests leave; the count is of marks, not a measured gap.
 
-71 clauses; 70 with unit tests; 19 with browser checks; 1 pending only; 4 partial (a test or check, and a pending mark).
+The counts overlap: a clause with unit tests and browser checks is in both.
+
+71 clauses; 70 with unit tests; 18 with browser checks; 1 pending only; 4 partial.
 
 | Clause | Title | Status | Unit tests | Browser checks | Pending |
 | --- | --- | --- | --- | --- | --- |
@@ -50,7 +57,7 @@ also writes `hover-spec.json`. Do not edit it by hand; `--check` fails when it i
 | S-C11 | A waiting retry holds every look but the one a move or tap onto a different card starts | current | 38 | - | - |
 | S-C12 | A refused capture is not retried; the next pointer move asks again | current | 3 | - | - |
 | S-C13 | A look with no reply is given up on after 5 s, or 15 s before the opening analysis | current | 2 | - | - |
-| S-C14 | A pointer resting on an empty spot is looked at every 2 s | current | 4 | arrives-under-rest | - |
+| S-C14 | A pointer resting on an empty spot is looked at every 2 s | current | 4 | arrives-under-rest (products only) | - |
 | S-C15 | A still picture is analyzed three times, then not again until it changes | current | 2 | paused-names-each | - |
 | S-C16 | A repeat of an unchanged still picture reuses the look before it | current | 1 | - | - |
 | S-C17 | One look in flight | current | 3 | - | - |

@@ -2471,5 +2471,9 @@
       "browser": [],
       "pending": []
     }
+  ],
+  "productsOnlyChecks": [
+    "arrives-under-rest",
+    "cached-reload"
   ]
 }

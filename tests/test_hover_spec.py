@@ -63,7 +63,7 @@ def test_the_index_is_complete():
     ids = [c["id"] for c in index["clauses"]]
     assert len(ids) == len(set(ids)) > 0
     assert {c["group"] for c in index["clauses"]} <= set(index["groups"])
-    assert all(c["tests"] or c["pending"] for c in index["clauses"])
+    assert all(c["tests"] or c["browser"] or c["pending"] for c in index["clauses"])
 
 
 def test_a_good_fixture_parses(tree):
@@ -199,3 +199,51 @@ def test_the_coverage_table_counts(tree):
     text = coverage(index)
     assert "2 clauses; 2 with unit tests; 2 with browser checks; 0 pending only; 1 partial" in text
     assert "| S-A1 | One | changes in 0.14.0 | 2 | first-check | real-browser test |" in text
+
+
+def test_a_missing_harness_table_is_a_fault(tree):
+    (tree / "browser" / "harness" / "clauses.mjs").unlink()
+    assert any("clauses.mjs not found" in p for p in problems_of(GOOD, tree))
+
+
+def test_a_harness_table_line_it_cannot_read_is_a_fault(tree):
+    table = tree / "browser" / "harness" / "clauses.mjs"
+    table.write_text(table.read_text().replace('  "loose-check": "no clause",\n', '  "loose-check": "no clause", "two-check": "S-A2",\n'))
+    assert any("cannot read the table line" in p for p in problems_of(GOOD, tree))
+    table.write_text("export const CLAUSES = {\n};\n")
+    assert any("has no entries" in p for p in problems_of(GOOD, tree))
+    table.write_text("export const CLAUSES = { 'first-check': 'S-A1' };\n")
+    assert any("no `export const CLAUSES = {` table" in p for p in problems_of(GOOD, tree))
+
+
+def test_a_check_naming_no_clause_is_a_fault(tree):
+    table = tree / "browser" / "harness" / "clauses.mjs"
+    table.write_text(table.read_text().replace('"loose-check": "no clause"', '"loose-check": "S-Z9"'))
+    assert "harness check 'loose-check' names S-Z9, which is not a clause" in problems_of(GOOD, tree)
+
+
+@pytest.mark.parametrize(
+    "citation",
+    ["harness checks other-check and first-check", "Harness check first-check", "harness  check first-check"],
+)
+def test_a_citation_it_cannot_read_is_a_fault(tree, citation):
+    text = GOOD.replace("harness checks other-check, first-check", citation)
+    assert any("a harness check citation it cannot read" in p for p in problems_of(text, tree))
+
+
+def test_a_check_only_the_products_run_is_marked_and_not_counted(tree):
+    fixture = tree / "browser" / "fixture-extension"
+    fixture.mkdir()
+    fixture.joinpath("product.mjs").write_text('export default {\n  unsupported: {\n    "other-check": "why",\n  },\n};\n')
+    text = GOOD.replace("Test: `x.test.ts:4`; harness checks other-check, first-check", "Test: harness check other-check")
+    index, problems = parse(text, tree, frozenset())
+    assert index["productsOnlyChecks"] == ["other-check"]
+    assert "S-A2 has no test: add one, or add it to TESTLESS with a reason in the PR" in problems
+    assert "| S-A2 | Two | current | 0 | other-check (products only) | - |" in coverage(index)
+    assert "1 with browser checks;" in coverage(index)
+
+
+def test_a_browser_check_alone_is_a_test(tree):
+    text = GOOD.replace("Test: `x.test.ts:4`; harness checks other-check, first-check", "Test: harness checks other-check, first-check")
+    assert problems_of(text, tree) == []
+

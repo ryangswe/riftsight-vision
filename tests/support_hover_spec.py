@@ -29,6 +29,9 @@ INDEX = ROOT / "docs" / "hover-spec.json"
 COVERAGE = ROOT / "docs" / "hover-coverage.md"
 BROWSER_TESTS = ROOT / "browser" / "test"
 CHECKS_FILE = Path("browser") / "harness" / "clauses.mjs"
+# The toolkit's own run of the hover browser test (CI) uses this product module; a check it lists as
+# unsupported runs only in the products, so it is not counted as the toolkit's test of a clause.
+FIXTURE_FILE = Path("browser") / "fixture-extension" / "product.mjs"
 
 # Clauses with no unit test and no browser check today. The list only shrinks: a new clause needs a
 # test, and a clause that gets one leaves the list.
@@ -44,7 +47,11 @@ CLAUSE = re.compile(r"^### (S-([A-CFGHPWX])([1-9][0-9]*)) — (\S.*?)\s*$")
 ID_MENTION = re.compile(r"\bS-[A-Z][0-9]+\b")
 FILE_TOKEN = re.compile(r"^[A-Za-z0-9_./-]+\.(?:test\.ts|py)(?::.*)?$")
 REF = re.compile(r"^([A-Za-z0-9_./-]+\.(?:test\.ts|py)):([1-9][0-9]*)$")
-CHECK_ENTRY = re.compile(r'^\s*"([a-z0-9-]+)":\s*"([^"]+)"', re.MULTILINE)
+CHECK_ENTRY = re.compile(r'^\s*"([a-z0-9-]+)":\s*"([^"]+)",?\s*$')
+CHECKS_BLOCK = re.compile(r"^export const CLAUSES = \{\n(.*?)^\};", re.MULTILINE | re.DOTALL)
+UNSUPPORTED_BLOCK = re.compile(r"^\s*unsupported: \{\n(.*?)^\s*\},", re.MULTILINE | re.DOTALL)
+UNSUPPORTED_KEY = re.compile(r'^\s*"([a-z0-9-]+)":', re.MULTILINE)
+HARNESS_WORD = re.compile(r"harness", re.IGNORECASE)
 CHECK_CITE = re.compile(r"harness checks? ([a-z][a-z0-9-]*(?:,\s*[a-z][a-z0-9-]*)*)")
 PENDING = re.compile(r"pending \(([^)]*)\)")
 TS_TEST_LINE = re.compile(r"^\s*it(?:\.each\b|\.fails\b|\()")
@@ -90,21 +97,45 @@ def paragraphs(body: list[str]) -> list[str]:
     return out
 
 
-def read_checks(root: Path = ROOT) -> dict[str, str] | None:
-    """Check name -> clause id (or "no clause") from the harness table; None when it is missing."""
+def read_checks(root: Path = ROOT) -> tuple[dict[str, str], list[str]]:
+    """Check name -> clause id (or "no clause") from the harness table, and the problems reading it:
+    every line of the table must be one ``"name": "clause",`` entry, so a new layout fails loudly."""
     path = root / CHECKS_FILE
     if not path.is_file():
-        return None
-    return dict(CHECK_ENTRY.findall(path.read_text(encoding="utf-8")))
+        return {}, [f"{CHECKS_FILE} not found: browser checks cannot be checked"]
+    block = CHECKS_BLOCK.search(path.read_text(encoding="utf-8"))
+    if not block:
+        return {}, [f"{CHECKS_FILE}: no `export const CLAUSES = {{` table ending in `}};`"]
+    checks: dict[str, str] = {}
+    problems: list[str] = []
+    for line in block.group(1).splitlines():
+        if not line.strip() or line.strip().startswith("//"):
+            continue
+        m = CHECK_ENTRY.match(line)
+        if not m:
+            problems.append(f"{CHECKS_FILE}: cannot read the table line {line.strip()!r}")
+        else:
+            checks[m.group(1)] = m.group(2)
+    if not checks:
+        problems.append(f"{CHECKS_FILE}: the CLAUSES table has no entries")
+    return checks, problems
+
+
+def products_only(root: Path = ROOT) -> list[str]:
+    """The checks the toolkit's fixture module lists as unsupported (an empty list without it)."""
+    path = root / FIXTURE_FILE
+    if not path.is_file():
+        return []
+    block = UNSUPPORTED_BLOCK.search(path.read_text(encoding="utf-8"))
+    return sorted(UNSUPPORTED_KEY.findall(block.group(1))) if block else []
 
 
 def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> tuple[dict, list[str]]:
     """The index of ``text`` and the problems found, one line each."""
     problems: list[str] = []
-    checks = read_checks(root)
-    if checks is None:
-        problems.append(f"{CHECKS_FILE} not found: browser checks cannot be checked")
-        checks = {}
+    checks, read_problems = read_checks(root)
+    problems.extend(read_problems)
+    only_in_products = products_only(root)
     groups: dict[str, str] = {}
     clauses: list[dict] = []
     seen: set[str] = set()
@@ -208,6 +239,11 @@ def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> 
                         problems.append(f"{cid}: harness check {name!r} is not in {CHECKS_FILE}")
                     if name not in browser:
                         browser.append(name)
+            # Every mention of the harness must be a citation it read: a list joined by "and", a
+            # capital letter or a double space would otherwise drop a check silently.
+            rest = CHECK_CITE.sub("", content)
+            if HARNESS_WORD.search(rest) or re.search(r"harness checks? [a-z][a-z0-9-]*(?:,\s*[a-z][a-z0-9-]*)*\s+and\b", content):
+                problems.append(f"{cid}: a harness check citation it cannot read: write `harness check <name>` or `harness checks <a>, <b>`")
             for kind in PENDING.findall(content):
                 if kind not in PENDING_KINDS:
                     problems.append(f"{cid}: unknown pending kind {kind!r}")
@@ -225,19 +261,22 @@ def parse(text: str, root: Path = ROOT, testless: frozenset[str] = TESTLESS) -> 
             problems.append(f"harness check {name!r} names {clause}, which is not a clause")
         elif name not in by_id[clause]["browser"]:
             problems.append(f"{clause}: its Test paragraph does not cite harness check {name}")
+    def tested(c: dict) -> bool:
+        return bool(c["tests"]) or any(name not in only_in_products for name in c["browser"])
+
     for c in clauses:
-        if not c["tests"] and not c["browser"] and c["id"] not in testless:
+        if not tested(c) and c["id"] not in testless:
             problems.append(f"{c['id']} has no test: add one, or add it to TESTLESS with a reason in the PR")
     for cid in sorted(testless):
         if cid not in ids:
             problems.append(f"{cid} is in TESTLESS but is not a clause: remove it from TESTLESS")
-        elif by_id[cid]["tests"] or by_id[cid]["browser"]:
+        elif tested(by_id[cid]):
             problems.append(f"{cid} is in TESTLESS but now has a test: remove it from TESTLESS")
     for mention in sorted(set(ID_MENTION.findall(text)) - ids):
         problems.append(f"{mention} is mentioned but no clause has that id")
     if not clauses:
         problems.append("no clauses found")
-    index = {"source": "docs/hover-spec.md", "groups": groups, "clauses": clauses}
+    index = {"source": "docs/hover-spec.md", "groups": groups, "clauses": clauses, "productsOnlyChecks": only_in_products}
     return index, problems
 
 
@@ -247,10 +286,11 @@ def render(index: dict) -> str:
 
 def coverage(index: dict) -> str:
     rows = index["clauses"]
+    only = set(index.get("productsOnlyChecks", []))
     has_test = [c for c in rows if c["tests"]]
-    has_browser = [c for c in rows if c["browser"]]
-    pending_only = [c for c in rows if c["pending"] and not c["tests"] and not c["browser"]]
-    partial = [c for c in rows if c["pending"] and (c["tests"] or c["browser"])]
+    has_browser = [c for c in rows if any(name not in only for name in c["browser"])]
+    pending_only = [c for c in rows if c["pending"] and c not in has_test and c not in has_browser]
+    partial = [c for c in rows if c["pending"] and (c in has_test or c in has_browser)]
     lines = [
         "<!-- SPDX-License-Identifier: Apache-2.0 -->",
         "",
@@ -261,11 +301,18 @@ def coverage(index: dict) -> str:
         "",
         "- **Status**: the clause's mark in the spec (`current` when it has none).",
         "- **Unit tests**: how many `file:line` tests the clause's Test paragraph lists.",
-        "- **Browser checks**: the hover browser test checks it cites (`harness check <name>`).",
+        "- **Browser checks**: the hover browser test checks it cites (`harness check <name>`). A check",
+        "  marked \"products only\" is unsupported by the toolkit's own fixture, so only the products' runs",
+        "  test it; it is not counted below.",
         "- **Pending**: the parts a test does not check yet, as the spec marks them.",
+        "- **Pending only**: a pending mark, and no unit test or browser check.",
+        "- **Partial**: a unit test or browser check, and a pending mark beside it. The spec marks what",
+        "  the tests leave; the count is of marks, not a measured gap.",
+        "",
+        "The counts overlap: a clause with unit tests and browser checks is in both.",
         "",
         f"{len(rows)} clauses; {len(has_test)} with unit tests; {len(has_browser)} with browser checks; "
-        f"{len(pending_only)} pending only; {len(partial)} partial (a test or check, and a pending mark).",
+        f"{len(pending_only)} pending only; {len(partial)} partial.",
         "",
         "| Clause | Title | Status | Unit tests | Browser checks | Pending |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -273,7 +320,7 @@ def coverage(index: dict) -> str:
     for c in rows:
         lines.append(
             f"| {c['id']} | {c['title'].replace('|', '/')} | {c['status']} | {len(c['tests'])} | "
-            f"{', '.join(c['browser']) or '-'} | {'; '.join(c['pending']) or '-'} |"
+            f"{', '.join(n + (' (products only)' if n in only else '') for n in c['browser']) or '-'} | {'; '.join(c['pending']) or '-'} |"
         )
     return "\n".join(lines) + "\n"
 

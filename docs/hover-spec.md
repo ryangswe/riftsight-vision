@@ -25,12 +25,14 @@ where a game needs something else.
   lands here before the runtime, then in each product through a vendor update. A clause
   id keeps its meaning; a removed clause's id is not reused.
 - **Clause format.** `S-<group><n> — <rule>`, a short statement, `Example:` one case with
-  numbers, and `Test:` the toolkit test that checks it (`path:line`, under `browser/test/`), and
-  `harness check <name>` a check of the hover browser test (named in
-  `browser/harness/clauses.mjs`). A part not checked yet says what will check it:
-  `pending (slow-clock test)` a test that drives the real scheduler and session on a virtual
-  clock, `pending (real-browser test)` a test that runs the extension in a browser,
-  `pending (vendoring check)` the check that a product's vendored files match one toolkit commit.
+  numbers, and `Test:` what checks it, one or more of: the toolkit tests (`path:line`, under
+  `browser/test/`); `harness check <name>` or `harness checks <a>, <b>`, checks of the hover
+  browser test (named in `browser/harness/clauses.mjs`); separated by `;`. A part not checked yet
+  says what will check it: `pending (slow-clock test)` a test that drives the real scheduler and
+  session on a virtual clock, `pending (real-browser test)` a test that runs the extension in a
+  browser, `pending (vendoring check)` the check that a product's vendored files match one toolkit
+  commit. [hover-coverage.md](hover-coverage.md) lists each clause's tests, checks and pending
+  parts.
 - **Marks.** A clause with no mark is met by the code today.
   - `Status: changes in 0.14.0` marks a clause that states the behavior of toolkit 0.14.0, which
     the toolkit's code does not meet yet.
