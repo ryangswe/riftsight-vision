@@ -865,11 +865,21 @@ def test_a_failed_lookup_is_tried_three_times_then_skipped_without_going_red(tmp
     assert "is empty" not in summary.read_text(encoding="utf-8"), "the variable is not empty"
 
 
+@needs_node
+def test_a_fixed_commit_is_used_as_written_with_no_lookup(tmp_path):
+    import json
+
+    out = tmp_path / "output.txt"
+    done = canary("plan", ".", targets=targets_text(), GITHUB_OUTPUT=str(out), CANARY_REPO_BASE=f"file://{tmp_path}/nowhere")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(read_outputs(out)["matrix"])["include"][0]["sha"] == PRODUCT_SHA
+
+
 def run_after_baseline(tmp_path: Path, steps: list[str], before: object) -> tuple[subprocess.CompletedProcess, str]:
     import json
 
     product, summary, saved = tmp_path / "product", tmp_path / "summary.md", tmp_path / "baseline.json"
-    product.mkdir()
+    product.mkdir(parents=True)
     saved.write_text(json.dumps(before), encoding="utf-8")
     done = canary("run", str(product), STEPS=json.dumps(steps), TARGET_REPO="example/product", TARGET_SHA=PRODUCT_SHA,
                   BASELINE_FILE=str(saved), GITHUB_STEP_SUMMARY=str(summary))
@@ -890,6 +900,8 @@ def test_the_baseline_saves_each_step_s_result_and_never_fails(tmp_path):
 
 @needs_node
 def test_a_step_that_only_fails_with_the_new_build_is_red(tmp_path):
+    passed, _ = run_after_baseline(tmp_path / "first", ["true"], ["passed"])
+    assert passed.returncode == 0 and "clean=true" in passed.stdout
     done, shown = run_after_baseline(tmp_path, ["exit 3"], ["passed"])
     assert done.returncode == 1 and "1 of 1 step(s) failed" in shown and "| failed (3) | passed |" in shown
     assert "::warning" not in done.stdout
@@ -901,6 +913,7 @@ def test_a_step_that_already_failed_is_a_warning_that_says_it_could_not_judge(tm
     assert done.returncode == 0, done.stderr
     wanted = "1 of 1 step(s) already fail without this change, so it could not be checked there"
     assert wanted in shown and f"::warning title=Downstream canary::example/product at 0123456789ab: {wanted}" in done.stdout
+    assert "clean=false" in done.stdout, "a warning is not a pass: no marker follows it"
 
 
 @needs_node
@@ -925,6 +938,19 @@ def test_the_baseline_runs_before_vendoring_and_a_rerun_always_tests():
     text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
     assert text.count("BASELINE_FILE: ${{ runner.temp }}/canary-baseline.json") == 2, "the baseline and the checks share one file"
     assert "id: restore\n        if: steps.plan.outputs.run == 'true' && github.run_attempt == '1'\n" in text
+    run = steps[baseline]["run"]
+    assert 'cp -a product "$RUNNER_TEMP/product-baseline"' in run and 'baseline "$RUNNER_TEMP/product-baseline"' in run, "the real run starts from an untouched folder"
+
+
+def test_only_a_run_in_which_every_product_passed_outright_saves_the_marker():
+    steps = steps_of("canary.yml")
+    text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
+    assert steps["Note that this product passed outright"]["if"] == "steps.checks.outputs.clean == 'true'"
+    assert "name: canary-clean-${{ strategy.job-index }}" in text
+    write = steps["Write the marker when every product passed outright"]["run"]
+    assert 'if [ "$passed" -ne "$COUNT" ]' in write and write.index("-ne") < write.index("mkdir canary-marker") < write.index("save=true")
+    assert "COUNT: ${{ needs.plan.outputs.count }}" in text
+    assert re.search(r"actions/cache/save@\S+ # \S+\n        if: steps\.write\.outputs\.save == 'true'\n", text)
 
 
 def test_a_product_that_cannot_be_prepared_is_a_warning_and_is_not_tried():
@@ -1040,7 +1066,7 @@ def test_the_canary_skip_criteria_are_wired_through_the_marker():
     the marker is recorded only when every target passed."""
     text = (WORKFLOWS / "canary.yml").read_text(encoding="utf-8")
     restore = re.search(r"actions/cache/restore@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
-    save = re.search(r"actions/cache/save@\S+ # \S+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
+    save = re.search(r"actions/cache/save@\S+ # \S+\n\s+if: .+\n\s+with:\n\s+path: (\S+)\n\s+key: (.+)\n", text)
     assert restore and save and restore.group(1) == save.group(1) == "canary-marker"
     assert restore.group(2) == "canary-ok-${{ steps.plan.outputs.key }}"
     assert save.group(2) == "canary-ok-${{ needs.plan.outputs.key }}"

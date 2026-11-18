@@ -160,6 +160,7 @@ function plan(root) {
   }
   const key = markerKey(root, targets);
   output("run", "true");
+  output("count", String(targets.length));
   output("key", key);
   output("matrix", JSON.stringify({ include: targets }));
   return 0;
@@ -252,6 +253,7 @@ function run(product) {
   const table = steps.map((s, i) => `| ${stepCell(s)} | ${results[i]} |${before === null ? "" : ` ${before[i]} |`}`).join("\n");
   summary(`### ${repo} at ${sha.slice(0, 12)}: ${verdict}\n\n${head}\n${table}\n`);
   if (alreadyFailing) console.log(`::warning title=Downstream canary::${repo} at ${sha.slice(0, 12)}: ${verdict}`);
+  output("clean", bad === 0 ? "true" : "false");
   return bad === 0 || alreadyFailing ? 0 : 1;
 }
 
