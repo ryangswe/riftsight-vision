@@ -90,6 +90,9 @@ function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, ha
     put(join(root, "browser", "harness", "serve.mjs"), `serve ${tag}`);
     put(join(root, "browser", "harness", "netlog.d.mts"), `declarations ${tag}`);
     put(join(root, "browser", "harness", "notes.md"), `not vendored ${tag}`);
+    put(join(root, "browser", "harness", "other.mts"), `not vendored ${tag}`);
+    put(join(root, "browser", "harness", "example", "product.mjs"), `not vendored ${tag}`);
+    put(join(root, "browser", "harness", "example", "product.d.mts"), `not vendored ${tag}`);
   }
   if (spec) put(join(root, "docs", "hover-spec.json"), `{"clauses":"${tag}"}`);
   put(

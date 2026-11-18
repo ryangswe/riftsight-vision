@@ -55,8 +55,10 @@ break the public surface; this file names each break and how to migrate.
 
 ### Changed
 
-- `vendor --harness` also copies the harness's `.d.mts` declarations. A product that imports a
-  harness module under `@ts-expect-error` removes that line when it next vendors.
+- `vendor --harness` also copies the harness's `.d.mts` declarations. When a product next vendors,
+  it removes `@ts-expect-error` from imports of the modules that now have declarations, and drops
+  any `--unmanaged` rule that names one of these files. `hover-browser.mjs`, `rollback-check.mjs`
+  and `serve.mjs` have no declarations.
 
 ### Fixed
 
