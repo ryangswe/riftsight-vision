@@ -10,6 +10,9 @@
 # change with a re-measurement, not a routine bump:
 #   - numpy 2.3.3 and later: the composite digests are pinned on numpy 2.3.2 (macOS arm64), so a
 #     later NumPy is its own change, with the digests recorded again if they move.
+#   - onnxruntime (Python) 1.24 and later: these publish no Intel Mac or macOS 13 builds, so
+#     Python 3.11 to 3.13 stay on 1.23. A hold cannot name one of the two lines in the locks, so
+#     the line for Python 3.14 is updated by hand.
 #   - onnxruntime (Python) 1.25 and later, onnxruntime-web 1.30 and later: a newer ONNX Runtime
 #     changes what the browser runtime is measured against, and every release records the
 #     browser runtime it was measured on, which a runtime on a new minor line refuses.
@@ -31,7 +34,7 @@ updates:
       - dependency-name: numpy
         versions: [">=2.3.3"]
       - dependency-name: onnxruntime
-        versions: [">=1.25"]
+        versions: [">=1.24"]
       - dependency-name: mpmath
         versions: [">=1.4"]
   - package-ecosystem: npm

@@ -315,6 +315,11 @@ def test_onnx_runtime_below_python_3_14_keeps_its_intel_mac_builds():
         assert re.search(r'^onnxruntime==1\.23\.\d+ ; python_version < "3\.14"', text, re.MULTILINE), name
 
 
+def test_dependabot_does_not_offer_the_onnx_runtime_that_drops_intel_macs():
+    text = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
+    assert re.search(r'dependency-name: onnxruntime\n\s+versions: \[">=1\.24"\]', text)
+
+
 def test_the_base_lock_and_the_publish_and_lint_tools_are_pinned_by_hash():
     """pip checks every downloaded file against these hashes; with hashes in a file it asks for one
     on every pin, so a pin without one would fail the install rather than go unchecked."""
