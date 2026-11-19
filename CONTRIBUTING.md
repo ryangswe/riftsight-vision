@@ -53,9 +53,9 @@ The last two lines run the lint CI runs, which looks for bug patterns only (the 
 the Python package and the browser runtime agree is skipped too, unless `npm ci` has been run in
 `browser/`; `.github/workflows/browser.yml` runs that check and requires it. Some tests need the
 `ffmpeg` program and are skipped without it: one of `tests/test_data_extract.py`, and those of
-`tests/test_data_frame_times.py` that read a recording of variable frame rate. If you changed a
-trainer or an exporter, run the tests in the training environment as well
-(`requirements-lock-train.txt` says how to build it).
+`tests/test_data_frame_times.py` that read a recording of variable frame rate. The tests that need
+PyTorch run on every pull request, in the check named "Training tests". To run them yourself, build
+the training environment as `requirements-lock-train.txt` describes.
 
 If you touched a manifest:
 

@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # The tests, in the environment requirements-lock.txt pins, on the oldest supported Python
-# and a newer one. In this environment the tests that need PyTorch are skipped. The check that
+# and a newer one. In this environment the tests that need PyTorch are skipped; the job "Training
+# tests" runs them, in the environment requirements-lock-train.txt pins, with the CPU builds of
+# PyTorch and torchvision of the same versions (the default builds for Linux bring gigabytes of
+# GPU libraries that these tests do not use). The check that
 # the Python package and the browser runtime agree is skipped here too, because npm ci is not
 # run in browser/; browser.yml runs that check and requires it. Some tests need the ffmpeg
 # program: one test of tests/test_data_extract.py, and the tests of
@@ -167,6 +170,35 @@ jobs:
         env:
           PARTS: ${{ needs.tests-3-14.result }}
         run: test "$PARTS" = success
+
+  training:
+    name: Training tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - name: Install the training lock
+        run: |
+          torch=$(sed -n 's/^torch==//p' requirements-lock-train.txt)
+          vision=$(sed -n 's/^torchvision==//p' requirements-lock-train.txt)
+          python -m pip install --no-deps --index-url https://download.pytorch.org/whl/cpu \
+            "torch==$torch+cpu" "torchvision==$vision+cpu"
+          python -m pip install -r requirements-lock-train.txt
+          python -m pip install --no-deps -e .
+      - name: Install YOLOX
+        run: |
+          install=$(python -c 'from cardvision.export.detector import YOLOX_INSTALL; print(YOLOX_INSTALL)')
+          eval "python -m $install"
+      # A test file that cannot import one of these is skipped, which would look like a pass.
+      - name: Check that the training packages import
+        run: python -c 'import torch, torchvision, yolox'
+      - name: Run the tests that need PyTorch
+        run: |
+          files=$(grep -lE 'importorskip\(\s*"(torch|torchvision|yolox)\b' tests/test_*.py)
+          python -m pytest -n auto --dist loadfile --durations=20 $files
 
   balance:
     name: Test parts balance
