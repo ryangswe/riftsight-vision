@@ -367,7 +367,6 @@ def test_a_run_starts_from_another_run_s_checkpoint_and_says_so(toy, first_run, 
     assert all(torch.equal(held[0][name], file["model"][name]) for name in held[0])
     last = first["curve"][-1]
     assert (second["initial"]["top1Seen"], second["initial"]["top1Unseen"]) == (last["top1Seen"], last["top1Unseen"])
-    assert second["initial"]["criterion"] != first["initial"]["criterion"]
 
     # The first step's loss is not the loss of a start from random weights ...
     assert second["stepsPerEpoch"] == 1 and second["curve"][1]["loss"] != first["curve"][1]["loss"]

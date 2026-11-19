@@ -315,6 +315,19 @@ def test_onnx_runtime_below_python_3_14_keeps_its_intel_mac_builds():
         assert re.search(r'^onnxruntime==1\.23\.\d+ ; python_version < "3\.14"', text, re.MULTILINE), name
 
 
+def test_the_training_job_runs_every_test_file_that_needs_pytorch():
+    workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    chosen = re.search(r"files=\$\(grep -lE '([^']+)' tests/test_\*\.py\)", workflow).group(1)
+    # Wider than the job's search, which reads one line at a time: a file that asks in a form the
+    # search would miss fails here, and does not go on being skipped unnoticed.
+    package = r"(?:torch|torchvision|yolox)\b"
+    needs = rf"^\s*import\s+(?:[\w.]+\s*,\s*)*{package}|^\s*from\s+{package}|importorskip\(\s*[\"']{package}"
+    files = {path.name: path.read_text(encoding="utf-8") for path in (ROOT / "tests").glob("test_*.py")}
+    needing = {name for name, text in files.items() if re.search(needs, text, re.MULTILINE)}
+    assert "test_train_recognizer_loop.py" in needing
+    assert needing <= {name for name, text in files.items() if any(re.search(chosen, line) for line in text.splitlines())}
+
+
 def test_the_base_lock_and_the_publish_and_lint_tools_are_pinned_by_hash():
     """pip checks every downloaded file against these hashes; with hashes in a file it asks for one
     on every pin, so a pin without one would fail the install rather than go unchecked."""
