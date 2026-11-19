@@ -66,7 +66,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ffmpeg"
           cd "$RUNNER_TEMP/ffmpeg"
           for program in ffmpeg ffprobe; do
-            curl --fail --silent --show-error --location --retry 3 \
+            curl --fail --silent --show-error --location --connect-timeout 20 --max-time 120 --retry 3 \
               --output "$program.gz" "$FFMPEG_RELEASE/$program-linux-x64.gz"
           done
           sha256sum --check --strict - <<'SUMS'

@@ -119,8 +119,30 @@ jobs:
         run: |
           echo "::warning title=Downstream canary::$TARGET_REPO at ${TARGET_SHA:0:12} could not be prepared, so it was not tried"
           printf '### %s at %s: could not be prepared, so it was not tried (see the log)\n' "$TARGET_REPO" "${TARGET_SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
-      - name: Install Chrome for Testing, puppeteer-core and ffmpeg
+      - name: Install ffmpeg
         if: matrix.chrome && steps.install.outcome == 'success'
+        timeout-minutes: 5
+        env:
+          FFMPEG_RELEASE: https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1
+        run: |
+          mkdir -p "$RUNNER_TEMP/ffmpeg"
+          cd "$RUNNER_TEMP/ffmpeg"
+          for program in ffmpeg ffprobe; do
+            curl --fail --silent --show-error --location --connect-timeout 20 --max-time 120 --retry 3 \
+              --output "$program.gz" "$FFMPEG_RELEASE/$program-linux-x64.gz"
+          done
+          sha256sum --check --strict - <<'SUMS'
+          bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa  ffmpeg.gz
+          25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067  ffprobe.gz
+          SUMS
+          gunzip ffmpeg.gz ffprobe.gz
+          chmod +x ffmpeg ffprobe
+          echo "$RUNNER_TEMP/ffmpeg" >> "$GITHUB_PATH"
+          ./ffmpeg -version | sed -n 1p
+          ./ffprobe -version | sed -n 1p
+      - name: Install Chrome for Testing and puppeteer-core
+        if: matrix.chrome && steps.install.outcome == 'success'
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
@@ -128,8 +150,6 @@ jobs:
           npx --yes @puppeteer/browsers@3.2.7 install chrome@157.0.8103.78 --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
           echo "CHROME=$(tail -n1 "$RUNNER_TEMP/cft.txt" | cut -d' ' -f2-)" >> "$GITHUB_ENV"
           echo "PUPPETEER_CORE_DIR=$RUNNER_TEMP/pcore" >> "$GITHUB_ENV"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Keep a copy of the product without the new build
         if: steps.install.outcome == 'success'
