@@ -627,7 +627,7 @@ def test_the_host_browser_job_runs_the_harness_on_the_fixture_with_pinned_tools_
     assert "puppeteer-core@25.17.0" in job and "chrome@157.0.8103.78" in job and "@puppeteer/browsers@3.2.7" in job
     # The install pipes into tee, so a failed download must fail this step, not a later one.
     assert "set -euo pipefail" in job
-    assert "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in job and "apt-get install -y -qq ffmpeg" in job
+    assert "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in job and "apt-get" not in job
     assert job.count("node scripts/build-fixture.mjs") == 2 and "--idle-unload-ms" in job
     assert "node harness/hover-browser.mjs --product fixture-extension/product.mjs" in job
     assert "node harness/rollback-check.mjs --product fixture-extension/product.mjs" in job
@@ -688,7 +688,7 @@ def test_the_canary_workflow_builds_the_toolkit_then_the_product_then_vendors_an
     assert "canary.mjs seed-opencv toolkit product" in steps[wanted[0]]["run"]
     assert "npm run build" in steps[wanted[1]]["run"]
     assert "canary.mjs vendor toolkit product" in steps[wanted[3]]["run"]
-    assert steps["Install Chrome for Testing, puppeteer-core and ffmpeg"]["if"] == "matrix.chrome && steps.install.outcome == 'success'"
+    assert steps["Install Chrome for Testing and puppeteer-core"]["if"] == "matrix.chrome && steps.install.outcome == 'success'"
 
 
 @needs_node
@@ -1099,4 +1099,18 @@ def test_the_canary_skip_criteria_are_wired_through_the_marker():
 
 
 def test_the_canary_chrome_step_stops_on_a_failed_pipe():
-    assert "set -euo pipefail" in steps_of("canary.yml")["Install Chrome for Testing, puppeteer-core and ffmpeg"]["run"]
+    assert "set -euo pipefail" in steps_of("canary.yml")["Install Chrome for Testing and puppeteer-core"]["run"]
+
+
+def test_every_workflow_installs_the_same_pinned_ffmpeg_within_a_time_limit():
+    """A slow package server can hold a job for many minutes, so no workflow
+    installs ffmpeg from Ubuntu's packages, and a stalled download stops the step early."""
+    names = ("tests.yml", "browser.yml", "canary.yml")
+    scripts = {steps_of(name)["Install ffmpeg"]["run"] for name in names}
+    assert len(scripts) == 1
+    script = scripts.pop()
+    assert "sha256sum --check --strict" in script and "--max-time 120" in script and "--retry 3" in script
+    for name in names:
+        text = (WORKFLOWS / name).read_text(encoding="utf-8")
+        assert "apt-get" not in text, name
+        assert re.search(r"- name: Install ffmpeg\n(?:        if: .*\n)?        timeout-minutes: 5\n", text), name

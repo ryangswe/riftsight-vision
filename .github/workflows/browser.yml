@@ -12,6 +12,8 @@
 # (build A, then build B on the same profile). Recognition is simulated by the toy release's
 # stand-in models; nothing is fetched and no card art is used. Chrome needs one kernel setting on
 # Ubuntu 24.04: AppArmor otherwise blocks the user namespaces of its sandbox ("No usable sandbox").
+# ffmpeg is the pinned static build tests.yml installs, not Ubuntu's package, because a slow package
+# server can hold the job for many minutes.
 name: Browser runtime
 
 on:
@@ -95,16 +97,35 @@ jobs:
           npx tsc --noEmit -p fixture-extension
           node scripts/build-fixture.mjs --release-dir "$RUNNER_TEMP/toy/release" --art-dir "$RUNNER_TEMP/toy/art" --out "$RUNNER_TEMP/fixture-main" --version 0.0.1
           node scripts/build-fixture.mjs --release-dir "$RUNNER_TEMP/toy/release" --art-dir "$RUNNER_TEMP/toy/art" --idle-unload-ms 6000 --version 0.0.2 --out "$RUNNER_TEMP/fixture-idle"
-      - name: Install Chrome for Testing, puppeteer-core and ffmpeg
+      - name: Install ffmpeg
+        timeout-minutes: 5
+        env:
+          FFMPEG_RELEASE: https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1
+        run: |
+          mkdir -p "$RUNNER_TEMP/ffmpeg"
+          cd "$RUNNER_TEMP/ffmpeg"
+          for program in ffmpeg ffprobe; do
+            curl --fail --silent --show-error --location --connect-timeout 20 --max-time 120 --retry 3 \
+              --output "$program.gz" "$FFMPEG_RELEASE/$program-linux-x64.gz"
+          done
+          sha256sum --check --strict - <<'SUMS'
+          bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa  ffmpeg.gz
+          25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067  ffprobe.gz
+          SUMS
+          gunzip ffmpeg.gz ffprobe.gz
+          chmod +x ffmpeg ffprobe
+          echo "$RUNNER_TEMP/ffmpeg" >> "$GITHUB_PATH"
+          ./ffmpeg -version | sed -n 1p
+          ./ffprobe -version | sed -n 1p
+      - name: Install Chrome for Testing and puppeteer-core
         id: chrome-install
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           npm install --no-save --prefix "$RUNNER_TEMP/pcore" puppeteer-core@25.17.0
           # Pinned, so a new Chrome release never changes a run on its own: move both pins together.
           npx --yes @puppeteer/browsers@3.2.7 install chrome@157.0.8103.78 --path "$RUNNER_TEMP/cft" | tee "$RUNNER_TEMP/cft.txt"
           echo "CHROME=$(tail -n1 "$RUNNER_TEMP/cft.txt" | cut -d' ' -f2-)" >> "$GITHUB_ENV"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run the hover browser test on the fixture
         working-directory: browser
