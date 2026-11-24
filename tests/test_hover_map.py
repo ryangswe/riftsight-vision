@@ -5,7 +5,9 @@ The map ties each element to code by anchors, written ``browser/src/<file>.ts#<s
 checks names only: the file exists, the file defines the symbol (a function, class, interface,
 type, constant or method, not just a mention), every spec clause the map cites exists in
 docs/hover-spec.md, and every file in the map's coverage list carries at least one anchor. It does
-not check behavior; the diagrams are read by a reviewer. Nothing here reads the network.
+not check behavior; the diagrams are read by a reviewer. It does catch a semicolon in a sequence
+diagram, which ends the line there and stops the diagram from drawing. Nothing here reads the
+network.
 """
 
 from __future__ import annotations
@@ -106,6 +108,12 @@ def problems_of(text: str, root: Path, spec_text: str) -> list[str]:
             found.append(f"coverage {path}: no anchor in the map names this file")
     if len(re.findall(r"^```mermaid$", body, re.M)) < 3 or "sequenceDiagram" not in body:
         found.append("the map needs its Mermaid diagrams (at least three, one a sequenceDiagram)")
+    for block in re.findall(r"^```mermaid[ \t]*\n(.*?)^```", body, re.M | re.S):
+        if not re.search(r"^\s*sequenceDiagram\b", block, re.M):
+            continue
+        for line in block.splitlines():
+            if ";" in line:
+                found.append(f"a semicolon ends a sequence diagram line and breaks the diagram: {line.strip()}")
     return found
 
 
@@ -182,6 +190,12 @@ def test_a_sound_map_passes(tree: Path):
     assert problems_of(GOOD, tree, SPEC_TEXT) == []
 
 
+def test_a_semicolon_in_a_flowchart_is_not_flagged(tree: Path):
+    text = GOOD.replace("  A --> B\n", '  A --> B;\n  B["one; two"]\n', 1)
+    assert text != GOOD
+    assert problems_of(text, tree, SPEC_TEXT) == []
+
+
 @pytest.mark.parametrize("old, new, expected", [
     ("#top`", "#bottom`", "defines no bottom"),
     ("#Box.show`", "#Box.hide`", "defines no Box.hide"),
@@ -194,6 +208,9 @@ def test_a_sound_map_passes(tree: Path):
     ("- `browser/src/x.ts`", "- `browser/src/x.ts`\n- `browser/src/y.ts`", "coverage browser/src/y.ts: no anchor"),
     ("- `browser/src/x.ts`", "- `browser/src/gone.ts`", "coverage browser/src/gone.ts: the file does not exist"),
     ("sequenceDiagram", "gantt", "needs its Mermaid diagrams"),
+    ("  A->>B: m\n", "  A->>B: m; then n\n", "a semicolon ends a sequence diagram line"),
+    ("sequenceDiagram\n  A->>B: m\n", "%% a comment first\nsequenceDiagram\n  A->>B: m; then n\n",
+     "a semicolon ends a sequence diagram line"),
 ])
 def test_each_kind_of_drift_is_found(tree: Path, old: str, new: str, expected: str):
     assert GOOD.count(old) >= 1
