@@ -39,6 +39,7 @@ How the diagrams are drawn:
   answers two, not a limit.
 - **Overview first, then detail.** Layer 1 is the overview. Layers 2 and 3 zoom in. Each split
   follows a seam in the code: a separate policy, phase or component.
+- In a sequence diagram a semicolon ends the line, so message and note text never uses one.
 - On GitHub, a large diagram can be zoomed, or opened full screen, from the buttons that appear
   over it.
 
@@ -554,8 +555,8 @@ sequenceDiagram
     CF-->>CC: ready, status
     CC->>CF: pointer with restedMs
     CF->>SC: pointerRested
-    Note over CC: the hello's status opens a grant; one picture per rest is spent. A frame that replaces one is told nothing.
-    Note over SC: model loaded: the look is asked now; else at the load's end
+    Note over CC: the hello's status opens a grant. One picture per rest is spent. A frame that replaces one is told nothing.
+    Note over SC: model loaded: the look is asked now, else at the load's end
   else the frame was there at the move
     CC->>CF: pointer
     Note over CC,SC: the grace period passes while the model loads
