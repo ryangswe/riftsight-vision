@@ -39,7 +39,7 @@ How the diagrams are drawn:
   answers two, not a limit.
 - **Overview first, then detail.** Layer 1 is the overview. Layers 2 and 3 zoom in. Each split
   follows a seam in the code: a separate policy, phase or component.
-- In a sequence diagram a semicolon ends the line, so message and note text never uses one.
+- In a sequence diagram a semicolon ends the line, so no line in one uses it.
 - On GitHub, a large diagram can be zoomed, or opened full screen, from the buttons that appear
   over it.
 
