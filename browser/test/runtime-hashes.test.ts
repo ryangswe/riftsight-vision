@@ -49,11 +49,13 @@ describe("the runtime hash comparison", () => {
     expect(spawnSync(process.execPath, [script, base], { encoding: "utf-8" }).status).toBe(2);
   });
 
-  it("compares the WebAssembly-only build too when both builds have it, and not when only one does", () => {
+  it("compares the WebAssembly-only build too when the base has it, and not for a base from before it", () => {
     const wasm = { "wasm/cardvision.js": "wa", "wasm/worker.js": "wb" };
     const base = dist({ ...five, ...wasm });
     expect(runtimeDifferences(base, dist({ ...five, ...wasm }))).toEqual([]);
     expect(runtimeDifferences(base, dist({ ...five, ...wasm, "wasm/worker.js": "changed" })).join("\n")).toMatch(/^wasm\/worker\.js: base /);
+    // A head that lost the folder differs.
+    expect(runtimeDifferences(base, dist(five)).join("\n")).toMatch(/wasm\/cardvision\.js: .*head \(missing\)/);
     // A merge base from before the folder existed: only the five are compared.
     expect(runtimeDifferences(dist(five), dist({ ...five, ...wasm, "wasm/worker.js": "changed" }))).toEqual([]);
   });

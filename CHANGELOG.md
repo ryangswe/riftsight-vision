@@ -18,7 +18,8 @@ break the public surface; this file names each break and how to migrate.
   only (the geometric stage still uses WebGPU where the browser has it). The default
   build and its files are unchanged, and the agreement test checks the new build gives the same
   answers. A vendored manifest's `options` now records `runtime` (`all` or `wasm`); one without it
-  reads as `all`.
+  reads as `all`. The check, the stand-alone one included, now also requires the ONNX Runtime pin
+  and the runtime option to match the files the folder's `worker.js` loads.
 - Python 3.14 is supported and tested in CI, beside 3.11, 3.12 and 3.13. The lock files move to
   NumPy 2.3.2 for every version, and pick ONNX Runtime by Python version: 3.11 to 3.13 keep
   1.23.2, and 3.14 uses 1.24.1, the first release with 3.14 builds, whose only macOS build is

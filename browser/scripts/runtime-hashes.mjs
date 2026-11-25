@@ -5,7 +5,8 @@
 //
 // The files are cardvision.js, worker.js, compute-session.js, page-capture.js and
 // remote-release.js, with their license texts, and the WebAssembly-only build's cardvision.js and
-// worker.js (dist/wasm/) when both builds have that folder. Build the two commits to compare (a change and its
+// worker.js (dist/wasm/) when the base build has that folder (a base from before it existed is not
+// compared there; a head that lost it is). Build the two commits to compare (a change and its
 // merge base, say) in two folders and run this, so a change that moves the runtime shows up in review.
 // Exit 0: identical. Exit 1: a file differs or is missing from one side. Exit 2: usage.
 
@@ -18,8 +19,8 @@ import { ORT_BUILT, RUNTIME_FILES, sha256 } from "./vendor-lib.mjs";
 /** What differs between two build folders, as messages; an empty list when the files are identical. */
 export function runtimeDifferences(baseDist, headDist) {
   const problems = [];
-  const both = [baseDist, headDist].every((d) => existsSync(join(d, "wasm")));
-  for (const name of [...RUNTIME_FILES, ...(both ? ORT_BUILT.map((n) => `wasm/${n}`) : [])]) {
+  const wasm = existsSync(join(baseDist, "wasm"));
+  for (const name of [...RUNTIME_FILES, ...(wasm ? ORT_BUILT.map((n) => `wasm/${n}`) : [])]) {
     const [base, head] = [join(baseDist, name), join(headDist, name)].map((p) => (existsSync(p) ? sha256(readFileSync(p)) : null));
     if (base === null && head === null && name.endsWith(".LEGAL.txt")) continue; // present only when the bundle had license comments
     if (base !== head) problems.push(`${name}: base ${base?.slice(0, 12) ?? "(missing)"}, head ${head?.slice(0, 12) ?? "(missing)"}`);
@@ -37,5 +38,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error(`The runtime files differ from the merge base's:\n  ${problems.join("\n  ")}`);
     process.exit(1);
   }
-  console.log("The five runtime files and their license texts (and dist/wasm/'s, where both builds have it) are byte-identical to the merge base's.");
+  console.log("The five runtime files and their license texts (and dist/wasm/'s, when the base has it) are byte-identical to the merge base's.");
 }

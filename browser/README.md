@@ -1100,8 +1100,9 @@ lists WebGPU alone does not load; the geometric stage still uses WebGPU where th
 of the default's, for a page whose host limits the size of one file. On WebAssembly the two builds
 give the same answers: the agreement test runs both. Everything else in the folder is as with the
 default, `--runtime all`, and the paths do not change, so `createSession` finds the worker without
-a `workerUrl`. The choice is recorded as `options.runtime`; a manifest without it reads as `all`,
-and the check compares the folder with the build of the runtime it names.
+a `workerUrl`. The choice is recorded as `options.runtime`; a manifest without it reads as `all`.
+The check compares the folder with the build of the runtime it names, and, without a build, the
+ONNX Runtime pin and the runtime option with the files the folder's `worker.js` loads.
 
 Two more options add files. `--host` adds the shared hover host (experimental, not part of the
 public API): `host-content.js`, `host-compute.js` and `host-settings.js`, one self-contained file

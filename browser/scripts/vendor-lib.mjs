@@ -12,7 +12,8 @@
 // checkVendor() reads the manifest and reports what is wrong, as a list of messages: a file that
 // changed, is missing or is extra; a file set that lacks what every vendored runtime has; a file
 // that does not match the build of the manifest's commit (when that build is at hand); OpenCV.js that
-// does not match the lock; a missing license file. Nothing here uses the network.
+// does not match the lock; a missing license file; an ONNX Runtime pin that is not what the folder's
+// worker.js loads, or a runtime option that does not match it. Nothing here uses the network.
 //
 // Two options add files beyond the runtime. `host` adds the shared hover host (the three
 // dist/host-*.js files, their license texts when present, and their declaration shims); they share
@@ -71,6 +72,9 @@ export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex"
 const readJson = (path) => JSON.parse(readFileSync(path, "utf-8"));
 const HEX40 = /^[0-9a-f]{40}$/;
 const RUNTIME_SUFFIX = /\.(js|mjs|wasm)$/;
+/** The default runtime's ONNX Runtime files carry WebGPU and have this in their names (onnxruntime-web
+ *  1.29); the WebAssembly-only runtime's never do. test/bundle-purity.test.ts checks both builds. */
+const WEBGPU_ORT = /jsep/;
 const SUFFIX_LIKE = /^\.(js|mjs|wasm|json|ts|d\.ts|txt|map)$/;
 
 const CHECKER_TAIL = `
@@ -85,7 +89,7 @@ if (typeof process !== "undefined" && process.argv[1] && basename(process.argv[1
     console.error(\`\${process.argv[2]} does not match ${MANIFEST}:\\n  \${problems.join("\\n  ")}\`);
     process.exit(1);
   }
-  console.log(\`\${process.argv[2]} matches ${MANIFEST}. Checked: file hashes, file set, licenses, OpenCV lock as recorded. Not checked: the build of the commit.\`);
+  console.log(\`\${process.argv[2]} matches ${MANIFEST}. Checked: file hashes, file set, licenses, OpenCV lock as recorded, ONNX Runtime pin against worker.js. Not checked: the build of the commit.\`);
 }
 `;
 
@@ -460,7 +464,9 @@ export function checkVendor(dir, toolkit) {
   if (ort && Array.isArray(ort.files) && workerIntact) {
     const named = ortFilesOf(dir);
     if (JSON.stringify(named) !== JSON.stringify([...ort.files].sort())) problems.push(`worker.js names the ONNX Runtime files ${named.join(", ") || "(none)"}, but the ort pin in ${MANIFEST} names ${ort.files.join(", ")}`);
-    if (o?.runtime === "wasm" && named.some((n) => n.includes("jsep"))) problems.push(`${MANIFEST} options say the WebAssembly-only runtime, but worker.js loads ${named.filter((n) => n.includes("jsep")).join(", ")}`);
+    const webgpu = named.filter((n) => WEBGPU_ORT.test(n));
+    if (o?.runtime === "wasm" && webgpu.length > 0) problems.push(`${MANIFEST} options say the WebAssembly-only runtime, but worker.js loads ${webgpu.join(", ")}`);
+    if ((o?.runtime ?? "all") === "all" && named.length > 0 && webgpu.length === 0) problems.push(`${MANIFEST} options say the default runtime, but worker.js loads only ${named.join(", ")} (the WebAssembly-only build?)`);
   }
 
   // OpenCV: required when an OpenCV file is listed; the files against the lock recorded for this commit.

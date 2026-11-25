@@ -209,6 +209,17 @@ describe("vendoring a runtime", () => {
     relabeled.options.runtime = "wasm";
     writeManifest(plain, relabeled);
     expect(lib.checkVendor(plain)).toContain("cardvision-vendor.json options say the WebAssembly-only runtime, but worker.js loads ort-wasm-simd-threaded.jsep.mjs, ort-wasm-simd-threaded.jsep.wasm");
+    // And the reverse: a WebAssembly-only folder said to be the default, or saying nothing.
+    const reverse = manifestOf(wasmFolder);
+    reverse.ort.files = ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"];
+    for (const runtime of ["all", undefined]) {
+      if (runtime === undefined) delete reverse.options.runtime;
+      else reverse.options.runtime = runtime;
+      writeManifest(wasmFolder, reverse);
+      expect(lib.checkVendor(wasmFolder), String(runtime)).toEqual([
+        "cardvision-vendor.json options say the default runtime, but worker.js loads only ort-wasm-simd-threaded.mjs, ort-wasm-simd-threaded.wasm (the WebAssembly-only build?)",
+      ]);
+    }
   });
 
   it("refuses an unknown runtime and a build without dist/wasm/; the check names an unknown runtime option", () => {
@@ -702,7 +713,7 @@ describe("the stand-alone checker in the vendored folder", () => {
     expect(imports.every((name) => (name ?? "").startsWith("node:"))).toBe(true);
     const done = runChecker(into);
     expect(done.status).toBe(0);
-    expect(done.stdout).toContain("Checked: file hashes, file set, licenses, OpenCV lock as recorded. Not checked: the build of the commit.");
+    expect(done.stdout).toContain("Checked: file hashes, file set, licenses, OpenCV lock as recorded, ONNX Runtime pin against worker.js. Not checked: the build of the commit.");
     expect(lib.checkVendor(into, toolkit)).toEqual([]);
   });
 
@@ -820,7 +831,7 @@ describe("the commands, in a fake git checkout", () => {
     expect(existsSync(join(root, "browser", "product"))).toBe(false);
     const check = run(root, "vendor-check.mjs", caller, "product/vendor");
     expect(check.status, check.stderr).toBe(0);
-    expect(check.stdout).toContain("Checked: file hashes, file set, licenses, OpenCV lock, build of commit");
+    expect(check.stdout).toContain("Checked: file hashes, file set, licenses, ONNX Runtime pin against worker.js, OpenCV lock, build of commit");
     expect(check.stdout).not.toContain("Skipped");
   });
 
@@ -879,7 +890,7 @@ describe("the commands, in a fake git checkout", () => {
     put(info, JSON.stringify({ commit: head, dirty: true }));
     const dirty = run(root, "vendor-check.mjs", caller, "v");
     expect(dirty.status, dirty.stderr).toBe(0);
-    expect(dirty.stdout).toMatch(/Checked: file hashes, file set, licenses, OpenCV lock\. Skipped: comparison with a build \(.*changes/);
+    expect(dirty.stdout).toMatch(/Checked: file hashes, file set, licenses, ONNX Runtime pin against worker\.js, OpenCV lock\. Skipped: comparison with a build \(.*changes/);
     expect(dirty.stdout).not.toContain("build of commit");
 
     rmSync(info);
@@ -903,7 +914,7 @@ describe("the commands, in a fake git checkout", () => {
     expect(check.status).toBe(1);
     expect(check.stderr).toContain("worker.js differs from the SHA-256");
     expect(check.stderr).toContain(`worker.js differs from the build of commit ${head.slice(0, 12)}`);
-    expect(check.stderr).toContain("Checked: file hashes, file set, licenses, OpenCV lock, build of commit");
+    expect(check.stderr).toContain("Checked: file hashes, file set, licenses, ONNX Runtime pin against worker.js, OpenCV lock, build of commit");
     expect(run(root, "vendor-check.mjs", caller).status).toBe(2);
   });
 });

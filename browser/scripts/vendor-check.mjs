@@ -53,7 +53,7 @@ try {
 }
 const build = manifestCommit ? selectBuild({ root, dist: join(here, "dist"), head, manifestCommit }) : { reason: "no manifest commit" };
 const problems = checkVendor(dir, build.toolkit);
-const ran = ["file hashes", "file set", "licenses", hasOpencv ? "OpenCV lock" : null, build.toolkit ? `build of commit ${manifestCommit?.slice(0, 12)}` : null].filter(Boolean).join(", ");
+const ran = ["file hashes", "file set", "licenses", "ONNX Runtime pin against worker.js", hasOpencv ? "OpenCV lock" : null, build.toolkit ? `build of commit ${manifestCommit?.slice(0, 12)}` : null].filter(Boolean).join(", ");
 const skipped = build.toolkit ? "" : `Skipped: comparison with a build (${build.reason}).`;
 if (problems.length > 0) {
   console.error(`${dir} does not match ${MANIFEST}:\n  ${problems.join("\n  ")}\nChecked: ${ran}. ${skipped}`.trimEnd());
