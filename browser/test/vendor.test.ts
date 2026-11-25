@@ -38,7 +38,7 @@ const put = (path: string, text: string): void => {
 type Kit = { root: string; dist: string };
 
 /** A made-up toolkit checkout and build; `tag` changes every built file, as another commit would. */
-function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, harness = true } = {}): Kit {
+function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, harness = true, wasm = true } = {}): Kit {
   const root = temp();
   const dist = join(root, "browser", "dist");
   const built: Record<string, string> = {
@@ -79,6 +79,16 @@ function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, ha
         }
       : {}),
     ...(opencv ? { "opencv.mjs": "cvjs", "opencv_js.wasm": "cvwasm", "opencv.mjs.LEGAL.txt": "cv license" } : {}),
+    // The WebAssembly-only build: the public API and the worker again, with the ONNX Runtime pair that worker names.
+    ...(wasm
+      ? {
+          "wasm/cardvision.js": `cv wasm ${tag}`,
+          "wasm/worker.js": `worker wasm ${tag} ort-wasm-simd-threaded.mjs ort-wasm-simd-threaded.wasm`,
+          "wasm/worker.js.LEGAL.txt": `legal wasm ${tag}`,
+          "wasm/ort-wasm-simd-threaded.mjs": `ortjs wasm ${tag}`,
+          "wasm/ort-wasm-simd-threaded.wasm": `ortwasm wasm ${tag}`,
+        }
+      : {}),
   };
   for (const [name, text] of Object.entries(built)) put(join(dist, name), text);
   put(join(root, "LICENSE"), "Apache");
@@ -135,13 +145,64 @@ describe("vendoring a runtime", () => {
       ].sort((a, b) => (a < b ? -1 : 1)),
     );
     expect(manifest.toolkit).toEqual({ version: "0.14.0", commit: COMMIT_A });
-    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: false, harness: false });
+    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: false, harness: false, runtime: "all" });
     expect(manifest.ort).toEqual({ version: "1.29.0", files: ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"] });
     expect(manifest.files["worker.js"].sha256).toBe(sha(readFileSync(join(kit.dist, "worker.js"), "utf-8")));
     expect(manifest.opencv.tag).toBe("5.0.0");
     expect(manifestOf(into)).toEqual(manifest);
     expect(lib.checkVendor(into)).toEqual([]);
     expect(lib.checkVendor(into, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("takes the WebAssembly-only runtime on request: its cardvision.js and worker.js, and only the ONNX Runtime files that worker names", () => {
+    const kit = fakeToolkit("one");
+    const into = join(temp(), "v");
+    const manifest = vendor(kit, into, COMMIT_A, { runtime: "wasm" });
+    const names = Object.keys(manifest.files);
+    expect(names.filter((n) => n.startsWith("ort-wasm"))).toEqual(["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]);
+    expect(names.some((n) => n.includes("jsep"))).toBe(false);
+    expect(readFileSync(join(into, "cardvision.js"), "utf-8")).toBe("cv wasm one");
+    expect(readFileSync(join(into, "worker.js"), "utf-8")).toContain("worker wasm one");
+    expect(readFileSync(join(into, "worker.js.LEGAL.txt"), "utf-8")).toBe("legal wasm one");
+    // What is the same for both runtimes comes from dist/ itself.
+    expect(readFileSync(join(into, "compute-session.js"), "utf-8")).toBe("cs one");
+    expect(manifest.options.runtime).toBe("wasm");
+    expect(manifest.ort).toEqual({ version: "1.29.0", files: ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"] });
+    expect(lib.checkVendor(into)).toEqual([]);
+    expect(lib.checkVendor(into, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("checks a WebAssembly-only folder against that build, not the default one, and reads a manifest without runtime as the default", () => {
+    const kit = fakeToolkit("one");
+    const into = join(temp(), "v");
+    vendor(kit, into, COMMIT_A, { runtime: "wasm" });
+    // The same folder, said to be the default runtime: its files are not the default build's.
+    const manifest = manifestOf(into);
+    manifest.options.runtime = "all";
+    writeManifest(into, manifest);
+    const problems = lib.checkVendor(into, toolkitOf(kit));
+    expect(problems).toContain(`cardvision.js differs from the build of commit ${COMMIT_A.slice(0, 12)}`);
+    expect(problems).toContain(`ort-wasm-simd-threaded.wasm is in cardvision-vendor.json but not in the build of commit ${COMMIT_A.slice(0, 12)} for these options`);
+    // A folder vendored before the option existed has no runtime in its options.
+    const plain = join(temp(), "plain");
+    vendor(kit, plain);
+    const old = manifestOf(plain);
+    delete old.options.runtime;
+    writeManifest(plain, old);
+    expect(lib.checkVendor(plain, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("refuses an unknown runtime and a build without dist/wasm/; the check names an unknown runtime option", () => {
+    const into = join(temp(), "v");
+    expect(() => vendor(fakeToolkit("one"), into, COMMIT_A, { runtime: "webgpu" })).toThrow('runtime must be one of all, wasm, not "webgpu"');
+    expect(() => vendor(fakeToolkit("one", { wasm: false }), into, COMMIT_A, { runtime: "wasm" })).toThrow(/wasm\/worker\.js is missing/);
+    expect(existsSync(into)).toBe(false);
+    const kit = fakeToolkit("one");
+    vendor(kit, into);
+    const manifest = manifestOf(into);
+    manifest.options.runtime = "gpu";
+    writeManifest(into, manifest);
+    expect(lib.checkVendor(into)).toContain("cardvision-vendor.json option runtime is not one of all, wasm");
   });
 
   it("adds the Node tools on request; leaves ONNX Runtime and OpenCV.js out but still names the ORT pin", () => {
@@ -165,7 +226,7 @@ describe("vendoring a runtime", () => {
 
     const into = join(temp(), "v");
     const manifest = vendor(kit, into, COMMIT_A, { host: true, harness: true });
-    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: true, harness: true });
+    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: true, harness: true, runtime: "all" });
     const names = Object.keys(manifest.files);
     for (const n of ["host-content.js", "host-compute.js", "host-settings.js", "host-compute.js.LEGAL.txt", "host-content.d.ts", "host-compute.d.ts", "host-settings.d.ts", "types/host/content-entry.d.ts"]) expect(names, n).toContain(n);
     expect(names).not.toContain("host-content.js.LEGAL.txt"); // no license comments in that bundle

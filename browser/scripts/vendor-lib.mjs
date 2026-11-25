@@ -18,6 +18,11 @@
 // dist/host-*.js files, their license texts when present, and their declaration shims); they share
 // the runtime's commit and go in the same swap. `harness` adds the browser test harness
 // (browser/harness/*.mjs and their *.d.mts declarations, vendored under harness/).
+//
+// `runtime` picks the ONNX Runtime the public API and the worker are built on: "all" (the default,
+// dist/: WebGPU and WebAssembly) or "wasm" (dist/wasm/: WebAssembly only, with an ONNX Runtime file
+// about half the size). Either way they are vendored as cardvision.js and worker.js, with the
+// ONNX Runtime files that worker names.
 
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -51,6 +56,10 @@ export const HOST_SHIMS = ["host-content.d.ts", "host-compute.d.ts", "host-setti
 export const HARNESS_SOURCE = ["browser", "harness"];
 export const HARNESS_DIR = "harness/";
 export const NODE_TOOLS = ["node/verify-release.mjs", "node/package-zip.mjs", "node/store-upload.mjs", "node/realm-check.mjs", "node/release-decide.mjs"];
+/** The runtime files that come from the build of the chosen runtime (`options.runtime`); the rest are the same for both. */
+export const ORT_BUILT = ["cardvision.js", "worker.js", "cardvision.js.LEGAL.txt", "worker.js.LEGAL.txt"];
+/** The runtimes, and where each one's build is in dist/. */
+export const RUNTIME_DIRS = { all: "", wasm: "wasm" };
 /** Every vendored folder lists these. */
 export const REQUIRED = ["cardvision.js", "worker.js", "compute-session.js", "page-capture.js", "remote-release.js", ...TYPE_SHIMS, "types/index.d.ts", CHECKER, ...LICENSE_FILES];
 /** What a vendored folder lists when its options say `host`. */
@@ -143,16 +152,20 @@ function lockSummary(lock) {
  * Returns { files: [[folder-relative name, source path or null for the checker]], ort, lock }.
  */
 export function planFiles({ root, dist, options }) {
-  const { opencv, ortWasm, nodeTools, host = false, harness = false } = options;
+  const { opencv, ortWasm, nodeTools, host = false, harness = false, runtime = "all" } = options;
+  if (!Object.hasOwn(RUNTIME_DIRS, runtime)) throw new Error(`runtime must be one of ${Object.keys(RUNTIME_DIRS).join(", ")}, not "${runtime}"`);
+  const runtimeDist = join(dist, RUNTIME_DIRS[runtime]);
+  if (!existsSync(join(runtimeDist, "worker.js"))) throw new Error(`${join(runtimeDist, "worker.js")} is missing (build the toolkit first: npm run build in browser/)`);
   const files = [];
   const need = (name, source) => {
     if (!existsSync(source)) throw new Error(`${source} is missing (build the toolkit first: npm run build in browser/)`);
     files.push([name, source]);
   };
   for (const name of RUNTIME_FILES) {
+    const source = join(ORT_BUILT.includes(name) ? runtimeDist : dist, name);
     // The LEGAL files exist only when the bundle had license comments.
-    if (name.endsWith(".LEGAL.txt") && !existsSync(join(dist, name))) continue;
-    need(name, join(dist, name));
+    if (name.endsWith(".LEGAL.txt") && !existsSync(source)) continue;
+    need(name, source);
   }
   need("LICENSE", join(root, "LICENSE"));
   need("NOTICE", join(root, "NOTICE"));
@@ -178,9 +191,9 @@ export function planFiles({ root, dist, options }) {
     const target = /from "\.\/types\/([^"]+)\.js"/.exec(readFileSync(join(dist, name), "utf-8"))?.[1];
     if (!target || !types.includes(`${target}.d.ts`)) throw new Error(`${name} points at types/${target ?? "(nothing)"}.js, but dist/types has no ${target ?? "?"}.d.ts (fix the shim target in scripts/build.mjs)`);
   }
-  const ortNames = ortFilesOf(dist);
+  const ortNames = ortFilesOf(runtimeDist);
   if (ortNames.length === 0) throw new Error("the built worker names no ONNX Runtime file");
-  if (ortWasm) for (const name of ortNames) need(name, join(dist, name));
+  if (ortWasm) for (const name of ortNames) need(name, join(runtimeDist, name));
   if (nodeTools) for (const name of NODE_TOOLS) need(name, join(dist, name));
   const lockPath = join(root, "browser", "opencv.lock.json");
   const lock = readJson(lockPath);
@@ -243,6 +256,7 @@ const legacy = (name, planned) =>
  *   opencv     false to leave OpenCV.js out (a product with no geometric stage)
  *   ortWasm    false to leave ONNX Runtime's WebAssembly files out (a product that copies its own);
  *              the manifest names the version and files either way
+ *   runtime    "all" (default) or "wasm": the ONNX Runtime the public API and the worker are built on
  *   nodeTools  true to add dist/node/*.mjs
  *   host       true to add the shared hover host: dist/host-*.js and their declaration shims
  *   harness    true to add browser/harness/*.mjs and *.d.mts under harness/
@@ -251,7 +265,7 @@ const legacy = (name, planned) =>
  *   warn       called with a message for what went wrong but did not stop the run
  *   hooks      test seams: { beforeSwap(stage), betweenRenames() }
  */
-export function vendorInto({ root, dist, into, commit, opencv = true, ortWasm = true, nodeTools = false, host = false, harness = false, unmanaged = DEFAULT_UNMANAGED, adopt = false, warn = () => {}, hooks = {} }) {
+export function vendorInto({ root, dist, into, commit, opencv = true, ortWasm = true, nodeTools = false, host = false, harness = false, runtime = "all", unmanaged = DEFAULT_UNMANAGED, adopt = false, warn = () => {}, hooks = {} }) {
   if (!HEX40.test(commit)) throw new Error(`commit must be a full 40-character SHA, not "${commit}"`);
   const bad = unmanagedProblems(unmanaged);
   if (bad.length > 0) throw new Error(bad.join("; "));
@@ -261,7 +275,7 @@ export function vendorInto({ root, dist, into, commit, opencv = true, ortWasm = 
   if ((!inside.startsWith("..") && !isAbsolute(inside)) || (!around.startsWith("..") && !isAbsolute(around))) throw new Error(`${into} is inside the toolkit checkout (or holds it): vendor into a product's folder`);
   recover(into, warn);
 
-  const options = { opencv, ortWasm, nodeTools, host, harness };
+  const options = { opencv, ortWasm, nodeTools, host, harness, runtime };
   const plan = planFiles({ root, dist, options });
   const names = new Set(plan.files.map(([n]) => n));
   const clash = [...names].filter((n) => isUnmanaged(n, unmanaged));
@@ -425,6 +439,8 @@ export function checkVendor(dir, toolkit) {
   if (!o || typeof o.opencv !== "boolean" || typeof o.ortWasm !== "boolean" || typeof o.nodeTools !== "boolean") problems.push(`${MANIFEST} has no options (opencv, ortWasm, nodeTools)`);
   // host and harness came later: a manifest without them reads as false, but one that has them must say true or false.
   for (const key of ["host", "harness"]) if (o && key in o && typeof o[key] !== "boolean") problems.push(`${MANIFEST} option ${key} is not true or false`);
+  // runtime came later still: a manifest without it reads as "all".
+  if (o && "runtime" in o && !Object.hasOwn(RUNTIME_DIRS, o.runtime)) problems.push(`${MANIFEST} option runtime is not one of ${Object.keys(RUNTIME_DIRS).join(", ")}`);
 
   // The shared hover host: required when the options ask for it, and not there when they do not.
   const hostListed = HOST_FILES.filter((n) => listed.includes(n));

@@ -2454,17 +2454,17 @@
       "tests": [
         {
           "file": "vendor.test.ts",
-          "line": 471,
+          "line": 532,
           "target": false
         },
         {
           "file": "vendor.test.ts",
-          "line": 629,
+          "line": 690,
           "target": false
         },
         {
           "file": "vendor.test.ts",
-          "line": 806,
+          "line": 867,
           "target": false
         }
       ],

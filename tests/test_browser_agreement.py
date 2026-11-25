@@ -257,10 +257,12 @@ def run_cli(*arguments) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
-def run_browser(job: Path) -> subprocess.CompletedProcess:
-    """Run the TypeScript pipeline under Node on a job file (esbuild bundles it first)."""
-    return subprocess.run([NODE, str(BROWSER / "scripts" / "agreement.mjs"), str(job)], capture_output=True, text=True,
-                          cwd=BROWSER, timeout=600)
+def run_browser(job: Path, runtime: str = "all") -> subprocess.CompletedProcess:
+    """Run the TypeScript pipeline under Node on a job file (esbuild bundles it first). ``runtime``
+    "wasm" builds it on ONNX Runtime's WebAssembly-only entry, as ``npm run vendor -- --runtime wasm``
+    ships it."""
+    return subprocess.run([NODE, str(BROWSER / "scripts" / "agreement.mjs"), "--runtime", runtime, str(job)],
+                          capture_output=True, text=True, cwd=BROWSER, timeout=600)
 
 
 class Built:
@@ -603,6 +605,17 @@ def test_the_edge_scenes_hold_what_they_are_meant_to(answers):
     # Each of the six faces of these two scenes is named, so a miss here would show.
     for name in ("under", "over"):
         assert [box["accepted"] for box in answers[name].python["boxes"][:3]] == [True, True, True]
+
+
+@pytest.mark.parametrize("name", list(ALL_SCENES))
+def test_the_webassembly_only_runtime_gives_the_same_answer(answers, name):
+    """The runtime built on ONNX Runtime's WebAssembly-only entry runs the same WebAssembly kernels as
+    the default one does without WebGPU, so its answer is the default's, to the last bit: and through
+    it, Python's."""
+    item = answers[name]
+    ran = run_browser(item.folder / "job.json", runtime="wasm")
+    assert ran.returncode == 0, ran.stderr
+    assert json.loads(ran.stdout) == item.browser
 
 
 def test_the_browser_runtime_refuses_a_release_with_a_changed_file(answers, tmp_path):
