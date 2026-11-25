@@ -119,6 +119,7 @@ export function vendorFlags(manifest) {
   if (o.nodeTools === true) flags.push("--node-tools");
   if (o.host === true) flags.push("--host");
   if (o.harness === true) flags.push("--harness");
+  if (typeof o.runtime === "string" && o.runtime !== "all") flags.push("--runtime", o.runtime);
   for (const rule of manifest.unmanaged ?? []) flags.push("--unmanaged", rule);
   return flags;
 }

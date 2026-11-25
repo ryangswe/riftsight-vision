@@ -17,6 +17,11 @@
 //                        product build (one runtime per realm); platform node, ONNX Runtime external
 //   dist/ort-wasm-*      ONNX Runtime Web's WebAssembly files and their loaders, copied from
 //                        node_modules; the worker fetches the pair it needs from its own folder
+//   dist/wasm/           the same cardvision.js and worker.js built on ONNX Runtime's WebAssembly-only
+//                        entry (scripts/ort-entry.mjs), with their license texts and the one
+//                        ONNX Runtime file they load, about half the size of the default's: for a
+//                        page whose host has a per-file limit (npm run vendor -- --runtime wasm). Models
+//                        run on WebAssembly only.
 //   dist/opencv.mjs,     OpenCV.js for the geometric stage, its WebAssembly and its license
 //   dist/opencv_js.wasm, texts, copied from vendor/opencv/ when scripts/build-opencv.mjs has
 //   dist/opencv.mjs.LEGAL.txt  written them; the worker imports them only when a geometric
@@ -32,7 +37,7 @@
 // Run it with `npm run build`.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -42,6 +47,7 @@ import { build } from "esbuild";
 
 import { buildInfoOf } from "./build-info.mjs";
 import { NOTICES_NAME, noticesFor } from "./notices.mjs";
+import { pluginsFor } from "./ort-entry.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const dist = join(root, "dist");
@@ -95,6 +101,17 @@ writeFileSync(join(dist, NOTICES_NAME), noticesFor(root));
 const ortDist = dirname(createRequire(import.meta.url).resolve("onnxruntime-web"));
 const wasm = readdirSync(ortDist).filter((name) => /^ort-wasm-.*\.(wasm|mjs)$/.test(name));
 for (const name of wasm) copyFileSync(join(ortDist, name), join(dist, name));
+
+// The WebAssembly-only runtime: the public API and the worker again, in their own folder, with the
+// ONNX Runtime files that worker names beside it. A separate build() call, so the files above do not
+// change (scripts/runtime-hashes.mjs). The ONNX Runtime files the default worker loads must not be among them.
+const wasmDist = join(dist, "wasm");
+await build({ ...shared, entryPoints: { cardvision: join(root, "src/index.ts"), worker: join(root, "src/worker.ts") }, outdir: wasmDist, plugins: pluginsFor("wasm") });
+const ortNamed = (folder) => [...new Set(readFileSync(join(folder, "worker.js"), "utf-8").match(/ort-wasm-[a-z-]+(?:\.[a-z]+)*\.(?:wasm|mjs)/g) ?? [])];
+const wasmOrt = ortNamed(wasmDist);
+const overlap = wasmOrt.filter((name) => ortNamed(dist).includes(name));
+if (wasmOrt.length === 0 || overlap.length > 0) throw new Error(`dist/wasm/worker.js should name its own ONNX Runtime file, but names ${wasmOrt.join(", ") || "none"}`);
+for (const name of wasmOrt) copyFileSync(join(ortDist, name), join(wasmDist, name));
 
 // OpenCV.js for the geometric stage, beside the worker that imports it.
 const opencvFiles = ["opencv.mjs", "opencv_js.wasm", "opencv.mjs.LEGAL.txt"];
@@ -151,6 +168,7 @@ writeFileSync(join(dist, "build-info.json"), `${JSON.stringify(buildInfo)}\n`);
 
 const size = (name) => `${(statSync(join(dist, name)).size / 1024).toFixed(0)} KB`;
 console.log(`dist/cardvision.js ${size("cardvision.js")}, dist/worker.js ${size("worker.js")}, dist/remote-release.js ${size("remote-release.js")}, dist/demo/demo.js ${size("demo/demo.js")}, dist/demo/score.js ${size("demo/score.js")}, ${wasm.length} ONNX Runtime files copied`);
+console.log(`dist/wasm/: cardvision.js ${size("wasm/cardvision.js")}, worker.js ${size("wasm/worker.js")}, ${wasmOrt.map((name) => `${name} ${size(`wasm/${name}`)}`).join(", ")}`);
 if (opencvMissing.length === 0) console.log(`OpenCV.js copied: dist/opencv.mjs, dist/opencv_js.wasm ${size("opencv_js.wasm")}, dist/opencv.mjs.LEGAL.txt`);
 else {
   console.log(

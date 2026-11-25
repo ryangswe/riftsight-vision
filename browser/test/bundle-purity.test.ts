@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // The experimental entries an extension vendors carry no ONNX Runtime, no WebAssembly and
-// no OpenCV, and the public bundle still exports the session API. Needs dist/ (npm run build):
+// no OpenCV, and the public bundle still exports the session API. The WebAssembly-only build
+// (dist/wasm/) loads only ONNX Runtime's WebAssembly-only file. Needs dist/ (npm run build):
 // skipped without it, required when CARDVISION_REQUIRE_BROWSER=1.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 const dist = (name: string): string => fileURLToPath(new URL(`../dist/${name}`, import.meta.url));
 const hostBundles = ["host-content.js", "host-compute.js", "host-settings.js"];
-const bundles = ["cardvision.js", "compute-session.js", "page-capture.js", ...hostBundles];
+const bundles = ["cardvision.js", "compute-session.js", "page-capture.js", ...hostBundles, "wasm/cardvision.js", "wasm/worker.js"];
 const built = bundles.every((name) => existsSync(dist(name)));
 const required = process.env.CARDVISION_REQUIRE_BROWSER === "1";
 
@@ -83,8 +84,21 @@ describe("bundle purity", () => {
     expect(typeof compute.DRIVER_TICK_MS).toBe("number");
   });
 
-  it("cardvision.js still exports the session API", async () => {
-    const api = (await import(dist("cardvision.js"))) as Record<string, unknown>;
-    for (const name of ["createSession", "loadRelease", "analyzeFrame", "hoverAt"]) expect(typeof api[name], name).toBe("function");
+  for (const name of ["cardvision.js", "wasm/cardvision.js"]) {
+    it(`${name} still exports the session API`, async () => {
+      const api = (await import(dist(name))) as Record<string, unknown>;
+      for (const fn of ["createSession", "loadRelease", "analyzeFrame", "hoverAt"]) expect(typeof api[fn], fn).toBe("function");
+    });
+  }
+
+  it("the WebAssembly-only build names only ONNX Runtime's WebAssembly-only files, and they are beside it", () => {
+    const named = (name: string): string[] => [...new Set(readFileSync(dist(name), "utf-8").match(/ort-wasm-[a-z-]+(?:\.[a-z]+)*\.(?:wasm|mjs)/g) ?? [])].sort();
+    for (const name of ["wasm/cardvision.js", "wasm/worker.js"]) expect(named(name), name).toEqual(["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]);
+    // The default build names the file with WebGPU in it, which this build exists to leave out.
+    expect(named("worker.js").some((n) => n.includes("jsep"))).toBe(true);
+    const folder = readdirSync(dist("wasm")).sort();
+    expect(folder.filter((n) => n.startsWith("ort-wasm"))).toEqual(["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]);
+    // 25 MiB is Cloudflare Pages' documented limit for one file, the host this build was first made for.
+    for (const n of folder) expect(statSync(dist(`wasm/${n}`)).size, n).toBeLessThan(25 * 1024 * 1024);
   });
 });

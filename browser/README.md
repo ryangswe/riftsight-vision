@@ -70,6 +70,7 @@ too. `npm run build` bundles with esbuild into `dist/`, which is not kept in the
 | `dist/host-content.js`, `dist/host-compute.js`, `dist/host-settings.js` | The shared hover host for a browser extension (experimental, not part of the public API), one self-contained file per realm, with `*.d.ts` declarations: [docs/extension-session.md](../docs/extension-session.md#the-shared-hover-host). A product vendors them with `--host` |
 | `dist/node/realm-check.mjs` | Fails when a built file holds a runtime module's code twice (experimental); vendored with `--node-tools` |
 | `dist/ort-wasm-*` | ONNX Runtime Web's WebAssembly files and their loaders, copied from `node_modules` |
+| `dist/wasm/` | `cardvision.js` and `worker.js` again, built on ONNX Runtime Web's WebAssembly-only entry, with their license texts and the one ONNX Runtime file they load, about half the size of the default's: the models run on WebAssembly only. It holds only the files that differ from `dist/`, to be vendored rather than served as it is. A product vendors them with `--runtime wasm` (see "Vendoring the runtime, and checking it") |
 | `dist/opencv.mjs`, `dist/opencv_js.wasm`, `dist/opencv.mjs.LEGAL.txt` | OpenCV.js for the geometric stage and its licenses, copied from `vendor/opencv/` when it has been built; the worker imports it only when a stage is asked for |
 | `dist/demo/` | The demo page, the scoring page beside it (`score.html`), and their style sheets |
 | `dist/pages/` | The hosted demo, a static site, when `npm run build:pages` has been run: see "The hosted demo" |
@@ -1090,6 +1091,19 @@ worker loads; OpenCV.js and its license text, after checking them against `openc
 has one; and `cardvision-vendor-check.mjs`. `--no-opencv` and `--no-ort-wasm` leave a group out, and
 `--node-tools` adds `node/*.mjs`, `node/realm-check.mjs` included.
 
+`--runtime wasm` takes `cardvision.js`, `worker.js` and their license texts from `dist/wasm/`
+instead: the same sources built on ONNX Runtime Web's WebAssembly-only entry
+(`onnxruntime-web/wasm`) in place of `onnxruntime-web/all`, with the ONNX Runtime files that worker
+names (`ort-wasm-simd-threaded.wasm` and `ort-wasm-simd-threaded.mjs`). In that build ONNX Runtime
+has no WebGPU, so a release that lists WebGPU first runs its models on WebAssembly, and one that
+lists WebGPU alone does not load; the geometric stage still uses WebGPU where the browser has it. Its WebAssembly file is about half the size
+of the default's, for a page whose host limits the size of one file. On WebAssembly the two builds
+give the same answers: the agreement test runs both. Everything else in the folder is as with the
+default, `--runtime all`, and the paths do not change, so `createSession` finds the worker without
+a `workerUrl`. The choice is recorded as `options.runtime`; a manifest without it reads as `all`.
+The check compares the folder with the build of the runtime it names, and, without a build, the
+ONNX Runtime pin and the runtime option with the files the folder's `worker.js` loads.
+
 Two more options add files. `--host` adds the shared hover host (experimental, not part of the
 public API): `host-content.js`, `host-compute.js` and `host-settings.js`, one self-contained file
 per realm, with their license texts when the bundle has any and their declarations
@@ -1159,7 +1173,7 @@ and builds with exactly those.
 {
   "schemaVersion": 1,
   "toolkit": { "version": "0.14.0", "commit": "<40-character SHA>" },
-  "options": { "opencv": true, "ortWasm": false, "nodeTools": false, "host": false, "harness": false },
+  "options": { "opencv": true, "ortWasm": false, "nodeTools": false, "host": false, "harness": false, "runtime": "all" },
   "unmanaged": [],
   "ort": { "version": "1.29.0", "files": ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"] },
   "opencv": { "tag": "5.0.0", "commit": "<OpenCV SHA>", "emsdk": "4.0.20", "files": { "opencv.mjs": { "bytes": 125547, "sha256": "<hex>" } }, "lockSha256": "<hex>" },

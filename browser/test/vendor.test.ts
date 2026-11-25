@@ -38,7 +38,7 @@ const put = (path: string, text: string): void => {
 type Kit = { root: string; dist: string };
 
 /** A made-up toolkit checkout and build; `tag` changes every built file, as another commit would. */
-function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, harness = true } = {}): Kit {
+function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, harness = true, wasm = true } = {}): Kit {
   const root = temp();
   const dist = join(root, "browser", "dist");
   const built: Record<string, string> = {
@@ -79,6 +79,16 @@ function fakeToolkit(tag: string, { opencv = true, spec = true, host = false, ha
         }
       : {}),
     ...(opencv ? { "opencv.mjs": "cvjs", "opencv_js.wasm": "cvwasm", "opencv.mjs.LEGAL.txt": "cv license" } : {}),
+    // The WebAssembly-only build: the public API and the worker again, with the ONNX Runtime pair that worker names.
+    ...(wasm
+      ? {
+          "wasm/cardvision.js": `cv wasm ${tag}`,
+          "wasm/worker.js": `worker wasm ${tag} ort-wasm-simd-threaded.mjs ort-wasm-simd-threaded.wasm`,
+          "wasm/worker.js.LEGAL.txt": `legal wasm ${tag}`,
+          "wasm/ort-wasm-simd-threaded.mjs": `ortjs wasm ${tag}`,
+          "wasm/ort-wasm-simd-threaded.wasm": `ortwasm wasm ${tag}`,
+        }
+      : {}),
   };
   for (const [name, text] of Object.entries(built)) put(join(dist, name), text);
   put(join(root, "LICENSE"), "Apache");
@@ -135,13 +145,94 @@ describe("vendoring a runtime", () => {
       ].sort((a, b) => (a < b ? -1 : 1)),
     );
     expect(manifest.toolkit).toEqual({ version: "0.14.0", commit: COMMIT_A });
-    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: false, harness: false });
+    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: false, harness: false, runtime: "all" });
     expect(manifest.ort).toEqual({ version: "1.29.0", files: ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"] });
     expect(manifest.files["worker.js"].sha256).toBe(sha(readFileSync(join(kit.dist, "worker.js"), "utf-8")));
     expect(manifest.opencv.tag).toBe("5.0.0");
     expect(manifestOf(into)).toEqual(manifest);
     expect(lib.checkVendor(into)).toEqual([]);
     expect(lib.checkVendor(into, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("takes the WebAssembly-only runtime on request: its cardvision.js and worker.js, and only the ONNX Runtime files that worker names", () => {
+    const kit = fakeToolkit("one");
+    const into = join(temp(), "v");
+    const manifest = vendor(kit, into, COMMIT_A, { runtime: "wasm" });
+    const names = Object.keys(manifest.files);
+    expect(names.filter((n) => n.startsWith("ort-wasm"))).toEqual(["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]);
+    expect(names.some((n) => n.includes("jsep"))).toBe(false);
+    expect(readFileSync(join(into, "cardvision.js"), "utf-8")).toBe("cv wasm one");
+    expect(readFileSync(join(into, "worker.js"), "utf-8")).toContain("worker wasm one");
+    expect(readFileSync(join(into, "worker.js.LEGAL.txt"), "utf-8")).toBe("legal wasm one");
+    // What is the same for both runtimes comes from dist/ itself.
+    expect(readFileSync(join(into, "compute-session.js"), "utf-8")).toBe("cs one");
+    expect(manifest.options.runtime).toBe("wasm");
+    expect(manifest.ort).toEqual({ version: "1.29.0", files: ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"] });
+    expect(lib.checkVendor(into)).toEqual([]);
+    expect(lib.checkVendor(into, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("checks a WebAssembly-only folder against that build, not the default one, and reads a manifest without runtime as the default", () => {
+    const kit = fakeToolkit("one");
+    const into = join(temp(), "v");
+    vendor(kit, into, COMMIT_A, { runtime: "wasm" });
+    // The same folder, said to be the default runtime: its files are not the default build's.
+    const manifest = manifestOf(into);
+    manifest.options.runtime = "all";
+    writeManifest(into, manifest);
+    const problems = lib.checkVendor(into, toolkitOf(kit));
+    expect(problems).toContain(`cardvision.js differs from the build of commit ${COMMIT_A.slice(0, 12)}`);
+    expect(problems).toContain(`ort-wasm-simd-threaded.wasm is in cardvision-vendor.json but not in the build of commit ${COMMIT_A.slice(0, 12)} for these options`);
+    // A folder vendored before the option existed has no runtime in its options.
+    const plain = join(temp(), "plain");
+    vendor(kit, plain);
+    const old = manifestOf(plain);
+    delete old.options.runtime;
+    writeManifest(plain, old);
+    expect(lib.checkVendor(plain, toolkitOf(kit))).toEqual([]);
+  });
+
+  it("without a build, ties the ORT pin to the worker in the folder, and refuses the default's WebGPU file under the WebAssembly-only runtime", () => {
+    const kit = fakeToolkit("one");
+    const wasmFolder = join(temp(), "w");
+    vendor(kit, wasmFolder, COMMIT_A, { runtime: "wasm" });
+    const manifest = manifestOf(wasmFolder);
+    manifest.ort.files = ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"];
+    writeManifest(wasmFolder, manifest);
+    expect(lib.checkVendor(wasmFolder)).toContain(
+      "worker.js names the ONNX Runtime files ort-wasm-simd-threaded.mjs, ort-wasm-simd-threaded.wasm, but the ort pin in cardvision-vendor.json names ort-wasm-simd-threaded.jsep.mjs, ort-wasm-simd-threaded.jsep.wasm",
+    );
+    // A default folder relabeled as the WebAssembly-only runtime: its worker loads the WebGPU file.
+    const plain = join(temp(), "p");
+    vendor(kit, plain);
+    const relabeled = manifestOf(plain);
+    relabeled.options.runtime = "wasm";
+    writeManifest(plain, relabeled);
+    expect(lib.checkVendor(plain)).toContain("cardvision-vendor.json options say the WebAssembly-only runtime, but worker.js loads ort-wasm-simd-threaded.jsep.mjs, ort-wasm-simd-threaded.jsep.wasm");
+    // And the reverse: a WebAssembly-only folder said to be the default, or saying nothing.
+    const reverse = manifestOf(wasmFolder);
+    reverse.ort.files = ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"];
+    for (const runtime of ["all", undefined]) {
+      if (runtime === undefined) delete reverse.options.runtime;
+      else reverse.options.runtime = runtime;
+      writeManifest(wasmFolder, reverse);
+      expect(lib.checkVendor(wasmFolder), String(runtime)).toEqual([
+        "cardvision-vendor.json options say the default runtime, but worker.js loads only ort-wasm-simd-threaded.mjs, ort-wasm-simd-threaded.wasm (the WebAssembly-only build?)",
+      ]);
+    }
+  });
+
+  it("refuses an unknown runtime and a build without dist/wasm/; the check names an unknown runtime option", () => {
+    const into = join(temp(), "v");
+    expect(() => vendor(fakeToolkit("one"), into, COMMIT_A, { runtime: "webgpu" })).toThrow('runtime must be one of all, wasm, not "webgpu"');
+    expect(() => vendor(fakeToolkit("one", { wasm: false }), into, COMMIT_A, { runtime: "wasm" })).toThrow(/wasm\/worker\.js is missing/);
+    expect(existsSync(into)).toBe(false);
+    const kit = fakeToolkit("one");
+    vendor(kit, into);
+    const manifest = manifestOf(into);
+    manifest.options.runtime = "gpu";
+    writeManifest(into, manifest);
+    expect(lib.checkVendor(into)).toContain("cardvision-vendor.json option runtime is not one of all, wasm");
   });
 
   it("adds the Node tools on request; leaves ONNX Runtime and OpenCV.js out but still names the ORT pin", () => {
@@ -165,7 +256,7 @@ describe("vendoring a runtime", () => {
 
     const into = join(temp(), "v");
     const manifest = vendor(kit, into, COMMIT_A, { host: true, harness: true });
-    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: true, harness: true });
+    expect(manifest.options).toEqual({ opencv: true, ortWasm: true, nodeTools: false, host: true, harness: true, runtime: "all" });
     const names = Object.keys(manifest.files);
     for (const n of ["host-content.js", "host-compute.js", "host-settings.js", "host-compute.js.LEGAL.txt", "host-content.d.ts", "host-compute.d.ts", "host-settings.d.ts", "types/host/content-entry.d.ts"]) expect(names, n).toContain(n);
     expect(names).not.toContain("host-content.js.LEGAL.txt"); // no license comments in that bundle
@@ -622,7 +713,7 @@ describe("the stand-alone checker in the vendored folder", () => {
     expect(imports.every((name) => (name ?? "").startsWith("node:"))).toBe(true);
     const done = runChecker(into);
     expect(done.status).toBe(0);
-    expect(done.stdout).toContain("Checked: file hashes, file set, licenses, OpenCV lock as recorded. Not checked: the build of the commit.");
+    expect(done.stdout).toContain("Checked: file hashes, file set, licenses, OpenCV lock as recorded, ONNX Runtime pin against worker.js. Not checked: the build of the commit.");
     expect(lib.checkVendor(into, toolkit)).toEqual([]);
   });
 
@@ -715,7 +806,7 @@ describe("the commands, in a fake git checkout", () => {
     const root = kit.root;
     rmSync(join(root, "browser", "dist"), { recursive: true });
     put(join(root, ".gitignore"), "dist/\n");
-    for (const name of ["vendor-lib.mjs", "vendor.mjs", "vendor-check.mjs"]) {
+    for (const name of ["vendor-lib.mjs", "vendor.mjs", "vendor-check.mjs", "ort-entry.mjs"]) {
       mkdirSync(join(root, "browser", "scripts"), { recursive: true });
       copyFileSync(join(scriptsDir, name), join(root, "browser", "scripts", name));
     }
@@ -740,8 +831,19 @@ describe("the commands, in a fake git checkout", () => {
     expect(existsSync(join(root, "browser", "product"))).toBe(false);
     const check = run(root, "vendor-check.mjs", caller, "product/vendor");
     expect(check.status, check.stderr).toBe(0);
-    expect(check.stdout).toContain("Checked: file hashes, file set, licenses, OpenCV lock, build of commit");
+    expect(check.stdout).toContain("Checked: file hashes, file set, licenses, ONNX Runtime pin against worker.js, OpenCV lock, build of commit");
     expect(check.stdout).not.toContain("Skipped");
+  });
+
+  it("vendors the WebAssembly-only runtime with --runtime wasm, and treats an unknown runtime as a usage error", () => {
+    const { root } = checkout();
+    const caller = temp();
+    const done = run(root, "vendor.mjs", caller, "--into", "w", "--runtime", "wasm");
+    expect(done.status, done.stderr).toBe(0);
+    expect(manifestOf(join(caller, "w")).options.runtime).toBe("wasm");
+    const bad = run(root, "vendor.mjs", caller, "--into", "x", "--runtime", "webgpu");
+    expect([bad.status, bad.stderr]).toEqual([2, expect.stringMatching(/^--runtime must be one of all, wasm, not "webgpu"\n\nUsage:/)]);
+    expect(existsSync(join(caller, "x"))).toBe(false);
   });
 
   it("refuses a tree with changes, a stale or dirty build-info, and a --commit that is not HEAD", () => {
@@ -788,7 +890,7 @@ describe("the commands, in a fake git checkout", () => {
     put(info, JSON.stringify({ commit: head, dirty: true }));
     const dirty = run(root, "vendor-check.mjs", caller, "v");
     expect(dirty.status, dirty.stderr).toBe(0);
-    expect(dirty.stdout).toMatch(/Checked: file hashes, file set, licenses, OpenCV lock\. Skipped: comparison with a build \(.*changes/);
+    expect(dirty.stdout).toMatch(/Checked: file hashes, file set, licenses, ONNX Runtime pin against worker\.js, OpenCV lock\. Skipped: comparison with a build \(.*changes/);
     expect(dirty.stdout).not.toContain("build of commit");
 
     rmSync(info);
@@ -812,7 +914,7 @@ describe("the commands, in a fake git checkout", () => {
     expect(check.status).toBe(1);
     expect(check.stderr).toContain("worker.js differs from the SHA-256");
     expect(check.stderr).toContain(`worker.js differs from the build of commit ${head.slice(0, 12)}`);
-    expect(check.stderr).toContain("Checked: file hashes, file set, licenses, OpenCV lock, build of commit");
+    expect(check.stderr).toContain("Checked: file hashes, file set, licenses, ONNX Runtime pin against worker.js, OpenCV lock, build of commit");
     expect(run(root, "vendor-check.mjs", caller).status).toBe(2);
   });
 });
