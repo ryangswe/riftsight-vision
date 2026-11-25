@@ -1022,6 +1022,12 @@ def test_the_vendor_step_passes_the_options_the_product_recorded(tmp_path):
     done = canary("vendor", str(toolkit), str(product), "vendor/cardvision-browser")
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout.strip().splitlines()[-1]) == ["--into", str(folder), "--no-ort-wasm", "--node-tools", "--host", "--unmanaged", "notes/"]
+    # A product on the WebAssembly-only runtime is vendored on it again; the default runtime adds no flag.
+    for runtime, flags in (("wasm", ["--runtime", "wasm"]), ("all", [])):
+        (folder / "cardvision-vendor.json").write_text(json.dumps({"options": {"opencv": True, "ortWasm": True, "nodeTools": False, "runtime": runtime}}))
+        done = canary("vendor", str(toolkit), str(product), "vendor/cardvision-browser")
+        assert done.returncode == 0, done.stderr
+        assert json.loads(done.stdout.strip().splitlines()[-1]) == ["--into", str(folder), *flags]
     missing = canary("vendor", str(toolkit), str(product), "elsewhere")
     assert missing.returncode == 1 and "no vendored runtime" in missing.stderr
 

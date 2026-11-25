@@ -98,7 +98,7 @@ describe("bundle purity", () => {
     expect(named("worker.js").some((n) => n.includes("jsep"))).toBe(true);
     const folder = readdirSync(dist("wasm")).sort();
     expect(folder.filter((n) => n.startsWith("ort-wasm"))).toEqual(["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]);
-    // 25 MiB, a per-file limit some static hosts set: the reason for this build.
+    // 25 MiB is Cloudflare Pages' documented limit for one file, the host this build was first made for.
     for (const n of folder) expect(statSync(dist(`wasm/${n}`)).size, n).toBeLessThan(25 * 1024 * 1024);
   });
 });

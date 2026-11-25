@@ -454,6 +454,14 @@ export function checkVendor(dir, toolkit) {
   const ort = m.ort;
   if (!ort || typeof ort.version !== "string" || ort.version === "" || !Array.isArray(ort.files) || ort.files.length === 0) problems.push(`${MANIFEST} has no ort pin (version and files)`);
   else if (o?.ortWasm) for (const n of ort.files) if (!listed.includes(n)) problems.push(`ONNX Runtime file ${n} is not listed in ${MANIFEST}`);
+  // The pin names what the worker in this folder loads; with the WebAssembly-only runtime, never the default's WebGPU file.
+  // (A worker.js that differs from its recorded hash is reported above, once.)
+  const workerIntact = listed.includes("worker.js") && present.includes("worker.js") && sha256(readFileSync(join(dir, "worker.js"))) === m.files["worker.js"].sha256;
+  if (ort && Array.isArray(ort.files) && workerIntact) {
+    const named = ortFilesOf(dir);
+    if (JSON.stringify(named) !== JSON.stringify([...ort.files].sort())) problems.push(`worker.js names the ONNX Runtime files ${named.join(", ") || "(none)"}, but the ort pin in ${MANIFEST} names ${ort.files.join(", ")}`);
+    if (o?.runtime === "wasm" && named.some((n) => n.includes("jsep"))) problems.push(`${MANIFEST} options say the WebAssembly-only runtime, but worker.js loads ${named.filter((n) => n.includes("jsep")).join(", ")}`);
+  }
 
   // OpenCV: required when an OpenCV file is listed; the files against the lock recorded for this commit.
   const opencvListed = OPENCV_FILES.filter((n) => listed.includes(n));

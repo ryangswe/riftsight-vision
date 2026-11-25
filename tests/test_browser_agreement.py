@@ -616,6 +616,9 @@ def test_the_webassembly_only_runtime_gives_the_same_answer(answers, name):
     ran = run_browser(item.folder / "job.json", runtime="wasm")
     assert ran.returncode == 0, ran.stderr
     assert json.loads(ran.stdout) == item.browser
+    # And it did run on that entry: the bundle imports it, not the default one.
+    bundle = (BROWSER / "dist" / "agreement-wasm.mjs").read_text(encoding="utf-8")
+    assert '"onnxruntime-web/wasm"' in bundle and '"onnxruntime-web/all"' not in bundle
 
 
 def test_the_browser_runtime_refuses_a_release_with_a_changed_file(answers, tmp_path):

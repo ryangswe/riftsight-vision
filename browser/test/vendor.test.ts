@@ -192,6 +192,25 @@ describe("vendoring a runtime", () => {
     expect(lib.checkVendor(plain, toolkitOf(kit))).toEqual([]);
   });
 
+  it("without a build, ties the ORT pin to the worker in the folder, and refuses the default's WebGPU file under the WebAssembly-only runtime", () => {
+    const kit = fakeToolkit("one");
+    const wasmFolder = join(temp(), "w");
+    vendor(kit, wasmFolder, COMMIT_A, { runtime: "wasm" });
+    const manifest = manifestOf(wasmFolder);
+    manifest.ort.files = ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep.wasm"];
+    writeManifest(wasmFolder, manifest);
+    expect(lib.checkVendor(wasmFolder)).toContain(
+      "worker.js names the ONNX Runtime files ort-wasm-simd-threaded.mjs, ort-wasm-simd-threaded.wasm, but the ort pin in cardvision-vendor.json names ort-wasm-simd-threaded.jsep.mjs, ort-wasm-simd-threaded.jsep.wasm",
+    );
+    // A default folder relabeled as the WebAssembly-only runtime: its worker loads the WebGPU file.
+    const plain = join(temp(), "p");
+    vendor(kit, plain);
+    const relabeled = manifestOf(plain);
+    relabeled.options.runtime = "wasm";
+    writeManifest(plain, relabeled);
+    expect(lib.checkVendor(plain)).toContain("cardvision-vendor.json options say the WebAssembly-only runtime, but worker.js loads ort-wasm-simd-threaded.jsep.mjs, ort-wasm-simd-threaded.jsep.wasm");
+  });
+
   it("refuses an unknown runtime and a build without dist/wasm/; the check names an unknown runtime option", () => {
     const into = join(temp(), "v");
     expect(() => vendor(fakeToolkit("one"), into, COMMIT_A, { runtime: "webgpu" })).toThrow('runtime must be one of all, wasm, not "webgpu"');
@@ -776,7 +795,7 @@ describe("the commands, in a fake git checkout", () => {
     const root = kit.root;
     rmSync(join(root, "browser", "dist"), { recursive: true });
     put(join(root, ".gitignore"), "dist/\n");
-    for (const name of ["vendor-lib.mjs", "vendor.mjs", "vendor-check.mjs"]) {
+    for (const name of ["vendor-lib.mjs", "vendor.mjs", "vendor-check.mjs", "ort-entry.mjs"]) {
       mkdirSync(join(root, "browser", "scripts"), { recursive: true });
       copyFileSync(join(scriptsDir, name), join(root, "browser", "scripts", name));
     }
@@ -803,6 +822,17 @@ describe("the commands, in a fake git checkout", () => {
     expect(check.status, check.stderr).toBe(0);
     expect(check.stdout).toContain("Checked: file hashes, file set, licenses, OpenCV lock, build of commit");
     expect(check.stdout).not.toContain("Skipped");
+  });
+
+  it("vendors the WebAssembly-only runtime with --runtime wasm, and treats an unknown runtime as a usage error", () => {
+    const { root } = checkout();
+    const caller = temp();
+    const done = run(root, "vendor.mjs", caller, "--into", "w", "--runtime", "wasm");
+    expect(done.status, done.stderr).toBe(0);
+    expect(manifestOf(join(caller, "w")).options.runtime).toBe("wasm");
+    const bad = run(root, "vendor.mjs", caller, "--into", "x", "--runtime", "webgpu");
+    expect([bad.status, bad.stderr]).toEqual([2, expect.stringMatching(/^--runtime must be one of all, wasm, not "webgpu"\n\nUsage:/)]);
+    expect(existsSync(join(caller, "x"))).toBe(false);
   });
 
   it("refuses a tree with changes, a stale or dirty build-info, and a --commit that is not HEAD", () => {

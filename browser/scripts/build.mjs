@@ -20,7 +20,8 @@
 //   dist/wasm/           the same cardvision.js and worker.js built on ONNX Runtime's WebAssembly-only
 //                        entry (scripts/ort-entry.mjs), with their license texts and the one
 //                        ONNX Runtime file they load, about half the size of the default's: for a
-//                        page whose host has a per-file limit (npm run vendor -- --runtime wasm). No WebGPU.
+//                        page whose host has a per-file limit (npm run vendor -- --runtime wasm). Models
+//                        run on WebAssembly only.
 //   dist/opencv.mjs,     OpenCV.js for the geometric stage, its WebAssembly and its license
 //   dist/opencv_js.wasm, texts, copied from vendor/opencv/ when scripts/build-opencv.mjs has
 //   dist/opencv.mjs.LEGAL.txt  written them; the worker imports them only when a geometric

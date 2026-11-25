@@ -70,7 +70,7 @@ too. `npm run build` bundles with esbuild into `dist/`, which is not kept in the
 | `dist/host-content.js`, `dist/host-compute.js`, `dist/host-settings.js` | The shared hover host for a browser extension (experimental, not part of the public API), one self-contained file per realm, with `*.d.ts` declarations: [docs/extension-session.md](../docs/extension-session.md#the-shared-hover-host). A product vendors them with `--host` |
 | `dist/node/realm-check.mjs` | Fails when a built file holds a runtime module's code twice (experimental); vendored with `--node-tools` |
 | `dist/ort-wasm-*` | ONNX Runtime Web's WebAssembly files and their loaders, copied from `node_modules` |
-| `dist/wasm/` | `cardvision.js` and `worker.js` again, built on ONNX Runtime Web's WebAssembly-only entry, with their license texts and the one ONNX Runtime file they load, about half the size of the default's: no WebGPU. A product vendors them with `--runtime wasm` (see "Vendoring the runtime, and checking it") |
+| `dist/wasm/` | `cardvision.js` and `worker.js` again, built on ONNX Runtime Web's WebAssembly-only entry, with their license texts and the one ONNX Runtime file they load, about half the size of the default's: the models run on WebAssembly only. It holds only the files that differ from `dist/`, to be vendored rather than served as it is. A product vendors them with `--runtime wasm` (see "Vendoring the runtime, and checking it") |
 | `dist/opencv.mjs`, `dist/opencv_js.wasm`, `dist/opencv.mjs.LEGAL.txt` | OpenCV.js for the geometric stage and its licenses, copied from `vendor/opencv/` when it has been built; the worker imports it only when a stage is asked for |
 | `dist/demo/` | The demo page, the scoring page beside it (`score.html`), and their style sheets |
 | `dist/pages/` | The hosted demo, a static site, when `npm run build:pages` has been run: see "The hosted demo" |
@@ -1094,8 +1094,9 @@ has one; and `cardvision-vendor-check.mjs`. `--no-opencv` and `--no-ort-wasm` le
 `--runtime wasm` takes `cardvision.js`, `worker.js` and their license texts from `dist/wasm/`
 instead: the same sources built on ONNX Runtime Web's WebAssembly-only entry
 (`onnxruntime-web/wasm`) in place of `onnxruntime-web/all`, with the ONNX Runtime files that worker
-names (`ort-wasm-simd-threaded.wasm` and `ort-wasm-simd-threaded.mjs`). That build has no WebGPU, so
-a release that lists WebGPU first runs on WebAssembly. Its WebAssembly file is about half the size
+names (`ort-wasm-simd-threaded.wasm` and `ort-wasm-simd-threaded.mjs`). In that build ONNX Runtime
+has no WebGPU, so a release that lists WebGPU first runs its models on WebAssembly, and one that
+lists WebGPU alone does not load; the geometric stage still uses WebGPU where the browser has it. Its WebAssembly file is about half the size
 of the default's, for a page whose host limits the size of one file. On WebAssembly the two builds
 give the same answers: the agreement test runs both. Everything else in the folder is as with the
 default, `--runtime all`, and the paths do not change, so `createSession` finds the worker without

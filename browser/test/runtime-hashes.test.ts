@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,7 +21,10 @@ const dist = (files: Record<string, string>): string => {
   const dir = mkdtempSync(join(tmpdir(), "runtime-hashes-"));
   temps.push(dir);
   mkdirSync(dir, { recursive: true });
-  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), text);
+  }
   return dir;
 };
 const five = { "cardvision.js": "a", "worker.js": "b", "compute-session.js": "c", "page-capture.js": "d", "remote-release.js": "e" };
@@ -44,5 +47,14 @@ describe("the runtime hash comparison", () => {
     const done = spawnSync(process.execPath, [script, base, dist({ ...five, "worker.js": "changed" })], { encoding: "utf-8" });
     expect(done.status).toBe(1);
     expect(spawnSync(process.execPath, [script, base], { encoding: "utf-8" }).status).toBe(2);
+  });
+
+  it("compares the WebAssembly-only build too when both builds have it, and not when only one does", () => {
+    const wasm = { "wasm/cardvision.js": "wa", "wasm/worker.js": "wb" };
+    const base = dist({ ...five, ...wasm });
+    expect(runtimeDifferences(base, dist({ ...five, ...wasm }))).toEqual([]);
+    expect(runtimeDifferences(base, dist({ ...five, ...wasm, "wasm/worker.js": "changed" })).join("\n")).toMatch(/^wasm\/worker\.js: base /);
+    // A merge base from before the folder existed: only the five are compared.
+    expect(runtimeDifferences(dist(five), dist({ ...five, ...wasm, "wasm/worker.js": "changed" }))).toEqual([]);
   });
 });

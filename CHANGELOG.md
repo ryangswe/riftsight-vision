@@ -14,7 +14,8 @@ break the public surface; this file names each break and how to migrate.
 - A WebAssembly-only build of the browser runtime, `dist/wasm/`: `cardvision.js` and `worker.js`
   built on ONNX Runtime Web's `onnxruntime-web/wasm` entry, beside the one ONNX Runtime file they
   load, about half the size of the default's. `npm run vendor -- --runtime wasm` vendors it under
-  the usual names, for a page whose host limits the size of one file. It has no WebGPU. The default
+  the usual names, for a page whose host limits the size of one file. Its models run on WebAssembly
+  only (the geometric stage still uses WebGPU where the browser has it). The default
   build and its files are unchanged, and the agreement test checks the new build gives the same
   answers. A vendored manifest's `options` now records `runtime` (`all` or `wasm`); one without it
   reads as `all`.
